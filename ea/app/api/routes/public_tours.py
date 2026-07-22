@@ -13,7 +13,9 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import socket
+import stat
 import time
+import unicodedata
 import urllib.parse
 from urllib.parse import urlparse
 
@@ -30,6 +32,14 @@ from app.services.public_clickrank import clickrank_head_snippet, request_hostna
 from app.services.public_request import trust_forwarded_ip
 from app.services.public_rybbit import request_hostname as rybbit_request_hostname
 from app.services.public_rybbit import rybbit_head_snippet
+from app.services.public_tour_release_policy import (
+    GENERATED_RECONSTRUCTION_PROVIDER,
+    PUBLIC_TOUR_VIDEO_RELEASE_CONTRACT,
+    evaluate_public_tour_embed_release,
+    evaluate_public_tour_generated_viewer_release,
+    evaluate_public_tour_video_release,
+    safe_public_navigation_url,
+)
 
 router = APIRouter(tags=["public-tours"])
 
@@ -39,6 +49,188 @@ _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_WINDOW_SECONDS = 60.0
 _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX = 12
 _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX_KEYS = 2048
 log = logging.getLogger(__name__)
+
+_PUBLIC_TOUR_QUARANTINED_SLUG_RE = re.compile(
+    r"^(?:"
+    r"runtime[-_.](?:reconstruction|service)|"
+    r"debug[-_.](?:reconstruction|tour|viewer)|"
+    r"probe[-_.](?:reconstruction|tour|viewer)|"
+    r"private[-_.](?:showcase|fixture|tour)|"
+    r"(?:test|pytest|fixture)[-_.](?:reconstruction|tour|viewer|property)|"
+    r"bridge[-_.]direct[-_.]probe|"
+    r"check[-_.]viewer|"
+    r"generated[-_.]reconstruction(?:[-_.][a-z0-9]+)*[-_.]debug|"
+    r"repro[-_.]tour|"
+    r"(?:manual[-_.])?viewer[-_.](?:debug|probe)"
+    r")(?:[-_.]|$)",
+    re.IGNORECASE,
+)
+_PUBLIC_TOUR_EXACT_ADDRESS_KEY_RE = re.compile(
+    r"^(?:streetaddress|exactaddress|geocodedaddress|addressline(?:s|\d+|one|two|three)?)$"
+)
+_PUBLIC_TOUR_NON_PROPERTY_ADDRESS_CONTEXT = frozenset(
+    {"agent", "broker", "company", "contact", "office", "organisation", "organization", "recipient"}
+)
+_PUBLIC_TOUR_STREET_CUE_RE = re.compile(
+    r"(?:"
+    r"(?:straße|strasse|strae|gasse|allee|platz|ring|steig|weg)\b|"
+    r"\b(?:avenida|avenue|boulevard|calle|chaussee|court|drive|lane|promenade|quai|road|"
+    r"rue|square|street|terrace|ulica|via|way)\b"
+    r")",
+    re.IGNORECASE,
+)
+_PUBLIC_TOUR_NUMBER_FIRST_ABBREVIATED_STREET_RE = re.compile(
+    r"\b\d{1,5}[a-z]?(?:[-/]\d{1,5}[a-z]?)?\s+[^,\n]{2,80}\s(?:ave|blvd|ct|dr|ln|rd|sq|st|terr)\b",
+    re.IGNORECASE,
+)
+_PUBLIC_TOUR_LOCATION_URL_PREFIXES = (
+    "continuity",
+    "crezlo",
+    "direct",
+    "editor",
+    "flythrough",
+    "hosted",
+    "krpano",
+    "listing",
+    "matterport",
+    "pano",
+    "premium",
+    "property",
+    "public",
+    "source",
+    "threedvista",
+    "tour",
+    "viewer",
+)
+
+
+def _public_tour_compact_key(value: object) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+
+
+def _public_tour_slug_is_quarantined(value: object) -> bool:
+    return bool(_PUBLIC_TOUR_QUARANTINED_SLUG_RE.match(str(value or "").strip()))
+
+
+def _public_tour_location_normalizations(value: object) -> set[str]:
+    try:
+        decoded = urllib.parse.unquote_plus(str(value or ""))
+    except Exception:
+        decoded = str(value or "")
+    variants = {decoded.casefold(), decoded.lower().replace("ß", "")}
+    normalized: set[str] = set()
+    for variant in variants:
+        ascii_variant = unicodedata.normalize("NFKD", variant).encode("ascii", "ignore").decode("ascii")
+        compact = re.sub(r"[^a-z0-9]+", "", ascii_variant.lower())
+        if compact:
+            normalized.add(compact)
+    return normalized
+
+
+def _public_tour_exact_address_is_credible(value: object) -> bool:
+    try:
+        decoded = urllib.parse.unquote_plus(str(value or "")).strip()
+    except Exception:
+        decoded = str(value or "").strip()
+    if len(decoded) < 8 or not re.search(r"\d", decoded):
+        return False
+    if not (
+        _PUBLIC_TOUR_STREET_CUE_RE.search(decoded)
+        or _PUBLIC_TOUR_NUMBER_FIRST_ABBREVIATED_STREET_RE.search(decoded)
+    ):
+        return False
+    words = re.findall(r"[^\W\d_]{2,}", decoded, flags=re.UNICODE)
+    return bool(words) and any(len(value) >= 8 for value in _public_tour_location_normalizations(decoded))
+
+
+def _public_tour_exact_address_normalizations(value: object) -> set[str]:
+    try:
+        decoded = urllib.parse.unquote_plus(str(value or "")).strip()
+    except Exception:
+        decoded = str(value or "").strip()
+    candidates = [decoded, *re.split(r"[\n,;|]+", decoded)]
+    normalized: set[str] = set()
+    for candidate in candidates:
+        if _public_tour_exact_address_is_credible(candidate):
+            normalized.update(_public_tour_location_normalizations(candidate))
+    return normalized
+
+
+def _public_tour_collect_exact_addresses(
+    value: object,
+    *,
+    context: tuple[str, ...] = (),
+) -> set[str]:
+    collected: set[str] = set()
+    if isinstance(value, dict):
+        for raw_key, child in value.items():
+            key = _public_tour_compact_key(raw_key)
+            child_context = (*context, key)
+            private_context = any(
+                token in context_key
+                for context_key in child_context
+                for token in _PUBLIC_TOUR_NON_PROPERTY_ADDRESS_CONTEXT
+            )
+            if _PUBLIC_TOUR_EXACT_ADDRESS_KEY_RE.fullmatch(key) and not private_context:
+                candidates = child if isinstance(child, (list, tuple, set)) else (child,)
+                for candidate in candidates:
+                    if _public_tour_exact_address_is_credible(candidate):
+                        collected.update(_public_tour_exact_address_normalizations(candidate))
+            collected.update(_public_tour_collect_exact_addresses(child, context=child_context))
+    elif isinstance(value, (list, tuple)):
+        for child in value:
+            collected.update(_public_tour_collect_exact_addresses(child, context=context))
+    return collected
+
+
+def _public_tour_collect_location_surfaces(
+    payload: dict[str, object],
+    *,
+    requested_slug: str,
+) -> set[str]:
+    values: list[object] = [
+        requested_slug,
+        payload.get("slug"),
+        payload.get("display_title"),
+        payload.get("title"),
+        payload.get("tour_title"),
+    ]
+    for raw_key, child in payload.items():
+        key = _public_tour_compact_key(raw_key)
+        if key.endswith("url") and key.startswith(_PUBLIC_TOUR_LOCATION_URL_PREFIXES):
+            values.append(child)
+
+    def _collect_scene_values(value: object) -> None:
+        if isinstance(value, dict):
+            for raw_key, child in value.items():
+                key = _public_tour_compact_key(raw_key)
+                if key in {"href", "label", "name", "src", "title"} or key.endswith(("label", "url")):
+                    values.append(child)
+                _collect_scene_values(child)
+        elif isinstance(value, (list, tuple)):
+            for child in value:
+                _collect_scene_values(child)
+
+    _collect_scene_values(payload.get("scenes"))
+    surfaces: set[str] = set()
+    for value in values:
+        if isinstance(value, (str, int, float)):
+            surfaces.update(_public_tour_location_normalizations(value))
+    return surfaces
+
+
+def _public_tour_has_exact_location_conflict(
+    payload: dict[str, object],
+    *,
+    requested_slug: str,
+) -> bool:
+    if payload.get("public_exact_location_allowed") is True:
+        return False
+    exact_addresses = _public_tour_collect_exact_addresses(payload)
+    if not exact_addresses:
+        return False
+    surfaces = _public_tour_collect_location_surfaces(payload, requested_slug=requested_slug)
+    return any(address in surface for address in exact_addresses for surface in surfaces)
 
 
 def _fact_value_is_weak(value: object) -> bool:
@@ -107,6 +299,8 @@ def _tour_bundle_dir(slug: str) -> Path | None:
 
 
 def _load_tour(slug: str) -> dict[str, object]:
+    if _public_tour_slug_is_quarantined(slug):
+        raise HTTPException(status_code=404, detail="tour_not_found")
     path = _tour_path(slug)
     if not path.exists():
         raise HTTPException(status_code=404, detail="tour_not_found")
@@ -116,6 +310,10 @@ def _load_tour(slug: str) -> dict[str, object]:
         raise HTTPException(status_code=500, detail="tour_payload_invalid") from exc
     if not isinstance(payload, dict):
         raise HTTPException(status_code=500, detail="tour_payload_invalid")
+    if _public_tour_slug_is_quarantined(payload.get("slug")):
+        raise HTTPException(status_code=404, detail="tour_not_found")
+    if _public_tour_has_exact_location_conflict(payload, requested_slug=str(slug or "")):
+        raise HTTPException(status_code=404, detail="tour_not_found")
     return payload
 
 
@@ -393,12 +591,32 @@ def _public_tour_key_is_private(key: object) -> bool:
 
 def _public_tour_safe_asset_relpath(value: object) -> str:
     raw = str(value or "").strip().replace("\\", "/")
-    if not raw or "\x00" in raw or "://" in raw or raw.startswith("/"):
+    if (
+        not raw
+        or "\x00" in raw
+        or "://" in raw
+        or raw.startswith("/")
+        or any(character in raw for character in "\"'`<>&")
+    ):
         return ""
     path = PurePosixPath(raw)
     if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
         return ""
     return "/".join(path.parts)
+
+
+def _public_tour_safe_display_text(value: object, *, fallback: str = "", limit: int = 180) -> str:
+    normalized = re.sub(r"[\x00-\x1f\x7f]+", " ", str(value or ""))
+    normalized = (
+        normalized.replace("&", " and ")
+        .replace("<", "‹")
+        .replace(">", "›")
+        .replace('"', "”")
+        .replace("'", "’")
+        .replace("`", "’")
+    )
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return (normalized or fallback)[: max(int(limit), 1)]
 
 
 def _public_tour_env_truthy(raw: object) -> bool:
@@ -475,7 +693,9 @@ def _public_tour_collect_asset_refs(payload: dict[str, object]) -> set[str]:
         ):
             refs.add(relpath)
 
-    _add(payload.get("video_relpath"))
+    video_release = evaluate_public_tour_video_release(payload)
+    if video_release.get("released"):
+        _add(video_release.get("relpath"), role="video")
     for scene in list(payload.get("scenes") or []):
         if not isinstance(scene, dict):
             continue
@@ -500,6 +720,11 @@ def _public_tour_collect_asset_refs(payload: dict[str, object]) -> set[str]:
             if privacy_class in {"private", "internal", "debug", "restricted"}:
                 continue
             role = str(row.get("role") or row.get("asset_role") or "").strip()
+            normalized_role = role.lower().replace("-", "_")
+            if normalized_role == "provider_sidecar":
+                continue
+            if normalized_role in {"video", "video_still"} and not video_release.get("released"):
+                continue
             mime_type = str(row.get("mime_type") or row.get("content_type") or "").strip()
             for key in ("path", "relpath", "asset_relpath"):
                 _add(row.get(key), privacy_class=privacy_class, role=role, mime_type=mime_type)
@@ -538,7 +763,9 @@ def _public_tour_asset_metadata(payload: dict[str, object]) -> dict[str, dict[st
         if mime_type:
             row["mime_type"] = str(mime_type).strip()
 
-    _record(payload.get("video_relpath"), role="video")
+    video_release = evaluate_public_tour_video_release(payload)
+    if video_release.get("released"):
+        _record(video_release.get("relpath"), role="video")
     for scene in list(payload.get("scenes") or []):
         if not isinstance(scene, dict):
             continue
@@ -563,6 +790,11 @@ def _public_tour_asset_metadata(payload: dict[str, object]) -> dict[str, dict[st
             if privacy_class in {"private", "internal", "debug", "restricted"}:
                 continue
             role = str(row.get("role") or row.get("asset_role") or "").strip()
+            normalized_role = role.lower().replace("-", "_")
+            if normalized_role == "provider_sidecar":
+                continue
+            if normalized_role in {"video", "video_still"} and not video_release.get("released"):
+                continue
             mime_type = str(row.get("mime_type") or row.get("content_type") or "").strip()
             for key in ("path", "relpath", "asset_relpath"):
                 _record(row.get(key), privacy_class=privacy_class, role=role, mime_type=mime_type)
@@ -610,6 +842,118 @@ def _public_tour_file_url(slug: str, relpath: str) -> str:
     if not slug or not safe_relpath:
         return ""
     return f"/tours/files/{slug}/{safe_relpath}"
+
+
+def _public_tour_generated_viewer_url(slug: str, relpath: object) -> str:
+    safe_slug = str(slug or "").strip()
+    safe_relpath = _public_tour_safe_asset_relpath(relpath)
+    if not safe_slug or "/" in safe_slug or ".." in safe_slug or not safe_relpath:
+        return ""
+    return f"/tours/viewer/{urllib.parse.quote(safe_slug, safe='')}/{urllib.parse.quote(safe_relpath, safe='/')}"
+
+
+@lru_cache(maxsize=256)
+def _public_tour_cached_file_sha256(
+    path: str,
+    *,
+    size_bytes: int,
+    mtime_ns: int,
+    ctime_ns: int,
+) -> str:
+    del size_bytes, mtime_ns, ctime_ns
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _public_tour_path_contains_symlink(bundle_dir: Path, relpath: str) -> bool:
+    cursor = bundle_dir
+    for part in PurePosixPath(relpath).parts:
+        cursor = cursor / part
+        if not os.path.lexists(cursor):
+            return False
+        try:
+            if stat.S_ISLNK(os.lstat(cursor).st_mode):
+                return True
+        except OSError:
+            return True
+    return False
+
+
+def _public_tour_generated_source_path_is_unsafe(value: object) -> bool:
+    normalized = str(value or "").strip().replace("\\", "/").lower()
+    if not normalized:
+        return True
+    if normalized.startswith(("/tmp/", "/var/tmp/")) or "/tmp/" in normalized:
+        return True
+    return bool(re.search(r"(?:^|[/._-])(?:pytest(?:-of)?|debug|probe)(?:[/._-]|$)", normalized))
+
+
+def _public_tour_generated_manifest_source_paths(value: object) -> list[str]:
+    paths: list[str] = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            normalized_key = str(key or "").strip().lower().replace("-", "_")
+            if normalized_key in {"source_path", "source_uri", "source_asset_ref", "source_asset_id"}:
+                paths.append(str(child or "").strip())
+            else:
+                paths.extend(_public_tour_generated_manifest_source_paths(child))
+    elif isinstance(value, list):
+        for child in value:
+            paths.extend(_public_tour_generated_manifest_source_paths(child))
+    return paths
+
+
+def _public_tour_generated_manifest_provenance_verified(
+    bundle_dir: Path,
+    *,
+    relpath: object,
+    expected_sha256: object,
+) -> bool:
+    safe_relpath = _public_tour_safe_asset_relpath(relpath)
+    normalized_sha256 = str(expected_sha256 or "").strip().lower()
+    if not safe_relpath or not re.fullmatch(r"[0-9a-f]{64}", normalized_sha256):
+        return False
+    if _public_tour_path_contains_symlink(bundle_dir, safe_relpath):
+        return False
+    candidate = (bundle_dir / safe_relpath).resolve()
+    if bundle_dir.resolve() not in candidate.parents or not candidate.exists() or not candidate.is_file():
+        return False
+    try:
+        candidate_stat = candidate.stat()
+        if candidate_stat.st_size <= 0 or candidate_stat.st_size > 4 * 1024 * 1024:
+            return False
+        actual_sha256 = _public_tour_cached_file_sha256(
+            str(candidate),
+            size_bytes=int(candidate_stat.st_size),
+            mtime_ns=int(candidate_stat.st_mtime_ns),
+            ctime_ns=int(candidate_stat.st_ctime_ns),
+        )
+        if actual_sha256 != normalized_sha256:
+            return False
+        manifest = json.loads(candidate.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return False
+    if not isinstance(manifest, dict):
+        return False
+    source_paths = _public_tour_generated_manifest_source_paths(manifest)
+    return bool(source_paths) and all(
+        not _public_tour_generated_source_path_is_unsafe(source_path)
+        for source_path in source_paths
+    )
+
+
+def _public_tour_generated_video_provenance_verified(
+    bundle_dir: Path,
+    release: dict[str, object],
+) -> bool:
+    return _public_tour_generated_manifest_provenance_verified(
+        bundle_dir,
+        relpath=release.get("source_manifest_relpath"),
+        expected_sha256=release.get("source_manifest_sha256"),
+    )
 
 
 def _public_tour_safe_http_url(value: object) -> str:
@@ -763,13 +1107,19 @@ def _redacted_public_tour_payload(
             rendered[key] = _redacted_public_tour_scenes(payload, expose_asset_relpaths=expose_asset_relpaths)
             continue
         if key == "video_relpath":
-            relpath = _public_tour_safe_asset_relpath(payload.get(key))
+            video_release = evaluate_public_tour_video_release(payload)
+            relpath = _public_tour_safe_asset_relpath(video_release.get("relpath")) if video_release.get("released") else ""
             if not relpath or relpath not in _public_tour_allowed_asset_paths(payload):
                 continue
             if expose_asset_relpaths:
                 rendered[key] = relpath
             else:
                 rendered[key.replace("_relpath", "_url")] = _public_tour_file_url(slug, relpath)
+            continue
+        if key in {"source_virtual_tour_url", "source_virtual_tour_origin"}:
+            embed_release = evaluate_public_tour_embed_release(payload)
+            if embed_release.get("released"):
+                rendered[key] = str(embed_release.get("url") or "")
             continue
         rendered[key] = _redact_public_tour_value(payload.get(key))
     rendered["slug"] = slug
@@ -779,6 +1129,33 @@ def _redacted_public_tour_payload(
     rendered.setdefault("scenes", [])
     if not expose_asset_relpaths:
         rendered["public_assets"] = list(_public_tour_manifest(payload).values())
+        video_release = evaluate_public_tour_video_release(payload)
+        if video_release.get("released"):
+            raw_release = payload.get("video_release")
+            raw_release = dict(raw_release) if isinstance(raw_release, dict) else {}
+            rendered["video_release"] = {
+                "contract": PUBLIC_TOUR_VIDEO_RELEASE_CONTRACT,
+                "status": "ready",
+                "release_revision": str(video_release.get("release_revision") or ""),
+                "asset_sha256": str(video_release.get("expected_sha256") or ""),
+                "disclosure": str(video_release.get("disclosure") or ""),
+                "synthetic": bool(video_release.get("synthetic") or raw_release.get("synthetic")),
+                "verified_provider_capture": bool(
+                    video_release.get("verified_provider_capture")
+                    or raw_release.get("verified_provider_capture")
+                ),
+            }
+        viewer_release = evaluate_public_tour_generated_viewer_release(payload)
+        if viewer_release.get("released"):
+            viewer_url = _public_tour_generated_viewer_url(slug, viewer_release.get("viewer_relpath"))
+            if viewer_url:
+                rendered["generated_viewer"] = {
+                    "url": viewer_url,
+                    "release_revision": str(viewer_release.get("release_revision") or ""),
+                    "disclosure": str(viewer_release.get("disclosure") or ""),
+                    "synthetic": True,
+                    "verified_provider_capture": False,
+                }
     return rendered
 
 
@@ -786,24 +1163,47 @@ def _asset_file(slug: str, asset_path: str) -> Path:
     payload = _load_tour(slug)
     _require_public_tour_viewable(payload)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
+    configured_video_relpath = _public_tour_safe_asset_relpath(payload.get("video_relpath"))
+    video_release = evaluate_public_tour_video_release(payload) if safe_relpath == configured_video_relpath else {}
+    if safe_relpath and safe_relpath == configured_video_relpath:
+        if not video_release.get("released"):
+            status_code = 410 if video_release.get("terminal") else 404
+            detail = "tour_media_no_longer_available" if status_code == 410 else "tour_file_not_found"
+            raise HTTPException(status_code=status_code, detail=detail)
     manifest = _public_tour_manifest(payload, only_relpath=safe_relpath)
     bundle_dir = _tour_bundle_dir(slug)
     if not safe_relpath or bundle_dir is None:
         raise HTTPException(status_code=404, detail="tour_file_not_found")
     if safe_relpath not in manifest:
-        generated_public_asset = (
-            safe_relpath == "tour.mp4"
-            or safe_relpath.startswith("telegram-preview")
-            or safe_relpath.startswith("diorama-preview")
-            or safe_relpath.startswith("magicfit-still-")
-        )
-        if not generated_public_asset:
-            raise HTTPException(status_code=404, detail="tour_file_not_found")
+        raise HTTPException(status_code=404, detail="tour_file_not_found")
+    if _public_tour_path_contains_symlink(bundle_dir, safe_relpath):
+        raise HTTPException(status_code=404, detail="tour_file_not_found")
     candidate = (bundle_dir / safe_relpath).resolve()
     if bundle_dir.resolve() not in candidate.parents:
         raise HTTPException(status_code=404, detail="tour_file_not_found")
     if not candidate.exists() or not candidate.is_file():
         raise HTTPException(status_code=404, detail="tour_file_not_found")
+    expected_sha256 = str(video_release.get("expected_sha256") or "").strip().lower()
+    expected_size = video_release.get("expected_size_bytes")
+    if expected_sha256 and isinstance(expected_size, int):
+        try:
+            candidate_stat = candidate.stat()
+            digest = _public_tour_cached_file_sha256(
+                str(candidate),
+                size_bytes=int(candidate_stat.st_size),
+                mtime_ns=int(candidate_stat.st_mtime_ns),
+                ctime_ns=int(candidate_stat.st_ctime_ns),
+            )
+        except OSError as exc:
+            raise HTTPException(status_code=404, detail="tour_file_not_found") from exc
+        if candidate_stat.st_size != expected_size or digest != expected_sha256:
+            raise HTTPException(status_code=410, detail="tour_media_no_longer_available")
+    if (
+        video_release.get("released")
+        and video_release.get("provider") == GENERATED_RECONSTRUCTION_PROVIDER
+        and not _public_tour_generated_video_provenance_verified(bundle_dir, video_release)
+    ):
+        raise HTTPException(status_code=410, detail="tour_media_no_longer_available")
     if candidate.suffix.lower() == ".pdf":
         max_bytes = max(int(os.getenv("PROPERTYQUARRY_PUBLIC_PDF_MAX_BYTES") or "15728640"), 1)
         try:
@@ -812,6 +1212,72 @@ def _asset_file(slug: str, asset_path: str) -> Path:
         except OSError as exc:
             raise HTTPException(status_code=404, detail="tour_file_not_found") from exc
     return candidate
+
+
+def _generated_viewer_file(
+    slug: str,
+    asset_path: str,
+) -> tuple[Path, dict[str, object], dict[str, object]]:
+    payload = _load_tour(slug)
+    _require_public_tour_viewable(payload)
+    release = evaluate_public_tour_generated_viewer_release(payload)
+    if not release.get("released"):
+        status_code = 410 if release.get("terminal") else 404
+        detail = "tour_viewer_no_longer_available" if status_code == 410 else "tour_viewer_not_found"
+        raise HTTPException(status_code=status_code, detail=detail)
+
+    safe_relpath = _public_tour_safe_asset_relpath(asset_path)
+    bindings = release.get("bindings")
+    binding = dict(bindings.get(safe_relpath) or {}) if isinstance(bindings, dict) and safe_relpath else {}
+    role = str(binding.get("role") or "").strip().lower()
+    mime_type = str(binding.get("mime_type") or "").strip().lower()
+    allowed_mime_types = {
+        "viewer_document": {"text/html"},
+        "viewer_module": {"application/javascript", "text/javascript"},
+        "floorplan_texture": {"image/jpeg", "image/png", "image/webp"},
+        "photo_texture": {"image/jpeg", "image/png", "image/webp"},
+    }
+    if (
+        not safe_relpath
+        or role not in allowed_mime_types
+        or mime_type not in allowed_mime_types[role]
+        or (role == "viewer_document" and safe_relpath != release.get("viewer_relpath"))
+    ):
+        raise HTTPException(status_code=404, detail="tour_viewer_not_found")
+
+    bundle_dir = _tour_bundle_dir(slug)
+    if bundle_dir is None or _public_tour_path_contains_symlink(bundle_dir, safe_relpath):
+        raise HTTPException(status_code=404, detail="tour_viewer_not_found")
+    candidate = (bundle_dir / safe_relpath).resolve()
+    if bundle_dir.resolve() not in candidate.parents or not candidate.exists() or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="tour_viewer_not_found")
+
+    expected_sha256 = str(binding.get("sha256") or "").strip().lower()
+    expected_size = binding.get("size_bytes")
+    try:
+        candidate_stat = candidate.stat()
+        actual_sha256 = _public_tour_cached_file_sha256(
+            str(candidate),
+            size_bytes=int(candidate_stat.st_size),
+            mtime_ns=int(candidate_stat.st_mtime_ns),
+            ctime_ns=int(candidate_stat.st_ctime_ns),
+        )
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="tour_viewer_not_found") from exc
+    if not isinstance(expected_size, int) or candidate_stat.st_size != expected_size or actual_sha256 != expected_sha256:
+        raise HTTPException(status_code=410, detail="tour_viewer_integrity_failed")
+    proof_bindings = [
+        row
+        for row in dict(release.get("bindings") or {}).values()
+        if isinstance(row, dict) and str(row.get("role") or "").strip().lower() == "reconstruction_manifest"
+    ]
+    if len(proof_bindings) != 1 or not _public_tour_generated_manifest_provenance_verified(
+        bundle_dir,
+        relpath=proof_bindings[0].get("path") if proof_bindings else "",
+        expected_sha256=proof_bindings[0].get("sha256") if proof_bindings else "",
+    ):
+        raise HTTPException(status_code=410, detail="tour_viewer_integrity_failed")
+    return candidate, binding, release
 
 
 def _money(value: object) -> str:
@@ -825,22 +1291,57 @@ def _safe_live_360_url(value: object) -> str:
     if not normalized:
         return ""
     parsed = urlparse(normalized)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+    try:
+        port = parsed.port
+    except ValueError:
+        return ""
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or parsed.username
+        or parsed.password
+        or port not in {None, 443}
+    ):
         return ""
     return normalized
 
 
 def _embedded_live_360_url(payload: dict[str, object]) -> str:
-    normalized = dict(payload or {})
-    if str(normalized.get("scene_strategy") or "").strip() == "pure_360_cube":
-        return _safe_live_360_url(
-            normalized.get("source_virtual_tour_url")
-            or normalized.get("source_virtual_tour_origin")
-        )
-    return _safe_live_360_url(
-        normalized.get("source_virtual_tour_url")
-        or normalized.get("source_virtual_tour_origin")
-    )
+    release = evaluate_public_tour_embed_release(dict(payload or {}))
+    return _safe_live_360_url(release.get("url")) if release.get("released") else ""
+
+
+def _public_tour_has_complete_hosted_cube(payload: dict[str, object]) -> bool:
+    if str(payload.get("scene_strategy") or "").strip().lower() != "pure_360_cube":
+        return False
+    slug = str(payload.get("slug") or "").strip()
+    bundle_dir = _tour_bundle_dir(slug)
+    if bundle_dir is None:
+        return False
+    required_faces = {"r", "l", "u", "d", "f", "b"}
+    for scene in list(payload.get("scenes") or []):
+        if not isinstance(scene, dict):
+            continue
+        cube_faces = scene.get("cube_faces")
+        if not isinstance(cube_faces, dict) or not required_faces.issubset(cube_faces):
+            continue
+        complete = True
+        for face in required_faces:
+            relpath = _public_tour_safe_asset_relpath(cube_faces.get(face))
+            if (
+                not relpath
+                or not _public_tour_asset_path_is_public(relpath, role="cube_face", mime_type="image/jpeg")
+                or _public_tour_path_contains_symlink(bundle_dir, relpath)
+            ):
+                complete = False
+                break
+            candidate = (bundle_dir / relpath).resolve()
+            if bundle_dir.resolve() not in candidate.parents or not candidate.exists() or not candidate.is_file():
+                complete = False
+                break
+        if complete:
+            return True
+    return False
 
 
 def _public_tour_listing_research_allowed_hosts() -> tuple[str, ...]:
@@ -2030,10 +2531,198 @@ def _public_tour_host_brand_label(hostname: str, *, fallback: str = "this domain
     return str(fallback or "this domain").strip() or "this domain"
 
 
+def _tour_no_released_scenes_html(
+    payload: dict[str, object],
+    *,
+    hostname: str = "",
+    rybbit_hostname: str = "",
+) -> str:
+    facts = dict(payload.get("facts") or {}) if isinstance(payload.get("facts"), dict) else {}
+    title = _public_tour_safe_display_text(
+        payload.get("title") or payload.get("tour_title") or payload.get("display_title") or payload.get("slug"),
+        fallback="Property review",
+    )
+    display_title = _public_tour_safe_display_text(payload.get("display_title"), fallback=title, limit=260)
+    brand = _public_tour_safe_display_text(
+        payload.get("brand_name"),
+        fallback=_public_tour_host_brand_label(hostname, fallback="PropertyQuarry"),
+    )
+    slug = str(payload.get("slug") or "").strip()
+    listing_url = safe_public_navigation_url(
+        payload.get("listing_url") or payload.get("property_url"),
+        production=_public_tour_prod_mode_enabled(),
+    )
+    hosted_url = safe_public_navigation_url(
+        payload.get("hosted_url") or payload.get("public_url"),
+        production=_public_tour_prod_mode_enabled(),
+    )
+    viewer_url = safe_public_navigation_url(
+        payload.get("_released_generated_viewer_url"),
+        production=_public_tour_prod_mode_enabled(),
+    )
+    embed_url = _safe_live_360_url(payload.get("_released_embed_url"))
+    video_relpath = _public_tour_safe_asset_relpath(payload.get("_released_video_relpath"))
+    video_url = _public_tour_file_url(slug, video_relpath) if slug and video_relpath else ""
+
+    fact_rows: list[tuple[str, str]] = []
+    rooms = facts.get("rooms_label") or facts.get("rooms") or facts.get("room_count")
+    if isinstance(rooms, (str, int, float)) and str(rooms).strip():
+        fact_rows.append(("Rooms", _public_tour_safe_display_text(rooms, limit=80)))
+    area = facts.get("area_label")
+    if not area and isinstance(facts.get("area_sqm"), (int, float)):
+        area = f"{facts['area_sqm']:g} m²"
+    if isinstance(area, str) and area.strip():
+        fact_rows.append(("Area", _public_tour_safe_display_text(area, limit=80)))
+    rent = facts.get("total_rent_eur")
+    if isinstance(rent, (int, float)) and float(rent) > 0:
+        fact_rows.append(("Price", _money(rent)))
+    availability = facts.get("availability")
+    if isinstance(availability, str) and availability.strip():
+        fact_rows.append(("Availability", _public_tour_safe_display_text(availability, limit=100)))
+    fact_cards = "".join(
+        '<div class="fact-card">'
+        f'<span>{html.escape(label)}</span><strong>{html.escape(value)}</strong>'
+        "</div>"
+        for label, value in fact_rows[:4]
+    )
+    if not fact_cards:
+        fact_cards = (
+            '<div class="fact-card"><span>Listing facts</span>'
+            "<strong>Review the source listing for confirmed dimensions and costs.</strong></div>"
+        )
+
+    media_state = "released"
+    if viewer_url:
+        media_title = "Released interactive reconstruction"
+        media_summary = "Use the room route to inspect the reconstructed layout. Confirm dimensions and finishes in person."
+        media_html = (
+            '<iframe class="media-frame" '
+            f'src="{html.escape(viewer_url)}" '
+            f'title="{html.escape(title)} interactive generated reconstruction" '
+            'sandbox="allow-scripts" loading="eager" allowfullscreen referrerpolicy="no-referrer"></iframe>'
+        )
+    elif video_url:
+        media_title = "Released generated walkthrough"
+        media_summary = "This reviewed synthetic walkthrough is a layout aid, not a captured provider scan."
+        media_html = (
+            f'<video class="media-frame" controls preload="metadata" src="{html.escape(video_url)}">'
+            "Your browser does not support the reviewed walkthrough video.</video>"
+        )
+    elif embed_url:
+        media_title = "Released external panorama"
+        media_summary = "The reviewed provider panorama is isolated in a constrained frame."
+        media_html = (
+            '<iframe class="media-frame" '
+            f'src="{html.escape(embed_url)}" title="{html.escape(title)} external panorama" '
+            'sandbox="allow-scripts allow-same-origin allow-forms allow-presentation" '
+            'allow="fullscreen; autoplay" loading="eager" allowfullscreen referrerpolicy="no-referrer"></iframe>'
+        )
+    else:
+        media_state = "unreleased"
+        media_title = "Tour media is awaiting release review"
+        media_summary = (
+            "No tour media has passed public release review for this listing. "
+            "The page remains useful for approved listing facts without exposing private, test, or source artifacts."
+        )
+        media_html = (
+            '<div class="media-empty" role="status">'
+            '<span aria-hidden="true">360°</span>'
+            "<strong>No released scenes</strong>"
+            "<p>Ask the sender for a newly reviewed tour when the media package is ready.</p>"
+            "</div>"
+        )
+
+    disclosure = _public_tour_safe_display_text(
+        payload.get("_tour_media_disclosure"),
+        fallback=media_summary,
+        limit=360,
+    )
+    if media_state == "unreleased":
+        disclosure = media_summary
+    actions = ['<a class="primary" href="#media-review">Review media status</a>']
+    if listing_url:
+        actions.append(
+            f'<a href="{html.escape(listing_url)}" target="_blank" rel="noreferrer noopener">Open listing</a>'
+        )
+    if hosted_url and hosted_url != listing_url:
+        actions.append(f'<a href="{html.escape(hosted_url)}" rel="noreferrer">Permalink</a>')
+    actions_html = "".join(actions)
+    clickrank_html = clickrank_head_snippet(hostname)
+    rybbit_html = rybbit_head_snippet(rybbit_hostname or hostname)
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{html.escape(title)}</title>
+    {clickrank_html}
+    {rybbit_html}
+    <style>
+      :root {{ --bg:#f4efe6; --panel:#fffdf8; --ink:#201d18; --muted:#6c6255; --accent:#8d3f1f; --edge:#dfd5c7; }}
+      * {{ box-sizing:border-box; }}
+      body {{ margin:0; color:var(--ink); background:radial-gradient(circle at 8% 0%, #ead9c8, transparent 34%), var(--bg); font-family:ui-sans-serif,system-ui,sans-serif; }}
+      .shell {{ width:min(1120px,calc(100% - 32px)); margin:0 auto; padding:40px 0 56px; }}
+      .hero,.panel {{ background:color-mix(in srgb,var(--panel) 94%,transparent); border:1px solid var(--edge); border-radius:24px; box-shadow:0 22px 70px rgba(56,42,26,.10); }}
+      .hero {{ display:grid; grid-template-columns:minmax(0,1.1fr) minmax(280px,.9fr); gap:28px; padding:clamp(24px,5vw,54px); }}
+      .eyebrow {{ color:var(--accent); font-size:.76rem; font-weight:850; letter-spacing:.13em; text-transform:uppercase; }}
+      h1,h2,p {{ margin-top:0; }}
+      h1 {{ margin-bottom:14px; font:700 clamp(2rem,5vw,4rem)/.98 Georgia,serif; letter-spacing:-.035em; }}
+      h2 {{ margin-bottom:10px; font:700 clamp(1.45rem,3vw,2.2rem)/1.05 Georgia,serif; }}
+      .lede,.summary {{ color:var(--muted); line-height:1.65; }}
+      .facts {{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:24px; }}
+      .fact-card {{ min-height:86px; padding:14px; border:1px solid var(--edge); border-radius:16px; background:#fff; }}
+      .fact-card span {{ display:block; margin-bottom:6px; color:var(--muted); font-size:.78rem; font-weight:750; text-transform:uppercase; }}
+      .fact-card strong {{ line-height:1.35; }}
+      .actions {{ display:flex; flex-wrap:wrap; gap:10px; margin-top:24px; }}
+      .actions a {{ padding:11px 16px; border:1px solid var(--edge); border-radius:999px; color:var(--ink); background:#fff; font-weight:750; text-decoration:none; }}
+      .actions .primary {{ color:#fff; border-color:var(--accent); background:var(--accent); }}
+      .status-card {{ display:flex; flex-direction:column; justify-content:center; padding:24px; border-radius:20px; background:#242019; color:#fff; }}
+      .status-card .eyebrow,.status-card .summary {{ color:#ead8c1; }}
+      .panel {{ margin-top:24px; padding:clamp(20px,4vw,38px); }}
+      .media-wrap {{ overflow:hidden; min-height:360px; margin-top:22px; border:1px solid var(--edge); border-radius:18px; background:#171512; }}
+      .media-frame {{ display:block; width:100%; min-height:520px; border:0; background:#171512; }}
+      .media-empty {{ display:grid; min-height:360px; place-items:center; align-content:center; gap:8px; padding:36px; color:#f8f1e7; text-align:center; }}
+      .media-empty > span {{ display:grid; width:84px; height:84px; place-items:center; border:1px solid rgba(255,255,255,.28); border-radius:50%; font:700 1.35rem Georgia,serif; }}
+      .media-empty p {{ max-width:540px; margin-bottom:0; color:#cfc3b4; line-height:1.55; }}
+      @media (max-width:760px) {{ .hero {{ grid-template-columns:1fr; }} .facts {{ grid-template-columns:1fr; }} .media-frame {{ min-height:420px; }} }}
+      @media (prefers-reduced-motion:reduce) {{ * {{ scroll-behavior:auto!important; animation-duration:.01ms!important; transition-duration:.01ms!important; }} }}
+    </style>
+  </head>
+  <body>
+    <div class="shell" data-media-state="{media_state}">
+      <section class="hero">
+        <div>
+          <div class="eyebrow">{html.escape(brand)} · public property review</div>
+          <h1>{html.escape(title)}</h1>
+          <p class="lede">{html.escape(display_title)}</p>
+          <div class="facts">{fact_cards}</div>
+          <div class="actions">{actions_html}</div>
+        </div>
+        <aside class="status-card">
+          <div class="eyebrow">Evidence boundary</div>
+          <h2>{html.escape(media_title)}</h2>
+          <p class="summary">{html.escape(media_summary)}</p>
+        </aside>
+      </section>
+      <section id="media-review" class="panel" aria-labelledby="media-review-title">
+        <div class="eyebrow">Reviewed media lane</div>
+        <h2 id="media-review-title">{html.escape(media_title)}</h2>
+        <p class="summary">{html.escape(disclosure)}</p>
+        <div class="media-wrap">{media_html}</div>
+      </section>
+    </div>
+  </body>
+</html>"""
+
+
 def _tour_html(payload: dict[str, object], *, hostname: str = "", rybbit_hostname: str = "") -> str:
     scenes = [dict(row) for row in (payload.get("scenes") or []) if isinstance(row, dict)]
     if not scenes:
-        raise HTTPException(status_code=500, detail="tour_scenes_missing")
+        return _tour_no_released_scenes_html(
+            payload,
+            hostname=hostname,
+            rybbit_hostname=rybbit_hostname,
+        )
     facts, researched_facts = _merged_facts_with_listing_research(payload, dict(payload.get("facts") or {}))
     facts.pop("public_preference_snapshot", None)
     feedback_suggestions = dict(payload.get("_feedback_suggestions") or {}) if isinstance(payload.get("_feedback_suggestions"), dict) else {}
@@ -2045,14 +2734,18 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", rybbit_hostnam
     display_title = str(payload.get("display_title") or title).strip() or title
     listing_url = str(payload.get("listing_url") or "").strip()
     hosted_url = str(payload.get("hosted_url") or "").strip()
-    source_virtual_tour_url = _embedded_live_360_url(payload)
-    is_pure_360_cube = str(payload.get("scene_strategy") or "").strip() == "pure_360_cube"
+    source_virtual_tour_url = _safe_live_360_url(payload.get("_released_embed_url"))
+    is_pure_360_cube = bool(payload.get("_hosted_cube_ready"))
     brand_name = str(payload.get("brand_name") or "Pioche Lecombe").strip() or "Pioche Lecombe"
     hosted_brand_name = _public_tour_host_brand_label(hostname, fallback=brand_name)
     hosted_brand_html = html.escape(hosted_brand_name)
     slug = str(payload.get("slug") or "").strip()
-    video_relpath = str(payload.get("video_relpath") or "").strip()
+    video_relpath = _public_tour_safe_asset_relpath(payload.get("_released_video_relpath"))
     video_url = f"/tours/files/{slug}/{video_relpath}" if slug and video_relpath else ""
+    generated_viewer_url = safe_public_navigation_url(
+        payload.get("_released_generated_viewer_url"),
+        production=_public_tour_prod_mode_enabled(),
+    )
 
     def _trim_text(value: object) -> str:
         return str(value or "").strip()
@@ -2386,7 +3079,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", rybbit_hostnam
         )
         scene_data.append(
             {
-                "name": str(scene.get("name") or "").strip(),
+                "name": _public_tour_safe_display_text(scene.get("name"), fallback=f"Scene {index + 1}"),
                 "scene_id": scene_id,
                 "next_scene_id": _trim_text(next_scene_refs[0]) if next_scene_refs else "",
                 "prev_scene_id": _trim_text(prev_scene_refs[0]) if prev_scene_refs else "",
@@ -2397,7 +3090,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", rybbit_hostnam
                     if slug and str(scene.get("asset_relpath") or "").strip()
                     else str(scene.get("image_url") or "").strip()
                 ),
-                "role": str(scene.get("role") or "photo").strip(),
+                "role": re.sub(r"[^a-z0-9_-]+", "-", str(scene.get("role") or "photo").strip().lower()).strip("-") or "photo",
                 "mime_type": str(scene.get("mime_type") or "").strip(),
                 "source_url": "" if is_pure_360_cube else str(scene.get("source_url") or "").strip(),
                 "cube_faces": {
@@ -2444,10 +3137,15 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", rybbit_hostnam
     audience = html.escape(str(brief.get("audience") or "").strip())
     cta = html.escape(str(brief.get("call_to_action") or "").strip())
     brand_html = html.escape(brand_name)
-    listing_link = f'<a class="ghost" href="{html.escape(listing_url)}" target="_blank" rel="noreferrer">Open Listing</a>' if listing_url else ""
-    hosted_link = f'<a class="ghost" href="{html.escape(hosted_url)}">Permalink</a>' if hosted_url else ""
+    listing_url = safe_public_navigation_url(listing_url, production=_public_tour_prod_mode_enabled())
+    hosted_url = safe_public_navigation_url(hosted_url, production=_public_tour_prod_mode_enabled())
+    listing_link = f'<a class="ghost" href="{html.escape(listing_url)}" target="_blank" rel="noreferrer noopener">Open Listing</a>' if listing_url else ""
+    hosted_link = f'<a class="ghost" href="{html.escape(hosted_url)}" rel="noreferrer">Permalink</a>' if hosted_url else ""
     primary_cta = "Open Live 360" if source_virtual_tour_url else "Open Tour"
     primary_cta_href = "#live-360" if source_virtual_tour_url else "#viewer"
+    if generated_viewer_url:
+        primary_cta = "Open interactive 3D reconstruction"
+        primary_cta_href = "#generated-3d-viewer"
     assessment = dict(facts.get("personal_fit_assessment") or {}) if isinstance(facts.get("personal_fit_assessment"), dict) else {}
     if not assessment and isinstance(facts.get("decision_summary"), dict):
         assessment = dict(facts.get("decision_summary") or {})
@@ -3357,6 +4055,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", rybbit_hostnam
                 class="live-frame"
                 src="{html.escape(source_virtual_tour_url)}"
                 title="{title_html}"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
+                allow="fullscreen; autoplay"
                 allowfullscreen
                 loading="eager"
                 referrerpolicy="no-referrer"
@@ -4402,6 +5102,42 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", rybbit_hostnam
     </script>
   </body>
 </html>"""
+    generated_viewer_disclosure = _public_tour_safe_display_text(
+        payload.get("_tour_media_disclosure"),
+        fallback="Generated interactive reconstruction — not a provider-captured scan.",
+        limit=360,
+    )
+    generated_viewer_shell = (
+        f'''
+        <section id="generated-3d-viewer" class="live-shell generated-viewer-shell">
+          <div class="live-head">
+            <div>
+              <div class="eyebrow">{brand_html} <span>•</span> Released interactive reconstruction</div>
+              <h2>Walk the reconstructed layout</h2>
+              <p id="generated-viewer-disclosure" class="sub">{html.escape(generated_viewer_disclosure)}</p>
+            </div>
+            <div class="stack">
+              <div class="kv"><b>Controls</b>Drag to orbit, scroll or pinch to zoom, and use the room route to move through the layout.</div>
+              <div class="kv"><b>Evidence boundary</b>Use this spatial aid alongside the source photos and floorplan; confirm dimensions and finishes in person.</div>
+            </div>
+          </div>
+          <div class="live-frame-wrap">
+            <iframe
+              id="generated-tour-viewer"
+              class="live-frame"
+              src="{html.escape(generated_viewer_url)}"
+              title="{title_html} interactive generated 3D reconstruction"
+              aria-describedby="generated-viewer-disclosure"
+              sandbox="allow-scripts"
+              loading="eager"
+              allowfullscreen
+              referrerpolicy="no-referrer"
+            ></iframe>
+          </div>
+        </section>'''
+        if generated_viewer_url
+        else ""
+    )
     live_shell = (
         f'''
         <section id="live-360" class="live-shell">
@@ -4409,11 +5145,11 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", rybbit_hostnam
             <div>
               <div class="eyebrow">{brand_html} <span>•</span> Live 360</div>
               <h2>Live Panorama Viewer</h2>
-              <p class="sub">The live browser view below stays entirely inside the {brand_html} public tour surface on this page.</p>
+              <p class="sub">This verified external panorama remains visibly framed by {brand_html}. Opening it shares normal browser request metadata with {html.escape(str(payload.get("_released_embed_origin") or "the reviewed provider origin"))}.</p>
             </div>
             <div class="stack">
               <div class="kv"><b>Brand</b>{brand_html}</div>
-              <div class="kv"><b>Experience</b>Hosted on {html.escape(hostname or 'this domain')}</div>
+              <div class="kv"><b>Experience</b>External panorama in a constrained viewer</div>
             </div>
           </div>
           <div class="live-frame-wrap">
@@ -4422,6 +5158,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", rybbit_hostnam
               src="{html.escape(source_virtual_tour_url)}"
               title="{title_html} live 360 viewer"
               loading="lazy"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
+              allow="fullscreen; autoplay"
               allowfullscreen
               referrerpolicy="no-referrer"
             ></iframe>
@@ -4852,6 +5590,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", rybbit_hostnam
         {legacy_shortlist_panel}
       </section>
       <section class="stage">
+        {generated_viewer_shell}
         {live_shell}
         {(
             f'''<div class="hero-video">
@@ -4975,6 +5714,147 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", rybbit_hostnam
 </html>"""
 
 
+def _harden_public_tour_html(source: str, payload: dict[str, object]) -> str:
+    rendered = str(source or "")
+    rendered = rendered.replace('<html lang="de">', '<html lang="en">', 1)
+    rendered = rendered.replace('src=""', 'src="about:blank" sandbox=""')
+    rendered = rendered.replace(
+        "if (initialAutoplay === '1') {",
+        "if (initialAutoplay === '1' && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {",
+    )
+    keyboard_guard = (
+        "if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || "
+        "(event.target && event.target.closest('input, textarea, select, button, a, [contenteditable=\"true\"]'))) return;"
+    )
+    rendered = rendered.replace(
+        'document.addEventListener("keydown", (event) => {',
+        f'document.addEventListener("keydown", (event) => {{ {keyboard_guard}',
+    )
+    rendered = rendered.replace(
+        "window.addEventListener('keydown', (event) => {",
+        f"window.addEventListener('keydown', (event) => {{ {keyboard_guard}",
+    )
+
+    common_css = """
+      [hidden] { display: none !important; }
+      .tour-skip-link {
+        position: fixed;
+        z-index: 10000;
+        left: 16px;
+        top: 12px;
+        transform: translateY(-160%);
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: #17130f;
+        color: #fff;
+        font: 700 14px/1.2 ui-sans-serif, system-ui, sans-serif;
+      }
+      .tour-skip-link:focus { transform: translateY(0); }
+      .tour-release-header,
+      .tour-release-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 12px max(20px, calc((100vw - 1340px) / 2 + 22px));
+        color: var(--ink);
+        background: color-mix(in srgb, var(--panel, #fff) 94%, transparent);
+        border-bottom: 1px solid var(--edge, var(--line, rgba(0,0,0,.14)));
+        font: 650 13px/1.4 ui-sans-serif, system-ui, sans-serif;
+      }
+      .tour-release-header nav { display: flex; flex-wrap: wrap; gap: 14px; }
+      .tour-release-header a { color: inherit; text-underline-offset: 3px; }
+      .tour-release-footer {
+        align-items: flex-start;
+        border-top: 1px solid var(--edge, var(--line, rgba(0,0,0,.14)));
+        border-bottom: 0;
+        color: var(--muted, #625b52);
+      }
+      :where(a, button, textarea, summary, iframe, video, [tabindex]):focus-visible {
+        outline: 3px solid var(--accent, #8d3f1f);
+        outline-offset: 3px;
+      }
+      @media (max-width: 640px) {
+        .tour-release-header, .tour-release-footer { align-items: flex-start; flex-direction: column; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html { scroll-behavior: auto !important; }
+        *, *::before, *::after {
+          animation-duration: .01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: .01ms !important;
+          scroll-behavior: auto !important;
+        }
+      }
+    """
+    rendered = rendered.replace("</style>", f"{common_css}</style>", 1)
+
+    brand = html.escape(str(payload.get("brand_name") or "PropertyQuarry").strip() or "PropertyQuarry")
+    disclosure = _public_tour_safe_display_text(
+        payload.get("_tour_media_disclosure"),
+        fallback="Image and floorplan walkthrough. This surface does not claim a captured 3D scan.",
+        limit=360,
+    )
+    disclosure_html = html.escape(disclosure)
+    header = (
+        '<a class="tour-skip-link" href="#main-content">Skip to tour</a>'
+        '<header class="tour-release-header">'
+        f'<strong>{brand}</strong>'
+        '<nav aria-label="Tour navigation">'
+        '<a href="#main-content">Tour</a>'
+        '<a href="#tour-release-notice">Media disclosure</a>'
+        '</nav>'
+        '</header>'
+        '<main id="main-content">'
+    )
+    rendered = rendered.replace("<body>", f"<body>{header}", 1)
+
+    assistive_script = """
+    <script>
+      (() => {
+        const selectable = '.reaction-btn, .reason-chip, .filter-chip, .toggle button, .thumb, [data-scene-index], [data-role]';
+        const syncSelectionState = () => {
+          document.querySelectorAll(selectable).forEach((button) => {
+            if (!(button instanceof HTMLButtonElement)) return;
+            const selected = button.classList.contains('active') || button.classList.contains('selected');
+            button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+            if (button.classList.contains('thumb') || button.hasAttribute('data-scene-index')) {
+              if (selected) button.setAttribute('aria-current', 'true');
+              else button.removeAttribute('aria-current');
+            }
+          });
+          document.querySelectorAll('#tour-status, #feedback-status, #filter-status, #request-details-status, .request-status')
+            .forEach((node) => {
+              node.setAttribute('role', 'status');
+              node.setAttribute('aria-live', 'polite');
+            });
+        };
+        syncSelectionState();
+        new MutationObserver(syncSelectionState).observe(document.body, {subtree: true, childList: true, attributes: true, attributeFilter: ['class']});
+        document.addEventListener('visibilitychange', () => {
+          if (document.hidden) document.querySelectorAll('video').forEach((video) => video.pause());
+        });
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          document.querySelectorAll('video[autoplay]').forEach((video) => {
+            video.autoplay = false;
+            video.pause();
+          });
+        }
+      })();
+    </script>
+    """
+    footer = (
+        '</main>'
+        '<footer id="tour-release-notice" class="tour-release-footer">'
+        '<strong>Media disclosure</strong>'
+        f'<span>{disclosure_html}</span>'
+        '</footer>'
+        f'{assistive_script}'
+    )
+    rendered = rendered.replace("</body>", f"{footer}</body>", 1)
+    return rendered
+
+
 def _render_tour_unavailable_page(
     request: Request,
     *,
@@ -5015,7 +5895,32 @@ def _render_tour_unavailable_page(
     return response
 
 
-def _public_tour_security_headers(*, cache_control: str = "no-store") -> dict[str, str]:
+def _public_tour_security_headers(
+    *,
+    cache_control: str = "no-store",
+    frame_origins: tuple[str, ...] = (),
+) -> dict[str, str]:
+    approved_frame_origins: list[str] = []
+    for value in frame_origins:
+        normalized = str(value or "").strip().rstrip("/")
+        parsed = urlparse(normalized)
+        try:
+            port = parsed.port
+        except ValueError:
+            continue
+        if (
+            parsed.scheme == "https"
+            and parsed.hostname
+            and not parsed.username
+            and not parsed.password
+            and port in {None, 443}
+            and not parsed.path
+            and not parsed.params
+            and not parsed.query
+            and not parsed.fragment
+        ):
+            approved_frame_origins.append(f"https://{parsed.hostname.lower().rstrip('.')}")
+    frame_src = " ".join(["'self'", *sorted(set(approved_frame_origins))])
     return {
         "Cache-Control": cache_control,
         "Content-Security-Policy": (
@@ -5023,17 +5928,51 @@ def _public_tour_security_headers(*, cache_control: str = "no-store") -> dict[st
             "base-uri 'none'; "
             "object-src 'none'; "
             "frame-ancestors 'self'; "
+            "form-action 'self'; "
             "img-src 'self' data: https:; "
-            "media-src 'self' https:; "
-            "frame-src 'self' https:; "
+            "media-src 'self'; "
+            f"frame-src {frame_src}; "
             "script-src 'self' 'unsafe-inline' https://js.clickrank.ai https://app.rybbit.io https://cdn.jsdelivr.net; "
             "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
             "connect-src 'self' https://app.rybbit.io https://cdn.jsdelivr.net"
         ),
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
         "Referrer-Policy": "no-referrer",
         "X-Content-Type-Options": "nosniff",
         "X-Robots-Tag": "noindex, nofollow, noarchive",
     }
+
+
+def _public_tour_generated_viewer_headers(
+    *,
+    role: str,
+    sha256: str,
+    release_revision: str,
+) -> dict[str, str]:
+    is_document = role == "viewer_document"
+    headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "no-store" if is_document else "public, max-age=86400, immutable",
+        "Cross-Origin-Resource-Policy": "cross-origin",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+        "X-PropertyQuarry-Asset-SHA256": sha256,
+        "X-PropertyQuarry-Viewer-Revision": release_revision,
+        "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
+    }
+    if is_document:
+        headers["Content-Security-Policy"] = (
+            "default-src 'none'; "
+            "script-src 'unsafe-inline' 'self'; "
+            "style-src 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "object-src 'none'; "
+            "base-uri 'none'; "
+            "form-action 'none'; "
+            "frame-ancestors 'self'"
+        )
+    return headers
 
 
 @router.get("/tours/{slug}.json", response_class=JSONResponse)
@@ -5057,14 +5996,37 @@ def public_tour_file(slug: str, asset_path: str) -> FileResponse:
     file_path = _asset_file(slug, asset_path)
     media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
     headers = _public_tour_security_headers(cache_control="public, max-age=86400, immutable")
-    if manifest_row.get("sha256"):
-        headers["X-PropertyQuarry-Asset-SHA256"] = str(manifest_row["sha256"])
+    configured_video_relpath = _public_tour_safe_asset_relpath(payload.get("video_relpath"))
+    video_release = evaluate_public_tour_video_release(payload) if safe_relpath == configured_video_relpath else {}
+    release_sha256 = str(video_release.get("expected_sha256") or "").strip().lower()
+    if release_sha256 or manifest_row.get("sha256"):
+        headers["X-PropertyQuarry-Asset-SHA256"] = release_sha256 or str(manifest_row["sha256"])
+    if video_release.get("release_revision"):
+        headers["X-PropertyQuarry-Media-Revision"] = str(video_release["release_revision"])
     if manifest_row.get("privacy_class"):
         headers["X-PropertyQuarry-Asset-Privacy"] = str(manifest_row["privacy_class"])
     return FileResponse(
         file_path,
         media_type=media_type,
         headers=headers,
+    )
+
+
+@router.get("/tours/viewer/{slug}/{asset_path:path}")
+@router.head("/tours/viewer/{slug}/{asset_path:path}")
+def public_tour_generated_viewer_file(slug: str, asset_path: str) -> FileResponse:
+    file_path, binding, release = _generated_viewer_file(slug, asset_path)
+    role = str(binding.get("role") or "").strip().lower()
+    sha256 = str(binding.get("sha256") or "").strip().lower()
+    media_type = str(binding.get("mime_type") or "application/octet-stream").strip().lower()
+    return FileResponse(
+        file_path,
+        media_type=media_type,
+        headers=_public_tour_generated_viewer_headers(
+            role=role,
+            sha256=sha256,
+            release_revision=str(release.get("release_revision") or ""),
+        ),
     )
 
 
@@ -5227,9 +6189,51 @@ def public_tour_page(
         rendered_payload["_feedback_suggestions"] = dict(feedback_context.get("feedback_suggestions") or {})
         rendered_payload["_learning_summary"] = dict(feedback_context.get("learning_summary") or {})
         rendered_payload["_shortlist_compare"] = dict(shortlist_compare or {})
-        return HTMLResponse(
+        video_release = evaluate_public_tour_video_release(payload)
+        embed_release = evaluate_public_tour_embed_release(payload)
+        viewer_release = evaluate_public_tour_generated_viewer_release(payload)
+        if video_release.get("released"):
+            rendered_payload["_released_video_relpath"] = str(video_release.get("relpath") or "")
+        if embed_release.get("released"):
+            rendered_payload["_released_embed_url"] = str(embed_release.get("url") or "")
+            rendered_payload["_released_embed_origin"] = str(embed_release.get("origin") or "")
+        if viewer_release.get("released"):
+            viewer_url = _public_tour_generated_viewer_url(slug, viewer_release.get("viewer_relpath"))
+            if viewer_url:
+                rendered_payload["_released_generated_viewer_url"] = viewer_url
+        rendered_payload["_hosted_cube_ready"] = _public_tour_has_complete_hosted_cube(payload)
+        if viewer_release.get("released"):
+            rendered_payload["_tour_media_disclosure"] = str(viewer_release.get("disclosure") or "").strip()
+        elif video_release.get("released"):
+            rendered_payload["_tour_media_disclosure"] = str(video_release.get("disclosure") or "").strip()
+        elif embed_release.get("released"):
+            provider = str(embed_release.get("provider") or "external provider").strip()
+            origin = str(embed_release.get("origin") or "").strip()
+            rendered_payload["_tour_media_disclosure"] = (
+                f"Verified external {provider} panorama from {origin}. The provider receives normal browser request metadata."
+            )
+        elif rendered_payload["_hosted_cube_ready"]:
+            rendered_payload["_tour_media_disclosure"] = (
+                "Hosted panorama assembled from the published six-face scene assets. Confirm dimensions and finishes in person."
+            )
+        else:
+            if list(rendered_payload.get("scenes") or []):
+                rendered_payload["_tour_media_disclosure"] = (
+                    "Image and floorplan walkthrough. This surface does not claim a captured or provider-verified 3D scan."
+                )
+            else:
+                rendered_payload["_tour_media_disclosure"] = (
+                    "No tour media has passed public release review for this listing. "
+                    "Approved listing facts remain available without exposing private, test, or source artifacts."
+                )
+        tour_html = _harden_public_tour_html(
             _tour_html(rendered_payload, hostname=hostname, rybbit_hostname=rybbit_hostname),
-            headers=_public_tour_security_headers(),
+            rendered_payload,
+        )
+        frame_origin = str(embed_release.get("origin") or "").strip() if embed_release.get("released") else ""
+        return HTMLResponse(
+            tour_html,
+            headers=_public_tour_security_headers(frame_origins=(frame_origin,) if frame_origin else ()),
         )
     except HTTPException as exc:
         detail = str(exc.detail or "").strip().lower()

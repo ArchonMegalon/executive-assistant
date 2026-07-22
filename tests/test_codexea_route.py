@@ -34,6 +34,10 @@ def _args(**overrides: object) -> argparse.Namespace:
         "telemetry_answer": None,
         "onemin_aggregate": True,
         "onemin_refresh": False,
+        "refresh_backend": "provider_api",
+        "refresh_all_accounts": False,
+        "refresh_max_accounts": 5,
+        "refresh_continue_on_rate_limit": False,
         "send_telegram": False,
         "telegram_chat_id": "",
         "telegram_bot_token": "",
@@ -119,6 +123,26 @@ def test_build_route_request_does_not_load_account_rows_without_probe(monkeypatc
 
     assert payload["probe"] is False
     assert payload["account_rows"] == []
+
+
+def test_build_route_request_includes_refresh_controls() -> None:
+    module = _load_module()
+
+    payload = module._build_route_request(
+        _args(
+            onemin_refresh=True,
+            refresh_backend="scheduler",
+            refresh_all_accounts=True,
+            refresh_max_accounts=17,
+            refresh_continue_on_rate_limit=True,
+        )
+    )
+
+    assert payload["refresh"] is True
+    assert payload["refresh_backend"] == "scheduler"
+    assert payload["refresh_all_accounts"] is True
+    assert payload["refresh_max_accounts"] == 17
+    assert payload["refresh_continue_on_rate_limit"] is True
 
 
 def test_load_onemin_account_rows_uses_source_root_env(monkeypatch, tmp_path: Path) -> None:
@@ -382,6 +406,30 @@ def test_run_live_onemin_aggregate_falls_back_to_local_backend(monkeypatch) -> N
     assert payload["source"] == "local_python"
     assert [item[0] for item in backend_calls] == ["ea_api_container", "local_python"]
     assert backend_calls[1][1]["probe"] is True
+
+
+def test_run_live_onemin_aggregate_refresh_does_not_fall_back_to_local_backend(monkeypatch) -> None:
+    module = _load_module()
+    args = _args(onemin_refresh=True)
+    backend_calls: list[str] = []
+
+    monkeypatch.setattr(module.shutil, "which", lambda name: "/usr/bin/docker" if name == "docker" else None)
+    monkeypatch.setattr(module, "_http_backend_urls", lambda: [])
+
+    def fake_run_backend(command, *, request, timeout_seconds, backend_name):
+        backend_calls.append(backend_name)
+        raise RuntimeError("container_unreachable")
+
+    monkeypatch.setattr(module, "_run_backend_command", fake_run_backend)
+
+    try:
+        module._run_live_onemin_aggregate(args)
+    except RuntimeError as exc:
+        assert "container_unreachable" in str(exc)
+    else:
+        raise AssertionError("refresh should fail closed when runtime refresh backend is unavailable")
+
+    assert backend_calls == ["ea_api_container"]
 
 
 def test_run_live_onemin_aggregate_skips_active_cooldown_rows(monkeypatch, tmp_path: Path) -> None:
@@ -773,6 +821,8 @@ def test_summary_payload_includes_refresh_and_telegram_delivery() -> None:
             "slots": [{"account_name": "A"}],
             "onemin_refresh": {
                 "ran": True,
+                "backend": "provider_api",
+                "scope": "targeted",
                 "throttled": False,
                 "throttle_seconds_remaining": 0,
                 "throttle_reason": "",
@@ -782,6 +832,10 @@ def test_summary_payload_includes_refresh_and_telegram_delivery() -> None:
                 "api_attempted": 3,
                 "api_rate_limited": False,
                 "api_recovered": 0,
+                "billing_refresh_count": 3,
+                "targeted_account_count": 5,
+                "stale_account_count": 4,
+                "fresh_account_count": 1,
                 "errors": 0,
                 "error": "",
             },
@@ -800,6 +854,8 @@ def test_summary_payload_includes_refresh_and_telegram_delivery() -> None:
 
     assert payload["onemin_refresh"] == {
         "ran": True,
+        "backend": "provider_api",
+        "scope": "targeted",
         "throttled": False,
         "throttle_seconds_remaining": 0,
         "throttle_reason": "",
@@ -809,6 +865,10 @@ def test_summary_payload_includes_refresh_and_telegram_delivery() -> None:
         "api_attempted": 3,
         "api_rate_limited": False,
         "api_recovered": 0,
+        "billing_refresh_count": 3,
+        "targeted_account_count": 5,
+        "stale_account_count": 4,
+        "fresh_account_count": 1,
         "errors": 0,
     }
     assert payload["telegram_delivery"] == {
@@ -882,3 +942,31 @@ def test_telegram_delivery_request_uses_ea_api_container_target_when_host_bindin
     assert delivery["chat_id_present"] is True
     assert "CODEXEA_TELEGRAM_RESOLVE_PRINCIPAL_ID=cf-email:user@example.test" in observed["command"]
     assert observed["telegram_payload"]["chat_id"] == "1354554303"
+
+
+def test_build_telegram_refresh_message_includes_refresh_backend_and_scope() -> None:
+    module = _load_module()
+
+    message = module._build_telegram_refresh_message(
+        {
+            "generated_at": "2026-07-09T17:18:02Z",
+            "source": "ea_api_container",
+            "actual_free_credits_total": 12345,
+            "onemin_refresh": {
+                "ran": True,
+                "backend": "provider_api",
+                "scope": "targeted",
+                "billing_refresh_count": 3,
+                "targeted_account_count": 5,
+                "errors": 0,
+                "api_attempted": 3,
+                "api_recovered": 3,
+                "api_rate_limited": False,
+            },
+        }
+    )
+
+    assert "Refresh backend: provider_api" in message
+    assert "Refresh scope: targeted" in message
+    assert "Billing refresh count: 3" in message
+    assert "Targeted account count: 5" in message

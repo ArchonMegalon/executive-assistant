@@ -581,9 +581,12 @@ def _apply_operator_status_receipt_fallback(report: dict[str, Any], args: argpar
         merged["errors"] = _without_error_markers(merged.get("errors"), exact={"receipt_observation_missing"})
         fallback_applied = True
 
-    delivery_guard = dict(receipt.get("delivery_guard") or {})
-    if delivery_guard:
-        merged["delivery_guard"] = delivery_guard
+    receipt_delivery_guard = dict(receipt.get("delivery_guard") or {})
+    current_delivery_guard = dict(report.get("delivery_guard") or {})
+    if receipt_delivery_guard:
+        merged_delivery_guard = dict(receipt_delivery_guard)
+        merged_delivery_guard.update(current_delivery_guard)
+        merged["delivery_guard"] = merged_delivery_guard
     context_grounding = _operator_status_context_grounding(receipt)
     if context_grounding:
         merged["context_grounding"] = context_grounding
@@ -766,6 +769,14 @@ def _delivery_guard_status(
     quiet_active = _quiet_hours_active(args, now=current_now)
     quiet_allows_high = bool(getattr(args, "quiet_hours_allow_high_priority", True))
     armed_send = bool(getattr(args, "armed_send", False))
+    stage_packet_dir = _stage_packet_dir(args)
+    safe_work_result_dir = runner._safe_work_result_dir(args, stage_packet_dir=stage_packet_dir)
+    host_resource_guard = runner._host_resource_guard_snapshot(
+        args,
+        stage_packet_dir=stage_packet_dir,
+        safe_work_result_dir=safe_work_result_dir,
+        receipt_path=str(getattr(args, "receipt_path", "") or "").strip(),
+    )
     budget_limit = max(_safe_int(getattr(args, "interruption_budget_limit", 0), default=0), 0)
     budget_window_hours = max(_safe_int(getattr(args, "interruption_budget_window_hours", 24), default=24), 1)
     interruption_events = state_store.load_interruption_events(str(getattr(args, "principal_id", "") or ""))
@@ -791,7 +802,15 @@ def _delivery_guard_status(
 
     delivery_state = "no_actionable_items" if not has_items else "eligible"
     deferred_reason = ""
-    if has_items and paused:
+    if has_items:
+        deferred_reason = runner._host_resource_guard_defer_reason(
+            args,
+            digest,
+            host_resource_guard=host_resource_guard,
+        )
+    if has_items and deferred_reason:
+        delivery_state = "deferred"
+    elif has_items and paused:
         delivery_state = "deferred"
         deferred_reason = "deferred_by_operator_pause"
     elif has_items and quiet_active and not (quiet_allows_high and has_high_priority):
@@ -828,6 +847,7 @@ def _delivery_guard_status(
         "notification_cooldown_seconds_remaining": notification_cooldown_seconds_remaining,
         "notification_cooldown_allow_high_priority": notification_cooldown_allow_high_priority,
         "has_high_priority": has_high_priority,
+        "host_resource_guard": dict(host_resource_guard),
     }
 
 

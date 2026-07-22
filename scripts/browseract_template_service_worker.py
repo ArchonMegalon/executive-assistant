@@ -23,6 +23,24 @@ DEFAULT_EMAIL = os.environ.get("EA_UI_SERVICE_LOGIN_EMAIL", "").strip()
 DEFAULT_PASSWORD = os.environ.get("EA_UI_SERVICE_LOGIN_PASSWORD", "").strip()
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_ROOT = ROOT / ".runtime" / "browseract"
+MIN_WORKER_TIMEOUT_SECONDS = 30
+MIN_DOCKER_START_TIMEOUT_SECONDS = 60
+DOCKER_START_TIMEOUT_GRACE_SECONDS = 30
+
+
+class TemplateWorkerTimeout(RuntimeError):
+    def __init__(
+        self,
+        detail: str,
+        *,
+        partial_output: dict[str, object] | None = None,
+        screenshot_path: str = "",
+        trace_paths: list[str] | None = None,
+    ) -> None:
+        super().__init__(detail)
+        self.partial_output = dict(partial_output or {})
+        self.screenshot_path = str(screenshot_path or "").strip()
+        self.trace_paths = [str(value or "").strip() for value in (trace_paths or []) if str(value or "").strip()]
 
 
 def _resolve_worker_root(env_name: str, default_dir_name: str) -> Path:
@@ -65,6 +83,33 @@ def _slugify(value: object) -> str:
     lowered = "".join(char.lower() if char.isalnum() else "-" for char in str(value or "").strip())
     lowered = "-".join(part for part in lowered.split("-") if part)
     return lowered or f"template-{uuid.uuid4().hex[:12]}"
+
+
+def _load_json_dict(path: Path) -> dict[str, object] | None:
+    if not path.is_file():
+        return None
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return loaded if isinstance(loaded, dict) else None
+
+
+def _trace_paths(output_dir: Path) -> list[str]:
+    if not output_dir.is_dir():
+        return []
+    captured: list[str] = []
+    for child in sorted(output_dir.iterdir()):
+        if child.is_file() and child.suffix.lower() == ".png":
+            captured.append(str(child))
+    return captured
+
+
+def _best_screenshot_path(*, preferred: Path, output_dir: Path) -> str:
+    if preferred.is_file():
+        return str(preferred)
+    trace_paths = _trace_paths(output_dir)
+    return trace_paths[-1] if trace_paths else ""
 
 
 def _template_node_script() -> str:
@@ -167,6 +212,7 @@ async function main() {
   };
   let authRequestFailure = '';
   let traceIndex = 0;
+  let currentStage = 'boot';
 
   if (blockedUrlMarkers.length) {
     await context.route('**/*', (route) => {
@@ -194,6 +240,19 @@ async function main() {
   function persistResult(payload) {
     if (!resultPath) return;
     fs.writeFileSync(resultPath, JSON.stringify(payload), 'utf8');
+  }
+
+  async function persistProgress(stage, extra = {}) {
+    currentStage = String(stage || currentStage || 'progress').trim() || 'progress';
+    const payload = Object.assign({}, result, {
+      url: String(page.url() || ''),
+      title: String((await page.title().catch(() => '')) || ''),
+      stage: currentStage,
+      render_status: 'running',
+      screenshot_path: screenshotPath,
+      trace_dir: traceDir || '',
+    }, extra || {});
+    persistResult(payload);
   }
 
   function noteAuthRequestFailure(detail) {
@@ -260,6 +319,7 @@ async function main() {
     }
     const url = String(page.url() || '');
     const title = String((await page.title().catch(() => '')) || '');
+    await persistProgress(`trace:${safeTag}`, { url, title });
     console.log(JSON.stringify({ trace: safeTag, url, title }));
   }
 
@@ -722,6 +782,7 @@ async function main() {
   }
 
   try {
+    await persistProgress('boot');
     page.on('requestfailed', (request) => {
       try {
         const url = String(request.url() || '');
@@ -751,6 +812,7 @@ async function main() {
       const nodeId = String(node.id || '').trim();
       const label = String(node.label || node.id || nodeType || 'node');
       const config = (node.config && typeof node.config === 'object') ? node.config : {};
+      await persistProgress(`node:${nodeId || nodeType || 'unknown'}`, { current_label: label });
       if (authFlow === 'google_oauth' && googleAuthSequenceIds.has(nodeId)) {
         if (!googleAuthCompleted) {
           await completeGoogleAuth(config, 'google_auth');
@@ -893,6 +955,7 @@ async function main() {
       }
     }
 
+    await persistProgress('finalizing');
     result.url = String(page.url() || '');
     result.title = String((await page.title().catch(() => '')) || '');
     if (!result.outputText) {
@@ -940,6 +1003,7 @@ async function main() {
       result.failure_code = 'auth_request_failed';
       result.ui_failure_code = 'auth_request_failed';
     }
+    result.stage = currentStage;
     result.url = String(page.url() || '');
     result.title = String((await page.title().catch(() => '')) || '');
     if (!result.outputText) {
@@ -1033,6 +1097,7 @@ def _run_browser(packet: dict[str, object], *, spec: dict[str, object], screensh
             create_command.extend(["--network", docker_network])
         create_command.extend([PLAYWRIGHT_IMAGE, *run_args])
         created = False
+        timed_out_detail = ""
         try:
             created_process = subprocess.run(
                 create_command,
@@ -1060,12 +1125,12 @@ def _run_browser(packet: dict[str, object], *, spec: dict[str, object], screensh
                 ["docker", "start", "-a", container_name],
                 text=True,
                 capture_output=True,
-                timeout=max(180, timeout_seconds + 60),
+                timeout=max(MIN_DOCKER_START_TIMEOUT_SECONDS, timeout_seconds + DOCKER_START_TIMEOUT_GRACE_SECONDS),
                 check=False,
             )
         except subprocess.TimeoutExpired as exc:
             subprocess.run(["docker", "kill", container_name], text=True, capture_output=True, check=False)
-            raise RuntimeError(f"template_worker_timeout:{container_name}") from exc
+            timed_out_detail = f"template_worker_timeout:{container_name}"
         finally:
             if created:
                 subprocess.run(
@@ -1081,15 +1146,16 @@ def _run_browser(packet: dict[str, object], *, spec: dict[str, object], screensh
                     check=False,
                 )
                 subprocess.run(["docker", "rm", "-f", container_name], text=True, capture_output=True, check=False)
+        if timed_out_detail:
+            raise TemplateWorkerTimeout(
+                timed_out_detail,
+                partial_output=_load_json_dict(result_path),
+                screenshot_path=_best_screenshot_path(preferred=screenshot_path, output_dir=screenshot_path.parent),
+                trace_paths=_trace_paths(screenshot_path.parent),
+            )
         raw = str(completed.stdout or "").strip()
         loaded: dict[str, object] | None = None
-        if result_path.exists():
-            try:
-                file_loaded = json.loads(result_path.read_text(encoding="utf-8"))
-                if isinstance(file_loaded, dict):
-                    loaded = file_loaded
-            except Exception as exc:
-                raise RuntimeError(f"template_worker_result_invalid:{type(exc).__name__}:{exc}") from exc
+        loaded = _load_json_dict(result_path)
         if loaded is None and raw:
             for line in reversed([entry.strip() for entry in raw.splitlines() if entry.strip()]):
                 try:
@@ -1296,7 +1362,7 @@ def main() -> int:
     packet.setdefault("login_password", DEFAULT_PASSWORD)
     packet.setdefault("browseract_username", str(packet.get("login_email") or DEFAULT_EMAIL).strip())
     packet.setdefault("browseract_password", str(packet.get("login_password") or DEFAULT_PASSWORD).strip())
-    timeout_seconds = max(120, int(packet.get("timeout_seconds") or 300))
+    timeout_seconds = max(MIN_WORKER_TIMEOUT_SECONDS, int(packet.get("timeout_seconds") or 300))
     result_title = str(packet.get("result_title") or packet.get("title") or spec.get("workflow_name") or "BrowserAct Result").strip()
     run_slug = _slugify(result_title)
     service_key = str(packet.get("service_key") or packet.get("template_key") or "browseract_template").strip() or "browseract_template"
@@ -1317,9 +1383,91 @@ def main() -> int:
     screenshot_path = run_dir / "preview.png"
     try:
         browser_output = _run_browser(packet, spec=spec, screenshot_path=screenshot_path, timeout_seconds=timeout_seconds)
+    except TemplateWorkerTimeout as exc:
+        detail = str(exc or "template_worker_timeout").strip()
+        failure_code = _failure_code_from_error_text(detail) or "timeout"
+        partial_output = dict(exc.partial_output or {})
+        partial_warnings = [
+            str(item or "").strip()
+            for item in list(partial_output.get("warnings") or [])
+            if str(item or "").strip()
+        ]
+        partial_errors = [
+            str(item or "").strip()
+            for item in list(partial_output.get("errors") or [])
+            if str(item or "").strip()
+        ]
+        stage = str(partial_output.get("stage") or "").strip()
+        timeout_screenshot_path = str(exc.screenshot_path or "").strip()
+        timeout_browser_output = {
+            "url": str(partial_output.get("url") or "").strip(),
+            "title": str(partial_output.get("title") or "").strip(),
+            "bodyText": str(
+                partial_output.get("bodyText")
+                or partial_output.get("body_text")
+                or partial_output.get("outputText")
+                or partial_output.get("output_text")
+                or ""
+            ).strip(),
+            "links": list(partial_output.get("links") or []),
+            "extracts": dict(partial_output.get("extracts") or {}),
+            "warnings": partial_warnings + ([f"timeout_stage:{stage}"] if stage else []),
+        }
+        asset_path = ""
+        screenshot_candidate = Path(timeout_screenshot_path) if timeout_screenshot_path else screenshot_path
+        screenshot_data_uri = _image_data_uri(screenshot_candidate)
+        timeout_html_path = run_dir / "timeout.html"
+        try:
+            timeout_html_path.write_text(
+                _standalone_html(
+                    packet=packet,
+                    spec=spec,
+                    browser_output=timeout_browser_output,
+                    screenshot_data_uri=screenshot_data_uri,
+                ),
+                encoding="utf-8",
+            )
+            asset_path = str(timeout_html_path)
+        except Exception:
+            asset_path = ""
+        response = {
+            "service_key": service_key,
+            "result_title": result_title or service_key,
+            "render_status": "failed",
+            "asset_path": asset_path,
+            "mime_type": "text/html",
+            "editor_url": timeout_browser_output["url"] or None,
+            "body_text": timeout_browser_output["bodyText"],
+            "raw_text": timeout_browser_output["bodyText"],
+            "error": detail,
+            "failure_code": failure_code,
+            "ui_failure_code": failure_code,
+            "warnings": timeout_browser_output["warnings"],
+            "screenshot_path": timeout_screenshot_path,
+            "trace_paths": list(exc.trace_paths),
+            "structured_output_json": {
+                "service": service_key,
+                "template_key": str(packet.get("template_key") or ((spec.get("meta") or {}).get("slug")) or "").strip(),
+                "warnings": timeout_browser_output["warnings"],
+                "errors": partial_errors + [detail],
+                "render_status": "failed",
+                "url": timeout_browser_output["url"],
+                "page_title": timeout_browser_output["title"],
+                "extracts": timeout_browser_output["extracts"],
+                "links": timeout_browser_output["links"],
+                "screenshot_path": timeout_screenshot_path,
+                "trace_paths": list(exc.trace_paths),
+                "stage": stage,
+                "failure_code": failure_code,
+                "ui_failure_code": failure_code,
+            },
+        }
+        print(json.dumps(response, ensure_ascii=False))
+        return 1
     except Exception as exc:
         detail = str(exc or "template_worker_failed").strip()
         failure_code = _failure_code_from_error_text(detail)
+        captured_screenshot_path = _best_screenshot_path(preferred=screenshot_path, output_dir=run_dir)
         response = {
             "service_key": service_key,
             "result_title": result_title or service_key,
@@ -1332,12 +1480,17 @@ def main() -> int:
             "error": detail,
             "failure_code": failure_code,
             "ui_failure_code": failure_code,
+            "warnings": [],
+            "screenshot_path": captured_screenshot_path,
+            "trace_paths": _trace_paths(run_dir),
             "structured_output_json": {
                 "service": service_key,
                 "template_key": str(packet.get("template_key") or ((spec.get("meta") or {}).get("slug")) or "").strip(),
                 "warnings": [],
                 "errors": [detail],
                 "render_status": "failed",
+                "screenshot_path": captured_screenshot_path,
+                "trace_paths": _trace_paths(run_dir),
                 **({"failure_code": failure_code, "ui_failure_code": failure_code} if failure_code else {}),
             },
         }
@@ -1367,6 +1520,9 @@ def main() -> int:
         "editor_url": str(browser_output.get("url") or "").strip() or None,
         "body_text": str(browser_output.get("bodyText") or "").strip(),
         "raw_text": str(browser_output.get("bodyText") or "").strip(),
+        "warnings": list(browser_output.get("warnings") or []),
+        "screenshot_path": str(screenshot_path) if screenshot_path.exists() else "",
+        "trace_paths": _trace_paths(run_dir),
         "structured_output_json": {
             "service": service_key,
             "template_key": str(packet.get("template_key") or ((spec.get("meta") or {}).get("slug")) or "").strip(),

@@ -110,6 +110,49 @@ def test_build_safe_work_result_blocks_when_no_research_input_exists() -> None:
     assert result["execution_receipt"]["external_actions_attempted"] == []
 
 
+def test_safe_work_materiality_blocks_low_intent_transcript_signal() -> None:
+    stage_packet = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": "stage_packet:low-intent-transcript",
+        "stage": {
+            "payload": {
+                "adapter_hint": "transcript_signal",
+                "kind": "research_packet",
+                "work_type": "compare_options",
+                "research_query": "Cooking with Kids and Shopping",
+                "search_queries": ["Cooking with Kids and Shopping"],
+            },
+        },
+        "safe_work_order": {"work_type": "compare_options"},
+    }
+    safe_work_result = {
+        "schema": SAFE_WORK_RESULT_SCHEMA,
+        "result_ref": "safe_work_result:low-intent-transcript",
+        "source_packet_ref_hash": "unused",
+        "status": "staged_for_user_decision",
+        "work_type": "compare_options",
+        "summary": "Research a shortlist and stage one reversible option for approval.",
+        "audit": {"status": "pass", "issues": []},
+        "recommended_option_or_draft": {
+            "kind": "shortlist_candidate",
+            "value": {"label": "Google Maps", "url": "https://maps.google.com/"},
+        },
+        "shortlist": [{"label": "Google Maps", "url": "https://maps.google.com/"}],
+        "execution_receipt": {
+            "search_queries_used": ["Cooking with Kids and Shopping 1200 Wien"],
+            "irreversible_actions_attempted": [],
+        },
+    }
+
+    assert (
+        safe_work_decision_materiality_issue(
+            safe_work_result=safe_work_result,
+            stage_packet=stage_packet,
+        )
+        == "transcript_signal_lacks_action_intent"
+    )
+
+
 def test_build_safe_work_result_blocks_flat_property_search_even_when_feature_flag_is_on(monkeypatch) -> None:
     monkeypatch.setenv("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH", "0")
     monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "1")

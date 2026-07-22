@@ -396,16 +396,19 @@ journey_gates:
             - session-binding-inferred
             - session-binding-required-for-replace
         - repo: chummer6-media-factory
-          path: src/Chummer.Media.Factory.Runtime/Assets/CreatorPublicationPlannerService.cs
+          path: docs/MEDIA_CAPABILITY_SIGNOFF.md
           must_contain:
-            - 'PreserveLaneLine("JSON exchange:", handoff.ExchangeParityLines, selectedParityLines);'
-            - 'PreserveLaneLine("Foundry exchange:", handoff.ExchangeParityLines, selectedParityLines);'
-            - 'PreserveLaneLine("Sheet viewer:", handoff.ExchangeParityLines, selectedParityLines);'
-            - 'PreserveLaneLine("Print PDF:", handoff.ExchangeParityLines, selectedParityLines);'
-            - 'PreserveLaneLine("Character template export:", handoff.ExchangeParityLines, selectedParityLines);'
-            - 'PreserveLaneLine("Replay timeline:", handoff.PortabilityPillarLines, selectedPortabilityLines);'
-            - 'PreserveLaneLine("Session recap:", handoff.PortabilityPillarLines, selectedPortabilityLines);'
-            - 'PreserveLaneLine("Run module:", handoff.PortabilityPillarLines, selectedPortabilityLines);'
+            - "structured media recipe lanes for video, audio, preview-card, and packet-bundle siblings"
+            - "build explain companion lanes for approved explain packets rendered into video, audio, preview-card, and packet companions"
+            - "creator promo kit lanes for approved creator manifests rendered into promo video, poster, and preview-card siblings"
+            - "Upstream repos may request media intent. They do not choose provider adapters, provider credentials, storage class, or retention policy."
+        - repo: chummer6-media-factory
+          path: scripts/ai/verify.sh
+          must_contain:
+            - "CreatorPublicationPlannerService"
+            - "GovernedPrepPacketPlannerService"
+            - "Chummer\\.Campaign\\.Contracts"
+            - "verify failed: non-render campaign/publication planning leaked into media-factory surfaces"
         - repo: chummer6-media-factory
           path: src/Chummer.Media.Factory.Runtime/Assets/AssetLifecycleService.cs
           must_contain:
@@ -426,15 +429,11 @@ journey_gates:
             - "Replay-safe dedupe should reuse the same job before expiry."
             - "Backup contract family must stay stable."
             - "Restore must retain pinned approval assets."
+            - "Restore must preserve lifecycle replay counters."
             - "Restore must preserve media dedupe replay counts."
-            - 'Assert(creatorPublicationPlan.EvidenceLines.Any(static line => line.Contains("JSON exchange:", StringComparison.Ordinal)),'
-            - 'Assert(creatorPublicationPlan.EvidenceLines.Any(static line => line.Contains("Foundry exchange:", StringComparison.Ordinal)),'
-            - 'Assert(creatorPublicationPlan.EvidenceLines.Any(static line => line.Contains("Sheet viewer:", StringComparison.Ordinal)),'
-            - 'Assert(creatorPublicationPlan.EvidenceLines.Any(static line => line.Contains("Print PDF:", StringComparison.Ordinal)),'
-            - 'Assert(creatorPublicationPlan.EvidenceLines.Any(static line => line.Contains("Character template export:", StringComparison.Ordinal)),'
-            - 'Assert(creatorPublicationPlan.EvidenceLines.Any(static line => line.Contains("Replay timeline:", StringComparison.Ordinal)),'
-            - 'Assert(creatorPublicationPlan.EvidenceLines.Any(static line => line.Contains("Session recap:", StringComparison.Ordinal)),'
-            - 'Assert(creatorPublicationPlan.EvidenceLines.Any(static line => line.Contains("Run module:", StringComparison.Ordinal)),'
+            - "Retention sweep should expire cache-only entries after TTL."
+            - "Cache-only assets should be gone after expiry sweep."
+            - "Succeeded render jobs must transition to expired after TTL progression."
         - repo: chummer6-ui
           path: Chummer.Presentation/UiKit/ChummerPatternBoundary.cs
           must_contain:

@@ -328,6 +328,24 @@ def main() -> int:
         default=_env_truthy("EA_PROACTIVE_OODA_MIRROR_DELIVERY_PROOF", default=False),
         help="Mirror one action-required packet into receipts/Teable without sending a user notification.",
     )
+    parser.add_argument(
+        "--host-resource-guard",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_HOST_RESOURCE_GUARD", default=True),
+        help="Defer proactive delivery work when the runtime-artifact volume is under host disk pressure.",
+    )
+    parser.add_argument(
+        "--host-resource-guard-max-usage-percent",
+        type=float,
+        default=float(os.getenv("EA_PROACTIVE_OODA_HOST_RESOURCE_GUARD_MAX_USAGE_PERCENT", "95") or "95"),
+        help="Defer when the runtime-artifact volume usage percent meets or exceeds this threshold.",
+    )
+    parser.add_argument(
+        "--host-resource-guard-min-free-gb",
+        type=float,
+        default=float(os.getenv("EA_PROACTIVE_OODA_HOST_RESOURCE_GUARD_MIN_FREE_GB", "10") or "10"),
+        help="Defer when the runtime-artifact volume free space drops to or below this threshold in GiB.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
@@ -363,8 +381,18 @@ def main() -> int:
         digest=digest,
     )
     source_health = _source_health_summary(signals)
+    stage_packet_dir = _stage_packet_dir(args)
+    safe_work_result_dir = _safe_work_result_dir(args, stage_packet_dir=stage_packet_dir)
+    host_resource_guard = _host_resource_guard_snapshot(
+        args,
+        stage_packet_dir=stage_packet_dir,
+        safe_work_result_dir=safe_work_result_dir,
+        receipt_path=str(args.receipt_path or ""),
+    )
     if not args.dry_run:
-        deferred_reason = _operator_pause_defer_reason(args, digest)
+        deferred_reason = _host_resource_guard_defer_reason(args, digest, host_resource_guard=host_resource_guard)
+        if not deferred_reason:
+            deferred_reason = _operator_pause_defer_reason(args, digest)
         if not deferred_reason:
             deferred_reason = _quiet_hours_defer_reason(args, digest)
         if not deferred_reason:
@@ -393,9 +421,8 @@ def main() -> int:
     stage_packet_paths: tuple[str, ...] = ()
     safe_work_result_paths: tuple[str, ...] = ()
     auto_execution_results: tuple[dict[str, Any], ...] = ()
-    stage_packet_dir = _stage_packet_dir(args)
-    safe_work_result_dir = _safe_work_result_dir(args, stage_packet_dir=stage_packet_dir)
-    if digest.items and not args.dry_run and bool(getattr(args, "stage_packets", True)):
+    runtime_artifact_work_allowed = _runtime_artifact_work_allowed(error_code)
+    if digest.items and not args.dry_run and runtime_artifact_work_allowed and bool(getattr(args, "stage_packets", True)):
         stage_result = persist_stage_packets(
             digest=digest,
             output_dir=stage_packet_dir,
@@ -431,11 +458,15 @@ def main() -> int:
             stage_packet_dir=stage_packet_dir,
             safe_work_result_dir=safe_work_result_dir,
         )
-    safe_work_results = _notification_safe_work_previews(
-        args,
-        digest=digest,
-        stage_packet_paths=stage_packet_paths,
-        safe_work_result_paths=safe_work_result_paths,
+    safe_work_results = (
+        _notification_safe_work_previews(
+            args,
+            digest=digest,
+            stage_packet_paths=stage_packet_paths,
+            safe_work_result_paths=safe_work_result_paths,
+        )
+        if runtime_artifact_work_allowed
+        else ()
     )
     if (
         digest.items
@@ -444,7 +475,10 @@ def main() -> int:
         and bool(getattr(args, "safe_work_results", True))
         and safe_work_results
         and not any(bool(getattr(item, "approval_required", False)) for item in digest.items)
-        and not _has_decision_ready_safe_work(safe_work_results)
+        and not _has_decision_ready_safe_work(
+            safe_work_results,
+            stage_packet_paths=stage_packet_paths,
+        )
     ):
         digest = _without_notified_refs(digest)
         error_code = "no_decision_ready_safe_work"
@@ -501,7 +535,9 @@ def main() -> int:
         digest=digest,
         approval_request=approval_request,
         safe_work_results=safe_work_results,
+        stage_packet_paths=stage_packet_paths,
         error_code=error_code,
+        host_resource_guard=host_resource_guard,
     )
     receipt = build_run_receipt(
         digest=digest,
@@ -548,6 +584,7 @@ def main() -> int:
             source_health=source_health,
             approval_callback_cleanup=approval_callback_cleanup,
             property_boundary_cleanup=property_boundary_cleanup,
+            host_resource_guard=host_resource_guard,
         )
         archived_receipt_path = _archived_receipt_path(args, payload=receipt_payload)
         if current_runtime_artifacts_present and _should_archive_runtime_artifacts(error_code):
@@ -572,6 +609,7 @@ def main() -> int:
                 source_health=source_health,
                 approval_callback_cleanup=approval_callback_cleanup,
                 property_boundary_cleanup=property_boundary_cleanup,
+                host_resource_guard=host_resource_guard,
             )
         _write_receipt(Path(args.receipt_path), receipt_payload)
         _write_receipt(archived_receipt_path, receipt_payload)
@@ -593,6 +631,7 @@ def main() -> int:
             approval_callback_cleanup=approval_callback_cleanup,
             property_boundary_cleanup=property_boundary_cleanup,
             followthrough_artifacts=followthrough_artifacts,
+            host_resource_guard=host_resource_guard,
         )
         _write_receipt(Path(args.receipt_path), receipt_payload)
         _write_receipt(archived_receipt_path, receipt_payload)
@@ -615,6 +654,7 @@ def main() -> int:
                 approval_callback_cleanup=approval_callback_cleanup,
                 property_boundary_cleanup=property_boundary_cleanup,
                 followthrough_artifacts=followthrough_artifacts,
+                host_resource_guard=host_resource_guard,
             )
             _write_receipt(Path(args.receipt_path), receipt_payload)
             _write_receipt(archived_receipt_path, receipt_payload)
@@ -637,6 +677,7 @@ def main() -> int:
                         approval_callback_cleanup=approval_callback_cleanup,
                         property_boundary_cleanup=property_boundary_cleanup,
                         followthrough_artifacts=followthrough_artifacts,
+                        host_resource_guard=host_resource_guard,
                     ),
                     "teable_sync": teable_sync,
                 },
@@ -805,6 +846,7 @@ def _receipt_payload(
     approval_callback_cleanup: Mapping[str, Any] | None = None,
     property_boundary_cleanup: Mapping[str, Any] | None = None,
     followthrough_artifacts: Mapping[str, Any] | None = None,
+    host_resource_guard: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload = receipt_to_dict(receipt)
     payload["stage_packet_output_dir"] = str(stage_packet_dir)
@@ -832,6 +874,8 @@ def _receipt_payload(
         payload["property_boundary_cleanup"] = dict(property_boundary_cleanup)
     if followthrough_artifacts:
         payload["followthrough_artifacts"] = dict(followthrough_artifacts)
+    if host_resource_guard:
+        payload["host_resource_guard"] = dict(host_resource_guard)
     return payload
 
 
@@ -1180,8 +1224,6 @@ def _proactive_ooda_auto_execute_candidates(
         stage_packet_paths=stage_packet_paths,
         safe_work_result_paths=safe_work_result_paths,
     ):
-        if not _safe_work_allows_auto_execution(result):
-            continue
         packet_ref = ""
         result_ref = str(result.get("result_ref") or "").strip()
         if not result_ref:
@@ -1190,6 +1232,8 @@ def _proactive_ooda_auto_execute_candidates(
         stage_hash = str(result.get("source_packet_ref_hash") or "").strip()
         stage_packet = stage_packets_by_hash.get(stage_hash)
         if not stage_packet:
+            continue
+        if not _safe_work_allows_auto_execution(result, stage_packet=stage_packet):
             continue
         packet_ref = str(stage_packet.get("packet_ref") or "").strip()
         if not packet_ref:
@@ -1211,8 +1255,12 @@ def _proactive_ooda_auto_execute_candidates(
     return tuple(candidates)
 
 
-def _safe_work_allows_auto_execution(result: Mapping[str, Any]) -> bool:
-    if not _safe_work_allows_delivery_or_auto_execution(result):
+def _safe_work_allows_auto_execution(
+    result: Mapping[str, Any],
+    *,
+    stage_packet: Mapping[str, Any] | None = None,
+) -> bool:
+    if not _safe_work_allows_delivery_or_auto_execution(result, stage_packet=stage_packet):
         return False
     if str(result.get("status") or "").strip() != "staged_for_user_decision":
         return False
@@ -1264,6 +1312,168 @@ def _safe_work_result_dir(args: argparse.Namespace, *, stage_packet_dir: Path) -
     return default_safe_work_result_dir(stage_packet_dir)
 
 
+def _runtime_artifact_work_allowed(error_code: str) -> bool:
+    return not str(error_code or "").strip().startswith("deferred_by_")
+
+
+def _safe_float(value: Any, *, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _host_resource_guard_enabled(args: argparse.Namespace) -> bool:
+    value = getattr(args, "host_resource_guard", None)
+    if value is None:
+        return _env_truthy("EA_PROACTIVE_OODA_HOST_RESOURCE_GUARD", default=True)
+    return bool(value)
+
+
+def _host_resource_guard_max_usage_percent(args: argparse.Namespace) -> float:
+    value = _safe_float(
+        getattr(args, "host_resource_guard_max_usage_percent", os.getenv("EA_PROACTIVE_OODA_HOST_RESOURCE_GUARD_MAX_USAGE_PERCENT", "95")),
+        default=95.0,
+    )
+    return min(max(value, 0.0), 100.0)
+
+
+def _host_resource_guard_min_free_gb(args: argparse.Namespace) -> float:
+    value = _safe_float(
+        getattr(args, "host_resource_guard_min_free_gb", os.getenv("EA_PROACTIVE_OODA_HOST_RESOURCE_GUARD_MIN_FREE_GB", "10")),
+        default=10.0,
+    )
+    return max(value, 0.0)
+
+
+def _existing_path_or_parent(path: Path) -> Path:
+    current = path
+    while not current.exists() and current != current.parent:
+        current = current.parent
+    return current
+
+
+def _host_resource_guard_anchor(
+    *,
+    stage_packet_dir: Path,
+    safe_work_result_dir: Path,
+    receipt_path: str | Path = "",
+) -> Path:
+    candidates = [stage_packet_dir, safe_work_result_dir]
+    receipt_text = str(receipt_path or "").strip()
+    if receipt_text:
+        receipt_candidate = Path(receipt_text)
+        candidates.append(receipt_candidate if receipt_candidate.is_absolute() else ROOT / receipt_candidate)
+    candidates.append(ROOT)
+    for candidate in candidates:
+        existing = _existing_path_or_parent(candidate)
+        if existing.exists():
+            return existing
+    return ROOT
+
+
+def _host_resource_guard_snapshot(
+    args: argparse.Namespace,
+    *,
+    stage_packet_dir: Path,
+    safe_work_result_dir: Path,
+    receipt_path: str | Path = "",
+) -> dict[str, Any]:
+    enabled = _host_resource_guard_enabled(args)
+    max_usage_percent = _host_resource_guard_max_usage_percent(args)
+    min_free_gb = _host_resource_guard_min_free_gb(args)
+    snapshot: dict[str, Any] = {
+        "checked": False,
+        "enabled": enabled,
+        "scope": "runtime_artifact_volume",
+        "status": "disabled" if not enabled else "not_checked",
+        "pressure_detected": False,
+        "blocking_reason": "",
+        "triggered_thresholds": [],
+        "deferred_reason": "",
+        "next_action": "",
+        "usage_percent": None,
+        "available_bytes": 0,
+        "available_gb": 0.0,
+        "max_usage_percent_threshold": max_usage_percent,
+        "min_free_gb_threshold": min_free_gb,
+        "privacy": {
+            "raw_private_path_exposed": False,
+        },
+    }
+    if not enabled:
+        return snapshot
+    anchor = _host_resource_guard_anchor(
+        stage_packet_dir=stage_packet_dir,
+        safe_work_result_dir=safe_work_result_dir,
+        receipt_path=receipt_path,
+    )
+    try:
+        usage = shutil.disk_usage(anchor)
+    except OSError as exc:
+        snapshot.update(
+            {
+                "checked": False,
+                "status": "probe_failed",
+                "blocking_reason": type(exc).__name__,
+                "next_action": "inspect_runtime_artifact_volume_probe",
+            }
+        )
+        return snapshot
+    total_bytes = int(usage.total or 0)
+    used_bytes = int(usage.used or 0)
+    available_bytes = int(usage.free or 0)
+    usage_percent = round((float(used_bytes) / float(total_bytes)) * 100.0, 2) if total_bytes > 0 else None
+    available_gb = round(float(available_bytes) / float(1024 ** 3), 3)
+    triggered_thresholds: list[str] = []
+    if usage_percent is not None and usage_percent >= max_usage_percent:
+        triggered_thresholds.append("usage_percent_threshold_exceeded")
+    if available_gb <= min_free_gb:
+        triggered_thresholds.append("free_space_below_threshold")
+    pressure_detected = bool(triggered_thresholds)
+    blocking_reason = ""
+    if pressure_detected:
+        blocking_reason = (
+            "runtime_artifact_volume_usage_and_free_space_threshold_exceeded"
+            if len(triggered_thresholds) > 1
+            else "runtime_artifact_volume_usage_threshold_exceeded"
+            if triggered_thresholds[0] == "usage_percent_threshold_exceeded"
+            else "runtime_artifact_volume_free_space_threshold_exceeded"
+        )
+    snapshot.update(
+        {
+            "checked": True,
+            "status": "disk_pressure" if pressure_detected else "ok",
+            "pressure_detected": pressure_detected,
+            "blocking_reason": blocking_reason,
+            "triggered_thresholds": triggered_thresholds,
+            "deferred_reason": "deferred_by_host_disk_pressure" if pressure_detected else "",
+            "next_action": "recover_runtime_artifact_volume_pressure" if pressure_detected else "",
+            "usage_percent": usage_percent,
+            "available_bytes": available_bytes,
+            "available_gb": available_gb,
+        }
+    )
+    return snapshot
+
+
+def _host_resource_guard_defer_reason(
+    args: argparse.Namespace,
+    digest: Any,
+    *,
+    host_resource_guard: Mapping[str, Any],
+) -> str:
+    if not getattr(digest, "items", ()):
+        return ""
+    if not _host_resource_guard_enabled(args):
+        return ""
+    if not bool(host_resource_guard.get("checked")):
+        return ""
+    if not bool(host_resource_guard.get("pressure_detected")):
+        return ""
+    return str(host_resource_guard.get("deferred_reason") or "deferred_by_host_disk_pressure").strip()
+
+
 def _notification_safe_work_previews(
     args: argparse.Namespace,
     *,
@@ -1294,11 +1504,22 @@ def _notification_safe_work_previews(
         return ()
 
 
-def _has_decision_ready_safe_work(safe_work_results: Iterable[Mapping[str, Any]]) -> bool:
+def _has_decision_ready_safe_work(
+    safe_work_results: Iterable[Mapping[str, Any]],
+    *,
+    stage_packet_paths: Iterable[str | Path] = (),
+) -> bool:
+    stage_packets_by_hash: dict[str, dict[str, Any]] = {}
+    for raw_path in stage_packet_paths:
+        stage_packet = _read_json_object(raw_path)
+        packet_ref = str(stage_packet.get("packet_ref") or "").strip()
+        if packet_ref:
+            stage_packets_by_hash[_hash_value(packet_ref)] = stage_packet
     for result in safe_work_results:
         if not isinstance(result, Mapping):
             continue
-        if _safe_work_requires_user_action(result):
+        stage_packet = stage_packets_by_hash.get(str(result.get("source_packet_ref_hash") or "").strip(), {})
+        if _safe_work_requires_user_action(result, stage_packet=stage_packet):
             return True
     return False
 
@@ -1362,10 +1583,10 @@ def _notification_approval_request(
             continue
         auto_executed_pairs.add((packet_ref, staged_artifact_ref, action, status))
     for result in ordered_results:
-        if not _safe_work_requires_user_action(result):
-            continue
         packet_hash = str(result.get("source_packet_ref_hash") or "").strip()
         stage_packet = stage_packets_by_hash.get(packet_hash, {})
+        if not _safe_work_requires_user_action(result, stage_packet=stage_packet):
+            continue
         stage_payload = dict(dict(stage_packet.get("stage") or {}).get("payload") or {})
         approval = dict(stage_packet.get("approval") or {})
         packet_ref = str(stage_packet.get("packet_ref") or "").strip()
@@ -1454,8 +1675,12 @@ def _approval_request_operator_action_required(*, stage_payload: Mapping[str, An
     return "operator action required" in normalized
 
 
-def _safe_work_requires_user_action(result: Mapping[str, Any]) -> bool:
-    if not _safe_work_allows_delivery_or_auto_execution(result):
+def _safe_work_requires_user_action(
+    result: Mapping[str, Any],
+    *,
+    stage_packet: Mapping[str, Any] | None = None,
+) -> bool:
+    if not _safe_work_allows_delivery_or_auto_execution(result, stage_packet=stage_packet):
         return False
     status = str(result.get("status") or "").strip()
     if status == "staged_for_user_decision":
@@ -1468,8 +1693,12 @@ def _safe_work_requires_user_action(result: Mapping[str, Any]) -> bool:
     return bool(browser_receipt.get("user_action_required"))
 
 
-def _safe_work_allows_delivery_or_auto_execution(result: Mapping[str, Any]) -> bool:
-    if safe_work_decision_materiality_issue(safe_work_result=result):
+def _safe_work_allows_delivery_or_auto_execution(
+    result: Mapping[str, Any],
+    *,
+    stage_packet: Mapping[str, Any] | None = None,
+) -> bool:
+    if safe_work_decision_materiality_issue(safe_work_result=result, stage_packet=stage_packet):
         return False
     status = str(result.get("status") or "").strip()
     audit = result.get("audit")
@@ -1542,6 +1771,8 @@ def _delivery_guard_snapshot(
     approval_request: Mapping[str, Any] | None,
     safe_work_results: Iterable[Mapping[str, Any]],
     error_code: str,
+    stage_packet_paths: Iterable[str | Path] = (),
+    host_resource_guard: Mapping[str, Any] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     current_now = now or datetime.now(timezone.utc)
@@ -1573,7 +1804,10 @@ def _delivery_guard_snapshot(
         )
     notification_cooldown_active = notification_cooldown_seconds_remaining > 0
     user_action_required = _notification_requires_user_action(approval_request)
-    decision_ready_safe_work = _has_decision_ready_safe_work(safe_work_results)
+    decision_ready_safe_work = _has_decision_ready_safe_work(
+        safe_work_results,
+        stage_packet_paths=stage_packet_paths,
+    )
     if not has_items:
         delivery_state = "no_actionable_items"
     elif error_code:
@@ -1604,6 +1838,7 @@ def _delivery_guard_snapshot(
         "decision_ready_safe_work_present": decision_ready_safe_work,
         "mirror_delivery_proof_enabled": bool(getattr(args, "mirror_delivery_proof", False)),
         "delivery_mirrored_for_proof": str(error_code or "").strip() == "mirrored_delivery_proof",
+        "host_resource_guard": dict(host_resource_guard or {}),
     }
 
 

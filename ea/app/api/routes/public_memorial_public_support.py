@@ -347,6 +347,10 @@ def _public_voice_config_payload(
         "volume": payload.get("volume"),
         "voice_name_hints": [str(item).strip() for item in list(payload.get("voice_name_hints") or [])[:8] if str(item or "").strip()],
         "tts_plugin_options": safe_options,
+        "synthetic_voice_clone_of_memorial_person": payload.get(
+            "synthetic_voice_clone_of_memorial_person"
+        )
+        is True,
         "notes": [item for item in notes[:6] if item],
     }
 

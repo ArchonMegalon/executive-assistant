@@ -111,6 +111,7 @@ def _source_first_memorial_payload(slug: str) -> dict[str, object]:
             {
                 "visibility": "public",
                 "public": True,
+                "approved": True,
                 "label": f"Öffentliche Quelle {index}",
                 "url": f"https://sources.example/manfred/{index}",
                 "status": "belegt",
@@ -471,7 +472,7 @@ def _await_realtime_turn_complete(page: Page, slug: str, action, timeout_ms: int
 @pytest.mark.parametrize(
     ("viewport", "expected_dock_position"),
     [
-        ({"width": 1440, "height": 1100}, "fixed"),
+        ({"width": 1440, "height": 1100}, "relative"),
         ({"width": 430, "height": 932}, "relative"),
         ({"width": 900, "height": 650}, "relative"),
     ],

@@ -48,12 +48,25 @@ def build_payload() -> dict[str, object]:
     runtime_reason = str(public_runtime.get("reason") or "").strip() or "public_runtime_mode_missing"
     runtime_next_action = str(public_runtime.get("next_action") or "").strip() or "deploy_ea_memorial"
 
-    authority_status = str(release_authority.get("status") or release_authority.get("state") or "").strip().lower() or "missing"
+    authority_state = str(release_authority.get("state") or "").strip().lower() or "missing"
+    authority_gate = release_authority.get("gate")
+    authority_gate = authority_gate if isinstance(authority_gate, dict) else {}
+    authority_gate_status = str(authority_gate.get("status") or "").strip().lower() or "missing"
     authority_issues = [
         str(item).strip()
         for item in list(release_authority.get("issues") or [])
         if str(item).strip()
     ]
+    for item in list(authority_gate.get("issues") or []):
+        normalized = str(item).strip()
+        if normalized and normalized not in authority_issues:
+            authority_issues.append(normalized)
+    authority_passed = (
+        authority_state == "clear"
+        and authority_gate_status == "pass"
+        and not authority_issues
+    )
+    authority_status = "pass" if authority_passed else "fail"
     authority_next_action = (
         str(release_authority.get("next_action") or "").strip()
         or "clear_release_authority_for_memorial_deploy"
@@ -85,6 +98,8 @@ def build_payload() -> dict[str, object]:
         },
         "release_authority": {
             "status": authority_status,
+            "state": authority_state,
+            "gate_status": authority_gate_status,
             "issues": authority_issues,
             "next_action": authority_next_action,
             "authority_posture": str(release_authority.get("authority_posture") or "").strip(),

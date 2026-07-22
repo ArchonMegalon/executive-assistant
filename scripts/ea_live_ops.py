@@ -119,6 +119,12 @@ DEFAULT_SONARR_TV_RECEIPT_DIR = ROOT / ".state" / "sonarr-tv"
 DEFAULT_SONARR_METADATA_STALL_AGE_SECONDS = 3600.0
 DEFAULT_SONARR_FFPROBE_TIMEOUT_SECONDS = 15.0
 DEFAULT_SONARR_QUEUE_REPLACEMENT_MIN_AGE_SECONDS = 300.0
+DEFAULT_ONEMIN_OWNER_LEDGER_PATH = ROOT / "config" / "onemin_slot_owners.json"
+DEFAULT_ONEMIN_OWNER_LEDGER_LOCAL_PATH = ROOT / "config" / "onemin_slot_owners.local.json"
+DEFAULT_ONEMIN_DIRECT_REFRESH_STATE_DIR = ROOT / ".state" / "onemin-direct-refresh"
+DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_SIZE = 1
+DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_BACKOFF_SECONDS = 1.0
+DEFAULT_ONEMIN_DIRECT_REFRESH_MAX_RATE_LIMIT_SLEEP_SECONDS = 120.0
 OPERATOR_STREAM_OFFICE_LOOP = "office_loop"
 OPERATOR_STREAM_OFFICE_SETUP = "office_setup"
 OPERATOR_STREAM_RECOVERY = "recovery"
@@ -703,6 +709,358 @@ def _read_json_file(path: Path) -> dict[str, object]:
     except Exception:
         return {}
     return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _path_readable(path: Path) -> bool:
+    try:
+        return path.is_file() and os.access(path, os.R_OK)
+    except Exception:
+        return False
+
+
+def _expand_candidate_paths(raw_path: str) -> tuple[Path, ...]:
+    normalized = str(raw_path or "").strip()
+    if not normalized:
+        return ()
+    candidate = Path(os.path.expandvars(os.path.expanduser(normalized)))
+    if candidate.is_absolute():
+        return (candidate,)
+    filename = candidate.name
+    return (
+        candidate,
+        ROOT / candidate,
+        EA_ROOT / candidate,
+        ROOT / "config" / filename,
+        EA_ROOT / "config" / filename,
+    )
+
+
+def _resolve_onemin_owner_ledger_path(path_text: str = "") -> Path | None:
+    configured = str(path_text or "").strip()
+    env_configured = _env("EA_RESPONSES_ONEMIN_OWNER_LEDGER_PATH")
+    candidates: list[Path] = []
+    for raw in (
+        configured,
+        env_configured,
+        DEFAULT_ONEMIN_OWNER_LEDGER_LOCAL_PATH.as_posix(),
+        DEFAULT_ONEMIN_OWNER_LEDGER_PATH.as_posix(),
+    ):
+        for candidate in _expand_candidate_paths(raw):
+            if candidate not in candidates:
+                candidates.append(candidate)
+    for candidate in candidates:
+        if _path_readable(candidate):
+            return candidate
+    return None
+
+
+def _load_onemin_owner_rows_for_live_ops(owner_ledger_path: str = "") -> tuple[Path | None, list[dict[str, str]], str]:
+    resolved = _resolve_onemin_owner_ledger_path(owner_ledger_path)
+    if resolved is None:
+        return None, [], "owner_ledger_missing"
+    try:
+        payload = json.loads(resolved.read_text(encoding="utf-8"))
+    except Exception:
+        return resolved, [], "owner_ledger_unreadable"
+    if isinstance(payload, dict):
+        items = payload.get("slots") if isinstance(payload.get("slots"), list) else payload.get("owners")
+    elif isinstance(payload, list):
+        items = payload
+    else:
+        items = []
+    rows: list[dict[str, str]] = []
+    for item in items or []:
+        if not isinstance(item, Mapping):
+            continue
+        account_label = str(item.get("account_name") or item.get("slot_env_name") or "").strip()
+        owner_email = str(item.get("owner_email") or item.get("email") or "").strip()
+        owner_name = str(item.get("owner_name") or item.get("name") or "").strip()
+        slot = str(item.get("slot") or "").strip()
+        if not account_label or not owner_email:
+            continue
+        rows.append(
+            {
+                "account_name": account_label,
+                "owner_email": owner_email,
+                "owner_name": owner_name,
+                "slot": slot,
+            }
+        )
+    if not rows:
+        return resolved, [], "owner_ledger_empty"
+    return resolved, rows, ""
+
+
+def _onemin_direct_refresh_output_path(path_text: str = "") -> Path:
+    configured = str(path_text or "").strip()
+    if configured:
+        return Path(os.path.expandvars(os.path.expanduser(configured)))
+    timestamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    return DEFAULT_ONEMIN_DIRECT_REFRESH_STATE_DIR / f"onemin_direct_refresh_{timestamp}.json"
+
+
+def _onemin_direct_refresh_resume_labels(output_path: Path) -> set[str]:
+    payload = _read_json_file(output_path)
+    labels: set[str] = set()
+    for row in list(payload.get("results") or []):
+        if not isinstance(row, Mapping):
+            continue
+        account_label = str(row.get("account_label") or "").strip()
+        if account_label:
+            labels.add(account_label)
+    return labels
+
+
+def _onemin_direct_refresh_candidate_receipt_paths(path_text: str = "") -> tuple[Path, ...]:
+    configured = str(path_text or "").strip()
+    candidates: list[Path] = []
+    if configured:
+        for candidate in _expand_candidate_paths(configured):
+            if candidate not in candidates:
+                candidates.append(candidate)
+        return tuple(candidates)
+    for pattern in (
+        DEFAULT_ONEMIN_DIRECT_REFRESH_STATE_DIR / "onemin_direct_refresh*.json",
+        ROOT / "state" / "onemin_direct_refresh*.json",
+        EA_ROOT / "state" / "onemin_direct_refresh*.json",
+    ):
+        for candidate in sorted(pattern.parent.glob(pattern.name)):
+            if candidate not in candidates:
+                candidates.append(candidate)
+    return tuple(candidates)
+
+
+def _load_latest_onemin_direct_refresh_receipt(path_text: str = "") -> tuple[Path | None, dict[str, object], str]:
+    candidates = _onemin_direct_refresh_candidate_receipt_paths(path_text)
+    if not candidates:
+        return None, {}, "receipt_missing"
+    valid_receipts: list[tuple[Path, dict[str, object]]] = []
+    first_unreadable: Path | None = None
+    for candidate in candidates:
+        if not _path_readable(candidate):
+            continue
+        payload = _read_json_file(candidate)
+        if payload:
+            valid_receipts.append((candidate, payload))
+        elif first_unreadable is None:
+            first_unreadable = candidate
+    if not valid_receipts:
+        if first_unreadable is not None:
+            return first_unreadable, {}, "receipt_unreadable"
+        return None, {}, "receipt_missing"
+
+    def _sort_key(item: tuple[Path, dict[str, object]]) -> tuple[int, str, float]:
+        candidate, payload = item
+        status = str(payload.get("status") or "").strip()
+        observed_at = str(payload.get("observed_at") or payload.get("generated_at") or "").strip()
+        try:
+            mtime = float(candidate.stat().st_mtime)
+        except OSError:
+            mtime = 0.0
+        return (1 if status != "dry_run" else 0, observed_at, mtime)
+
+    selected_path, selected_payload = max(valid_receipts, key=_sort_key)
+    return selected_path, selected_payload, ""
+
+
+def _onemin_direct_refresh_posture_telegram_delivery(
+    value: Mapping[str, object] | None,
+) -> dict[str, object]:
+    delivery = dict(value or {})
+    message_ids = [str(item).strip() for item in list(delivery.get("message_ids") or []) if str(item).strip()]
+    message_count = int(delivery.get("message_count") or 0)
+    if message_count <= 0 and message_ids:
+        message_count = len(message_ids)
+    reason = str(delivery.get("reason") or "").strip()
+    return {
+        "checked": bool(delivery),
+        "sent": bool(delivery.get("sent")),
+        "reason": reason,
+        "ready": bool(delivery.get("ready")),
+        "message_count": max(message_count, 0),
+        "observed_at": str(delivery.get("observed_at") or "").strip(),
+        "source": str(delivery.get("source") or "").strip(),
+        "dry_run": reason == "dry_run",
+    }
+
+
+def _operator_text_for_onemin_direct_refresh_posture(report: Mapping[str, object]) -> str:
+    controls = dict(report.get("controls") or {}) if isinstance(report.get("controls"), Mapping) else {}
+    telegram_delivery = (
+        dict(report.get("telegram_delivery") or {}) if isinstance(report.get("telegram_delivery"), Mapping) else {}
+    )
+    pieces = [
+        f"onemin_direct_refresh_posture status={report.get('status') or 'unknown'}",
+        f"checked={str(bool(report.get('checked'))).lower()}",
+    ]
+    if report.get("receipt_name"):
+        pieces.append(f"receipt={report['receipt_name']}")
+    if report.get("selected_account_count") not in (None, ""):
+        pieces.append(f"selected={report['selected_account_count']}")
+    if report.get("current_run_refreshed_count") not in (None, ""):
+        pieces.append(f"refreshed_now={report['current_run_refreshed_count']}")
+    if report.get("error_count") not in (None, ""):
+        pieces.append(f"errors={report['error_count']}")
+    if report.get("rate_limited") is not None:
+        pieces.append(f"rate_limited={str(bool(report.get('rate_limited'))).lower()}")
+    if controls.get("batch_size") not in (None, ""):
+        pieces.append(f"batch_size={controls['batch_size']}")
+    if controls.get("max_rate_limit_sleep_seconds") not in (None, ""):
+        pieces.append(f"max_rl_sleep={controls['max_rate_limit_sleep_seconds']}")
+    if telegram_delivery.get("checked"):
+        pieces.append(f"telegram={telegram_delivery.get('reason') or 'checked'}")
+    if report.get("next_action"):
+        pieces.append(f"next={report['next_action']}")
+    return "; ".join(str(item) for item in pieces if str(item).strip())
+
+
+def probe_onemin_direct_refresh_posture(
+    *,
+    receipt_path: str = "",
+    output_format: str = "json",
+) -> dict[str, object]:
+    resolved_path, receipt, load_reason = _load_latest_onemin_direct_refresh_receipt(receipt_path)
+    controls = {
+        "batch_size": max(int(receipt.get("batch_size") or DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_SIZE), 1),
+        "batch_backoff_seconds": max(
+            float(receipt.get("batch_backoff_seconds") or DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_BACKOFF_SECONDS),
+            0.0,
+        ),
+        "max_rate_limit_sleep_seconds": max(
+            float(
+                receipt.get("max_rate_limit_sleep_seconds")
+                or DEFAULT_ONEMIN_DIRECT_REFRESH_MAX_RATE_LIMIT_SLEEP_SECONDS
+            ),
+            0.0,
+        ),
+        "continue_on_rate_limit": bool(
+            receipt.get("continue_on_rate_limit")
+            if "continue_on_rate_limit" in receipt
+            else True
+        ),
+        "refresh_transport": str(receipt.get("refresh_transport") or "direct_provider_api").strip(),
+        "proxy_mode": str(receipt.get("proxy_mode") or "direct_no_ui_proxy").strip(),
+        "controls_inferred_from_defaults": any(
+            key not in receipt
+            for key in (
+                "batch_size",
+                "batch_backoff_seconds",
+                "max_rate_limit_sleep_seconds",
+                "continue_on_rate_limit",
+                "refresh_transport",
+                "proxy_mode",
+            )
+        ),
+        "single_account_batch_mode": max(int(receipt.get("batch_size") or DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_SIZE), 1)
+        <= 1,
+    }
+    if not receipt:
+        report: dict[str, object] = {
+            "checked": False,
+            "probe_ok": False,
+            "status": "receipt_unreadable" if load_reason == "receipt_unreadable" else "not_checked",
+            "source": "",
+            "observed_at": "",
+            "reason": load_reason or "receipt_missing",
+            "next_action": "",
+            "ready": False,
+            "receipt_name": resolved_path.name if resolved_path is not None else "",
+            "selected_account_count": 0,
+            "pending_account_count": 0,
+            "owner_row_count": 0,
+            "attempted_count": 0,
+            "current_run_refreshed_count": 0,
+            "refreshed_count": 0,
+            "error_count": 0,
+            "error_code_counts": {},
+            "rate_limited": False,
+            "remaining_credits_total": None,
+            "remaining_credits_min": None,
+            "remaining_credits_max": None,
+            "next_topup_at_earliest": "",
+            "next_topup_at_latest": "",
+            "controls": controls,
+            "telegram_delivery": {
+                "checked": False,
+                "sent": False,
+                "reason": "",
+                "ready": False,
+                "message_count": 0,
+                "observed_at": "",
+                "source": "",
+                "dry_run": False,
+            },
+            "privacy": {
+                "raw_owner_email_exposed": False,
+                "raw_login_secret_exposed": False,
+                "raw_telegram_chat_ref_exposed": False,
+            },
+        }
+    else:
+        report = {
+            "checked": True,
+            "probe_ok": True,
+            "status": str(receipt.get("status") or "unknown").strip() or "unknown",
+            "source": f"private_receipt:{resolved_path.name}" if resolved_path is not None else "private_receipt",
+            "observed_at": str(receipt.get("observed_at") or receipt.get("generated_at") or "").strip(),
+            "reason": str(receipt.get("reason") or "").strip(),
+            "next_action": str(receipt.get("next_action") or "").strip(),
+            "ready": bool(receipt.get("ready")),
+            "receipt_name": resolved_path.name if resolved_path is not None else "",
+            "selected_account_count": int(receipt.get("selected_account_count") or 0),
+            "pending_account_count": int(receipt.get("pending_account_count") or 0),
+            "owner_row_count": int(receipt.get("owner_row_count") or 0),
+            "attempted_count": int(receipt.get("attempted_count") or 0),
+            "current_run_refreshed_count": int(receipt.get("current_run_refreshed_count") or 0),
+            "refreshed_count": int(receipt.get("refreshed_count") or 0),
+            "error_count": int(receipt.get("error_count") or 0),
+            "error_code_counts": {
+                str(key).strip(): int(value or 0)
+                for key, value in dict(receipt.get("error_code_counts") or {}).items()
+                if str(key).strip()
+            },
+            "rate_limited": bool(receipt.get("rate_limited")),
+            "remaining_credits_total": receipt.get("remaining_credits_total"),
+            "remaining_credits_min": receipt.get("remaining_credits_min"),
+            "remaining_credits_max": receipt.get("remaining_credits_max"),
+            "next_topup_at_earliest": str(receipt.get("next_topup_at_earliest") or "").strip(),
+            "next_topup_at_latest": str(receipt.get("next_topup_at_latest") or "").strip(),
+            "controls": controls,
+            "telegram_delivery": _onemin_direct_refresh_posture_telegram_delivery(
+                receipt.get("telegram_delivery") if isinstance(receipt.get("telegram_delivery"), Mapping) else {}
+            ),
+            "privacy": {
+                "raw_owner_email_exposed": False,
+                "raw_login_secret_exposed": False,
+                "raw_telegram_chat_ref_exposed": False,
+            },
+        }
+    next_action_surface = _next_action_surface_fields(str(report.get("next_action") or ""))
+    for key, value in next_action_surface.items():
+        if not str(report.get(key) or "").strip():
+            report[key] = value
+    if output_format == "operator":
+        report["operator_text"] = _operator_text_for_onemin_direct_refresh_posture(report)
+    return report
+
+
+@contextmanager
+def _temporary_env(overrides: Mapping[str, object]):
+    previous: dict[str, str | None] = {}
+    try:
+        for key, value in overrides.items():
+            previous[key] = os.environ.get(key)
+            if value in (None, ""):
+                os.environ.pop(key, None)
+            else:
+                os.environ[str(key)] = str(value)
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def _mymedia_runtime_defaults_path() -> Path:
@@ -1801,6 +2159,42 @@ def _docker_inspect_container_json(
     return dict(payload[0])
 
 
+def _host_root_disk_posture() -> dict[str, object]:
+    try:
+        usage = shutil.disk_usage("/")
+    except Exception:
+        return {
+            "usage_percent": None,
+            "available_bytes": None,
+            "available_gb": None,
+        }
+    total = int(usage.total or 0)
+    free = int(usage.free or 0)
+    usage_percent = round(((total - free) / total) * 100.0, 1) if total > 0 else None
+    return {
+        "usage_percent": usage_percent,
+        "available_bytes": free,
+        "available_gb": round(free / (1024 ** 3), 2),
+    }
+
+
+def _container_state_error_kind(state: Mapping[str, object]) -> str:
+    error = str(state.get("Error") or "").strip().lower()
+    if "no space left on device" in error:
+        return "host_disk_pressure"
+    if bool(state.get("OOMKilled")):
+        return "oom_killed"
+    if error:
+        return "container_error"
+    try:
+        exit_code = int(state.get("ExitCode") or 0)
+    except Exception:
+        exit_code = 0
+    if exit_code == 137:
+        return "terminated_137"
+    return ""
+
+
 def _docker_restart_container(
     container_name: str,
     *,
@@ -1948,16 +2342,167 @@ def _runtime_container_remove_file(container: str, remote_path: str, *, timeout_
         return
 
 
-def _runtime_container_preflight() -> dict[str, object]:
+def _runtime_container_preflight(*, timeout_seconds: float = 45.0) -> dict[str, object]:
     code = (
         "import json\n"
         "from app.services.audiobook_epub_pipeline import audiobook_runtime_preflight\n"
         "print(json.dumps(audiobook_runtime_preflight(), sort_keys=True))\n"
     )
-    exit_code, payload, _container_name = _runtime_container_exec_json(code=code, timeout_seconds=20.0)
+    exit_code, payload, _container_name = _runtime_container_exec_json(
+        code=code,
+        timeout_seconds=max(float(timeout_seconds or 45.0), 1.0),
+    )
     if exit_code != 0:
         return {}
     return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _sanitized_unmixr_credit_balance(payload: Mapping[str, object]) -> dict[str, object]:
+    rows: list[dict[str, object]] = []
+    allowed_error_types = {
+        "Exception",
+        "HTTPError",
+        "JSONDecodeError",
+        "OSError",
+        "TimeoutError",
+        "URLError",
+        "UnicodeDecodeError",
+        "ValueError",
+    }
+
+    def _nonnegative_int(value: object, *, maximum: int | None = None) -> int:
+        try:
+            normalized = max(int(value or 0), 0)
+        except (TypeError, ValueError, OverflowError):
+            normalized = 0
+        return min(normalized, maximum) if maximum is not None else normalized
+
+    for index, raw_row in enumerate(list(payload.get("rows") or []), start=1):
+        if not isinstance(raw_row, Mapping):
+            continue
+        http_status = _nonnegative_int(raw_row.get("http_status"), maximum=599)
+        row: dict[str, object] = {"slot": index, "http_status": http_status}
+        if http_status == 200:
+            row.update(
+                {
+                    "prebuilt_credits": _nonnegative_int(raw_row.get("prebuilt_credits")),
+                    "cloned_credits": _nonnegative_int(raw_row.get("cloned_credits")),
+                    "cloned_profile": _nonnegative_int(raw_row.get("cloned_profile")),
+                }
+            )
+        else:
+            error_type = str(raw_row.get("error_type") or "Exception").strip()
+            row["error_type"] = error_type if error_type in allowed_error_types else "Exception"
+        rows.append(row)
+
+    successful = [row for row in rows if int(row.get("http_status") or 0) == 200]
+    prebuilt = [int(row.get("prebuilt_credits") or 0) for row in successful]
+    cloned = [int(row.get("cloned_credits") or 0) for row in successful]
+    observed_at = str(payload.get("observed_at") or "").strip()
+    try:
+        parsed_observed_at = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+        if parsed_observed_at.tzinfo is None:
+            raise ValueError("timezone_required")
+        observed_at = parsed_observed_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
+    except (TypeError, ValueError, OverflowError):
+        observed_at = _utc_now()
+
+    return {
+        "contract_name": "ea.unmixr_credit_balance.v1",
+        "status": "pass" if successful else "probe_failed",
+        "observed_at": observed_at,
+        "configured_slot_count": len(rows),
+        "successful_slot_count": len(successful),
+        "positive_prebuilt_slot_count": sum(1 for value in prebuilt if value > 0),
+        "prebuilt_credits_min": min(prebuilt) if prebuilt else 0,
+        "prebuilt_credits_max": max(prebuilt) if prebuilt else 0,
+        "cloned_credits_min": min(cloned) if cloned else 0,
+        "cloned_credits_max": max(cloned) if cloned else 0,
+        "rows": rows,
+        "raw_credentials_exposed": False,
+        "raw_response_bodies_exposed": False,
+    }
+
+
+def _runtime_container_unmixr_credit_balance(*, timeout_seconds: float = 30.0) -> dict[str, object]:
+    code = """
+import json
+import urllib.error
+import urllib.request
+from datetime import UTC, datetime
+from app.services.memorial_openvoice import _unmixr_api_key_slots
+
+rows = []
+for index, (_label, api_key) in enumerate(_unmixr_api_key_slots(), start=1):
+    row = {"slot": index}
+    try:
+        request = urllib.request.Request(
+            "https://unmixr.com/api/v1/credit-balance/",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            method="GET",
+        )
+        with urllib.request.urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+            credits = dict(payload.get("credits") or {}) if isinstance(payload, dict) else {}
+            row.update(
+                {
+                    "http_status": int(getattr(response, "status", 200) or 200),
+                    "prebuilt_credits": int(credits.get("prebuilt_credits") or 0),
+                    "cloned_credits": int(credits.get("cloned_credits") or 0),
+                    "cloned_profile": int(credits.get("cloned_profile") or 0),
+                }
+            )
+    except urllib.error.HTTPError as exc:
+        row.update({"http_status": int(exc.code), "error_type": "HTTPError"})
+    except Exception as exc:
+        row.update({"http_status": 0, "error_type": type(exc).__name__})
+    rows.append(row)
+
+successful = [row for row in rows if int(row.get("http_status") or 0) == 200]
+prebuilt = [int(row.get("prebuilt_credits") or 0) for row in successful]
+cloned = [int(row.get("cloned_credits") or 0) for row in successful]
+print(
+    json.dumps(
+        {
+            "contract_name": "ea.unmixr_credit_balance.v1",
+            "status": "pass" if successful else "probe_failed",
+            "observed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "configured_slot_count": len(rows),
+            "successful_slot_count": len(successful),
+            "positive_prebuilt_slot_count": sum(1 for value in prebuilt if value > 0),
+            "prebuilt_credits_min": min(prebuilt) if prebuilt else 0,
+            "prebuilt_credits_max": max(prebuilt) if prebuilt else 0,
+            "cloned_credits_min": min(cloned) if cloned else 0,
+            "cloned_credits_max": max(cloned) if cloned else 0,
+            "rows": rows,
+            "raw_credentials_exposed": False,
+            "raw_response_bodies_exposed": False,
+        },
+        sort_keys=True,
+    )
+)
+""".strip()
+    exit_code, payload, container = _runtime_container_exec_json(
+        code=code,
+        timeout_seconds=max(float(timeout_seconds or 30.0), 1.0),
+    )
+    if exit_code != 0 or not isinstance(payload, dict):
+        raw_reason = str(payload.get("reason") or "").strip() if isinstance(payload, dict) else ""
+        if exit_code == 124 or raw_reason.startswith("TimeoutExpired"):
+            reason = "runtime_container_timeout"
+        elif raw_reason == "runtime_container_unconfigured":
+            reason = raw_reason
+        else:
+            reason = f"runtime_container_exec_exit_{exit_code}"
+        return {
+            "contract_name": "ea.unmixr_credit_balance.v1",
+            "status": "probe_failed",
+            "reason": reason,
+            "runtime_container": container,
+            "raw_credentials_exposed": False,
+            "raw_response_bodies_exposed": False,
+        }
+    return _sanitized_unmixr_credit_balance(payload)
 
 
 @lru_cache(maxsize=1)
@@ -2800,24 +3345,74 @@ def probe_provider(provider: str, *, output_format: str = "json", timeout_second
             output_format=output_format,
         )
     elif provider_key == "unmixr":
-        preflight = _runtime_container_preflight() or audiobook_runtime_preflight()
+        runtime_preflight = _runtime_container_preflight(
+            timeout_seconds=max(float(timeout_seconds or 20.0), 45.0)
+        )
+        preflight_source = "runtime_container" if runtime_preflight else "host_fallback"
+        preflight = runtime_preflight or audiobook_runtime_preflight()
         provider_payload = dict(preflight.get("provider") or {})
+        credit_balance = (
+            _runtime_container_unmixr_credit_balance(
+                timeout_seconds=max(float(timeout_seconds or 20.0), 30.0)
+            )
+            if runtime_preflight
+            else {}
+        )
+        credit_balance_ready = str(credit_balance.get("status") or "").strip() == "pass"
+        configured_slot_count = int(
+            credit_balance.get("configured_slot_count")
+            or provider_payload.get("api_key_slot_count")
+            or 0
+        )
+        successful_slot_count = int(credit_balance.get("successful_slot_count") or 0)
+        positive_slot_count = int(credit_balance.get("positive_prebuilt_slot_count") or 0)
+        operational_status = _unmixr_runtime_operational_status(preflight)
+        if not runtime_preflight and operational_status == "pass":
+            operational_status = "warn"
+        elif runtime_preflight and not credit_balance_ready and operational_status == "pass":
+            operational_status = "warn"
+        elif credit_balance_ready and positive_slot_count <= 0:
+            operational_status = "fail"
+        elif credit_balance_ready and (
+            successful_slot_count < configured_slot_count
+            or positive_slot_count < successful_slot_count
+        ):
+            operational_status = "warn"
         report = {
             "provider_key": "unmixr",
             "display_name": _provider_display_name("unmixr"),
-            "status": _unmixr_runtime_operational_status(preflight),
-            "remaining": provider_payload.get("api_key_slot_count"),
-            "unit": "configured_api_key_slots",
+            "status": operational_status,
+            "remaining": (
+                int(credit_balance.get("prebuilt_credits_min") or 0)
+                if credit_balance_ready
+                else provider_payload.get("api_key_slot_count")
+            ),
+            "unit": (
+                "prebuilt_character_credits_min_per_slot"
+                if credit_balance_ready
+                else "configured_api_key_slots"
+            ),
             "refresh_at": "",
-            "observed_at": str(preflight.get("observed_at") or "").strip(),
+            "observed_at": str(
+                (credit_balance.get("observed_at") if credit_balance_ready else "")
+                or preflight.get("observed_at")
+                or ""
+            ).strip(),
             "account_label": "",
-            "source": str(preflight.get("contract_name") or "ea.telegram_epub_audiobook_runtime_preflight.v1"),
+            "source": str(
+                (credit_balance.get("contract_name") if credit_balance_ready else "")
+                or preflight.get("contract_name")
+                or "ea.telegram_epub_audiobook_runtime_preflight.v1"
+            ),
             "raw": {
                 "voice_catalog_count": provider_payload.get("voice_catalog_count"),
                 "voice_discovery_enabled": provider_payload.get("voice_discovery_enabled"),
                 "unmixr_auto_render_enabled": provider_payload.get("unmixr_auto_render_enabled"),
                 "voice_audition_min_candidates": provider_payload.get("voice_audition_min_candidates"),
                 "runtime_container": _runtime_container_name(),
+                "preflight_execution_source": preflight_source,
+                "runtime_preflight_available": bool(runtime_preflight),
+                "credit_balance": credit_balance,
                 "preflight_status": str(preflight.get("status") or "").strip(),
                 "preflight_failed_checks": list(preflight.get("failed_checks") or []),
                 "preflight_warned_checks": list(preflight.get("warned_checks") or []),
@@ -2844,6 +3439,402 @@ def probe_provider(provider: str, *, output_format: str = "json", timeout_second
         }
     if output_format == "operator" and provider_key != "pushbullet":
         report["operator_text"] = _operator_text_for_provider(report)
+    return report
+
+
+def _operator_text_for_onemin_direct_refresh(report: Mapping[str, object]) -> str:
+    pieces = [
+        f"onemin_direct_refresh status={report.get('status') or 'unknown'}",
+        f"ready={str(bool(report.get('ready'))).lower()}",
+    ]
+    for field_name, label in (
+        ("selected_account_count", "selected"),
+        ("resume_success_count", "resumed"),
+        ("current_run_refreshed_count", "refreshed_now"),
+        ("refreshed_count", "refreshed_total"),
+        ("error_count", "errors"),
+    ):
+        if report.get(field_name) not in (None, ""):
+            pieces.append(f"{label}={report[field_name]}")
+    if report.get("rate_limited") is not None:
+        pieces.append(f"rate_limited={str(bool(report.get('rate_limited'))).lower()}")
+    if report.get("remaining_credits_total") not in (None, ""):
+        pieces.append(f"remaining_total={report['remaining_credits_total']}")
+    if report.get("next_topup_at_earliest"):
+        pieces.append(f"next_topup={report['next_topup_at_earliest']}")
+    if report.get("output_json"):
+        pieces.append(f"receipt={Path(str(report['output_json'])).name}")
+    return "; ".join(str(item) for item in pieces if str(item).strip())
+
+
+def _onemin_direct_refresh_telegram_text(report: Mapping[str, object]) -> str:
+    error_counts = dict(report.get("error_code_counts") or {}) if isinstance(report.get("error_code_counts"), Mapping) else {}
+    error_summary = ", ".join(
+        f"{key}={value}"
+        for key, value in sorted(
+            ((str(key or "").strip(), int(value or 0)) for key, value in error_counts.items() if str(key or "").strip()),
+            key=lambda item: item[0],
+        )[:3]
+    )
+    lines = [
+        f"1minAI direct refresh: {report.get('status') or 'unknown'}",
+        (
+            f"Selected {int(report.get('selected_account_count') or 0)}, "
+            f"refreshed now {int(report.get('current_run_refreshed_count') or 0)}, "
+            f"refreshed total {int(report.get('refreshed_count') or 0)}."
+        ),
+        (
+            f"Errors {int(report.get('error_count') or 0)}; "
+            f"rate limited {'yes' if bool(report.get('rate_limited')) else 'no'}."
+        ),
+    ]
+    if report.get("remaining_credits_total") not in (None, ""):
+        lines.append(
+            "Credits across refreshed accounts: "
+            f"{report['remaining_credits_total']} total "
+            f"(min {report.get('remaining_credits_min')}, max {report.get('remaining_credits_max')})."
+        )
+    if report.get("next_topup_at_earliest"):
+        lines.append(
+            "Observed next topups: "
+            f"{report['next_topup_at_earliest']} to {report.get('next_topup_at_latest') or report['next_topup_at_earliest']}."
+        )
+    if error_summary:
+        lines.append(f"Error codes: {error_summary}.")
+    if report.get("next_action"):
+        lines.append(f"Next action: {report['next_action']}.")
+    if report.get("output_json"):
+        lines.append(f"Receipt: {Path(str(report['output_json'])).name}.")
+    return "\n".join(line for line in lines if str(line).strip())
+
+
+def _summarize_onemin_direct_refresh_results(results: list[dict[str, object]]) -> dict[str, object]:
+    remaining_values = [
+        float(item.get("remaining_credits") or 0.0)
+        for item in results
+        if item.get("remaining_credits") not in (None, "")
+    ]
+    next_topups = sorted(
+        str(item.get("next_topup_at") or "").strip()
+        for item in results
+        if str(item.get("next_topup_at") or "").strip()
+    )
+    return {
+        "remaining_credits_total": round(sum(remaining_values), 2) if remaining_values else None,
+        "remaining_credits_min": round(min(remaining_values), 2) if remaining_values else None,
+        "remaining_credits_max": round(max(remaining_values), 2) if remaining_values else None,
+        "next_topup_at_earliest": next_topups[0] if next_topups else "",
+        "next_topup_at_latest": next_topups[-1] if next_topups else "",
+    }
+
+
+def _run_onemin_direct_api_refresh(
+    *,
+    owner_ledger_path: Path,
+    account_labels: list[str],
+    account_login_credentials: dict[str, dict[str, str]],
+    timeout_seconds: float,
+    batch_size: int,
+    batch_backoff_seconds: float,
+    max_rate_limit_sleep_seconds: float,
+    continue_on_rate_limit: bool,
+) -> tuple[list[dict[str, object]], list[dict[str, object]], list[dict[str, object]], int, int, bool]:
+    from app.api.routes import providers as providers_route
+
+    env_overrides = {
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_PATH": owner_ledger_path.as_posix(),
+        "ONEMIN_DIRECT_API_BATCH_SIZE": str(max(int(batch_size or 1), 1)),
+        "ONEMIN_DIRECT_API_BATCH_BACKOFF_SECONDS": str(max(float(batch_backoff_seconds or 0.0), 0.0)),
+        "ONEMIN_DIRECT_API_MAX_RATE_LIMIT_SLEEP_SECONDS": str(max(float(max_rate_limit_sleep_seconds or 0.0), 0.0)),
+        "ONEMIN_DIRECT_API_PROXY_SERVER": None,
+        "ONEMIN_DIRECT_API_PROXY_POOL": None,
+        "ONEMIN_DIRECT_API_PROXY_USERNAME": None,
+        "ONEMIN_DIRECT_API_PROXY_PASSWORD": None,
+        "EA_ONEMIN_DIRECT_API_PROXY_SERVER": None,
+        "EA_ONEMIN_DIRECT_API_PROXY_POOL": None,
+        "EA_ONEMIN_DIRECT_API_PROXY_USERNAME": None,
+        "EA_ONEMIN_DIRECT_API_PROXY_PASSWORD": None,
+        "EA_UI_BROWSER_PROXY_SERVER": None,
+        "EA_UI_BROWSER_PROXY_POOL": None,
+        "EA_UI_BROWSER_PROXY_USERNAME": None,
+        "EA_UI_BROWSER_PROXY_PASSWORD": None,
+        "EA_UI_BROWSER_PROXY_BYPASS": None,
+    }
+    with _temporary_env(env_overrides):
+        clear_quarantine = getattr(providers_route, "_clear_onemin_direct_api_quarantine", None)
+        if callable(clear_quarantine):
+            clear_quarantine()
+        return providers_route._refresh_onemin_via_provider_api(
+            include_members=False,
+            timeout_seconds=max(int(float(timeout_seconds or 180.0)), 30),
+            all_accounts=True,
+            continue_on_rate_limit=bool(continue_on_rate_limit),
+            account_labels={str(item).strip() for item in account_labels if str(item).strip()},
+            account_login_credentials=dict(account_login_credentials),
+        )
+
+
+def refresh_onemin_direct_api(
+    *,
+    account_labels: list[str] | tuple[str, ...] | None = None,
+    max_accounts: int = 0,
+    owner_ledger_path: str = "",
+    output_json: str = "",
+    batch_size: int = DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_SIZE,
+    batch_backoff_seconds: float = DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_BACKOFF_SECONDS,
+    max_rate_limit_sleep_seconds: float = DEFAULT_ONEMIN_DIRECT_REFRESH_MAX_RATE_LIMIT_SLEEP_SECONDS,
+    continue_on_rate_limit: bool = True,
+    send_telegram_to_principal: str = "",
+    dry_run: bool = False,
+    timeout_seconds: float = 180.0,
+    output_format: str = "json",
+    telegram_operator_streams: tuple[str, ...] | str | None = None,
+) -> dict[str, object]:
+    observed_at = _utc_now()
+    operator_stream = OPERATOR_STREAM_RECOVERY
+    allowed_operator_streams = _effective_telegram_operator_streams(telegram_operator_streams)
+    effective_batch_size = max(int(batch_size or 1), 1)
+    effective_batch_backoff_seconds = max(float(batch_backoff_seconds or 0.0), 0.0)
+    effective_max_rate_limit_sleep_seconds = max(float(max_rate_limit_sleep_seconds or 0.0), 0.0)
+    effective_continue_on_rate_limit = bool(continue_on_rate_limit)
+    resolved_owner_ledger_path, all_owner_rows, owner_row_reason = _load_onemin_owner_rows_for_live_ops(owner_ledger_path)
+    resolved_output_path = _onemin_direct_refresh_output_path(output_json)
+    prior_payload = _read_json_file(resolved_output_path)
+    prior_results = [dict(item) for item in list(prior_payload.get("results") or []) if isinstance(item, Mapping)]
+    prior_success_labels = {
+        str(item.get("account_label") or "").strip()
+        for item in prior_results
+        if str(item.get("account_label") or "").strip()
+    }
+    requested_labels = [str(value or "").strip() for value in list(account_labels or []) if str(value or "").strip()]
+    selected_rows = [
+        dict(row)
+        for row in all_owner_rows
+        if not requested_labels or str(row.get("account_name") or "").strip() in set(requested_labels)
+    ]
+    if max_accounts > 0:
+        selected_rows = selected_rows[: max(int(max_accounts), 0)]
+    pending_rows = [
+        dict(row)
+        for row in selected_rows
+        if str(row.get("account_name") or "").strip() not in prior_success_labels
+    ]
+    password = _env("ONEMIN_DEFAULT_PASSWORD")
+    report: dict[str, object] = {
+        "probe_ok": True,
+        "ready": False,
+        "status": "unknown",
+        "reason": "",
+        "operator_stream": operator_stream,
+        "allowed_operator_streams": list(allowed_operator_streams),
+        "selected_account_count": len(selected_rows),
+        "owner_row_count": len(all_owner_rows),
+        "resume_success_count": len(prior_success_labels),
+        "pending_account_count": len(pending_rows),
+        "current_run_refreshed_count": 0,
+        "refreshed_count": len(prior_results),
+        "attempted_count": 0,
+        "error_count": 0,
+        "rate_limited": False,
+        "current_run_error_code_counts": {},
+        "error_code_counts": {},
+        "remaining_credits_total": None,
+        "remaining_credits_min": None,
+        "remaining_credits_max": None,
+        "next_topup_at_earliest": "",
+        "next_topup_at_latest": "",
+        "results": prior_results,
+        "errors": [],
+        "owner_ledger_path": resolved_owner_ledger_path.as_posix() if resolved_owner_ledger_path is not None else "",
+        "output_json": resolved_output_path.as_posix(),
+        "source": "scripts.ea_live_ops.refresh_onemin_direct_api",
+        "observed_at": observed_at,
+        "refresh_transport": "direct_provider_api",
+        "proxy_mode": "direct_no_ui_proxy",
+        "batch_size": effective_batch_size,
+        "batch_backoff_seconds": effective_batch_backoff_seconds,
+        "max_rate_limit_sleep_seconds": effective_max_rate_limit_sleep_seconds,
+        "continue_on_rate_limit": effective_continue_on_rate_limit,
+        "telegram_delivery": {},
+    }
+    if resolved_owner_ledger_path is None:
+        report["probe_ok"] = False
+        report["status"] = "blocked_owner_ledger_missing"
+        report["reason"] = owner_row_reason or "owner_ledger_missing"
+        report["next_action"] = "repair_onemin_owner_ledger_projection"
+    elif not all_owner_rows:
+        report["probe_ok"] = False
+        report["status"] = "blocked_no_accounts"
+        report["reason"] = owner_row_reason or "owner_ledger_empty"
+        report["next_action"] = "repair_onemin_owner_ledger_projection"
+    elif not password and not dry_run:
+        report["probe_ok"] = False
+        report["status"] = "blocked_password_missing"
+        report["reason"] = "onemin_password_missing"
+        report["next_action"] = "configure_onemin_default_password"
+    elif not pending_rows:
+        report["ready"] = True
+        report["status"] = "already_refreshed"
+        report["reason"] = "all_selected_accounts_already_refreshed"
+        report["next_action"] = ""
+    elif dry_run:
+        report["status"] = "dry_run"
+        report["reason"] = "dry_run"
+        report["next_action"] = "resume_onemin_direct_refresh"
+    else:
+        run_started = time.time()
+        refresh_exception: Exception | None = None
+        account_login_credentials = {
+            str(row.get("account_name") or "").strip(): {
+                "login_email": str(row.get("owner_email") or "").strip(),
+                "login_password": password,
+            }
+            for row in pending_rows
+            if str(row.get("account_name") or "").strip() and str(row.get("owner_email") or "").strip()
+        }
+        try:
+            billing_results, _member_results, errors, attempted_count, skipped_count, rate_limited = _run_onemin_direct_api_refresh(
+                owner_ledger_path=resolved_owner_ledger_path,
+                account_labels=[str(row.get("account_name") or "").strip() for row in pending_rows],
+                account_login_credentials=account_login_credentials,
+                timeout_seconds=max(float(timeout_seconds or 180.0), 30.0),
+                batch_size=effective_batch_size,
+                batch_backoff_seconds=effective_batch_backoff_seconds,
+                max_rate_limit_sleep_seconds=effective_max_rate_limit_sleep_seconds,
+                continue_on_rate_limit=effective_continue_on_rate_limit,
+            )
+        except Exception as exc:
+            refresh_exception = exc
+            report.update(
+                {
+                    "probe_ok": False,
+                    "status": "failed",
+                    "reason": type(exc).__name__,
+                    "next_action": "inspect_onemin_direct_refresh_runtime",
+                    "error_count": 1,
+                    "errors": [
+                        {
+                            "account_label": "",
+                            "error": (str(exc).strip() or type(exc).__name__)[:400],
+                            "error_code": type(exc).__name__,
+                        }
+                    ],
+                    "duration_seconds": round(time.time() - run_started, 3),
+                }
+            )
+            billing_results = []
+            errors = []
+            attempted_count = 0
+            skipped_count = 0
+            rate_limited = False
+        current_results = []
+        for row in billing_results:
+            if not isinstance(row, Mapping):
+                continue
+            account_label = str(row.get("account_label") or "").strip()
+            if not account_label:
+                continue
+            current_results.append(
+                {
+                    "account_label": account_label,
+                    "remaining_credits": row.get("remaining_credits"),
+                    "next_topup_at": str(row.get("next_topup_at") or "").strip(),
+                    "refresh_backend": str(row.get("refresh_backend") or "").strip(),
+                    "observed_at": str(row.get("observed_at") or observed_at).strip() or observed_at,
+                }
+            )
+        all_results_by_label: dict[str, dict[str, object]] = {
+            str(item.get("account_label") or "").strip(): dict(item)
+            for item in prior_results
+            if str(item.get("account_label") or "").strip()
+        }
+        for row in current_results:
+            all_results_by_label[str(row.get("account_label") or "").strip()] = dict(row)
+        all_results = list(all_results_by_label.values())
+        normalized_errors: list[dict[str, object]] = []
+        current_error_code_counts: dict[str, int] = {}
+        for row in errors:
+            if not isinstance(row, Mapping):
+                continue
+            account_label = str(row.get("account_label") or "").strip()
+            error_text = str(row.get("error") or "").strip()
+            error_code = error_text.partition(":")[0].strip() or "unknown_error"
+            current_error_code_counts[error_code] = current_error_code_counts.get(error_code, 0) + 1
+            normalized_errors.append(
+                {
+                    "account_label": account_label,
+                    "error": error_text[:400],
+                    "error_code": error_code,
+                }
+            )
+        if refresh_exception is None:
+            report.update(
+                {
+                    "ready": bool(len(all_results) >= len(selected_rows) and not normalized_errors),
+                    "status": (
+                        "ready"
+                        if len(all_results) >= len(selected_rows) and not normalized_errors
+                        else "partial_rate_limited"
+                        if rate_limited and current_results
+                        else "rate_limited"
+                        if rate_limited
+                        else "partial"
+                        if current_results
+                        else "failed"
+                    ),
+                    "reason": (
+                        "refreshed"
+                        if len(all_results) >= len(selected_rows) and not normalized_errors
+                        else "cloudflare_rate_limited"
+                        if rate_limited
+                        else "partial_refresh_with_errors"
+                        if current_results
+                        else "refresh_failed"
+                    ),
+                    "next_action": (
+                        ""
+                        if len(all_results) >= len(selected_rows) and not normalized_errors
+                        else "resume_onemin_direct_refresh_after_cooldown"
+                        if rate_limited
+                        else "review_onemin_refresh_errors_and_resume"
+                        if normalized_errors
+                        else "resume_onemin_direct_refresh"
+                    ),
+                    "current_run_refreshed_count": len(current_results),
+                    "refreshed_count": len(all_results),
+                    "attempted_count": int(attempted_count or 0),
+                    "skipped_count": int(skipped_count or 0),
+                    "error_count": len(normalized_errors),
+                    "rate_limited": bool(rate_limited),
+                    "current_run_error_code_counts": current_error_code_counts,
+                    "error_code_counts": current_error_code_counts,
+                    "results": all_results,
+                    "errors": normalized_errors,
+                    "duration_seconds": round(time.time() - run_started, 3),
+                }
+            )
+    report.update(_summarize_onemin_direct_refresh_results([dict(item) for item in list(report.get("results") or []) if isinstance(item, Mapping)]))
+    report.update(_next_action_surface_fields(str(report.get("next_action") or "")))
+    report["operator_text"] = _operator_text_for_onemin_direct_refresh(report)
+    if str(send_telegram_to_principal or "").strip():
+        if not _telegram_operator_stream_allowed(operator_stream, allowed_operator_streams=allowed_operator_streams):
+            report["telegram_delivery"] = _suppressed_telegram_delivery(
+                principal_id=str(send_telegram_to_principal or "").strip(),
+                operator_stream=operator_stream,
+                allowed_operator_streams=allowed_operator_streams,
+                observed_at=observed_at,
+                source="scripts.ea_live_ops.refresh_onemin_direct_api",
+            )
+        else:
+            report["telegram_delivery"] = send_telegram(
+                principal_id=str(send_telegram_to_principal or "").strip(),
+                text=_onemin_direct_refresh_telegram_text(report),
+                dry_run=bool(dry_run),
+                timeout_seconds=max(float(timeout_seconds or 180.0), 30.0),
+            )
+    if output_format == "operator":
+        report["operator_text"] = _operator_text_for_onemin_direct_refresh(report)
+    _write_private_json(resolved_output_path, report)
     return report
 
 
@@ -2983,6 +3974,12 @@ def _operator_text_for_mymedia_alexa(report: Mapping[str, object]) -> str:
     if report.get("container_name"):
         pieces.append(f"container={report['container_name']}")
     pieces.append(f"container_running={str(bool(report.get('container_running'))).lower()}")
+    if int(report.get("container_exit_code") or 0):
+        pieces.append(f"exit_code={int(report.get('container_exit_code') or 0)}")
+    if report.get("container_error_kind"):
+        pieces.append(f"container_error={report['container_error_kind']}")
+    if report.get("host_disk_pressure_detected") is not None:
+        pieces.append(f"host_disk_pressure={str(bool(report.get('host_disk_pressure_detected'))).lower()}")
     pieces.append(f"api_reachable={str(bool(report.get('api_reachable'))).lower()}")
     pieces.append(f"pairing_ready={str(bool(report.get('pairing_ready'))).lower()}")
     if report.get("pairing_session_pending") is not None:
@@ -3999,6 +4996,14 @@ def probe_mymedia_alexa(
     external_access_ready = remote_access_mode == "push" or (remote_access_mode == "static_ip" and public_ip_present)
     container_running = bool(state.get("Running"))
     api_reachable = summary_ok and watchfolders_ok
+    try:
+        container_exit_code = int(state.get("ExitCode") or 0)
+    except Exception:
+        container_exit_code = 0
+    container_oom_killed = bool(state.get("OOMKilled"))
+    container_error_kind = _container_state_error_kind(state)
+    host_root_disk = _host_root_disk_posture()
+    host_disk_pressure_detected = container_error_kind == "host_disk_pressure"
     pairing_artifact_cleanup = (
         _mymedia_pairing_cleanup_runtime_artifacts()
         if pairing_ready
@@ -4016,8 +5021,12 @@ def probe_mymedia_alexa(
     ready = False
     if not container_running:
         status = "blocked_runtime_unavailable"
-        reason = "mymedia_container_not_running"
-        next_action = "start_mymedia_alexa_container"
+        if host_disk_pressure_detected:
+            reason = "host_disk_pressure_prevented_container_start"
+            next_action = "recover_host_disk_pressure_then_start_mymedia_alexa"
+        else:
+            reason = "mymedia_container_not_running"
+            next_action = "start_mymedia_alexa_container"
     elif not api_reachable:
         status = "blocked_console_unreachable"
         reason = "mymedia_console_api_unreachable"
@@ -4090,6 +5099,13 @@ def probe_mymedia_alexa(
         "container_name": effective_container_name,
         "container_running": container_running,
         "container_state_status": str(state.get("Status") or "").strip(),
+        "container_exit_code": container_exit_code,
+        "container_oom_killed": container_oom_killed,
+        "container_error_kind": container_error_kind,
+        "host_disk_pressure_detected": host_disk_pressure_detected,
+        "host_root_usage_percent": host_root_disk.get("usage_percent"),
+        "host_root_available_bytes": host_root_disk.get("available_bytes"),
+        "host_root_available_gb": host_root_disk.get("available_gb"),
         "data_mount_present": bool(data_mount),
         "preferences_present": bool(preferences.get("preferences_present")),
         "messages_present": bool(messages.get("messages_present")),
@@ -8734,13 +9750,18 @@ def probe_proactive_route(
             or "repair_proactive_runtime_inputs"
         ).strip()
     else:
+        ready_default_action = (
+            ""
+            if status == "ready" and bool(live_receipt_payload.get("ok"))
+            else "inspect_proactive_delivery_route"
+        )
         next_action = str(
             followthrough_next_action
             or route_next_action
             or guard_next_action
             or runtime_next_action
             or live_receipt_next_action
-            or "inspect_proactive_delivery_route"
+            or ready_default_action
         ).strip()
     blocking_reason = str(
         route_error
@@ -9044,6 +10065,7 @@ def probe_proactive_artifacts(
     timeout_seconds: float = 60.0,
     output_format: str = "json",
     prefer_browse_backed_delivery: bool = False,
+    prefer_host_runtime: bool = False,
 ) -> dict[str, object]:
     effective_compose_file = str(compose_file or _env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE))).strip()
     effective_runtime_service = str(runtime_service or _env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE)).strip()
@@ -9226,7 +10248,10 @@ def probe_proactive_artifacts(
         ),
     ]
     source = "docker_compose_exec"
-    if _prefer_host_runtime_proactive_probe():
+    use_host_runtime = False
+    if not _env_truthy("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", default=False):
+        use_host_runtime = bool(prefer_host_runtime) or _prefer_host_runtime_proactive_probe()
+    if use_host_runtime:
         source = "in_process_runtime"
         try:
             code = 0
@@ -12055,6 +13080,166 @@ def send_telegram_document(
     }
 
 
+def send_telegram_video(
+    *,
+    principal_id: str,
+    video_ref: str,
+    caption: str = "",
+    fallback_audio_text: str = "",
+    fallback_audio_language: str = "",
+    dry_run: bool = False,
+    timeout_seconds: float = 30.0,
+) -> dict[str, object]:
+    normalized_principal_id = str(principal_id or "").strip()
+    normalized_video_ref = str(video_ref or "").strip()
+    normalized_caption = str(caption or "").strip()
+    normalized_fallback_audio_text = str(fallback_audio_text or "").strip()
+    normalized_fallback_audio_language = str(fallback_audio_language or "").strip()
+    observed_at = _utc_now()
+    effective_timeout_seconds = max(float(timeout_seconds or 30.0), 1.0)
+    source = "runtime_container_exec:telegram_delivery.send_telegram_video_for_principal"
+    if not normalized_video_ref:
+        return {
+            "sent": False,
+            "reason": "video_ref_missing",
+            "principal_id": normalized_principal_id,
+            "delivery_transport": "telegram_bot",
+            "timeout_seconds": effective_timeout_seconds,
+            "observed_at": observed_at,
+            "source": source,
+        }
+    if dry_run:
+        readiness_timeout_seconds = _telegram_dry_run_timeout_seconds(effective_timeout_seconds)
+        readiness = probe_telegram_readiness(
+            principal_id=normalized_principal_id,
+            timeout_seconds=readiness_timeout_seconds,
+            output_format="json",
+        )
+        return {
+            "sent": False,
+            "reason": "dry_run",
+            "readiness_probe_ok": bool(readiness.get("probe_ok")),
+            "ready": bool(readiness.get("ready")),
+            "readiness_status": str(readiness.get("status") or "").strip(),
+            "readiness_reason": str(readiness.get("reason") or "").strip(),
+            "principal_id": str(readiness.get("principal_id") or normalized_principal_id).strip(),
+            "binding_id": str(readiness.get("binding_id") or "").strip(),
+            "next_action": str(readiness.get("next_action") or "").strip(),
+            "next_action_href": str(readiness.get("next_action_href") or "").strip(),
+            "next_action_label": str(readiness.get("next_action_label") or "").strip(),
+            "next_action_method": str(readiness.get("next_action_method") or "").strip(),
+            "chat_ref_present": bool(readiness.get("chat_ref_present")),
+            "chat_ref_sha256": str(readiness.get("chat_ref_sha256") or "").strip(),
+            "bot_key": str(readiness.get("bot_key") or "").strip(),
+            "bot_handle": str(readiness.get("bot_handle") or "").strip(),
+            "bot_token_present": bool(readiness.get("bot_token_present")),
+            "video_ref_present": True,
+            "caption_present": bool(normalized_caption),
+            "fallback_audio_text_present": bool(normalized_fallback_audio_text),
+            "delivery_transport": "telegram_bot",
+            "runtime_container": str(readiness.get("runtime_container") or "").strip(),
+            "timeout_seconds": effective_timeout_seconds,
+            "observed_at": observed_at,
+            "source": source,
+        }
+    video_ref_for_runtime = normalized_video_ref
+    staged_container = ""
+    staged_remote_path = ""
+    local_file_staged = False
+    if Path(normalized_video_ref).is_file():
+        staged, staged_container, staged_remote_path, stage_reason = _runtime_container_stage_file(
+            Path(normalized_video_ref),
+            timeout_seconds=20.0,
+        )
+        if not staged:
+            if staged_remote_path:
+                _runtime_container_remove_file(staged_container, staged_remote_path)
+            return {
+                "sent": False,
+                "reason": stage_reason or "telegram_video_stage_failed",
+                "principal_id": normalized_principal_id,
+                "delivery_transport": "telegram_bot",
+                "video_ref_present": True,
+                "local_file_staged": False,
+                "runtime_container": staged_container,
+                "observed_at": observed_at,
+                "source": source,
+            }
+        video_ref_for_runtime = staged_remote_path
+        local_file_staged = True
+    code = (
+        "import hashlib, json, os\n"
+        "principal_id = "
+        + json.dumps(normalized_principal_id)
+        + "\n"
+        "video_ref = "
+        + json.dumps(video_ref_for_runtime)
+        + "\n"
+        "caption = "
+        + json.dumps(normalized_caption)
+        + "\n"
+        "fallback_audio_text = "
+        + json.dumps(normalized_fallback_audio_text)
+        + "\n"
+        "fallback_audio_language = "
+        + json.dumps(normalized_fallback_audio_language)
+        + "\n"
+        "try:\n"
+        "    from app.settings import get_settings\n"
+        "    from app.services.telegram_delivery import send_telegram_video_for_principal\n"
+        "    from app.services.tool_runtime import build_tool_runtime\n"
+        "    tool_runtime = build_tool_runtime(get_settings())\n"
+        "    receipt = send_telegram_video_for_principal(tool_runtime, principal_id=principal_id, video_ref=video_ref, fallback_audio_text=fallback_audio_text, fallback_audio_language=fallback_audio_language, caption=caption)\n"
+        "    chat_ref = str(getattr(receipt, 'chat_id', '') or '').strip()\n"
+        "    message_ids = [str(item or '').strip() for item in (getattr(receipt, 'message_ids', ()) or ()) if str(item or '').strip()]\n"
+        "    print(json.dumps({\n"
+        "        'ok': True,\n"
+        "        'sent': True,\n"
+        "        'reason': 'sent',\n"
+        "        'principal_id': str(getattr(receipt, 'principal_id', '') or principal_id or '').strip(),\n"
+        "        'chat_ref_present': bool(chat_ref),\n"
+        "        'chat_ref_sha256': hashlib.sha256(chat_ref.encode('utf-8')).hexdigest() if chat_ref else '',\n"
+        "        'bot_key': str(getattr(receipt, 'bot_key', '') or '').strip(),\n"
+        "        'bot_handle': str(getattr(receipt, 'bot_handle', '') or '').strip(),\n"
+        "        'message_ids': message_ids,\n"
+        "    }, sort_keys=True), flush=True)\n"
+        "    os._exit(0)\n"
+        "except Exception as exc:\n"
+        "    reason = (str(exc).strip() or type(exc).__name__)[:160]\n"
+        "    print(json.dumps({'ok': False, 'sent': False, 'reason': reason}, sort_keys=True), flush=True)\n"
+        "    os._exit(0)\n"
+    )
+    try:
+        exit_code, payload, runtime_container = _runtime_container_exec_json(
+            code=code,
+            timeout_seconds=max(effective_timeout_seconds, 120.0),
+        )
+    finally:
+        if staged_remote_path:
+            _runtime_container_remove_file(staged_container, staged_remote_path)
+    payload_ok = bool(payload.get("ok", False))
+    sent = exit_code == 0 and payload_ok and bool(payload.get("sent"))
+    reason = str(payload.get("reason") or "").strip() or (f"runtime_container_exec_exit_{exit_code}" if exit_code else "send_failed")
+    message_ids = [str(item or "").strip() for item in payload.get("message_ids") or [] if str(item or "").strip()]
+    return {
+        "sent": sent,
+        "reason": "sent" if sent else reason,
+        "principal_id": str(payload.get("principal_id") or normalized_principal_id).strip(),
+        "chat_ref_present": bool(payload.get("chat_ref_present")),
+        "chat_ref_sha256": str(payload.get("chat_ref_sha256") or "").strip(),
+        "bot_key": str(payload.get("bot_key") or "").strip(),
+        "bot_handle": str(payload.get("bot_handle") or "").strip(),
+        "delivery_transport": "telegram_bot",
+        "message_ids": message_ids,
+        "message_count": len(message_ids),
+        "runtime_container": runtime_container,
+        "video_ref_present": True,
+        "local_file_staged": local_file_staged,
+        "observed_at": observed_at,
+        "source": source,
+    }
+
+
 def probe_whatsapp_pairing(
     *,
     args: argparse.Namespace,
@@ -12271,6 +13456,30 @@ OPERATOR_READINESS_DETAIL_FIELDS: dict[str, tuple[str, ...]] = {
         "next_action_label",
         "next_action_method",
     ),
+    "onemin_direct_refresh": (
+        "receipt_name",
+        "selected_account_count",
+        "pending_account_count",
+        "owner_row_count",
+        "attempted_count",
+        "current_run_refreshed_count",
+        "refreshed_count",
+        "error_count",
+        "rate_limited",
+        "control_batch_size",
+        "control_batch_backoff_seconds",
+        "control_max_rate_limit_sleep_seconds",
+        "control_continue_on_rate_limit",
+        "control_refresh_transport",
+        "control_proxy_mode",
+        "control_controls_inferred_from_defaults",
+        "control_single_account_batch_mode",
+        "telegram_delivery_checked",
+        "telegram_delivery_sent",
+        "telegram_delivery_reason",
+        "telegram_delivery_ready",
+        "telegram_delivery_message_count",
+    ),
     "whatsapp": (
         "effective_session_ref",
         "effective_session_ref_source",
@@ -12415,6 +13624,7 @@ OPERATOR_READINESS_READY_STATUSES: dict[str, set[str]] = {
     "telegram": {"ready"},
     "google_workspace_oauth": {"pass", "ready_manual_console_check"},
     "pushbullet": {"ready_configured", "ready_live_verified"},
+    "onemin_direct_refresh": {"ready", "already_refreshed"},
     "whatsapp": {"ready"},
     "whatsapp_pairing": {"ready"},
     "teable_recovery": {"ready"},
@@ -12429,6 +13639,7 @@ OPERATOR_READINESS_STABLE_STATUSES: dict[str, set[str]] = {
     "telegram": {"ready"},
     "google_workspace_oauth": {"pass", "ready_manual_console_check"},
     "pushbullet": {"ready_configured", "ready_live_verified"},
+    "onemin_direct_refresh": {"ready", "already_refreshed"},
     "whatsapp": {"ready"},
     "whatsapp_pairing": {"ready"},
     "teable_recovery": {"ready"},
@@ -12441,17 +13652,20 @@ OPERATOR_READINESS_STABLE_STATUSES: dict[str, set[str]] = {
 
 OPERATOR_READINESS_NON_BLOCKING_ATTENTION_STATUSES: dict[str, set[str]] = {
     "pushbullet": {"blocked_setup_required"},
+    "onemin_direct_refresh": {"rate_limited", "partial_rate_limited", "dry_run", "partial"},
     "mymedia_pairing_telegram": {"suppressed_by_stream_policy"},
 }
 
 OPERATOR_READINESS_ROUTE_SCOPED_COMPONENT_CHANNELS: dict[str, tuple[str, ...]] = {
     "pushbullet": ("pushbullet",),
+    "onemin_direct_refresh": ("operator_support",),
     "whatsapp": ("whatsapp",),
     "whatsapp_pairing": ("whatsapp",),
 }
 
 OPERATOR_READINESS_ROUTE_SCOPED_DEFAULT_STEERING: dict[str, bool] = {
     "pushbullet": False,
+    "onemin_direct_refresh": False,
     "whatsapp": True,
     "whatsapp_pairing": True,
 }
@@ -12896,6 +14110,34 @@ def _operator_readiness_int_value(value: object, *, default: int = 0) -> int:
         return int(default)
 
 
+def _operator_readiness_onemin_direct_refresh_report(report: Mapping[str, object]) -> dict[str, object]:
+    normalized = dict(report or {})
+    controls = dict(normalized.get("controls") or {}) if isinstance(normalized.get("controls"), Mapping) else {}
+    telegram_delivery = (
+        dict(normalized.get("telegram_delivery") or {})
+        if isinstance(normalized.get("telegram_delivery"), Mapping)
+        else {}
+    )
+    normalized.update(
+        {
+            "control_batch_size": int(controls.get("batch_size") or 0),
+            "control_batch_backoff_seconds": float(controls.get("batch_backoff_seconds") or 0.0),
+            "control_max_rate_limit_sleep_seconds": float(controls.get("max_rate_limit_sleep_seconds") or 0.0),
+            "control_continue_on_rate_limit": bool(controls.get("continue_on_rate_limit")),
+            "control_refresh_transport": str(controls.get("refresh_transport") or "").strip(),
+            "control_proxy_mode": str(controls.get("proxy_mode") or "").strip(),
+            "control_controls_inferred_from_defaults": bool(controls.get("controls_inferred_from_defaults")),
+            "control_single_account_batch_mode": bool(controls.get("single_account_batch_mode")),
+            "telegram_delivery_checked": bool(telegram_delivery.get("checked")),
+            "telegram_delivery_sent": bool(telegram_delivery.get("sent")),
+            "telegram_delivery_reason": str(telegram_delivery.get("reason") or "").strip(),
+            "telegram_delivery_ready": bool(telegram_delivery.get("ready")),
+            "telegram_delivery_message_count": int(telegram_delivery.get("message_count") or 0),
+        }
+    )
+    return normalized
+
+
 def _operator_readiness_sonarr_target(
     *,
     series_id: int | str | None = 0,
@@ -12920,6 +14162,24 @@ def _operator_readiness_sonarr_target(
         "series_title": effective_series_title,
         "season_number": effective_season_number,
     }
+
+
+def _operator_readiness_proactive_artifacts_report_from_route(
+    route_report: Mapping[str, object] | None,
+) -> dict[str, object]:
+    normalized_route_report = dict(route_report or {})
+    artifact_probe = normalized_route_report.get("artifact_probe")
+    if not isinstance(artifact_probe, Mapping):
+        return {}
+    report = dict(artifact_probe)
+    if not report:
+        return {}
+    if not str(report.get("observed_at") or "").strip():
+        report["observed_at"] = str(normalized_route_report.get("observed_at") or "").strip()
+    if not str(report.get("source") or "").strip():
+        route_source = str(normalized_route_report.get("source") or "").strip()
+        report["source"] = f"{route_source}:artifact_probe" if route_source else "proactive_route.artifact_probe"
+    return report
 
 
 def probe_operator_readiness(
@@ -12998,6 +14258,13 @@ def probe_operator_readiness(
             ),
         ),
         (
+            "onemin_direct_refresh",
+            "1min.AI direct refresh posture",
+            lambda: _operator_readiness_onemin_direct_refresh_report(
+                probe_onemin_direct_refresh_posture(output_format="json")
+            ),
+        ),
+        (
             "whatsapp",
             "WhatsApp Web action processor",
             lambda: probe_whatsapp_readiness(refresh=True, output_format="json", volatile=True),
@@ -13042,16 +14309,7 @@ def probe_operator_readiness(
                         runtime_service=str(runtime_service or "").strip(),
                         receipt_path=str(receipt_path or "").strip(),
                         timeout_seconds=timeout_seconds,
-                        output_format="json",
-                    ),
-                ),
-                (
-                    "proactive_artifacts",
-                    "Proactive OODA artifacts",
-                    lambda: probe_proactive_artifacts(
-                        compose_file=str(compose_file or "").strip(),
-                        runtime_service=str(runtime_service or "").strip(),
-                        timeout_seconds=timeout_seconds,
+                        include_artifact_probe=False,
                         output_format="json",
                     ),
                 ),
@@ -13061,6 +14319,31 @@ def probe_operator_readiness(
         base_component_specs,
         per_component_timeout_seconds=max(float(timeout_seconds or 30.0), 1.0) + 2.0,
     )
+    if include_proactive:
+        proactive_route_report = dict(dict(component_results.get("proactive_route") or {}).get("report") or {})
+        proactive_artifacts_report = _operator_readiness_proactive_artifacts_report_from_route(proactive_route_report)
+        if proactive_artifacts_report:
+            proactive_artifacts_component = _operator_readiness_component(
+                key="proactive_artifacts",
+                label="Proactive OODA artifacts",
+                report=proactive_artifacts_report,
+            )
+        else:
+            proactive_artifacts_component, proactive_artifacts_report = _operator_readiness_run_component(
+                "proactive_artifacts",
+                "Proactive OODA artifacts",
+                lambda: probe_proactive_artifacts(
+                    compose_file=str(compose_file or "").strip(),
+                    runtime_service=str(runtime_service or "").strip(),
+                    timeout_seconds=timeout_seconds,
+                    output_format="json",
+                    prefer_host_runtime=True,
+                ),
+            )
+        component_results["proactive_artifacts"] = {
+            "component": proactive_artifacts_component,
+            "report": proactive_artifacts_report,
+        }
 
     pairing_components: dict[str, dict[str, object]] = {}
     whatsapp_component = dict(dict(component_results.get("whatsapp") or {}).get("component") or {})
@@ -13098,14 +14381,15 @@ def probe_operator_readiness(
         "telegram",
         "google_workspace_oauth",
         "pushbullet",
-        "whatsapp",
-        "whatsapp_pairing",
         "teable_recovery",
         "mymedia_alexa",
-        "mymedia_pairing_telegram",
         "sonarr_tv_season",
         "proactive_route",
         "proactive_artifacts",
+        "onemin_direct_refresh",
+        "whatsapp",
+        "whatsapp_pairing",
+        "mymedia_pairing_telegram",
     ]
     components = []
     for key in ordered_keys:
@@ -14008,6 +15292,41 @@ def parse_args() -> argparse.Namespace:
     provider_cost_pressure.add_argument("--format", choices=("json", "operator"), default="json")
     _add_timeout_seconds_argument(provider_cost_pressure)
 
+    onemin_direct_refresh_posture = subparsers.add_parser(
+        "probe-onemin-direct-refresh",
+        help="Summarize the latest bounded 1min.AI direct refresh receipt without exposing private account or chat data.",
+    )
+    onemin_direct_refresh_posture.add_argument("--receipt-path", default="")
+    onemin_direct_refresh_posture.add_argument("--format", choices=("json", "operator"), default="json")
+
+    onemin_direct_refresh = subparsers.add_parser(
+        "refresh-onemin-direct-api",
+        help="Refresh 1min.AI credits through the bounded direct API lane and optionally send an operator packet over Telegram.",
+    )
+    onemin_direct_refresh.add_argument("--format", choices=("json", "operator"), default="json")
+    onemin_direct_refresh.add_argument("--account-label", action="append", dest="account_labels", default=[])
+    onemin_direct_refresh.add_argument("--max-accounts", type=int, default=0)
+    onemin_direct_refresh.add_argument("--owner-ledger-path", default="")
+    onemin_direct_refresh.add_argument("--output-json", default="")
+    onemin_direct_refresh.add_argument("--batch-size", type=int, default=DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_SIZE)
+    onemin_direct_refresh.add_argument("--batch-backoff-seconds", type=float, default=DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_BACKOFF_SECONDS)
+    onemin_direct_refresh.add_argument(
+        "--max-rate-limit-sleep-seconds",
+        type=float,
+        default=DEFAULT_ONEMIN_DIRECT_REFRESH_MAX_RATE_LIMIT_SLEEP_SECONDS,
+    )
+    onemin_direct_refresh.add_argument(
+        "--no-continue-on-rate-limit",
+        dest="continue_on_rate_limit",
+        action="store_false",
+        default=True,
+    )
+    onemin_direct_refresh.add_argument("--telegram-principal-id", default=_default_proactive_principal_id())
+    onemin_direct_refresh.add_argument("--send-telegram", action="store_true")
+    onemin_direct_refresh.add_argument("--dry-run", action="store_true")
+    _add_telegram_operator_streams_argument(onemin_direct_refresh)
+    _add_timeout_seconds_argument(onemin_direct_refresh)
+
     whatsapp_readiness = subparsers.add_parser("probe-whatsapp-readiness", help="Probe WhatsApp Web action processor readiness.")
     whatsapp_readiness.add_argument("--format", choices=("json", "operator"), default="json")
     whatsapp_readiness.add_argument("--receipt-path", default="")
@@ -14354,6 +15673,15 @@ def parse_args() -> argparse.Namespace:
     send_telegram_document_parser.add_argument("--dry-run", action="store_true")
     _add_timeout_seconds_argument(send_telegram_document_parser)
 
+    send_telegram_video_parser = subparsers.add_parser("send-telegram-video", help="Send a local video over Telegram.")
+    send_telegram_video_parser.add_argument("--principal-id", dest="telegram_principal_id", default=_default_proactive_principal_id())
+    send_telegram_video_parser.add_argument("--video-ref", required=True)
+    send_telegram_video_parser.add_argument("--caption", default="")
+    send_telegram_video_parser.add_argument("--fallback-audio-text", default="")
+    send_telegram_video_parser.add_argument("--fallback-audio-language", default="")
+    send_telegram_video_parser.add_argument("--dry-run", action="store_true")
+    _add_timeout_seconds_argument(send_telegram_video_parser)
+
     return parser.parse_args()
 
 
@@ -14382,6 +15710,59 @@ def main() -> int:
         else:
             print(_json_dumps(report))
         return 0 if bool(report.get("probe_ok")) else 2
+    if args.command == "probe-onemin-direct-refresh":
+        report = probe_onemin_direct_refresh_posture(
+            receipt_path=str(getattr(args, "receipt_path", "") or "").strip(),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("probe_ok")) else 2
+    if args.command == "refresh-onemin-direct-api":
+        report = refresh_onemin_direct_api(
+            account_labels=list(getattr(args, "account_labels", []) or []),
+            max_accounts=int(getattr(args, "max_accounts", 0) or 0),
+            owner_ledger_path=str(getattr(args, "owner_ledger_path", "") or "").strip(),
+            output_json=str(getattr(args, "output_json", "") or "").strip(),
+            batch_size=int(getattr(args, "batch_size", DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_SIZE) or DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_SIZE),
+            batch_backoff_seconds=float(
+                getattr(args, "batch_backoff_seconds", DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_BACKOFF_SECONDS)
+                or DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_BACKOFF_SECONDS
+            ),
+            max_rate_limit_sleep_seconds=float(
+                getattr(args, "max_rate_limit_sleep_seconds", DEFAULT_ONEMIN_DIRECT_REFRESH_MAX_RATE_LIMIT_SLEEP_SECONDS)
+                or DEFAULT_ONEMIN_DIRECT_REFRESH_MAX_RATE_LIMIT_SLEEP_SECONDS
+            ),
+            continue_on_rate_limit=bool(getattr(args, "continue_on_rate_limit", True)),
+            send_telegram_to_principal=(
+                str(getattr(args, "telegram_principal_id", "") or "").strip()
+                if bool(getattr(args, "send_telegram", False))
+                else ""
+            ),
+            dry_run=bool(getattr(args, "dry_run", False)),
+            timeout_seconds=float(getattr(args, "timeout_seconds", None) or 180.0),
+            output_format=args.format,
+            telegram_operator_streams=str(getattr(args, "telegram_operator_streams", "") or ""),
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        successful_statuses = {"ready", "already_refreshed", "partial_rate_limited", "partial", "dry_run"}
+        status = str(report.get("status") or "").strip()
+        if not bool(report.get("probe_ok")):
+            return 2
+        if not bool(getattr(args, "send_telegram", False)):
+            return 0 if status in successful_statuses else 2
+        delivery = dict(report.get("telegram_delivery") or {})
+        reason = str(delivery.get("reason") or "").strip()
+        if bool(delivery.get("sent")):
+            return 0 if status in successful_statuses else 2
+        if reason == "dry_run" and bool(delivery.get("ready")):
+            return 0 if status in successful_statuses else 2
+        return 2
     if args.command == "probe-whatsapp-readiness":
         report = probe_whatsapp_readiness(
             refresh=bool(getattr(args, "refresh", True)),
@@ -14824,6 +16205,20 @@ def main() -> int:
             principal_id=str(getattr(args, "telegram_principal_id", "") or "").strip(),
             document_ref=str(getattr(args, "document_ref", "") or "").strip(),
             caption=str(getattr(args, "caption", "") or ""),
+            dry_run=bool(getattr(args, "dry_run", False)),
+            timeout_seconds=float(getattr(args, "timeout_seconds", None) or 30.0),
+        )
+        print(_json_dumps(report))
+        return 0 if bool(report.get("sent")) or (
+            str(report.get("reason") or "") == "dry_run" and bool(report.get("ready"))
+        ) else 2
+    if args.command == "send-telegram-video":
+        report = send_telegram_video(
+            principal_id=str(getattr(args, "telegram_principal_id", "") or "").strip(),
+            video_ref=str(getattr(args, "video_ref", "") or "").strip(),
+            caption=str(getattr(args, "caption", "") or ""),
+            fallback_audio_text=str(getattr(args, "fallback_audio_text", "") or ""),
+            fallback_audio_language=str(getattr(args, "fallback_audio_language", "") or ""),
             dry_run=bool(getattr(args, "dry_run", False)),
             timeout_seconds=float(getattr(args, "timeout_seconds", None) or 30.0),
         )

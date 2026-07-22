@@ -452,6 +452,73 @@ program_phases:
     - Fleet mirrors the governor and feedback-loop canon downstream.
     - Fleet Studio exposes a `product_governor` role alongside the designer role.
     - Designer and governor surfaces consume the same canonical loop instead of local prose.
+- id: N
+  title: Governed spatial-render canonicalization and evidence gates
+  status: pending
+  release_blocking: false
+  release_widening: false
+  implementation_authorized: false
+  provider_execution_authorized: false
+  quota_authorized: false
+  goal: Define and independently re-review a Chummer-owned spatial-render contract and evidence path without widening the current release, public RUNSITE meaning, or provider readiness.
+  evidence_rule: No gate may pass from design prose, document presence, environment variables, provider names, historical handoffs, or a canary start; every exit requires hash-bound executable evidence from the named owner.
+  current_capability_projection: unverified_or_blocked
+  milestones:
+  - id: N0
+    title: Governed spatial-render candidate remains blocked pending executable proof
+    owners:
+    - chummer6-design
+    - chummer6-hub
+    - chummer6-media-factory
+    - chummer6-hub-registry
+    - fleet
+    status: pending
+    release_blocking: false
+    release_widening: false
+    implementation_authorized: false
+    independent_re_review_required: true
+    propertyquarry_external_authority:
+      decision_path: /docker/property/PROPERTYQUARRY_GOVERNED_SPATIAL_RENDER_AUTHORITY_DECISION.md
+      decision_sha256: 401fe42211e2d8283ea9ca2a7cfc1a1eaffc80ff13c63fdf9e6158a116eff50a
+      product_bridge:
+        repo: /docker/property
+        package: app.product
+        module: app.product.property_tour_hosting
+      privacy_lifecycle_intake_and_closeout:
+        repo: /docker/property
+        package: app.api.routes
+        module: app.api.routes.landing
+      enforcement_dependency: public_tour_payloads
+      revocation_and_deletion_execution_dependency: property_tour_hosting
+      chummer_authority: record_only_cannot_assign_implement_authorize_or_act
+      implementation_state: blocked_pending_numeric_product_policy_and_independent_re_review
+    gate_states:
+      canonical_amendment_and_mirrors: blocked
+      propertyquarry_numeric_product_policy_and_re_review: blocked
+      compose_zero_burn: blocked
+      authorized_build_and_idempotency: blocked
+      privacy_deletion_and_takedown: blocked
+      provenance_rights_and_content: blocked
+      spatial_and_motion_quality: blocked
+      browser_mobile_and_accessibility: blocked
+      exact_family_provider_freshness: blocked
+      clean_48_hour_canary: blocked
+      explicit_promotion: blocked
+      rollback: blocked
+      product_closeout: blocked
+    exit:
+    - Independent design and controller review accepts one coherent hash-bound canon set, verifies the recorded PropertyQuarry authority decision and its exact owners, binds a separately approved numeric PropertyQuarry product policy for any external bridge, publishes governed mirrors under separate authorization, and proves checksum parity executably.
+    - Compose contract tests prove deterministic normalization, digest stability, complete spatial/content/license/provider-field validation, idempotency, zero provider enqueue, zero reservation, zero quota mutation, and no readiness projection.
+    - Build tests prove a fresh consumer authorization, accepted composition digest, atomic same-key idempotency, one job and reservation under concurrency, bounded attempts, cancellation/restart, reservation/consumption/retry/compensation accounting, and complete encrypted private receipts.
+    - Privacy evidence proves the Chummer numeric TTL schedule and, for any PropertyQuarry path, a separately approved numeric PropertyQuarry product policy; each proves least-privilege encrypted access, legal-hold expiry, takedown SLA, deletion cascade, provider-deletion evidence, tombstone-first restore, backup aging, and product-specific closeout.
+    - Provenance evidence proves approved source/style/license refs, immutable truth lineage, audience and content approval, provider-private redaction, and no real-person likeness, graphic injury, or minor combatants in the private encounter family.
+    - Final-artifact quality receipts prove required-room coverage, zero cuts and teleports, collision and topology safety, stable geometry and actors, effective motion, continuity, and a non-combat inspectable fallback.
+    - Browser, mobile, and accessibility receipts prove bounded baseline-device performance, decoding/rendering, keyboard/touch/focus, reduced-motion, captions where applicable, recovery, navigation, and no overflow.
+    - Media-factory issues a current, unrevoked, exact-artifact-family and exact-environment capability receipt whose provider-route digest, gate versions, evidence refs, issuance, expiry, and quota/kill-switch freshness all satisfy the canonical schema.
+    - Each authorized consumer completes a clean continuous 48-hour isolated canary with no unresolved P0/P1, privacy or provenance gap, quota runaway, repeated render failure, broken rollback, stale/misleading projection, or shortened observation window.
+    - The relevant product owner, product governor, Fleet landing control, and Registry publication authority record separate explicit promotion evidence; capability verification or canary completion alone never promotes.
+    - A rollback drill blocks new builds, revokes capability/routes, projects `blocked` or `unverified`, reconciles reservations and charges without assumed refunds, withdraws public/private access, executes deletion/tombstones, and preserves campaign, mechanics, and PropertyQuarry truth.
+    - Hub, media-factory, and Registry produce Chummer closeout receipts; for any separately authorized PropertyQuarry path, `/docker/property` package `app.api.routes` module `app.api.routes.landing` owns lifecycle intake and closeout, with `public_tour_payloads` enforcing policy and `property_tour_hosting` executing revocation/deletion, leaving no stale access, orphan derivative, unresolved provider deletion, or unauthorized restoration.
 - id: B
   title: Surface split completion
   status: complete

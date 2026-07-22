@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import stat
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from scripts import verify_manfred_memorial_candidate as candidate_verify
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_PATH = ROOT / "deploy/manfred-memorial/docker-compose.candidate.yml"
+PROJECT = "ea-manfred-candidate-deployment-contract-a1b2c3d4"
 
 
 def test_candidate_compose_is_image_pure_isolated_and_provider_free() -> None:
@@ -38,9 +40,7 @@ def test_candidate_compose_is_image_pure_isolated_and_provider_free() -> None:
     assert "env_file" not in gateway
     assert "environment" not in gateway
     assert gateway["networks"] == ["backend", "ingress"]
-    assert gateway["ports"] == [
-        "127.0.0.1:${EA_MANFRED_HOST_PORT:-18090}:18090"
-    ]
+    assert gateway["ports"] == ["127.0.0.1:${EA_MANFRED_HOST_PORT:-18090}:18090"]
 
     environment = api["environment"]
     assert environment["EA_RUNTIME_MODE"] == "prod"
@@ -57,12 +57,14 @@ def test_candidate_compose_is_image_pure_isolated_and_provider_free() -> None:
     assert environment["EA_TRUST_API_TOKEN_PRINCIPAL_HEADER"] == "0"
     assert environment["PYTHONPATH"] == "/app"
 
-    assert environment["EA_PUBLIC_MEMORIAL_DIR"] != environment[
-        "EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR"
-    ]
-    assert environment["EA_PRIVATE_MEMORIAL_PROFILE_DIR"] != environment[
-        "EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR"
-    ]
+    assert (
+        environment["EA_PUBLIC_MEMORIAL_DIR"]
+        != environment["EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR"]
+    )
+    assert (
+        environment["EA_PRIVATE_MEMORIAL_PROFILE_DIR"]
+        != environment["EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR"]
+    )
     rendered = COMPOSE_PATH.read_text(encoding="utf-8")
     assert "/docker/EA" not in rendered
     assert "ea_default" not in rendered
@@ -87,7 +89,9 @@ def test_image_builder_rejects_mutable_tags(tag: str) -> None:
         image_builder._safe_tag(tag, commit="a" * 40)
 
 
-def test_candidate_projection_rejects_unsafe_paths_and_classifies_private_audio() -> None:
+def test_candidate_projection_rejects_unsafe_paths_and_classifies_private_audio() -> (
+    None
+):
     with pytest.raises(ValueError, match="manfred_candidate_asset_path_invalid"):
         candidate_prep._safe_relative("../private.wav", suffix_required=True)
     with pytest.raises(ValueError, match="manfred_candidate_asset_type_forbidden"):
@@ -119,6 +123,7 @@ def test_candidate_env_is_allowlisted_private_and_idempotent(tmp_path: Path) -> 
         runtime_root=runtime_root,
         public_base_url="https://memorial.example.at",
         host_port=18090,
+        project_name=PROJECT,
     )
     first = candidate_prep._parse_env(env_path)
     candidate_prep._write_env(
@@ -128,23 +133,27 @@ def test_candidate_env_is_allowlisted_private_and_idempotent(tmp_path: Path) -> 
         runtime_root=runtime_root,
         public_base_url="https://memorial.example.at",
         host_port=18090,
+        project_name=PROJECT,
     )
     second = candidate_prep._parse_env(env_path)
 
     assert stat.S_IMODE(env_path.stat().st_mode) == 0o600
     assert second["EA_API_TOKEN"] == first["EA_API_TOKEN"]
     assert second["EA_SIGNING_SECRET"] == first["EA_SIGNING_SECRET"]
-    assert second["EA_MANFRED_POSTGRES_PASSWORD"] == first[
-        "EA_MANFRED_POSTGRES_PASSWORD"
-    ]
+    assert (
+        second["EA_MANFRED_POSTGRES_PASSWORD"] == first["EA_MANFRED_POSTGRES_PASSWORD"]
+    )
     assert second["DATABASE_URL"].startswith("postgresql://ea:")
     assert "+psycopg" not in second["DATABASE_URL"]
-    assert not {
-        "UNMIXR_API_KEY",
-        "OPENAI_API_KEY",
-        "GEMINI_API_KEY",
-        "EA_PUBLIC_MEMORIAL_WRITE_TOKEN",
-    } & second.keys()
+    assert (
+        not {
+            "UNMIXR_API_KEY",
+            "OPENAI_API_KEY",
+            "GEMINI_API_KEY",
+            "EA_PUBLIC_MEMORIAL_WRITE_TOKEN",
+        }
+        & second.keys()
+    )
     assert set(second) == candidate_runner.ALLOWED_ENV_KEYS
 
     candidate_prep._write_env(
@@ -154,29 +163,80 @@ def test_candidate_env_is_allowlisted_private_and_idempotent(tmp_path: Path) -> 
         runtime_root=runtime_root,
         public_base_url="https://memorial.example.at",
         host_port=18090,
+        project_name=PROJECT,
         rotate_secrets=True,
     )
     rotated = candidate_prep._parse_env(env_path)
     assert rotated["EA_API_TOKEN"] != second["EA_API_TOKEN"]
     assert rotated["EA_SIGNING_SECRET"] != second["EA_SIGNING_SECRET"]
-    assert rotated["EA_MANFRED_POSTGRES_PASSWORD"] != second[
-        "EA_MANFRED_POSTGRES_PASSWORD"
+    assert (
+        rotated["EA_MANFRED_POSTGRES_PASSWORD"]
+        != second["EA_MANFRED_POSTGRES_PASSWORD"]
+    )
+
+
+def test_runtime_runner_rejects_live_bind_or_external_network(tmp_path: Path) -> None:
+    env_file = (tmp_path / "candidate.env").resolve()
+    release_root = (tmp_path / "release").resolve()
+    runtime_root = (tmp_path / "runtime").resolve()
+    env = {
+        "EA_MANFRED_COMPOSE_PROJECT": PROJECT,
+        "EA_MANFRED_IMAGE": "ea-runtime:manfred-abcdef123456",
+        "EA_MANFRED_HOST_PORT": "18090",
+        "EA_MANFRED_RELEASE_ROOT": str(release_root),
+        "EA_MANFRED_RUNTIME_ROOT": str(runtime_root),
+    }
+    mounts = [
+        {
+            "type": "bind",
+            "source": str(release_root / "public_memorials"),
+            "target": "/data/memorial/public",
+            "read_only": True,
+        },
+        {
+            "type": "bind",
+            "source": str(release_root / "private_memorial_profiles"),
+            "target": "/data/memorial/private",
+            "read_only": True,
+        },
+        {
+            "type": "bind",
+            "source": str(release_root / "memorial_archive"),
+            "target": "/data/memorial/archive",
+            "read_only": True,
+        },
+        {
+            "type": "bind",
+            "source": str(runtime_root / "public-contributions"),
+            "target": "/data/memorial/public-contributions",
+        },
+        {
+            "type": "bind",
+            "source": str(runtime_root / "private-contributions"),
+            "target": "/data/memorial/private-contributions",
+        },
+        {
+            "type": "bind",
+            "source": str(runtime_root / "state"),
+            "target": "/data/memorial/state",
+        },
+        {"type": "volume", "source": "artifacts", "target": "/data/artifacts"},
     ]
-
-
-def test_runtime_runner_rejects_live_bind_or_external_network() -> None:
+    declared_environment = {"EA_ROLE": "api"}
     base = {
+        "name": PROJECT,
         "services": {
             "api": {
-                "image": "ea-runtime:manfred-abcdef123456",
+                "image": env["EA_MANFRED_IMAGE"],
                 "pull_policy": "never",
                 "read_only": True,
                 "user": "10001:10001",
-                "volumes": [],
+                "environment": {**env, **declared_environment},
+                "volumes": mounts,
                 "networks": {"backend": None},
             },
             "gateway": {
-                "image": "ea-runtime:manfred-abcdef123456",
+                "image": env["EA_MANFRED_IMAGE"],
                 "pull_policy": "never",
                 "read_only": True,
                 "user": "10001:10001",
@@ -189,26 +249,47 @@ def test_runtime_runner_rejects_live_bind_or_external_network() -> None:
             "postgres": {"networks": {"backend": None}},
             "redis": {"networks": {"backend": None}},
         },
-        "networks": {"backend": {"internal": True}, "ingress": {}},
+        "networks": {
+            "backend": {"name": f"{PROJECT}_backend", "internal": True},
+            "ingress": {"name": f"{PROJECT}_ingress"},
+        },
+        "volumes": {
+            name: {"name": f"{PROJECT}_{name}"}
+            for name in candidate_runner.EXPECTED_CANDIDATE_VOLUMES
+        },
     }
+    source = copy.deepcopy(base)
+    source["services"]["api"]["environment"] = declared_environment
+    source["services"]["api"]["env_file"] = [{"path": str(env_file)}]
     candidate_runner._assert_compose_isolation(
         base,
-        env={
-            "EA_MANFRED_IMAGE": "ea-runtime:manfred-abcdef123456",
-            "EA_MANFRED_HOST_PORT": "18090",
-        },
+        source,
+        env=env,
+        env_file=env_file,
     )
 
-    base["services"]["api"]["volumes"] = [
+    live_bind = copy.deepcopy(base)
+    live_bind["services"]["redis"]["volumes"] = [
         {"type": "bind", "source": "/docker/EA/ea/app", "target": "/app/app"}
     ]
-    with pytest.raises(RuntimeError, match="manfred_candidate_compose_live_bind_forbidden"):
+    with pytest.raises(
+        RuntimeError, match="manfred_candidate_compose_live_bind_forbidden"
+    ):
         candidate_runner._assert_compose_isolation(
-            base,
-            env={
-                "EA_MANFRED_IMAGE": "ea-runtime:manfred-abcdef123456",
-                "EA_MANFRED_HOST_PORT": "18090",
-            },
+            live_bind,
+            source,
+            env=env,
+            env_file=env_file,
+        )
+
+    external_network = copy.deepcopy(base)
+    external_network["networks"]["backend"]["external"] = True
+    with pytest.raises(RuntimeError, match="compose_network_not_isolated"):
+        candidate_runner._assert_compose_isolation(
+            external_network,
+            source,
+            env=env,
+            env_file=env_file,
         )
 
 
@@ -301,3 +382,28 @@ def test_candidate_browser_rejects_missing_configured_executable(
     )
     with pytest.raises(RuntimeError, match="candidate_browser_executable_invalid"):
         candidate_verify._chromium_launch_executable(BrowserType())
+
+
+def test_candidate_browser_classifies_same_origin_http_errors_exactly() -> None:
+    base_url = "https://memorial.example.at"
+
+    assert candidate_verify._is_same_origin_http_error(
+        base_url=base_url,
+        response_url="https://memorial.example.at/missing.css",
+        status=404,
+    )
+    assert candidate_verify._is_same_origin_http_error(
+        base_url="https://memorial.example.at:443",
+        response_url="https://memorial.example.at/broken.png",
+        status=500,
+    )
+    assert not candidate_verify._is_same_origin_http_error(
+        base_url=base_url,
+        response_url="https://cdn.example.at/missing.css",
+        status=404,
+    )
+    assert not candidate_verify._is_same_origin_http_error(
+        base_url=base_url,
+        response_url="https://memorial.example.at/app.css",
+        status=399,
+    )

@@ -27,6 +27,7 @@ from app.services.proactive_ooda_stage_packets import (
     FORBIDDEN_WITHOUT_EXPLICIT_APPROVAL,
     SAFE_WORK_ORDER_SCHEMA,
 )
+from app.services.proactive_signal_discovery import _transcript_has_action_intent
 
 
 SAFE_WORK_RESULT_SCHEMA = "proactive_ooda.safe_work_result.v1"
@@ -3152,7 +3153,52 @@ def safe_work_decision_materiality_issue(
     )
     if provider_issue:
         return provider_issue
+    transcript_issue = _transcript_safe_work_materiality_issue(
+        safe_work_result=safe_work,
+        stage_packet=stage_packet,
+        input_contract=input_contract,
+        stage_payload=stage_payload,
+    )
+    if transcript_issue:
+        return transcript_issue
     return ""
+
+
+def _transcript_safe_work_materiality_issue(
+    *,
+    safe_work_result: Mapping[str, Any],
+    stage_packet: Mapping[str, Any],
+    input_contract: Mapping[str, Any],
+    stage_payload: Mapping[str, Any],
+) -> str:
+    safe_work_order = dict(stage_packet.get("safe_work_order") or {})
+    tool_hints = dict(safe_work_order.get("tool_hints") or {})
+    adapter_hint = str(
+        stage_payload.get("adapter_hint")
+        or input_contract.get("adapter_hint")
+        or tool_hints.get("adapter_hint")
+        or ""
+    ).strip()
+    if adapter_hint != "transcript_signal":
+        return ""
+    texts = [*list(_request_source_texts(input_contract=input_contract, stage_payload=stage_payload))]
+    texts.extend(_safe_work_action_intent_texts(safe_work_result))
+    if any(_transcript_has_action_intent(str(text or "").strip().lower()) for text in texts if str(text or "").strip()):
+        return ""
+    return "transcript_signal_lacks_action_intent"
+
+
+def _safe_work_action_intent_texts(safe_work_result: Mapping[str, Any]) -> tuple[str, ...]:
+    safe_work = dict(safe_work_result or {})
+    texts: list[str] = []
+    execution = dict(safe_work.get("execution_receipt") or {})
+    texts.extend(_string_list(execution.get("search_queries_used")))
+    recommended = dict(safe_work.get("recommended_option_or_draft") or {})
+    value = recommended.get("value")
+    if isinstance(value, str):
+        texts.append(value)
+    texts.extend(_string_list(safe_work.get("summary")))
+    return tuple(dict.fromkeys(text for text in texts if str(text or "").strip()))
 
 
 def _provider_safe_work_materiality_issue(

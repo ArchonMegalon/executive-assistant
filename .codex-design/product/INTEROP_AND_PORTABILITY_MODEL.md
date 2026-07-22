@@ -57,9 +57,10 @@ Owns the long-lived product objects that portability must preserve:
 * roaming restore and continuity state
 * rule-environment refs that define what the portable object actually means
 
-### `Chummer.Play.Contracts.Interop`
+### `Chummer.Play.Contracts` portability namespace family
 
-Owns the active round-trip package seam for cross-surface asset exchange:
+The canonical published package id remains `Chummer.Play.Contracts`.
+`Chummer.Play.Contracts.Interop` is the namespace family inside that package that owns the active round-trip package seam for cross-surface asset exchange:
 
 * export package manifest
 * import mode and import result
@@ -145,7 +146,7 @@ Support and trust surfaces may explain package state and compatibility, but they
 The current executable seam is:
 
 * design canon here
-* `Chummer.Play.Contracts.Interop` for import/export package contracts
+* `Chummer.Play.Contracts` as the published package, with `Chummer.Play.Contracts.Interop` carrying the import/export package contract family
 * `chummer6-hub` `InteropController` and `InteropExportService` for hosted round-trip behavior
 * `chummer6-core` migration and compatibility verification for deterministic interpretation
 

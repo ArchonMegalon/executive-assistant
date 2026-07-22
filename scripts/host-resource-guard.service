@@ -1,0 +1,33 @@
+[Unit]
+Description=Contain EA host memory and I/O pressure before interactive loss
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/host-resource-guard
+Nice=-10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=0
+OOMScoreAdjust=-900
+TimeoutStartSec=12s
+RuntimeDirectory=host-resource-guard
+RuntimeDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadWritePaths=/sys/fs/cgroup /run/host-resource-guard
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_KILL CAP_SYS_ADMIN

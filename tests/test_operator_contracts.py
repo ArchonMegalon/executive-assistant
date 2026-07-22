@@ -21,12 +21,18 @@ def _optional_text(path: Path) -> str:
 
 
 def _assert_valid_dotenv_template(template_path: Path) -> None:
-    for line_number, raw_line in enumerate(template_path.read_text(encoding="utf-8").splitlines(), start=1):
+    for line_number, raw_line in enumerate(
+        template_path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
         stripped = raw_line.strip()
-        assert stripped != r"\n", f"{template_path.name}:{line_number} contains a literal \\\\n placeholder line"
+        assert stripped != r"\n", (
+            f"{template_path.name}:{line_number} contains a literal \\\\n placeholder line"
+        )
         if not stripped or stripped.startswith("#"):
             continue
-        assert "=" in raw_line, f"{template_path.name}:{line_number} is not valid dotenv syntax"
+        assert "=" in raw_line, (
+            f"{template_path.name}:{line_number} is not valid dotenv syntax"
+        )
 
 
 def _smoke_runtime_text() -> str:
@@ -37,11 +43,16 @@ def _smoke_runtime_text() -> str:
 
 
 def test_memorial_gold_admin_template_surfaces_source_cleanup_verifier() -> None:
-    template = (ROOT / "ea/app/templates/admin_memorial_gold.html").read_text(encoding="utf-8")
+    template = (ROOT / "ea/app/templates/admin_memorial_gold.html").read_text(
+        encoding="utf-8"
+    )
 
     assert "Source Cleanup" in template
     assert "{% set source_cleanup = operator_status.source_cleanup or {} %}" in template
-    assert "{% set source_dirty_verifier = operator_status.source_dirty_verifier or {} %}" in template
+    assert (
+        "{% set source_dirty_verifier = operator_status.source_dirty_verifier or {} %}"
+        in template
+    )
     assert "source_cleanup.status" in template
     assert "source_cleanup.verifier_status" in template
     assert "source_cleanup.top_categories" in template
@@ -50,15 +61,23 @@ def test_memorial_gold_admin_template_surfaces_source_cleanup_verifier() -> None
     assert "source_dirty_verifier.status" in template
     assert "source_dirty_verifier.issues" in template
     assert "operator_status.source_dirty_count" in template
-    assert "The compact source_cleanup contract proves the dirty-source categories and verifier state are safe to use for handoff." in template
-    assert "operator_status.room_audio_attestation_packet.receipt_command_template" in template
+    assert (
+        "The compact source_cleanup contract proves the dirty-source categories and verifier state are safe to use for handoff."
+        in template
+    )
+    assert (
+        "operator_status.room_audio_attestation_packet.receipt_command_template"
+        in template
+    )
     assert "operator_status.room_audio_attestation_packet.operator_steps" in template
     assert "operator_status.room_audio_receipt_detail.missing_input_hints" in template
 
 
 def _default_assignment_value(script_text: str, variable_name: str) -> str:
     patterns = (
-        re.compile(rf'{re.escape(variable_name)}="\$\{{{re.escape(variable_name)}:-([^}}]+)\}}"'),
+        re.compile(
+            rf'{re.escape(variable_name)}="\$\{{{re.escape(variable_name)}:-([^}}]+)\}}"'
+        ),
         re.compile(rf'local\s+\w+="\$\{{{re.escape(variable_name)}:-([^}}]+)\}}"'),
         re.compile(rf'{re.escape(variable_name)}="([^"]+)"'),
     )
@@ -96,62 +115,146 @@ def test_docs_explain_pgdata_volume_usage() -> None:
 
 
 def test_operator_summary_lists_ltd_release_gates() -> None:
-    operator_summary = (ROOT / "scripts/operator_summary.sh").read_text(encoding="utf-8")
+    operator_summary = (ROOT / "scripts/operator_summary.sh").read_text(
+        encoding="utf-8"
+    )
 
     assert "ltd gates:         make ltd-release-gates" in operator_summary
     assert "ltd critical:      make verify-ltd-critical-entries" in operator_summary
     assert "ltd flagship:      make verify-ltd-flagship-subset" in operator_summary
     assert "release manifest:  make materialize-release-manifest" in operator_summary
     assert "release bundle:    make materialize-release-assets" in operator_summary
-    assert "memorial status:   make materialize-memorial-operator-status" in operator_summary
+    assert (
+        "memorial status:   make materialize-memorial-operator-status"
+        in operator_summary
+    )
     assert "source groups:     make inspect-source-dirty-groups" in operator_summary
     assert "source verify:     make verify-source-dirty-groups" in operator_summary
-    assert "source categories: scripts/inspect_source_dirty_groups.py --list-categories" in operator_summary
-    assert "memorial ready:    make verify-memorial-deploy-readiness" in operator_summary
+    assert (
+        "source categories: scripts/inspect_source_dirty_groups.py --list-categories"
+        in operator_summary
+    )
+    assert (
+        "memorial ready:    make verify-memorial-deploy-readiness" in operator_summary
+    )
     assert "memorial runtime:  make verify-memorial-runtime-overlay" in operator_summary
-    assert "memorial surface:  make verify-project-mode-runtime-memorial" in operator_summary
-    assert "phrase bank:       make materialize-memorial-phrase-bank" in operator_summary
-    assert "room gold clean:   make materialize-memorial-room-audio-gold-clean" in operator_summary
+    assert (
+        "memorial surface:  make verify-project-mode-runtime-memorial"
+        in operator_summary
+    )
+    assert (
+        "phrase bank:       make materialize-memorial-phrase-bank" in operator_summary
+    )
+    assert (
+        "room gold clean:   make materialize-memorial-room-audio-gold-clean"
+        in operator_summary
+    )
     assert "deploy memorial:   make deploy-ea-memorial" in operator_summary
-    assert "ea quality:        make verify-executive-assistant-quality-readiness" in operator_summary
-    assert "signal packet:     make verify-whole-project-signal-to-decision-receipt" in operator_summary
-    assert "scope audit:       make verify-whole-project-scope-gap-audit" in operator_summary
-    assert "ea live receipt:   make materialize-ea-operator-readiness" in operator_summary
+    assert (
+        "ea quality:        make verify-executive-assistant-quality-readiness"
+        in operator_summary
+    )
+    assert (
+        "signal packet:     make verify-whole-project-signal-to-decision-receipt"
+        in operator_summary
+    )
+    assert (
+        "scope audit:       make verify-whole-project-scope-gap-audit"
+        in operator_summary
+    )
+    assert (
+        "ea live receipt:   make materialize-ea-operator-readiness" in operator_summary
+    )
     assert "ea live verify:    make verify-ea-operator-readiness" in operator_summary
     assert "google oauth:      make probe-google-workspace-oauth" in operator_summary
-    assert "live provider:     make probe-live-provider PROVIDER=pushbullet" in operator_summary
-    assert "provider pressure: make probe-live-provider-cost-pressure WINDOW=24h" in operator_summary
-    assert "manfred realtime:  make verify-manfred-realtime-conversation-readiness" in operator_summary
-    assert "tg audio ready:    make verify-telegram-audiobook-live-readiness" in operator_summary
-    assert "tg audiobook live: make verify-telegram-audiobook-live-delivery-receipt" in operator_summary
-    assert "wa audio local:    make verify-whatsapp-audiobook-local-intake-proof" in operator_summary
-    assert "wa action ready:   make verify-whatsapp-web-action-processor-readiness" in operator_summary
+    assert (
+        "live provider:     make probe-live-provider PROVIDER=pushbullet"
+        in operator_summary
+    )
+    assert (
+        "provider pressure: make probe-live-provider-cost-pressure WINDOW=24h"
+        in operator_summary
+    )
+    assert (
+        "manfred realtime:  make verify-manfred-realtime-conversation-readiness"
+        in operator_summary
+    )
+    assert (
+        "tg audio ready:    make verify-telegram-audiobook-live-readiness"
+        in operator_summary
+    )
+    assert (
+        "tg audiobook live: make verify-telegram-audiobook-live-delivery-receipt"
+        in operator_summary
+    )
+    assert (
+        "wa audio local:    make verify-whatsapp-audiobook-local-intake-proof"
+        in operator_summary
+    )
+    assert (
+        "wa action ready:   make verify-whatsapp-web-action-processor-readiness"
+        in operator_summary
+    )
     assert "wa pairing:        make probe-whatsapp-pairing" in operator_summary
     assert "wa pairing tg:     make send-whatsapp-pairing-telegram" in operator_summary
-    assert "wa audio bundle:   make verify-whatsapp-audiobook-operator-proof-bundle" in operator_summary
-    assert "wa audiobook live: make verify-whatsapp-audiobook-live-delivery-receipt" in operator_summary
-    assert "wa share play:     make verify-whatsapp-audiobook-public-share-playback" in operator_summary
+    assert (
+        "wa audio bundle:   make verify-whatsapp-audiobook-operator-proof-bundle"
+        in operator_summary
+    )
+    assert (
+        "wa audiobook live: make verify-whatsapp-audiobook-live-delivery-receipt"
+        in operator_summary
+    )
+    assert (
+        "wa share play:     make verify-whatsapp-audiobook-public-share-playback"
+        in operator_summary
+    )
     assert "teable recovery:   make probe-teable-recovery" in operator_summary
     assert "mymedia/alexa:     make probe-mymedia-alexa" in operator_summary
     assert "mymedia scan:      make rescan-mymedia-library" in operator_summary
     assert "mymedia route:     make repair-mymedia-public-surface" in operator_summary
-    assert "mymedia receipt:   make materialize-mymedia-alexa-readiness" in operator_summary
+    assert (
+        "mymedia receipt:   make materialize-mymedia-alexa-readiness"
+        in operator_summary
+    )
     assert "mymedia ready:     make verify-mymedia-alexa-readiness" in operator_summary
     assert "mymedia pair:      make trigger-mymedia-amazon-pairing" in operator_summary
-    assert "mymedia code:      make submit-mymedia-amazon-pairing-code OTP_CODE=123456" in operator_summary
-    assert "mymedia pair tg:   make send-mymedia-amazon-pairing-telegram" in operator_summary
+    assert (
+        "mymedia code:      make submit-mymedia-amazon-pairing-code OTP_CODE=123456"
+        in operator_summary
+    )
+    assert (
+        "mymedia pair tg:   make send-mymedia-amazon-pairing-telegram"
+        in operator_summary
+    )
     assert "runtime supply:    make verify-runtime-supply-chain" in operator_summary
     assert "release auth:      make verify-release-authority" in operator_summary
-    assert "release runtime:   make verify-release-authority-runtime" in operator_summary
-    assert "release ready:     make verify-release-authority-runtime-authoritative" in operator_summary
+    assert (
+        "release runtime:   make verify-release-authority-runtime" in operator_summary
+    )
+    assert (
+        "release ready:     make verify-release-authority-runtime-authoritative"
+        in operator_summary
+    )
     assert "deploy context:    make materialize-deploy-context" in operator_summary
     assert "deploy verify:     make verify-deploy-context" in operator_summary
     assert "release probe:     make release-authority-probe" in operator_summary
-    assert "codexea parity:    make verify-codexea-fleet-shim-parity" in operator_summary
+    assert (
+        "codexea parity:    make verify-codexea-fleet-shim-parity" in operator_summary
+    )
     assert "codexea e2e:       make verify-codexea-e2e-exit-gate" in operator_summary
-    assert "goal posture:      make verify-continuous-improvement-goal-posture" in operator_summary
-    assert "tg video proof:    make materialize-telegram-video-delivery-receipts" in operator_summary
-    assert "tg live verify:    make verify-telegram-video-delivery-live-receipt" in operator_summary
+    assert (
+        "goal posture:      make verify-continuous-improvement-goal-posture"
+        in operator_summary
+    )
+    assert (
+        "tg video proof:    make materialize-telegram-video-delivery-receipts"
+        in operator_summary
+    )
+    assert (
+        "tg live verify:    make verify-telegram-video-delivery-live-receipt"
+        in operator_summary
+    )
     assert "-- goal posture --" in operator_summary
     assert "detect:" in operator_summary
     assert "decide:" in operator_summary
@@ -242,9 +345,13 @@ def test_ea_operator_readiness_receipt_lane_is_documented() -> None:
     assert "make verify-ea-operator-readiness" in runbook
 
 
-def test_fleet_codexea_launcher_keeps_critical_defaults_in_sync_with_repo_source() -> None:
+def test_fleet_codexea_launcher_keeps_critical_defaults_in_sync_with_repo_source() -> (
+    None
+):
     repo_source = (ROOT / "scripts" / "codexea").read_text(encoding="utf-8")
-    fleet_shim = (FLEET_ROOT / "scripts" / "codex-shims" / "codexea").read_text(encoding="utf-8")
+    fleet_shim = (FLEET_ROOT / "scripts" / "codex-shims" / "codexea").read_text(
+        encoding="utf-8"
+    )
 
     critical_defaults = (
         "CODEXEA_STARTUP_STATUS_CACHE_TTL_SECONDS",
@@ -253,13 +360,17 @@ def test_fleet_codexea_launcher_keeps_critical_defaults_in_sync_with_repo_source
     )
 
     for variable_name in critical_defaults:
-        assert _default_assignment_value(fleet_shim, variable_name) == _default_assignment_value(
-            repo_source, variable_name
-        ), f"Fleet CodexEA shim drifted from repo source for {variable_name}"
+        assert _default_assignment_value(
+            fleet_shim, variable_name
+        ) == _default_assignment_value(repo_source, variable_name), (
+            f"Fleet CodexEA shim drifted from repo source for {variable_name}"
+        )
 
-    assert _default_assignment_value(fleet_shim, "CODEXEA_PROCESS_NICE") == _default_assignment_value(
-        repo_source, "CODEXEA_NICE"
-    ), "Fleet CodexEA shim drifted from repo source for the startup niceness default"
+    assert _default_assignment_value(
+        fleet_shim, "CODEXEA_PROCESS_NICE"
+    ) == _default_assignment_value(repo_source, "CODEXEA_NICE"), (
+        "Fleet CodexEA shim drifted from repo source for the startup niceness default"
+    )
     assert ("show_status --startup --refresh || true" in fleet_shim) == (
         "show_status --startup --refresh || true" in repo_source
     ), "Fleet CodexEA shim drifted from repo source for the startup refresh path"
@@ -276,7 +387,9 @@ def test_makefile_exposes_telegram_audiobook_live_delivery_receipt_targets() -> 
     assert "verify-telegram-audiobook-live-readiness:" in makefile
     assert "ea/scripts/verify_telegram_audiobook_live_readiness.py" in makefile
     assert "materialize-telegram-audiobook-live-delivery-receipt:" in makefile
-    assert "ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py" in makefile
+    assert (
+        "ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py" in makefile
+    )
     assert "verify-telegram-audiobook-live-delivery-receipt:" in makefile
     assert "ea/scripts/verify_telegram_audiobook_live_delivery_receipt.py" in makefile
     assert "materialize-whatsapp-audiobook-local-intake-proof:" in makefile
@@ -290,56 +403,98 @@ def test_makefile_exposes_telegram_audiobook_live_delivery_receipt_targets() -> 
     assert "probe-whatsapp-pairing:" in makefile
     assert "scripts/ea_live_ops.py probe-whatsapp-pairing --format operator" in makefile
     assert "send-whatsapp-pairing-telegram:" in makefile
-    assert "scripts/ea_live_ops.py probe-whatsapp-pairing --send-telegram --format operator" in makefile
+    assert (
+        "scripts/ea_live_ops.py probe-whatsapp-pairing --send-telegram --format operator"
+        in makefile
+    )
     assert "probe-live-provider:" in makefile
-    assert 'scripts/ea_live_ops.py probe-provider --provider "$${PROVIDER}" --format operator' in makefile
+    assert (
+        'scripts/ea_live_ops.py probe-provider --provider "$${PROVIDER}" --format operator'
+        in makefile
+    )
     assert "materialize-ea-operator-readiness:" in makefile
     assert "scripts/materialize_ea_operator_readiness.py --pretty" in makefile
     assert "verify-ea-operator-readiness:" in makefile
     assert "scripts/verify_ea_operator_readiness.py --pretty" in makefile
     assert "probe-google-workspace-oauth:" in makefile
-    assert 'scripts/ea_live_ops.py probe-google-workspace-oauth --expected-google-email "$$EXPECTED_GOOGLE_EMAIL" --format operator' in makefile
-    assert "EXPECTED_GOOGLE_EMAIL or EA_GOOGLE_WORKSPACE_EXPECTED_EMAIL is required" in makefile
+    assert (
+        'scripts/ea_live_ops.py probe-google-workspace-oauth --expected-google-email "$$EXPECTED_GOOGLE_EMAIL" --format operator'
+        in makefile
+    )
+    assert (
+        "EXPECTED_GOOGLE_EMAIL or EA_GOOGLE_WORKSPACE_EXPECTED_EMAIL is required"
+        in makefile
+    )
     assert "probe-live-provider-cost-pressure:" in makefile
-    assert 'scripts/ea_live_ops.py probe-provider-cost-pressure --window "$${WINDOW:-24h}" --principal-id "$${PRINCIPAL_ID:-}" --format operator' in makefile
+    assert (
+        'scripts/ea_live_ops.py probe-provider-cost-pressure --window "$${WINDOW:-24h}" --principal-id "$${PRINCIPAL_ID:-}" --format operator'
+        in makefile
+    )
     assert "probe-mymedia-alexa:" in makefile
     assert "scripts/ea_live_ops.py probe-mymedia-alexa --format operator" in makefile
     assert "rescan-mymedia-library:" in makefile
     assert "scripts/ea_live_ops.py rescan-mymedia-library --format operator" in makefile
     assert "repair-mymedia-public-surface:" in makefile
-    assert "scripts/ea_live_ops.py repair-mymedia-public-surface --format operator" in makefile
+    assert (
+        "scripts/ea_live_ops.py repair-mymedia-public-surface --format operator"
+        in makefile
+    )
     assert "materialize-mymedia-alexa-readiness:" in makefile
     assert "scripts/materialize_mymedia_alexa_readiness.py" in makefile
     assert "verify-mymedia-alexa-readiness:" in makefile
     assert "scripts/verify_mymedia_alexa_readiness.py" in makefile
     assert "trigger-mymedia-amazon-pairing:" in makefile
-    assert "scripts/ea_live_ops.py trigger-mymedia-amazon-pairing --format operator" in makefile
+    assert (
+        "scripts/ea_live_ops.py trigger-mymedia-amazon-pairing --format operator"
+        in makefile
+    )
     assert "submit-mymedia-amazon-pairing-code:" in makefile
-    assert 'scripts/ea_live_ops.py submit-mymedia-amazon-pairing-code --otp-code "$(OTP_CODE)" --format operator' in makefile
+    assert (
+        'scripts/ea_live_ops.py submit-mymedia-amazon-pairing-code --otp-code "$(OTP_CODE)" --format operator'
+        in makefile
+    )
     assert "send-mymedia-amazon-pairing-telegram:" in makefile
-    assert "scripts/ea_live_ops.py send-mymedia-amazon-pairing-telegram --format operator" in makefile
+    assert (
+        "scripts/ea_live_ops.py send-mymedia-amazon-pairing-telegram --format operator"
+        in makefile
+    )
     assert "trigger-mymedia-amazon-pairing:" in makefile
-    assert "scripts/ea_live_ops.py trigger-mymedia-amazon-pairing --format operator" in makefile
+    assert (
+        "scripts/ea_live_ops.py trigger-mymedia-amazon-pairing --format operator"
+        in makefile
+    )
     assert "send-mymedia-amazon-pairing-telegram:" in makefile
-    assert "scripts/ea_live_ops.py send-mymedia-amazon-pairing-telegram --format operator" in makefile
+    assert (
+        "scripts/ea_live_ops.py send-mymedia-amazon-pairing-telegram --format operator"
+        in makefile
+    )
     assert "materialize-whatsapp-audiobook-operator-proof-bundle:" in makefile
-    assert "ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py" in makefile
+    assert (
+        "ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py" in makefile
+    )
     assert "verify-whatsapp-audiobook-operator-proof-bundle:" in makefile
     assert "ea/scripts/verify_whatsapp_audiobook_operator_proof_bundle.py" in makefile
     assert "materialize-whatsapp-audiobook-live-delivery-receipt:" in makefile
-    assert "ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py" in makefile
+    assert (
+        "ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py" in makefile
+    )
     assert "verify-whatsapp-audiobook-live-delivery-receipt:" in makefile
     assert "ea/scripts/verify_whatsapp_audiobook_live_delivery_receipt.py" in makefile
     assert "verify-whatsapp-audiobook-public-share-playback:" in makefile
     assert "ea/scripts/verify_whatsapp_audiobook_public_share_playback.py" in makefile
-    assert "ea/scripts/verify_whatsapp_audiobook_public_share_playback.py --require-pass" in makefile
+    assert (
+        "ea/scripts/verify_whatsapp_audiobook_public_share_playback.py --require-pass"
+        in makefile
+    )
 
 
 def test_makefile_exposes_manfred_realtime_conversation_readiness_targets() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
     assert "materialize-manfred-realtime-conversation-readiness:" in makefile
-    assert "ea/scripts/materialize_manfred_realtime_conversation_readiness.py" in makefile
+    assert (
+        "ea/scripts/materialize_manfred_realtime_conversation_readiness.py" in makefile
+    )
     assert "verify-manfred-realtime-conversation-readiness:" in makefile
     assert "ea/scripts/verify_manfred_realtime_conversation_readiness.py" in makefile
 
@@ -348,7 +503,9 @@ def test_makefile_exposes_whole_project_scope_gap_audit_targets() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
     assert "materialize-executive-assistant-acceptance-evidence:" in makefile
-    assert "ea/scripts/materialize_executive_assistant_acceptance_evidence.py" in makefile
+    assert (
+        "ea/scripts/materialize_executive_assistant_acceptance_evidence.py" in makefile
+    )
     assert "verify-executive-assistant-acceptance-evidence:" in makefile
     assert "ea/scripts/verify_executive_assistant_acceptance_evidence.py" in makefile
     assert "materialize-executive-assistant-quality-readiness:" in makefile
@@ -356,7 +513,9 @@ def test_makefile_exposes_whole_project_scope_gap_audit_targets() -> None:
     assert "verify-executive-assistant-quality-readiness:" in makefile
     assert "ea/scripts/verify_executive_assistant_quality_readiness.py" in makefile
     assert "materialize-whole-project-signal-to-decision-receipt:" in makefile
-    assert "ea/scripts/materialize_whole_project_signal_to_decision_receipt.py" in makefile
+    assert (
+        "ea/scripts/materialize_whole_project_signal_to_decision_receipt.py" in makefile
+    )
     assert "verify-whole-project-signal-to-decision-receipt:" in makefile
     assert "ea/scripts/verify_whole_project_signal_to_decision_receipt.py" in makefile
     assert "materialize-whole-project-scope-gap-audit:" in makefile
@@ -378,7 +537,9 @@ def test_makefile_exposes_telegram_video_delivery_receipt_targets() -> None:
 
 
 def test_fastestvpn_rotation_script_avoids_runtime_rebuilds() -> None:
-    script = (ROOT / "scripts" / "rotate_fastestvpn_proxy.sh").read_text(encoding="utf-8")
+    script = (ROOT / "scripts" / "rotate_fastestvpn_proxy.sh").read_text(
+        encoding="utf-8"
+    )
 
     assert 'up -d --no-build --force-recreate --no-deps "${service_name}"' in script
     assert '--build --force-recreate --no-deps "${service_name}"' not in script
@@ -461,10 +622,15 @@ def test_docs_describe_memorial_runtime_overlay_verifier() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
     assert "deploy-ea-memorial:" in makefile
+    deploy_alias = makefile.split("deploy-ea-memorial:", 1)[1].split("\n\n", 1)[0]
+    scoped_deploy = makefile.split("deploy-ea-memorial-scoped:\n", 1)[1].split(
+        "\n\n", 1
+    )[0]
     assert "verify-memorial-deploy-readiness:" in makefile
     assert "scripts/verify_memorial_deploy_readiness.py --pretty" in makefile
-    assert "EA_DEPLOY_PRIMARY_MODE=MEMORIAL" in makefile
-    assert "docker-compose.memorial.yml" in makefile
+    assert "deploy-ea-memorial-scoped" in deploy_alias
+    assert "scripts/deploy_ea_memorial.py" in scoped_deploy
+    assert "scripts/deploy.sh" not in deploy_alias + scoped_deploy
     assert "make deploy-ea-memorial" in readme
     assert "make verify-memorial-deploy-readiness" in readme
     assert "verify-memorial-runtime-overlay:" in makefile
@@ -489,7 +655,9 @@ def test_help_smoke_includes_deploy_context_materializer() -> None:
     assert "scripts/verify_codexea_fleet_shim_parity.py" in smoke_help
 
 
-def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys() -> None:
+def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys() -> (
+    None
+):
     gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
     env_local_example = (ROOT / ".env.local.example").read_text(encoding="utf-8")
@@ -561,10 +729,15 @@ def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys
     assert (ROOT / "scripts/resolve_browseract_key.sh").exists()
 
 
-def test_resolve_onemin_ai_key_supports_generic_indexed_accounts(tmp_path: Path) -> None:
+def test_resolve_onemin_ai_key_supports_generic_indexed_accounts(
+    tmp_path: Path,
+) -> None:
     env_file = tmp_path / ".env"
     env_file.write_text(
-        "\n".join(f"EA_RESPONSES_ONEMIN_API_KEY_{index}=key-{index}" for index in range(1, 7)) + "\n",
+        "\n".join(
+            f"EA_RESPONSES_ONEMIN_API_KEY_{index}=key-{index}" for index in range(1, 7)
+        )
+        + "\n",
         encoding="utf-8",
     )
 
@@ -579,10 +752,15 @@ def test_resolve_onemin_ai_key_supports_generic_indexed_accounts(tmp_path: Path)
     assert result.stdout.splitlines() == [f"key-{index}" for index in range(1, 7)]
 
 
-def test_resolve_onemin_ai_key_next_supports_generic_indexed_accounts(tmp_path: Path) -> None:
+def test_resolve_onemin_ai_key_next_supports_generic_indexed_accounts(
+    tmp_path: Path,
+) -> None:
     env_file = tmp_path / ".env"
     env_file.write_text(
-        "\n".join(f"EA_RESPONSES_ONEMIN_API_KEY_{index}=key-{index}" for index in range(1, 7)) + "\n",
+        "\n".join(
+            f"EA_RESPONSES_ONEMIN_API_KEY_{index}=key-{index}" for index in range(1, 7)
+        )
+        + "\n",
         encoding="utf-8",
     )
 
@@ -597,11 +775,15 @@ def test_resolve_onemin_ai_key_next_supports_generic_indexed_accounts(tmp_path: 
     assert result.stdout.strip() == "key-6"
 
 
-def test_resolve_onemin_ai_key_keeps_indexed_slot_one_when_primary_is_set(tmp_path: Path) -> None:
+def test_resolve_onemin_ai_key_keeps_indexed_slot_one_when_primary_is_set(
+    tmp_path: Path,
+) -> None:
     env_file = tmp_path / ".env"
     env_file.write_text(
         "ONEMIN_AI_API_KEY=primary-key\n"
-        + "\n".join(f"EA_RESPONSES_ONEMIN_API_KEY_{index}=key-{index}" for index in range(1, 7))
+        + "\n".join(
+            f"EA_RESPONSES_ONEMIN_API_KEY_{index}=key-{index}" for index in range(1, 7)
+        )
         + "\n",
         encoding="utf-8",
     )
@@ -614,7 +796,10 @@ def test_resolve_onemin_ai_key_keeps_indexed_slot_one_when_primary_is_set(tmp_pa
         text=True,
     )
 
-    assert result.stdout.splitlines() == ["primary-key", *[f"key-{index}" for index in range(1, 7)]]
+    assert result.stdout.splitlines() == [
+        "primary-key",
+        *[f"key-{index}" for index in range(1, 7)],
+    ]
 
 
 def test_responses_provider_health_credit_debug_contract_is_documented() -> None:
@@ -656,8 +841,14 @@ def test_responses_provider_health_credit_debug_contract_is_documented() -> None
 def test_makefile_prefers_repo_python_for_local_api_tests() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assert "PYTHON_BIN ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)" in makefile
-    assert "PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q tests" in makefile
+    assert (
+        "PYTHON_BIN ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)"
+        in makefile
+    )
+    assert (
+        "PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q tests"
+        in makefile
+    )
     assert "$(PYTHON_BIN) -m compileall -q ea/app" in makefile
     assert "$(PYTHON_BIN) -m compileall -q tests" in makefile
 
@@ -681,21 +872,30 @@ def _documented_api_prefixes_from_architecture_map() -> list[str]:
     architecture_map = (ROOT / "ARCHITECTURE_MAP.md").read_text(encoding="utf-8")
     return [
         match.group(1).removesuffix("/*")
-        for match in re.finditer(r"^- [^:]+: `([^`]+)`", architecture_map, flags=re.MULTILINE)
+        for match in re.finditer(
+            r"^- [^:]+: `([^`]+)`", architecture_map, flags=re.MULTILINE
+        )
         if match.group(1).startswith(("/v1/", "/app/"))
     ]
 
 
-@pytest.mark.parametrize("documented_prefix", _documented_api_prefixes_from_architecture_map())
-def test_architecture_map_api_surface_route_prefix_matches_router(documented_prefix: str) -> None:
+@pytest.mark.parametrize(
+    "documented_prefix", _documented_api_prefixes_from_architecture_map()
+)
+def test_architecture_map_api_surface_route_prefix_matches_router(
+    documented_prefix: str,
+) -> None:
     documented_prefixes = _documented_api_prefixes_from_architecture_map()
     actual_prefixes = _route_prefixes_from_router_modules()
     assert documented_prefixes
     assert actual_prefixes
 
     assert any(
-        actual == documented_prefix or actual.startswith(f"{documented_prefix}/") for actual in actual_prefixes
-    ), f"ARCHITECTURE_MAP.md documents {documented_prefix} but no APIRouter prefix matches it"
+        actual == documented_prefix or actual.startswith(f"{documented_prefix}/")
+        for actual in actual_prefixes
+    ), (
+        f"ARCHITECTURE_MAP.md documents {documented_prefix} but no APIRouter prefix matches it"
+    )
 
 
 def test_architecture_map_documents_every_v1_router_prefix() -> None:
@@ -708,13 +908,15 @@ def test_architecture_map_documents_every_v1_router_prefix() -> None:
         actual_prefix
         for actual_prefix in actual_prefixes
         if not any(
-            actual_prefix == documented_prefix or actual_prefix.startswith(f"{documented_prefix}/")
+            actual_prefix == documented_prefix
+            or actual_prefix.startswith(f"{documented_prefix}/")
             for documented_prefix in documented_prefixes
         )
     )
 
     assert not undocumented_prefixes, (
-        "ARCHITECTURE_MAP.md is missing mounted /v1 router prefixes: " + ", ".join(undocumented_prefixes)
+        "ARCHITECTURE_MAP.md is missing mounted /v1 router prefixes: "
+        + ", ".join(undocumented_prefixes)
     )
 
 
@@ -723,11 +925,15 @@ def test_runtime_capabilities_reference_materialized_backlog_ids() -> None:
     tasks_work_log = _optional_text(ROOT / "TASKS_WORK_LOG.md")
     queued_ids = {
         match.group(1)
-        for match in re.finditer(r"^\|\s*(Q-\d+)\s*\|", tasks_work_log, flags=re.MULTILINE)
+        for match in re.finditer(
+            r"^\|\s*(Q-\d+)\s*\|", tasks_work_log, flags=re.MULTILINE
+        )
     }
     done_ids = {
         match.group(1)
-        for match in re.finditer(r"^\|\s*(D-\d+)\s*\|", tasks_work_log, flags=re.MULTILINE)
+        for match in re.finditer(
+            r"^\|\s*(D-\d+)\s*\|", tasks_work_log, flags=re.MULTILINE
+        )
     }
     expected_refs = {
         "provider_registry_capability_routing": {"D-451"},
@@ -736,7 +942,11 @@ def test_runtime_capabilities_reference_materialized_backlog_ids() -> None:
     }
 
     for capability_name, expected_queue_ids in expected_refs.items():
-        capability = next(entry for entry in milestone["capabilities"] if entry["name"] == capability_name)
+        capability = next(
+            entry
+            for entry in milestone["capabilities"]
+            if entry["name"] == capability_name
+        )
         task_refs = set(capability.get("task_refs") or [])
 
         assert task_refs == expected_queue_ids
@@ -746,7 +956,11 @@ def test_runtime_capabilities_reference_materialized_backlog_ids() -> None:
 
 def test_published_queue_overlay_stays_empty_for_materialized_uncovered_scope() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
-    overlay = yaml.safe_load((ROOT / ".codex-studio" / "published" / "QUEUE.generated.yaml").read_text(encoding="utf-8"))
+    overlay = yaml.safe_load(
+        (ROOT / ".codex-studio" / "published" / "QUEUE.generated.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
     required_released = {
         "runtime_surface_docs_env_deploy_parity",
         "provider_registry_capability_routing",
@@ -772,15 +986,19 @@ def test_published_queue_overlay_stays_empty_for_materialized_uncovered_scope() 
     )
     for fragment in forbidden_fragments:
         assert not any(fragment in item for item in lowered_items), (
-            "Published queue overlay should not re-queue already materialized uncovered scope: " + fragment
+            "Published queue overlay should not re-queue already materialized uncovered scope: "
+            + fragment
         )
 
     mirror_items = [
         item
         for item in items
-        if isinstance(item, dict) and item.get("audit_finding_key") == "project.design_mirror_missing_or_stale"
+        if isinstance(item, dict)
+        and item.get("audit_finding_key") == "project.design_mirror_missing_or_stale"
     ]
-    assert len(mirror_items) == 1, "Published queue overlay should keep exactly one bounded mirror-drift queue slice."
+    assert len(mirror_items) == 1, (
+        "Published queue overlay should keep exactly one bounded mirror-drift queue slice."
+    )
 
     mirror_item = mirror_items[0]
     assert mirror_item["package_id"] == "audit-task-4257456"
@@ -791,15 +1009,17 @@ def test_published_queue_overlay_stays_empty_for_materialized_uncovered_scope() 
     assert mirror_item["source_items"] == [
         "/docker/EA/.codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
     ]
-    assert (
-        "keep one bounded queue slice" in str(mirror_item["task"]).lower()
-    ), "Mirror-drift queue slice should encode the non-reopen intent."
+    assert "keep one bounded queue slice" in str(mirror_item["task"]).lower(), (
+        "Mirror-drift queue slice should encode the non-reopen intent."
+    )
 
 
 def test_role_aware_healthcheck_contract_covers_api_and_worker_roles() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     runtime_dockerfile = (ROOT / "ea" / "Dockerfile").read_text(encoding="utf-8")
-    operator_dockerfile = (ROOT / "ea" / "Dockerfile.operator").read_text(encoding="utf-8")
+    operator_dockerfile = (ROOT / "ea" / "Dockerfile.operator").read_text(
+        encoding="utf-8"
+    )
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
     for content in (dockerfile, runtime_dockerfile, operator_dockerfile):
@@ -816,7 +1036,9 @@ def test_role_aware_healthcheck_contract_covers_api_and_worker_roles() -> None:
 
 def test_cloudflared_tunnel_is_only_available_via_override() -> None:
     base_compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
-    tunnel_override = (ROOT / "docker-compose.cloudflared.yml").read_text(encoding="utf-8")
+    tunnel_override = (ROOT / "docker-compose.cloudflared.yml").read_text(
+        encoding="utf-8"
+    )
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     environment_matrix = (ROOT / "ENVIRONMENT_MATRIX.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -827,7 +1049,10 @@ def test_cloudflared_tunnel_is_only_available_via_override() -> None:
     assert "docker-compose.cloudflared.yml" in readme
     assert "digest-pinned and constrained with dropped capabilities" in readme
     assert "loopback-only (`127.0.0.1:*`)" in readme
-    assert "ea-cloudflared` digest-pinned and constrained with dropped capabilities" in runbook
+    assert (
+        "ea-cloudflared` digest-pinned and constrained with dropped capabilities"
+        in runbook
+    )
     assert "docker-compose.prod.yml` does not widen those bindings" in runbook
     assert "EA_CF_TUNNEL_TOKEN" in environment_matrix
 
@@ -836,52 +1061,102 @@ def test_property_stack_docs_describe_loopback_and_runtime_limits() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
 
-    assert "docker-compose.property.yml` follows the same default host posture" in readme
+    assert (
+        "docker-compose.property.yml` follows the same default host posture" in readme
+    )
     assert "loopback-only" in readme
-    assert "dropped capabilities, `no-new-privileges`, and bounded memory/PID limits" in readme
-    assert "`docker-compose.property.yml` now follows that same default posture" in runbook
+    assert (
+        "dropped capabilities, `no-new-privileges`, and bounded memory/PID limits"
+        in readme
+    )
+    assert (
+        "`docker-compose.property.yml` now follows that same default posture" in runbook
+    )
     assert "property API bind stays on `127.0.0.1`" in runbook
-    assert "dropped capabilities, `no-new-privileges`, and bounded memory/PID limits" in runbook
+    assert (
+        "dropped capabilities, `no-new-privileges`, and bounded memory/PID limits"
+        in runbook
+    )
 
 
 def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:
     deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
 
-    assert 'TOPOLOGY_SERVICES=(ea-api)' in deploy
-    assert 'TOPOLOGY_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-proactive-ooda ea-telegram-teable-sync ea-db)' in deploy
+    assert "TOPOLOGY_SERVICES=(ea-api)" in deploy
+    assert (
+        "TOPOLOGY_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-proactive-ooda ea-telegram-teable-sync ea-db)"
+        in deploy
+    )
     assert 'for service in "${build_services[@]}"; do' in deploy
     assert 'compose up -d --no-build --no-deps --force-recreate "${service}"' in deploy
-    assert 'echo "Service failed to become ready during deploy: ${service}" >&2' in deploy
+    assert (
+        'echo "Service failed to become ready during deploy: ${service}" >&2' in deploy
+    )
     assert 'service_container_ready "${service}"' in deploy
     assert "docker inspect -f '{{.State.Running}}'" in deploy
     assert "docker inspect -f '{{.State.Restarting}}'" in deploy
     assert 'curl -fsS "http://localhost:${HOST_PORT}/health"' in deploy
-    assert 'FAILURE_LOG_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-proactive-ooda ea-telegram-teable-sync ea-db)' in deploy
+    assert (
+        "FAILURE_LOG_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-proactive-ooda ea-telegram-teable-sync ea-db)"
+        in deploy
+    )
     assert 'compose logs --tail 200 "${FAILURE_LOG_SERVICES[@]}"' in deploy
-    assert 'Refusing to deploy with DATABASE_URL pointed at the isolated smoke database.' in deploy
-    assert 'public_origin_line="$(grep -E \'^(EA_PUBLIC_APP_BASE_URL|PROPERTYQUARRY_PUBLIC_BASE_URL)=' in deploy
-    assert 'Refusing to deploy without a public runtime origin.' in deploy
-    assert 'Refusing to deploy from a dirty git worktree.' in deploy
-    assert 'allow_dirty_worktree="${PROPERTYQUARRY_DEPLOY_ALLOW_DIRTY_WORKTREE:-${EA_DEPLOY_ALLOW_DIRTY_WORKTREE:-0}}"' in deploy
-    assert 'export EA_DEPLOYMENT_ID="deploy-$(date -u +%Y%m%dT%H%M%SZ)-${deploy_commit_fragment}"' in deploy
+    assert (
+        "Refusing to deploy with DATABASE_URL pointed at the isolated smoke database."
+        in deploy
+    )
+    assert (
+        "public_origin_line=\"$(grep -E '^(EA_PUBLIC_APP_BASE_URL|PROPERTYQUARRY_PUBLIC_BASE_URL)="
+        in deploy
+    )
+    assert "Refusing to deploy without a public runtime origin." in deploy
+    assert "Refusing to deploy from a source-dirty git worktree." in deploy
+    assert "from source_state_head import source_worktree_metadata" in deploy
+    assert "EA_DEPLOY_ALLOW_DIRTY_WORKTREE" not in deploy
+    assert "Refusing to deploy from a detached or untracked Git worktree." in deploy
+    assert (
+        'export EA_DEPLOYMENT_ID="deploy-$(date -u +%Y%m%dT%H%M%SZ)-${deploy_commit_fragment}"'
+        in deploy
+    )
     assert 'export EA_DEPLOYMENT_ID_SOURCE="deploy_script_generated"' in deploy
-    assert 'export EA_DEPLOYMENT_ID_SOURCE="${EA_DEPLOYMENT_ID_SOURCE:-ea_deploy_id_env}"' in deploy
+    assert (
+        'export EA_DEPLOYMENT_ID_SOURCE="${EA_DEPLOYMENT_ID_SOURCE:-ea_deploy_id_env}"'
+        in deploy
+    )
     assert 'export EA_DEPLOYMENT_ID="${DEPLOYMENT_ID}"' in deploy
-    assert 'export EA_DEPLOYMENT_ID_SOURCE="${EA_DEPLOYMENT_ID_SOURCE:-deploy_platform}"' in deploy
+    assert (
+        'export EA_DEPLOYMENT_ID_SOURCE="${EA_DEPLOYMENT_ID_SOURCE:-deploy_platform}"'
+        in deploy
+    )
     assert 'export EA_DEPLOYMENT_ID="${RENDER_GIT_COMMIT}"' in deploy
-    assert 'export EA_DEPLOYMENT_ID_SOURCE="${EA_DEPLOYMENT_ID_SOURCE:-render_git_commit}"' in deploy
-    assert 'database_url_line="$(grep -E \'^DATABASE_URL=' in deploy
+    assert (
+        'export EA_DEPLOYMENT_ID_SOURCE="${EA_DEPLOYMENT_ID_SOURCE:-render_git_commit}"'
+        in deploy
+    )
+    assert "database_url_line=\"$(grep -E '^DATABASE_URL=" in deploy
     assert 'database_url_value="${database_url_line#DATABASE_URL=}"' in deploy
     assert 'if [[ "${database_url_value}" == *"/ea_smoke_runtime" ]]; then' in deploy
-    assert 'sync_telegram_webhooks() {' in deploy
-    assert 'configure_responses_proxy_host_port() {' in deploy
-    assert 'env_file_value_from "${APP_ROOT}/.env.local" "EA_RESPONSES_PROXY_HOST_PORT"' in deploy
-    assert 'EA_RESPONSES_PROXY_HOST_PORT auto-selected ${chosen} because 127.0.0.1:${default_port} is already in use.' in deploy
+    assert "sync_telegram_webhooks() {" in deploy
+    assert "configure_responses_proxy_host_port() {" in deploy
+    assert (
+        'env_file_value_from "${APP_ROOT}/.env.local" "EA_RESPONSES_PROXY_HOST_PORT"'
+        in deploy
+    )
+    assert (
+        "EA_RESPONSES_PROXY_HOST_PORT auto-selected ${chosen} because 127.0.0.1:${default_port} is already in use."
+        in deploy
+    )
     assert 'export EA_RESPONSES_PROXY_HOST_PORT="${chosen}"' in deploy
-    assert 'grep -E \'^EA_PUBLIC_APP_BASE_URL=' in deploy
-    assert 'grep -E \'^PROPERTYQUARRY_PUBLIC_BASE_URL=' in deploy
-    assert 'webhook_public_base="${env_public_base:-${env_property_public_base}}"' in deploy
-    assert '"${PYTHON_BIN}" "${APP_ROOT}/scripts/bootstrap_telegram_bot.py" --env-file "${APP_ROOT}/.env" --all-bots --set-webhook >/dev/null' in deploy
+    assert "grep -E '^EA_PUBLIC_APP_BASE_URL=" in deploy
+    assert "grep -E '^PROPERTYQUARRY_PUBLIC_BASE_URL=" in deploy
+    assert (
+        'webhook_public_base="${env_public_base:-${env_property_public_base}}"'
+        in deploy
+    )
+    assert (
+        '"${PYTHON_BIN}" "${APP_ROOT}/scripts/bootstrap_telegram_bot.py" --env-file "${APP_ROOT}/.env" --all-bots --set-webhook >/dev/null'
+        in deploy
+    )
     assert 'echo "Syncing Telegram webhooks to ${webhook_public_base}"' in deploy
 
 
@@ -902,24 +1177,44 @@ def test_deploy_script_keeps_fastestvpn_overlay_explicit() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
 
-    assert 'EA_ENABLE_FASTESTVPN=1' in deploy
+    assert "EA_ENABLE_FASTESTVPN=1" in deploy
     assert 'if [[ "${EA_ENABLE_FASTESTVPN:-0}" == "1" ]]; then' in deploy
-    assert "EA_ENABLE_FASTESTVPN=1 but no FastestVPN *.ovpn profiles were found" in deploy
-    assert "If you deploy through `scripts/deploy.sh`, keep the overlay explicit with `EA_ENABLE_FASTESTVPN=1`." in readme
-    assert "If you use `scripts/deploy.sh`, keep that overlay explicit with `EA_ENABLE_FASTESTVPN=1`." in runbook
+    assert (
+        "EA_ENABLE_FASTESTVPN=1 but no FastestVPN *.ovpn profiles were found" in deploy
+    )
+    assert (
+        "If you deploy through `scripts/deploy.sh`, keep the overlay explicit with `EA_ENABLE_FASTESTVPN=1`."
+        in readme
+    )
+    assert (
+        "If you use `scripts/deploy.sh`, keep that overlay explicit with `EA_ENABLE_FASTESTVPN=1`."
+        in runbook
+    )
 
 
 def test_milestone_uses_status_model_and_release_tags() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert set(milestone["status_model"]) == {"planned", "coded", "wired", "tested", "released"}
+    assert set(milestone["status_model"]) == {
+        "planned",
+        "coded",
+        "wired",
+        "tested",
+        "released",
+    }
     assert "ci_gate_bundle" in milestone["release_tags"]
     assert "release_preflight_bundle" in milestone["release_tags"]
     assert "docs_verify_alias" in milestone["release_tags"]
-    smoke_bundle = next(entry for entry in milestone["capabilities"] if entry["name"] == "smoke_and_release_gate_bundle")
+    smoke_bundle = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "smoke_and_release_gate_bundle"
+    )
     assert smoke_bundle["status"] == "released"
     rewrite_denial = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "rewrite_policy_disallowed_tool_api_coverage"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "rewrite_policy_disallowed_tool_api_coverage"
     )
     assert rewrite_denial["status"] == "released"
 
@@ -987,8 +1282,14 @@ def test_operator_summary_prints_grounded_packet_guidance() -> None:
     assert "fast lane route:" in result.stdout
     assert "busiest proxy:" in result.stdout
     assert "codexea next:      make verify-codexea-e2e-exit-gate" in result.stdout
-    assert "compose services:  docker-compose.yml:ea-db, docker-compose.yml:ea-redis, docker-compose.host-tools.yml:ea-docker-socket-proxy, docker-compose.fastestvpn.yml:ea-docker-socket-proxy, docker-compose.cloudflared.yml:ea-cloudflared" in result.stdout
-    assert "compose images:    docker-compose.cloudflared.yml:ea-cloudflared=cloudflare/cloudflared:latest@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283, docker-compose.fastestvpn.yml:ea-docker-socket-proxy=tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2, docker-compose.host-tools.yml:ea-docker-socket-proxy=tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2, docker-compose.yml:ea-db=postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229, docker-compose.yml:ea-redis=redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99" in result.stdout
+    assert (
+        "compose services:  docker-compose.yml:ea-db, docker-compose.yml:ea-redis, docker-compose.host-tools.yml:ea-docker-socket-proxy, docker-compose.fastestvpn.yml:ea-docker-socket-proxy, docker-compose.cloudflared.yml:ea-cloudflared"
+        in result.stdout
+    )
+    assert (
+        "compose images:    docker-compose.cloudflared.yml:ea-cloudflared=cloudflare/cloudflared:latest@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283, docker-compose.fastestvpn.yml:ea-docker-socket-proxy=tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2, docker-compose.host-tools.yml:ea-docker-socket-proxy=tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2, docker-compose.yml:ea-db=postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229, docker-compose.yml:ea-redis=redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99"
+        in result.stdout
+    )
     assert "-- grounded packets --" in result.stdout
     assert "public help:" in result.stdout
     assert "support question:" in result.stdout
@@ -1058,8 +1359,14 @@ def test_support_bundle_writes_grounding_summary() -> None:
     assert "status=" in text
     assert "requirements_txt=" in text
     assert "requirements_lock=" in text
-    assert "compose_services=docker-compose.yml:ea-db, docker-compose.yml:ea-redis, docker-compose.host-tools.yml:ea-docker-socket-proxy, docker-compose.fastestvpn.yml:ea-docker-socket-proxy, docker-compose.cloudflared.yml:ea-cloudflared" in text
-    assert "compose_images=docker-compose.cloudflared.yml:ea-cloudflared=cloudflare/cloudflared:latest@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283, docker-compose.fastestvpn.yml:ea-docker-socket-proxy=tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2, docker-compose.host-tools.yml:ea-docker-socket-proxy=tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2, docker-compose.yml:ea-db=postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229, docker-compose.yml:ea-redis=redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99" in text
+    assert (
+        "compose_services=docker-compose.yml:ea-db, docker-compose.yml:ea-redis, docker-compose.host-tools.yml:ea-docker-socket-proxy, docker-compose.fastestvpn.yml:ea-docker-socket-proxy, docker-compose.cloudflared.yml:ea-cloudflared"
+        in text
+    )
+    assert (
+        "compose_images=docker-compose.cloudflared.yml:ea-cloudflared=cloudflare/cloudflared:latest@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283, docker-compose.fastestvpn.yml:ea-docker-socket-proxy=tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2, docker-compose.host-tools.yml:ea-docker-socket-proxy=tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2, docker-compose.yml:ea-db=postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229, docker-compose.yml:ea-redis=redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99"
+        in text
+    )
     assert "-- memorial readiness --" in text
     assert '"claim_labels":' in text
     assert "memorial_next_action=" in text
@@ -1101,7 +1408,11 @@ def test_support_bundle_pgdata_attribution_release_baseline_is_pinned() -> None:
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     support_bundle = (ROOT / "scripts/support_bundle.sh").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "support_bundle_pgdata_attribution")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "support_bundle_pgdata_attribution"
+    )
 
     assert "SUPPORT_INCLUDE_DB_VOLUME=0" in readme
     assert "ea-db mount/volume attribution" in readme
@@ -1112,7 +1423,10 @@ def test_support_bundle_pgdata_attribution_release_baseline_is_pinned() -> None:
     assert "make inspect-source-dirty-groups" in readme
     assert "make verify-source-dirty-groups" in readme
     assert "scripts/inspect_source_dirty_groups.py --list-categories" in readme
-    assert "scripts/inspect_source_dirty_groups.py --category services --limit 20" in readme
+    assert (
+        "scripts/inspect_source_dirty_groups.py --category services --limit 20"
+        in readme
+    )
 
     assert "SUPPORT_INCLUDE_DB_VOLUME=0 bash scripts/support_bundle.sh" in runbook
     assert "ea_pgdata" in runbook
@@ -1121,7 +1435,10 @@ def test_support_bundle_pgdata_attribution_release_baseline_is_pinned() -> None:
     assert "make verify-source-dirty-groups" in runbook
     assert "ea.source_dirty_groups_verifier.v1" in runbook
     assert "scripts/inspect_source_dirty_groups.py --list-categories" in runbook
-    assert "scripts/inspect_source_dirty_groups.py --category api_routes --limit 20" in runbook
+    assert (
+        "scripts/inspect_source_dirty_groups.py --category api_routes --limit 20"
+        in runbook
+    )
 
     assert "support_bundle_pgdata_attribution" in changelog
     assert "SUPPORT_INCLUDE_DB_VOLUME" in changelog
@@ -1146,7 +1463,9 @@ def test_support_bundle_pgdata_attribution_release_baseline_is_pinned() -> None:
     assert capability["status"] == "released"
 
 
-def test_db_visibility_and_retention_help_contracts_cover_release_baseline_flags() -> None:
+def test_db_visibility_and_retention_help_contracts_cover_release_baseline_flags() -> (
+    None
+):
     db_size_help = subprocess.run(
         ["bash", "scripts/db_size.sh", "--help"],
         cwd=ROOT,
@@ -1198,13 +1517,24 @@ def test_db_operator_scripts_support_propertyquarry_service_aliases() -> None:
 
     assert "PROPERTYQUARRY_DB_SERVICE" in readme
     assert "PROPERTYQUARRY_DB_SERVICE" in runbook
-    assert 'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"' in db_bootstrap
+    assert (
+        'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"'
+        in db_bootstrap
+    )
     assert '"${DC[@]}" up -d "${DB_SERVICE}"' in db_bootstrap
-    assert 'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"' in db_status
+    assert (
+        'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"'
+        in db_status
+    )
     assert '"${DC[@]}" up -d "${DB_SERVICE}"' in db_status
-    assert 'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"' in db_retention
+    assert (
+        'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"'
+        in db_retention
+    )
     assert '"${DC[@]}" up -d "${DB_SERVICE}"' in db_retention
-    assert 'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"' in db_size
+    assert (
+        'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"' in db_size
+    )
     assert '"${DC[@]}" up -d "${DB_SERVICE}"' in db_size
 
 
@@ -1219,8 +1549,14 @@ def test_support_bundle_supports_propertyquarry_service_aliases() -> None:
     assert "PROPERTYQUARRY_DB_SERVICE" in readme
     assert "PROPERTYQUARRY_API_SERVICE" in runbook
     assert "PROPERTYQUARRY_DB_SERVICE" in runbook
-    assert 'API_SERVICE="${PROPERTYQUARRY_API_SERVICE:-${EA_API_SERVICE:-ea-api}}"' in support_bundle
-    assert 'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"' in support_bundle
+    assert (
+        'API_SERVICE="${PROPERTYQUARRY_API_SERVICE:-${EA_API_SERVICE:-ea-api}}"'
+        in support_bundle
+    )
+    assert (
+        'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"'
+        in support_bundle
+    )
     assert '"${DC[@]}" logs --tail "${TAIL_LINES}" "${API_SERVICE}"' in support_bundle
     assert '"${DC[@]}" logs --tail "${TAIL_LINES}" "${DB_SERVICE}"' in support_bundle
     assert 'DB_CONTAINER="${EA_DB_CONTAINER:-${DB_SERVICE}}"' in support_bundle
@@ -1232,7 +1568,11 @@ def test_db_visibility_and_retention_docs_and_scripts_are_pinned() -> None:
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     support_bundle = (ROOT / "scripts/support_bundle.sh").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "operator_db_visibility_and_retention")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "operator_db_visibility_and_retention"
+    )
 
     assert "EA_RETENTION_PROFILE=aggressive|standard|conservative" in readme
     assert "EA_RETENTION_TABLES" in readme
@@ -1245,8 +1585,14 @@ def test_db_visibility_and_retention_docs_and_scripts_are_pinned() -> None:
     assert "SUPPORT_DB_SIZE_LIMIT=<n>" in readme
 
     assert "EA_RETENTION_PROFILE=aggressive bash scripts/db_retention.sh" in runbook
-    assert "EA_RETENTION_TABLES=execution_events,delivery_outbox bash scripts/db_retention.sh" in runbook
-    assert "EA_RETENTION_SKIP_TABLES=observation_events,policy_decisions bash scripts/db_retention.sh" in runbook
+    assert (
+        "EA_RETENTION_TABLES=execution_events,delivery_outbox bash scripts/db_retention.sh"
+        in runbook
+    )
+    assert (
+        "EA_RETENTION_SKIP_TABLES=observation_events,policy_decisions bash scripts/db_retention.sh"
+        in runbook
+    )
     assert "EA_DB_SIZE_SCHEMA=public bash scripts/db_size.sh" in runbook
     assert "EA_DB_SIZE_SORT_KEY=index bash scripts/db_size.sh" in runbook
     assert "EA_DB_SIZE_TABLE_PREFIX=execution_ bash scripts/db_size.sh" in runbook
@@ -1254,15 +1600,21 @@ def test_db_visibility_and_retention_docs_and_scripts_are_pinned() -> None:
     assert "SUPPORT_INCLUDE_DB_SIZE=0 bash scripts/support_bundle.sh" in runbook
     assert "SUPPORT_DB_SIZE_LIMIT=15 bash scripts/support_bundle.sh" in runbook
 
-    assert "Support bundle export now optionally includes DB size snapshots" in changelog
+    assert (
+        "Support bundle export now optionally includes DB size snapshots" in changelog
+    )
     assert "Retention operator flow now supports profile presets" in changelog
-    assert "Retention operator flow now supports table allowlist/skip filters" in changelog
+    assert (
+        "Retention operator flow now supports table allowlist/skip filters" in changelog
+    )
     assert "DB size operator flow now supports schema scoping" in changelog
     assert "DB size operator flow now supports sort-key selection" in changelog
     assert "DB size operator flow now supports table-prefix scoping" in changelog
     assert "DB size operator flow now supports minimum-size filtering" in changelog
     assert 'echo "-- db size snapshot --"' in support_bundle
-    assert 'EA_DB_SIZE_LIMIT="${DB_SIZE_LIMIT}" bash scripts/db_size.sh' in support_bundle
+    assert (
+        'EA_DB_SIZE_LIMIT="${DB_SIZE_LIMIT}" bash scripts/db_size.sh' in support_bundle
+    )
     assert capability["status"] == "released"
 
 
@@ -1294,12 +1646,20 @@ def test_release_authority_probe_help_and_wiring() -> None:
     assert "/health/release-authority" in result.stdout
     assert "scripts/release_authority_probe.sh" in smoke_help
     assert "release-authority-probe:" in makefile
-    release_probe_body = makefile.split("release-authority-probe:", 1)[1].split("\n\n", 1)[0]
+    release_probe_body = makefile.split("release-authority-probe:", 1)[1].split(
+        "\n\n", 1
+    )[0]
     assert "refresh-release-authority-status" in release_probe_body
     assert "Usage:" in script
     assert "bash scripts/release_authority_probe.sh" in support_bundle
-    assert '"${PYTHON_BIN}" scripts/materialize_release_authority_status.py >/dev/null 2>&1 || true' in support_bundle
-    assert '"${PYTHON_BIN}" scripts/verify_release_authority_runtime.py --pretty --require-authoritative' in support_bundle
+    assert (
+        '"${PYTHON_BIN}" scripts/materialize_release_authority_status.py >/dev/null 2>&1 || true'
+        in support_bundle
+    )
+    assert (
+        '"${PYTHON_BIN}" scripts/verify_release_authority_runtime.py --pretty --require-authoritative'
+        in support_bundle
+    )
 
 
 def test_postgres_contract_script_help_and_wiring() -> None:
@@ -1364,7 +1724,10 @@ def test_emailit_bootstrap_script_help_and_wiring() -> None:
     smoke_help = (ROOT / "scripts/smoke_help.sh").read_text(encoding="utf-8")
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
-    assert "Prepare and inspect the PropertyQuarry Emailit sending domain." in result.stdout
+    assert (
+        "Prepare and inspect the PropertyQuarry Emailit sending domain."
+        in result.stdout
+    )
     assert "--send-test-to" in result.stdout
     assert "scripts/bootstrap_emailit_propertyquarry.py" in smoke_help
     assert "scripts/bootstrap_emailit_propertyquarry.py" in makefile
@@ -1373,14 +1736,22 @@ def test_emailit_bootstrap_script_help_and_wiring() -> None:
 
 def test_whatsapp_web_action_processor_readiness_scripts_help_and_wiring() -> None:
     materialize = subprocess.run(
-        ["python3", "scripts/materialize_whatsapp_web_action_processor_readiness.py", "--help"],
+        [
+            "python3",
+            "scripts/materialize_whatsapp_web_action_processor_readiness.py",
+            "--help",
+        ],
         cwd=ROOT,
         capture_output=True,
         text=True,
         check=True,
     )
     verify = subprocess.run(
-        ["python3", "scripts/verify_whatsapp_web_action_processor_readiness.py", "--help"],
+        [
+            "python3",
+            "scripts/verify_whatsapp_web_action_processor_readiness.py",
+            "--help",
+        ],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -1390,9 +1761,16 @@ def test_whatsapp_web_action_processor_readiness_scripts_help_and_wiring() -> No
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
-    assert "Materialize the WhatsApp Web action processor readiness receipt." in materialize.stdout
-    assert "Verify the WhatsApp Web action processor readiness receipt." in verify.stdout
-    assert "scripts/materialize_whatsapp_web_action_processor_readiness.py" in smoke_help
+    assert (
+        "Materialize the WhatsApp Web action processor readiness receipt."
+        in materialize.stdout
+    )
+    assert (
+        "Verify the WhatsApp Web action processor readiness receipt." in verify.stdout
+    )
+    assert (
+        "scripts/materialize_whatsapp_web_action_processor_readiness.py" in smoke_help
+    )
     assert "scripts/verify_whatsapp_web_action_processor_readiness.py" in smoke_help
     assert "scripts/materialize_whatsapp_web_action_processor_readiness.py" in makefile
     assert "scripts/verify_whatsapp_web_action_processor_readiness.py" in makefile
@@ -1400,9 +1778,15 @@ def test_whatsapp_web_action_processor_readiness_scripts_help_and_wiring() -> No
         "./scripts/materialize_whatsapp_web_action_processor_readiness.py:"
         "/app/scripts/materialize_whatsapp_web_action_processor_readiness.py:ro"
     ) in compose
-    assert "./docker-compose.whatsapp-web-session.yml:/app/docker-compose.whatsapp-web-session.yml:ro" in compose
+    assert (
+        "./docker-compose.whatsapp-web-session.yml:/app/docker-compose.whatsapp-web-session.yml:ro"
+        in compose
+    )
     assert "ea_whatsapp_web_actions:/data/whatsapp-actions" in compose
-    assert "EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_FILE=/run/secrets/whatsapp_audiobook_callback_secret" in compose
+    assert (
+        "EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_FILE=/run/secrets/whatsapp_audiobook_callback_secret"
+        in compose
+    )
     assert (
         "${EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_RUNTIME_FILE:-./.runtime/secrets/whatsapp_audiobook_callback_secret}:"
         "/run/secrets/whatsapp_audiobook_callback_secret:ro"
@@ -1410,7 +1794,10 @@ def test_whatsapp_web_action_processor_readiness_scripts_help_and_wiring() -> No
     assert "probe-whatsapp-pairing:" in makefile
     assert "scripts/ea_live_ops.py probe-whatsapp-pairing --format operator" in makefile
     assert "send-whatsapp-pairing-telegram:" in makefile
-    assert "scripts/ea_live_ops.py probe-whatsapp-pairing --send-telegram --format operator" in makefile
+    assert (
+        "scripts/ea_live_ops.py probe-whatsapp-pairing --send-telegram --format operator"
+        in makefile
+    )
     assert "probe-mymedia-alexa:" in makefile
     assert "scripts/ea_live_ops.py probe-mymedia-alexa --format operator" in makefile
 
@@ -1435,7 +1822,10 @@ def test_mymedia_alexa_readiness_scripts_help_and_wiring() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
 
-    assert "Materialize the My Media for Alexa no-secret readiness receipt." in materialize.stdout
+    assert (
+        "Materialize the My Media for Alexa no-secret readiness receipt."
+        in materialize.stdout
+    )
     assert "Verify the My Media for Alexa no-secret readiness receipt." in verify.stdout
     assert "scripts/materialize_mymedia_alexa_readiness.py" in smoke_help
     assert "scripts/verify_mymedia_alexa_readiness.py" in smoke_help
@@ -1450,9 +1840,15 @@ def test_mymedia_alexa_readiness_scripts_help_and_wiring() -> None:
     assert "make repair-mymedia-public-surface" in readme
     assert "make verify-mymedia-alexa-readiness" in readme
     assert "--no-pairing" in readme
-    assert "probe-google-workspace-oauth --expected-google-email work.tibor.girschele@gmail.com --format operator" in readme
+    assert (
+        "probe-google-workspace-oauth --expected-google-email work.tibor.girschele@gmail.com --format operator"
+        in readme
+    )
     assert "make probe-live-provider PROVIDER=pushbullet" in readme
-    assert "python3 scripts/materialize_pushbullet_delivery_readiness.py --pretty" in readme
+    assert (
+        "python3 scripts/materialize_pushbullet_delivery_readiness.py --pretty"
+        in readme
+    )
     assert "python3 scripts/verify_pushbullet_delivery_readiness.py --pretty" in readme
     assert "account=` label such as `default->elisabeth`" in readme
     assert "make submit-mymedia-amazon-pairing-code OTP_CODE=..." in runbook
@@ -1460,8 +1856,14 @@ def test_mymedia_alexa_readiness_scripts_help_and_wiring() -> None:
     assert "make repair-mymedia-public-surface" in runbook
     assert "make probe-live-provider-cost-pressure WINDOW=24h" in runbook
     assert "probe-operator-readiness --no-pairing --format operator" in runbook
-    assert "probe-google-workspace-oauth --expected-google-email work.tibor.girschele@gmail.com --format operator" in runbook
-    assert "python3 scripts/materialize_pushbullet_delivery_readiness.py --pretty" in runbook
+    assert (
+        "probe-google-workspace-oauth --expected-google-email work.tibor.girschele@gmail.com --format operator"
+        in runbook
+    )
+    assert (
+        "python3 scripts/materialize_pushbullet_delivery_readiness.py --pretty"
+        in runbook
+    )
     assert "python3 scripts/verify_pushbullet_delivery_readiness.py --pretty" in runbook
     assert "account=` label such as `default->elisabeth`" in runbook
 
@@ -1484,7 +1886,9 @@ def test_proactive_ooda_operator_status_scripts_help_and_wiring() -> None:
     smoke_help = (ROOT / "scripts/smoke_help.sh").read_text(encoding="utf-8")
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assert "Materialize the proactive OODA operator-status receipt." in materialize.stdout
+    assert (
+        "Materialize the proactive OODA operator-status receipt." in materialize.stdout
+    )
     assert "Verify the proactive OODA operator-status receipt." in verify.stdout
     assert "scripts/materialize_proactive_ooda_operator_status.py" in smoke_help
     assert "scripts/verify_proactive_ooda_operator_status.py" in smoke_help
@@ -1492,7 +1896,9 @@ def test_proactive_ooda_operator_status_scripts_help_and_wiring() -> None:
     assert "verify-proactive-ooda-operator-status:" in makefile
     assert "scripts/materialize_proactive_ooda_operator_status.py" in makefile
     assert "scripts/verify_proactive_ooda_operator_status.py" in makefile
-    release_preflight_body = makefile.split("release-preflight:\n", 1)[1].split("\n\n", 1)[0]
+    release_preflight_body = makefile.split("release-preflight:\n", 1)[1].split(
+        "\n\n", 1
+    )[0]
     assert "$(MAKE) verify-proactive-ooda-operator-status" in release_preflight_body
 
 
@@ -1514,7 +1920,9 @@ def test_proactive_ooda_gold_acceptance_scripts_help_and_wiring() -> None:
     smoke_help = (ROOT / "scripts/smoke_help.sh").read_text(encoding="utf-8")
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assert "Materialize the proactive OODA gold-acceptance receipt." in materialize.stdout
+    assert (
+        "Materialize the proactive OODA gold-acceptance receipt." in materialize.stdout
+    )
     assert "Verify the proactive OODA gold-acceptance receipt." in verify.stdout
     assert "scripts/materialize_proactive_ooda_gold_acceptance.py" in smoke_help
     assert "scripts/verify_proactive_ooda_gold_acceptance.py" in smoke_help
@@ -1522,25 +1930,37 @@ def test_proactive_ooda_gold_acceptance_scripts_help_and_wiring() -> None:
     assert "verify-proactive-ooda-gold-acceptance:" in makefile
     assert "scripts/materialize_proactive_ooda_gold_acceptance.py" in makefile
     assert "scripts/verify_proactive_ooda_gold_acceptance.py" in makefile
-    release_preflight_body = makefile.split("release-preflight:\n", 1)[1].split("\n\n", 1)[0]
+    release_preflight_body = makefile.split("release-preflight:\n", 1)[1].split(
+        "\n\n", 1
+    )[0]
     assert "$(MAKE) verify-proactive-ooda-gold-acceptance" in release_preflight_body
 
 
 def test_postgres_contract_and_fastestvpn_helpers_support_standalone_paths() -> None:
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
-    postgres_script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
-    fastestvpn_script = (ROOT / "scripts/ensure_fastestvpn_proxy_pool.sh").read_text(encoding="utf-8")
+    postgres_script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(
+        encoding="utf-8"
+    )
+    fastestvpn_script = (ROOT / "scripts/ensure_fastestvpn_proxy_pool.sh").read_text(
+        encoding="utf-8"
+    )
     release_script = (ROOT / "scripts/release_v115_rag.sh").read_text(encoding="utf-8")
 
-    assert 'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"' in postgres_script
+    assert (
+        'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"'
+        in postgres_script
+    )
     assert 'DB_CONTAINER="${EA_DB_CONTAINER:-${DB_SERVICE}}"' in postgres_script
     assert '"${DC[@]}" up -d "${DB_SERVICE}"' in postgres_script
     assert "compose DB service container" in postgres_script
 
     assert "PROPERTYQUARRY_PROXY_POOL_NETWORK" in fastestvpn_script
     assert "PROPERTYQUARRY_FASTESTVPN_PROXY_IMAGE" in fastestvpn_script
-    assert 'root = Path(os.environ.get("FASTESTVPN_CONFIG_ROOT") or Path.cwd() / "vpn" / "fastestvpn")' in fastestvpn_script
+    assert (
+        'root = Path(os.environ.get("FASTESTVPN_CONFIG_ROOT") or Path.cwd() / "vpn" / "fastestvpn")'
+        in fastestvpn_script
+    )
     assert "/docker/property/vpn/fastestvpn" not in fastestvpn_script
     assert "/docker/EA/vpn/fastestvpn" not in fastestvpn_script
 
@@ -1564,8 +1984,13 @@ def test_postgres_contract_and_fastestvpn_helpers_support_standalone_paths() -> 
 def test_postgres_smoke_exports_openapi_dependency_examples() -> None:
     smoke = (ROOT / "scripts/smoke_postgres.sh").read_text(encoding="utf-8")
 
-    assert "exports OpenAPI and verifies paused session-step dependency examples" in smoke
-    assert 'API_SERVICE="${PROPERTYQUARRY_API_SERVICE:-${EA_API_SERVICE:-ea-api}}"' in smoke
+    assert (
+        "exports OpenAPI and verifies paused session-step dependency examples" in smoke
+    )
+    assert (
+        'API_SERVICE="${PROPERTYQUARRY_API_SERVICE:-${EA_API_SERVICE:-ea-api}}"'
+        in smoke
+    )
     assert '"${DC[@]}" up -d --build --force-recreate "${API_SERVICE}"' in smoke
     assert "bash scripts/export_openapi.sh" in smoke
     assert "step-artifact-save-waiting-approval" in smoke
@@ -1575,14 +2000,19 @@ def test_postgres_smoke_exports_openapi_dependency_examples() -> None:
 
 def test_session_step_dependency_projection_is_covered_by_contract_tests() -> None:
     rewrite_route = (ROOT / "ea/app/api/routes/rewrite.py").read_text(encoding="utf-8")
-    contract_test = (ROOT / "tests/test_rewrite_dependency_projection_contracts.py").read_text(encoding="utf-8")
+    contract_test = (
+        ROOT / "tests/test_rewrite_dependency_projection_contracts.py"
+    ).read_text(encoding="utf-8")
 
     assert "dependency_keys: list[str]" in rewrite_route
     assert "dependency_states: dict[str, str]" in rewrite_route
     assert "dependency_step_ids: dict[str, str]" in rewrite_route
     assert "blocked_dependency_keys: list[str]" in rewrite_route
     assert "dependencies_satisfied: bool" in rewrite_route
-    assert "Current state for each declared dependency key. Paused approval-backed sessions keep completed " in rewrite_route
+    assert (
+        "Current state for each declared dependency key. Paused approval-backed sessions keep completed "
+        in rewrite_route
+    )
     assert "This can still be true for a `waiting_approval` step, " in rewrite_route
     assert '"step_id": "step-artifact-save-waiting-approval"' in rewrite_route
     assert '"step_id": "step-artifact-save-blocked-human"' in rewrite_route
@@ -1590,60 +2020,124 @@ def test_session_step_dependency_projection_is_covered_by_contract_tests() -> No
     assert "step_policy_evaluate" in contract_test
     assert '["step_input_prepare"]' in contract_test
     assert '["step_policy_evaluate"]' in contract_test
-    assert '"dependency_states"] == {"step_policy_evaluate": "completed"}' in contract_test
+    assert (
+        '"dependency_states"] == {"step_policy_evaluate": "completed"}' in contract_test
+    )
     assert 'steps["step_artifact_save"]["state"] == "waiting_approval"' in contract_test
-    assert 'steps["step_artifact_save"]["blocked_dependency_keys"] == ["step_human_review"]' in contract_test
+    assert (
+        'steps["step_artifact_save"]["blocked_dependency_keys"] == ["step_human_review"]'
+        in contract_test
+    )
 
 
 def test_session_step_dependency_projection_is_covered_by_smoke_runtime() -> None:
     smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
 
-    assert 'steps_by_key["step_policy_evaluate"]["dependency_states"] == {"step_input_prepare": "completed"}' in smoke_test
-    assert 'steps_by_key["step_artifact_save"]["dependency_states"] == {"step_policy_evaluate": "completed"}' in smoke_test
-    assert 'approval_steps["step_artifact_save"]["state"] == "waiting_approval"' in smoke_test
-    assert 'review_steps["step_artifact_save"]["blocked_dependency_keys"] == ["step_human_review"]' in smoke_test
-    assert 'generic_approval_steps["step_artifact_save"]["state"] == "waiting_approval"' in smoke_test
-    assert 'generic_review_steps["step_artifact_save"]["blocked_dependency_keys"] == ["step_human_review"]' in smoke_test
+    assert (
+        'steps_by_key["step_policy_evaluate"]["dependency_states"] == {"step_input_prepare": "completed"}'
+        in smoke_test
+    )
+    assert (
+        'steps_by_key["step_artifact_save"]["dependency_states"] == {"step_policy_evaluate": "completed"}'
+        in smoke_test
+    )
+    assert (
+        'approval_steps["step_artifact_save"]["state"] == "waiting_approval"'
+        in smoke_test
+    )
+    assert (
+        'review_steps["step_artifact_save"]["blocked_dependency_keys"] == ["step_human_review"]'
+        in smoke_test
+    )
+    assert (
+        'generic_approval_steps["step_artifact_save"]["state"] == "waiting_approval"'
+        in smoke_test
+    )
+    assert (
+        'generic_review_steps["step_artifact_save"]["blocked_dependency_keys"] == ["step_human_review"]'
+        in smoke_test
+    )
     assert "projection_ok=(" in smoke_script
-    assert "dependency_states') == {'step_policy_evaluate': 'completed'}" in smoke_script
+    assert (
+        "dependency_states') == {'step_policy_evaluate': 'completed'}" in smoke_script
+    )
     assert "dependency_states') == {'step_input_prepare': 'completed'}" in smoke_script
-    assert "save_step.get('state',''), policy_step.get('dependency_states') == {'step_input_prepare': 'completed'}" in smoke_script
-    assert "save_step.get('blocked_dependency_keys') == ['step_human_review']" in smoke_script
-    assert 'GENERIC_APPROVAL_TASK_KEY="decision_brief_approval_${SMOKE_RUN_TOKEN}"' in smoke_script
-    assert '${GENERIC_APPROVAL_TASK_KEY}|awaiting_approval|waiting_approval|True|True|True|True|True' in smoke_script
-    assert "stakeholder_briefing_review|awaiting_human|waiting_human|True|True|True|True|queued|True|True|True" in smoke_script
+    assert (
+        "save_step.get('state',''), policy_step.get('dependency_states') == {'step_input_prepare': 'completed'}"
+        in smoke_script
+    )
+    assert (
+        "save_step.get('blocked_dependency_keys') == ['step_human_review']"
+        in smoke_script
+    )
+    assert (
+        'GENERIC_APPROVAL_TASK_KEY="decision_brief_approval_${SMOKE_RUN_TOKEN}"'
+        in smoke_script
+    )
+    assert (
+        "${GENERIC_APPROVAL_TASK_KEY}|awaiting_approval|waiting_approval|True|True|True|True|True"
+        in smoke_script
+    )
+    assert (
+        "stakeholder_briefing_review|awaiting_human|waiting_human|True|True|True|True|queued|True|True|True"
+        in smoke_script
+    )
 
 
 def test_openapi_dependency_examples_are_guarded() -> None:
-    openapi_test = (ROOT / "tests/test_openapi_dependency_examples_contracts.py").read_text(encoding="utf-8")
+    openapi_test = (
+        ROOT / "tests/test_openapi_dependency_examples_contracts.py"
+    ).read_text(encoding="utf-8")
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
 
-    assert 'step-artifact-save-waiting-approval' in openapi_test
-    assert 'step-artifact-save-blocked-human' in openapi_test
-    assert 'waiting_approval["dependency_states"] == {"step_policy_evaluate": "completed"}' in openapi_test
-    assert 'blocked_human["blocked_dependency_keys"] == ["step_human_review"]' in openapi_test
+    assert "step-artifact-save-waiting-approval" in openapi_test
+    assert "step-artifact-save-blocked-human" in openapi_test
+    assert (
+        'waiting_approval["dependency_states"] == {"step_policy_evaluate": "completed"}'
+        in openapi_test
+    )
+    assert (
+        'blocked_human["blocked_dependency_keys"] == ["step_human_review"]'
+        in openapi_test
+    )
     assert 'curl -fsS "${BASE}/openapi.json"' in smoke_script
     assert "waiting.get('state','')" in smoke_script
-    assert "blocked.get('blocked_dependency_keys') == ['step_human_review']" in smoke_script
+    assert (
+        "blocked.get('blocked_dependency_keys') == ['step_human_review']"
+        in smoke_script
+    )
 
 
 def test_openapi_async_acceptance_examples_are_guarded() -> None:
-    openapi_test = (ROOT / "tests/test_openapi_async_acceptance_examples_contracts.py").read_text(encoding="utf-8")
+    openapi_test = (
+        ROOT / "tests/test_openapi_async_acceptance_examples_contracts.py"
+    ).read_text(encoding="utf-8")
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
 
     assert 'schemas["RewriteAcceptedOut"]["examples"]' in openapi_test
     assert 'schemas["PlanExecuteAcceptedOut"]["examples"]' in openapi_test
     assert 'rewrite_approval["approval_id"] == "approval-123"' in openapi_test
     assert 'plan_human["task_key"] == "stakeholder_briefing_review"' in openapi_test
-    assert "rewrite_examples=(schemas.get('RewriteAcceptedOut') or {}).get('examples') or []" in smoke_script
-    assert "plan_examples=(schemas.get('PlanExecuteAcceptedOut') or {}).get('examples') or []" in smoke_script
-    assert "approval-123|human-task-123|poll_or_subscribe|poll_or_subscribe|poll_or_subscribe|decision_brief_approval|stakeholder_briefing_review|rewrite_retry_delayed" in smoke_script
+    assert (
+        "rewrite_examples=(schemas.get('RewriteAcceptedOut') or {}).get('examples') or []"
+        in smoke_script
+    )
+    assert (
+        "plan_examples=(schemas.get('PlanExecuteAcceptedOut') or {}).get('examples') or []"
+        in smoke_script
+    )
+    assert (
+        "approval-123|human-task-123|poll_or_subscribe|poll_or_subscribe|poll_or_subscribe|decision_brief_approval|stakeholder_briefing_review|rewrite_retry_delayed"
+        in smoke_script
+    )
 
 
 def test_plan_scope_contracts_are_wired_into_focused_contract_bundle() -> None:
     script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
-    plan_scope_test = (ROOT / "tests/test_plan_scope_contracts.py").read_text(encoding="utf-8")
+    plan_scope_test = (ROOT / "tests/test_plan_scope_contracts.py").read_text(
+        encoding="utf-8"
+    )
 
     assert "tests/test_plan_scope_contracts.py" in script
     assert "/v1/plans/compile" in plan_scope_test
@@ -1652,12 +2146,17 @@ def test_plan_scope_contracts_are_wired_into_focused_contract_bundle() -> None:
     assert "/v1/rewrite/artifacts/" in plan_scope_test
     assert "/v1/rewrite/receipts/" in plan_scope_test
     assert "/v1/rewrite/run-costs/" in plan_scope_test
-    assert 'denied.json()["error"]["code"] == "principal_scope_mismatch"' in plan_scope_test
+    assert (
+        'denied.json()["error"]["code"] == "principal_scope_mismatch"'
+        in plan_scope_test
+    )
 
 
 def test_plan_execute_input_contracts_are_wired_into_focused_contract_bundle() -> None:
     script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
-    execute_input_test = (ROOT / "tests/test_plan_execute_input_contracts.py").read_text(encoding="utf-8")
+    execute_input_test = (
+        ROOT / "tests/test_plan_execute_input_contracts.py"
+    ).read_text(encoding="utf-8")
     plans_route = (ROOT / "ea/app/api/routes/plans.py").read_text(encoding="utf-8")
 
     assert "tests/test_plan_execute_input_contracts.py" in script
@@ -1669,12 +2168,18 @@ def test_plan_execute_input_contracts_are_wired_into_focused_contract_bundle() -
     assert "text_or_input_json_required" in plans_route
 
 
-def test_plan_graph_validation_contracts_are_wired_into_focused_contract_bundle() -> None:
+def test_plan_graph_validation_contracts_are_wired_into_focused_contract_bundle() -> (
+    None
+):
     script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
-    validation_test = (ROOT / "tests/test_plan_graph_validation_contracts.py").read_text(encoding="utf-8")
+    validation_test = (
+        ROOT / "tests/test_plan_graph_validation_contracts.py"
+    ).read_text(encoding="utf-8")
     domain_models = (ROOT / "ea/app/domain/models.py").read_text(encoding="utf-8")
     planner = (ROOT / "ea/app/services/planner.py").read_text(encoding="utf-8")
-    task_orchestration = (ROOT / "ea/app/services/execution_task_orchestration_service.py").read_text(encoding="utf-8")
+    task_orchestration = (
+        ROOT / "ea/app/services/execution_task_orchestration_service.py"
+    ).read_text(encoding="utf-8")
 
     assert "tests/test_plan_graph_validation_contracts.py" in script
     assert "unknown_dependency:step_policy_evaluate:step_missing" in validation_test
@@ -1688,7 +2193,9 @@ def test_plan_graph_validation_contracts_are_wired_into_focused_contract_bundle(
 def test_step_io_contracts_are_wired_into_focused_contract_bundle() -> None:
     script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
     io_test = (ROOT / "tests/test_step_io_contracts.py").read_text(encoding="utf-8")
-    orchestrator = (ROOT / "ea/app/services/orchestrator.py").read_text(encoding="utf-8")
+    orchestrator = (ROOT / "ea/app/services/orchestrator.py").read_text(
+        encoding="utf-8"
+    )
 
     assert "tests/test_step_io_contracts.py" in script
     assert "missing_step_input:step_policy_evaluate:normalized_text" in io_test
@@ -1697,9 +2204,13 @@ def test_step_io_contracts_are_wired_into_focused_contract_bundle() -> None:
     assert "_validate_step_output_contract" in orchestrator
 
 
-def test_task_contract_workflow_templates_are_wired_into_focused_contract_bundle() -> None:
+def test_task_contract_workflow_templates_are_wired_into_focused_contract_bundle() -> (
+    None
+):
     script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
-    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(
+        encoding="utf-8"
+    )
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
@@ -1721,16 +2232,28 @@ def test_task_contract_workflow_templates_are_wired_into_focused_contract_bundle
     assert "step_connector_dispatch" in smoke_api
     assert "stakeholder_dispatch" in smoke_runtime
     assert "step_connector_dispatch" in smoke_runtime
-    assert "Promoted milestone capability `task_contract_workflow_templates` to released" in changelog
+    assert (
+        "Promoted milestone capability `task_contract_workflow_templates` to released"
+        in changelog
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "task_contract_workflow_templates")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "task_contract_workflow_templates"
+    )
     assert capability["status"] == "released"
-    assert "release/operator guards now pin that baseline dispatch-template contract" in capability["notes"]
+    assert (
+        "release/operator guards now pin that baseline dispatch-template contract"
+        in capability["notes"]
+    )
 
 
 def test_composable_post_artifact_workflow_packs_are_documented_and_guarded() -> None:
     script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
-    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(
+        encoding="utf-8"
+    )
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
@@ -1747,17 +2270,29 @@ def test_composable_post_artifact_workflow_packs_are_documented_and_guarded() ->
     assert "post_artifact_packs" in runbook
     assert "stakeholder_pack_template" in http_examples
     assert "artifact_then_packs" in http_examples
-    assert "Promoted milestone capability `composable_post_artifact_workflow_packs` to released" in changelog
+    assert (
+        "Promoted milestone capability `composable_post_artifact_workflow_packs` to released"
+        in changelog
+    )
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "composable_post_artifact_workflow_packs"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "composable_post_artifact_workflow_packs"
     )
     assert capability["status"] == "released"
-    assert "release/operator guards now pin that composable post-artifact workflow-pack contract" in capability["notes"]
+    assert (
+        "release/operator guards now pin that composable post-artifact workflow-pack contract"
+        in capability["notes"]
+    )
 
 
-def test_artifact_then_memory_candidate_workflow_template_is_documented_and_guarded() -> None:
-    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
+def test_artifact_then_memory_candidate_workflow_template_is_documented_and_guarded() -> (
+    None
+):
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(
+        encoding="utf-8"
+    )
     smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -1773,24 +2308,42 @@ def test_artifact_then_memory_candidate_workflow_template_is_documented_and_guar
     assert '"memory_write_allowed",' in smoke_test
     assert "stakeholder_memory_candidate" in smoke_script
     assert "step_memory_candidate_stage" in smoke_script
-    assert "memory-candidate workflow template to stage a pending principal-scoped candidate row" in smoke_script
+    assert (
+        "memory-candidate workflow template to stage a pending principal-scoped candidate row"
+        in smoke_script
+    )
     assert "artifact_then_memory_candidate" in readme
-    assert "step_input_prepare -> step_policy_evaluate -> step_artifact_save -> step_memory_candidate_stage" in readme
+    assert (
+        "step_input_prepare -> step_policy_evaluate -> step_artifact_save -> step_memory_candidate_stage"
+        in readme
+    )
     assert "artifact_then_memory_candidate" in runbook
-    assert "step_input_prepare -> step_policy_evaluate -> step_artifact_save -> step_memory_candidate_stage" in runbook
+    assert (
+        "step_input_prepare -> step_policy_evaluate -> step_artifact_save -> step_memory_candidate_stage"
+        in runbook
+    )
     assert "artifact_then_memory_candidate" in changelog
-    assert "Promoted milestone capability `artifact_then_memory_candidate_workflow_template` to released" in changelog
+    assert (
+        "Promoted milestone capability `artifact_then_memory_candidate_workflow_template` to released"
+        in changelog
+    )
     assert "stakeholder_memory_candidate" in http_examples
     assert "step_memory_candidate_stage" in http_examples
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "artifact_then_memory_candidate_workflow_template"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "artifact_then_memory_candidate_workflow_template"
     )
     assert capability["status"] == "released"
 
 
-def test_browseract_extract_then_artifact_workflow_template_is_documented_and_guarded() -> None:
-    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
+def test_browseract_extract_then_artifact_workflow_template_is_documented_and_guarded() -> (
+    None
+):
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(
+        encoding="utf-8"
+    )
     smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -1806,21 +2359,29 @@ def test_browseract_extract_then_artifact_workflow_template_is_documented_and_gu
     assert "browseract_ltd_discovery" in smoke_script
     assert "step_browseract_extract" in smoke_script
     assert "browseract_extract_then_artifact" in readme
-    assert "step_input_prepare -> step_browseract_extract -> step_artifact_save" in readme
+    assert (
+        "step_input_prepare -> step_browseract_extract -> step_artifact_save" in readme
+    )
     assert "browseract_extract_then_artifact" in runbook
-    assert "step_input_prepare -> step_browseract_extract -> step_artifact_save" in runbook
+    assert (
+        "step_input_prepare -> step_browseract_extract -> step_artifact_save" in runbook
+    )
     assert "browseract_extract_then_artifact" in changelog
     assert "browseract_ltd_discovery" in http_examples
     assert "browseract.extract_account_facts" in http_examples
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "browseract_extract_then_artifact_workflow_template"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "browseract_extract_then_artifact_workflow_template"
     )
     assert capability["status"] == "released"
 
 
 def test_tool_then_artifact_workflow_template_is_documented_and_guarded() -> None:
-    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(
+        encoding="utf-8"
+    )
     smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -1841,20 +2402,32 @@ def test_tool_then_artifact_workflow_template_is_documented_and_guarded() -> Non
     assert "workflow_template=tool_then_artifact" in runbook
     assert "workflow_template=tool_then_artifact" in changelog
     assert "browseract_ltd_discovery_generic" in http_examples
-    assert '"pre_artifact_tool_name": "browseract.extract_account_facts"' in http_examples
+    assert (
+        '"pre_artifact_tool_name": "browseract.extract_account_facts"' in http_examples
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "tool_then_artifact_workflow_template")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "tool_then_artifact_workflow_template"
+    )
     assert capability["status"] == "released"
 
 
-def test_browseract_account_inventory_tool_execution_slice_is_documented_and_smoked() -> None:
-    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
+def test_browseract_account_inventory_tool_execution_slice_is_documented_and_smoked() -> (
+    None
+):
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(
+        encoding="utf-8"
+    )
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = _smoke_runtime_text()
-    tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
+    tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(
+        encoding="utf-8"
+    )
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "/v1/tools/execute" in readme
@@ -1864,23 +2437,38 @@ def test_browseract_account_inventory_tool_execution_slice_is_documented_and_smo
     assert "/v1/tools/execute" in http_examples
     assert "browseract.extract_account_inventory" in http_examples
     assert "browseract_ltd_inventory_refresh" in http_examples
-    assert '"pre_artifact_tool_name": "browseract.extract_account_inventory"' in http_examples
-    assert "browseract.extract_account_inventory|BrowserAct,Teable,UnknownService|UnknownService|License Tier 4|missing" in smoke_api
+    assert (
+        '"pre_artifact_tool_name": "browseract.extract_account_inventory"'
+        in http_examples
+    )
+    assert (
+        "browseract.extract_account_inventory|BrowserAct,Teable,UnknownService|UnknownService|License Tier 4|missing"
+        in smoke_api
+    )
     assert "browseract_ltd_inventory_refresh" in smoke_api
     assert "browseract.extract_account_inventory" in smoke_runtime
     assert "browseract_ltd_inventory_refresh" in smoke_runtime
     assert "step_browseract_inventory_extract" in workflow_test
-    assert "test_tool_execution_service_executes_builtin_browseract_inventory_handler" in tool_execution_tests
+    assert (
+        "test_tool_execution_service_executes_builtin_browseract_inventory_handler"
+        in tool_execution_tests
+    )
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "browseract_account_inventory_tool_execution_slice"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "browseract_account_inventory_tool_execution_slice"
     )
     assert capability["status"] == "released"
 
 
 def test_browseract_live_hint_projection_slice_is_documented_and_guarded() -> None:
-    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
-    tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(
+        encoding="utf-8"
+    )
+    tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(
+        encoding="utf-8"
+    )
     skills_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
     smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
@@ -1908,7 +2496,9 @@ def test_browseract_live_hint_projection_slice_is_documented_and_guarded() -> No
     assert "account_hints_json" in changelog
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "browseract_live_discovery_input_projection"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "browseract_live_discovery_input_projection"
     )
     assert capability["status"] == "released"
 
@@ -1939,9 +2529,15 @@ def test_skill_catalog_layer_is_documented_and_guarded() -> None:
     assert "Skill Catalog" in skills_doc
     assert "`meeting_prep`" in skills_doc
     assert "first-class `/v1/skills` catalog" in changelog
-    assert "Promoted milestone capability `skill_catalog_layer` to released" in changelog
+    assert (
+        "Promoted milestone capability `skill_catalog_layer` to released" in changelog
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "skill_catalog_layer")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "skill_catalog_layer"
+    )
     assert capability["status"] == "released"
 
 
@@ -1969,28 +2565,36 @@ def test_ltd_inventory_refresh_skill_slice_is_documented_and_guarded() -> None:
     assert "`ltd_inventory_refresh`" in skills_doc
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "ltd_inventory_refresh_skill_catalog_slice"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "ltd_inventory_refresh_skill_catalog_slice"
     )
     assert capability["status"] == "released"
 
 
 def test_chummer6_visual_director_skill_slice_is_documented_and_guarded() -> None:
     skills_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
-    worker_test = (ROOT / "tests/test_chummer6_guide_worker.py").read_text(encoding="utf-8")
+    worker_test = (ROOT / "tests/test_chummer6_guide_worker.py").read_text(
+        encoding="utf-8"
+    )
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     skills_doc = (ROOT / "SKILLS.md").read_text(encoding="utf-8")
     worker = (ROOT / "scripts/chummer6_guide_worker.py").read_text(encoding="utf-8")
-    readiness = (ROOT / "scripts/chummer6_provider_readiness.py").read_text(encoding="utf-8")
+    readiness = (ROOT / "scripts/chummer6_provider_readiness.py").read_text(
+        encoding="utf-8"
+    )
     fleet_scaffolder_path = FLEET_ROOT / "scripts" / "advance_ea_chummer6_worker.py"
     fleet_scaffolder = _optional_text(fleet_scaffolder_path)
 
     assert "chummer6_visual_director" in skills_test
     assert "provider.gemini_vortex.structured_generate" in skills_test
     assert "test_chat_json_rejects_legacy_provider_aliases" in worker_test
-    assert "test_ea_json_executes_public_writer_skill_identity_by_default" in worker_test
+    assert (
+        "test_ea_json_executes_public_writer_skill_identity_by_default" in worker_test
+    )
     assert "test_ea_json_can_execute_visual_director_skill_identity" in worker_test
     assert "chummer6_visual_director" in smoke_script
     assert "Gemini Vortex" in smoke_script
@@ -2014,7 +2618,9 @@ def test_chummer6_visual_director_skill_slice_is_documented_and_guarded() -> Non
 
 def test_chummer6_public_writer_skill_slice_is_documented_and_guarded() -> None:
     skills_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
-    worker_test = (ROOT / "tests/test_chummer6_guide_worker.py").read_text(encoding="utf-8")
+    worker_test = (ROOT / "tests/test_chummer6_guide_worker.py").read_text(
+        encoding="utf-8"
+    )
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -2031,16 +2637,25 @@ def test_chummer6_public_writer_skill_slice_is_documented_and_guarded() -> None:
     assert "chummer6_public_writer" in http_examples
     assert "`chummer6_public_writer`" in skills_doc
     assert 'PUBLIC_WRITER_SKILL_KEY = "chummer6_public_writer"' in worker
-    assert "test_ea_json_missing_writer_skill_does_not_fall_back_to_visual_director" in worker_test
+    assert (
+        "test_ea_json_missing_writer_skill_does_not_fall_back_to_visual_director"
+        in worker_test
+    )
     assert "apply_skill_payload(EA_CONTAINER.skills, payload)" not in worker
     assert "current `chummer6_guide_worker.py` generation path" in skills_doc
     assert "public_screenshot_registry" not in skills_doc
 
 
-def test_chummer6_visual_skill_slice_tracks_image_curation_and_local_mirror_contracts() -> None:
+def test_chummer6_visual_skill_slice_tracks_image_curation_and_local_mirror_contracts() -> (
+    None
+):
     skills_doc = (ROOT / "SKILLS.md").read_text(encoding="utf-8")
-    bootstrap_script = (ROOT / "scripts/bootstrap_chummer6_guide_skill.py").read_text(encoding="utf-8")
-    image_curation = (ROOT / ".codex-design" / "product" / "PUBLIC_GUIDE_IMAGE_CURATION.yaml").read_text(encoding="utf-8")
+    bootstrap_script = (ROOT / "scripts/bootstrap_chummer6_guide_skill.py").read_text(
+        encoding="utf-8"
+    )
+    image_curation = (
+        ROOT / ".codex-design" / "product" / "PUBLIC_GUIDE_IMAGE_CURATION.yaml"
+    ).read_text(encoding="utf-8")
 
     assert "public_guide_image_curation" in skills_doc
     assert "public_guide_image_curation" in bootstrap_script
@@ -2056,8 +2671,12 @@ def test_browseract_bootstrap_manager_skill_slice_is_documented_and_guarded() ->
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     skills_doc = (ROOT / "SKILLS.md").read_text(encoding="utf-8")
-    bootstrap_script = (ROOT / "scripts/bootstrap_browseract_bootstrap_skill.py").read_text(encoding="utf-8")
-    fleet_bootstrap = _optional_text(FLEET_ROOT / "scripts" / "bootstrap_ea_browseract_architect.py")
+    bootstrap_script = (
+        ROOT / "scripts/bootstrap_browseract_bootstrap_skill.py"
+    ).read_text(encoding="utf-8")
+    fleet_bootstrap = _optional_text(
+        FLEET_ROOT / "scripts" / "bootstrap_ea_browseract_architect.py"
+    )
     fleet_deploy = _optional_text(FLEET_ROOT / "scripts" / "deploy.sh")
 
     assert "browseract_bootstrap_manager" in skills_test
@@ -2069,13 +2688,19 @@ def test_browseract_bootstrap_manager_skill_slice_is_documented_and_guarded() ->
     assert "browseract_bootstrap_manager" in http_examples
     assert "`browseract_bootstrap_manager`" in skills_doc
     assert '"workflow_template": "tool_then_artifact"' in bootstrap_script
-    assert '"allowed_tools": ["browseract.build_workflow_spec", "artifact_repository"]' in bootstrap_script
+    assert (
+        '"allowed_tools": ["browseract.build_workflow_spec", "artifact_repository"]'
+        in bootstrap_script
+    )
     assert '"pre_artifact_capability_key": "workflow_spec_build"' in bootstrap_script
     assert '"secondary": ["Codex"]' not in bootstrap_script
     if fleet_bootstrap:
         assert '"secondary": ["Codex"]' not in fleet_bootstrap
     if fleet_deploy:
-        assert 'python3 /docker/EA/scripts/bootstrap_browseract_bootstrap_skill.py' in fleet_deploy
+        assert (
+            "python3 /docker/EA/scripts/bootstrap_browseract_bootstrap_skill.py"
+            in fleet_deploy
+        )
 
 
 def test_skill_provider_hints_projection_is_documented_and_released() -> None:
@@ -2096,18 +2721,33 @@ def test_skill_provider_hints_projection_is_documented_and_released() -> None:
     assert "provider_hints_json" in skills_service
     assert "provider_hints_json" in skills_route
     assert 'body["provider_hints_json"]["primary"] == ["1min.AI"]' in skills_test
-    assert 'fetched_body["provider_hints_json"]["research"] == ["BrowserAct", "Paperguide"]' in skills_test
-    assert 'created.json()["provider_hints_json"]["primary"] == ["1min.AI"]' in smoke_test
-    assert 'fetched.json()["provider_hints_json"]["research"] == ["BrowserAct", "Paperguide"]' in smoke_test
+    assert (
+        'fetched_body["provider_hints_json"]["research"] == ["BrowserAct", "Paperguide"]'
+        in skills_test
+    )
+    assert (
+        'created.json()["provider_hints_json"]["primary"] == ["1min.AI"]' in smoke_test
+    )
+    assert (
+        'fetched.json()["provider_hints_json"]["research"] == ["BrowserAct", "Paperguide"]'
+        in smoke_test
+    )
     assert "provider_hints_json" in smoke_script
     assert "provider-hint" in readme
     assert "provider policy" in runbook
-    assert "Promoted milestone capability `skill_provider_hints_projection` to released" in changelog
+    assert (
+        "Promoted milestone capability `skill_provider_hints_projection` to released"
+        in changelog
+    )
     assert "provider_hints_json" in changelog
     assert "provider_hints_json" in http_examples
     assert "provider_hints_json" in skills_doc
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "skill_provider_hints_projection")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "skill_provider_hints_projection"
+    )
     assert capability["status"] == "released"
 
 
@@ -2126,10 +2766,19 @@ def test_skill_provider_hint_filtering_is_documented_and_guarded() -> None:
 
     assert "provider_hint: str = Query" in skills_route
     assert "provider_hint=provider_hint" in skills_route
-    assert "def list_skills(self, limit: int = 100, provider_hint: str = \"\")" in skills_service
+    assert (
+        'def list_skills(self, limit: int = 100, provider_hint: str = "")'
+        in skills_service
+    )
     assert "_collect_string_values" in skills_service
-    assert 'client.get("/v1/skills", params={"limit": 10, "provider_hint": "browseract"})' in skills_test
-    assert 'client.get("/v1/skills", params={"limit": 10, "provider_hint": "browseract"})' in smoke_test
+    assert (
+        'client.get("/v1/skills", params={"limit": 10, "provider_hint": "browseract"})'
+        in skills_test
+    )
+    assert (
+        'client.get("/v1/skills", params={"limit": 10, "provider_hint": "browseract"})'
+        in smoke_test
+    )
     assert "provider_hint=browseract" in smoke_script
     assert "provider_hint=BrowserAct" in readme
     assert "provider_hint=<value>" in runbook
@@ -2137,17 +2786,31 @@ def test_skill_provider_hint_filtering_is_documented_and_guarded() -> None:
     assert "provider_hint=BrowserAct" in http_examples
     assert "provider_hint=BrowserAct" in skills_doc
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "skill_provider_hint_filtering")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "skill_provider_hint_filtering"
+    )
     assert capability["status"] == "released"
 
 
 def test_session_status_transition_api_is_documented_and_guarded() -> None:
-    queue_retry_test = (ROOT / "tests/test_queue_retry_contracts.py").read_text(encoding="utf-8")
-    postgres_contract_test = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
+    queue_retry_test = (ROOT / "tests/test_queue_retry_contracts.py").read_text(
+        encoding="utf-8"
+    )
+    postgres_contract_test = (
+        ROOT / "tests/test_postgres_contract_matrix_integration.py"
+    ).read_text(encoding="utf-8")
     ledger_repo = (ROOT / "ea/app/repositories/ledger.py").read_text(encoding="utf-8")
-    ledger_postgres = (ROOT / "ea/app/repositories/ledger_postgres.py").read_text(encoding="utf-8")
-    orchestrator = (ROOT / "ea/app/services/orchestrator.py").read_text(encoding="utf-8")
-    approval_pause_service = (ROOT / "ea/app/services/execution_approval_pause_service.py").read_text(encoding="utf-8")
+    ledger_postgres = (ROOT / "ea/app/repositories/ledger_postgres.py").read_text(
+        encoding="utf-8"
+    )
+    orchestrator = (ROOT / "ea/app/services/orchestrator.py").read_text(
+        encoding="utf-8"
+    )
+    approval_pause_service = (
+        ROOT / "ea/app/services/execution_approval_pause_service.py"
+    ).read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -2156,28 +2819,47 @@ def test_session_status_transition_api_is_documented_and_guarded() -> None:
     assert "set_session_status" in queue_retry_test
     assert "_RecordingLedger" in queue_retry_test
     assert 'ledger.status_updates == ["running", "queued"]' in queue_retry_test
-    assert 'ledger.completion_updates == []' in queue_retry_test
-    assert 'ledger.set_session_status(session.session_id, "awaiting_approval")' in postgres_contract_test
+    assert "ledger.completion_updates == []" in queue_retry_test
+    assert (
+        'ledger.set_session_status(session.session_id, "awaiting_approval")'
+        in postgres_contract_test
+    )
     assert "def set_session_status(" in ledger_repo
     assert "def set_session_status(" in ledger_postgres
-    assert '_set_session_status(session_id, "awaiting_approval")' in approval_pause_service
+    assert (
+        '_set_session_status(session_id, "awaiting_approval")' in approval_pause_service
+    )
     assert "set_session_status(...)" in readme
     assert "set_session_status(...)" in runbook
-    assert "Promoted milestone capability `session_status_transition_api` to released" in changelog
+    assert (
+        "Promoted milestone capability `session_status_transition_api` to released"
+        in changelog
+    )
     assert "set_session_status(...)" in changelog
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "session_status_transition_api")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "session_status_transition_api"
+    )
     assert capability["status"] == "released"
-    assert "release/operator guards now pin that explicit nonterminal session-status transition contract" in capability["notes"]
+    assert (
+        "release/operator guards now pin that explicit nonterminal session-status transition contract"
+        in capability["notes"]
+    )
 
 
 def test_skill_identity_projection_is_documented_and_guarded() -> None:
     plans_route = (ROOT / "ea/app/api/routes/plans.py").read_text(encoding="utf-8")
     skills_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
-    execute_input_test = (ROOT / "tests/test_plan_execute_input_contracts.py").read_text(encoding="utf-8")
+    execute_input_test = (
+        ROOT / "tests/test_plan_execute_input_contracts.py"
+    ).read_text(encoding="utf-8")
     smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    openapi_test = (ROOT / "tests/test_openapi_async_acceptance_examples_contracts.py").read_text(encoding="utf-8")
+    openapi_test = (
+        ROOT / "tests/test_openapi_async_acceptance_examples_contracts.py"
+    ).read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -2189,7 +2871,10 @@ def test_skill_identity_projection_is_documented_and_guarded() -> None:
     assert 'compiled.json()["skill_key"] == "meeting_prep"' in skills_test
     assert 'executed.json()["skill_key"] == "meeting_prep"' in skills_test
     assert 'body["skill_key"] == "rewrite_text"' in execute_input_test
-    assert 'execute.json()["skill_key"] == "rewrite_retry_delayed_plan"' in execute_input_test
+    assert (
+        'execute.json()["skill_key"] == "rewrite_retry_delayed_plan"'
+        in execute_input_test
+    )
     assert 'compiled.json()["skill_key"] == "meeting_prep"' in smoke_test
     assert "compiled.get('skill_key','')" in smoke_script
     assert "body.get('skill_key','')" in smoke_script
@@ -2198,7 +2883,11 @@ def test_skill_identity_projection_is_documented_and_guarded() -> None:
     assert "resolved `skill_key`" in runbook
     assert "resolved `skill_key`" in changelog
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "skill_identity_projection")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "skill_identity_projection"
+    )
     assert capability["status"] == "released"
 
 
@@ -2213,7 +2902,7 @@ def test_runtime_skill_identity_projection_is_documented_and_guarded() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "intent_skill_key: str" in rewrite_route
-    assert "skill_key: str = \"\"" in rewrite_route
+    assert 'skill_key: str = ""' in rewrite_route
     assert "_resolve_skill_key(" in rewrite_route
     assert 'session_body["intent_skill_key"] == "meeting_prep"' in skills_test
     assert 'fetched_artifact.json()["skill_key"] == "meeting_prep"' in skills_test
@@ -2225,14 +2914,20 @@ def test_runtime_skill_identity_projection_is_documented_and_guarded() -> None:
     assert "intent_skill_key" in runbook
     assert "intent_skill_key" in changelog
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "runtime_skill_identity_projection")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "runtime_skill_identity_projection"
+    )
     assert capability["status"] == "released"
 
 
 def test_plan_skill_key_entrypoint_alias_is_documented_and_guarded() -> None:
     plans_route = (ROOT / "ea/app/api/routes/plans.py").read_text(encoding="utf-8")
     skills_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
-    execute_input_test = (ROOT / "tests/test_plan_execute_input_contracts.py").read_text(encoding="utf-8")
+    execute_input_test = (
+        ROOT / "tests/test_plan_execute_input_contracts.py"
+    ).read_text(encoding="utf-8")
     smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -2241,7 +2936,7 @@ def test_plan_skill_key_entrypoint_alias_is_documented_and_guarded() -> None:
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "skill_key: str = Field(default=\"\", max_length=200)" in plans_route
+    assert 'skill_key: str = Field(default="", max_length=200)' in plans_route
     assert "_resolve_task_key(" in plans_route
     assert "task_or_skill_key_required" in plans_route
     assert "task_skill_key_mismatch" in plans_route
@@ -2258,15 +2953,27 @@ def test_plan_skill_key_entrypoint_alias_is_documented_and_guarded() -> None:
     assert '"skill_key": "meeting_prep"' in http_examples
     assert '"skill_key": "ltd_inventory_refresh"' in http_examples
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "plan_skill_key_entrypoint_alias")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "plan_skill_key_entrypoint_alias"
+    )
     assert capability["status"] == "released"
 
 
 def test_ltd_discovery_markdown_refresh_is_documented_and_guarded() -> None:
-    service = (ROOT / "ea/app/services/ltd_inventory_markdown.py").read_text(encoding="utf-8")
-    shell_script = (ROOT / "scripts/refresh_ltds_from_inventory.sh").read_text(encoding="utf-8")
-    script = (ROOT / "scripts/refresh_ltds_from_inventory.py").read_text(encoding="utf-8")
-    test_file = (ROOT / "tests/test_ltd_inventory_markdown.py").read_text(encoding="utf-8")
+    service = (ROOT / "ea/app/services/ltd_inventory_markdown.py").read_text(
+        encoding="utf-8"
+    )
+    shell_script = (ROOT / "scripts/refresh_ltds_from_inventory.sh").read_text(
+        encoding="utf-8"
+    )
+    script = (ROOT / "scripts/refresh_ltds_from_inventory.py").read_text(
+        encoding="utf-8"
+    )
+    test_file = (ROOT / "tests/test_ltd_inventory_markdown.py").read_text(
+        encoding="utf-8"
+    )
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -2279,20 +2986,30 @@ def test_ltd_discovery_markdown_refresh_is_documented_and_guarded() -> None:
     assert "refresh_inventory_markdown" in service
     assert "refresh_ltds_from_inventory.py" in shell_script
     assert "refresh_inventory_markdown" in script
-    assert "test_refresh_inventory_markdown_updates_rows_and_syncs_metadata" in test_file
+    assert (
+        "test_refresh_inventory_markdown_updates_rows_and_syncs_metadata" in test_file
+    )
     assert "test_refresh_ltds_script_can_write_updated_markdown" in test_file
     assert "refresh_ltds_from_inventory.sh" in readme
     assert "refresh_ltds_from_inventory.sh" in runbook
     assert "refresh_ltds_from_inventory.sh" in changelog
     assert "refresh_ltds_from_inventory.sh" in ltds
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "ltd_discovery_markdown_refresh")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "ltd_discovery_markdown_refresh"
+    )
     assert capability["status"] == "released"
 
 
 def test_ltd_discovery_api_refresh_runner_is_documented_and_guarded() -> None:
-    service = (ROOT / "ea/app/services/ltd_inventory_api.py").read_text(encoding="utf-8")
-    shell_script = (ROOT / "scripts/refresh_ltds_via_api.sh").read_text(encoding="utf-8")
+    service = (ROOT / "ea/app/services/ltd_inventory_api.py").read_text(
+        encoding="utf-8"
+    )
+    shell_script = (ROOT / "scripts/refresh_ltds_via_api.sh").read_text(
+        encoding="utf-8"
+    )
     script = (ROOT / "scripts/refresh_ltds_via_api.py").read_text(encoding="utf-8")
     test_file = (ROOT / "tests/test_ltd_inventory_api.py").read_text(encoding="utf-8")
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
@@ -2307,20 +3024,31 @@ def test_ltd_discovery_api_refresh_runner_is_documented_and_guarded() -> None:
     assert "refresh_ltds_via_api.py" in shell_script
     assert "/v1/plans/execute" in script
     assert "refresh_inventory_markdown" in script
-    assert "test_refresh_ltds_via_api_script_executes_skill_and_updates_markdown" in test_file
+    assert (
+        "test_refresh_ltds_via_api_script_executes_skill_and_updates_markdown"
+        in test_file
+    )
     assert "refresh_ltds_via_api.sh" in smoke_script
     assert "refresh_ltds_via_api.sh" in readme
     assert "refresh_ltds_via_api.sh" in runbook
     assert "refresh_ltds_via_api.sh" in changelog
     assert "refresh_ltds_via_api.sh" in ltds
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "ltd_discovery_api_refresh_runner")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "ltd_discovery_api_refresh_runner"
+    )
     assert capability["status"] == "released"
 
 
-def test_principal_smoke_runner_uses_repo_rooted_ltd_and_rewrite_reset_contracts() -> None:
+def test_principal_smoke_runner_uses_repo_rooted_ltd_and_rewrite_reset_contracts() -> (
+    None
+):
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_wrapper = (ROOT / "scripts/smoke_api_principal.sh").read_text(encoding="utf-8")
+    smoke_wrapper = (ROOT / "scripts/smoke_api_principal.sh").read_text(
+        encoding="utf-8"
+    )
 
     assert "reset_rewrite_contract()" in smoke_script
     assert "trap cleanup_smoke_contract_state EXIT" in smoke_script
@@ -2331,8 +3059,12 @@ def test_principal_smoke_runner_uses_repo_rooted_ltd_and_rewrite_reset_contracts
 
 def test_artifact_evidence_pack_output_template_is_documented_and_guarded() -> None:
     planner = (ROOT / "ea/app/services/planner.py").read_text(encoding="utf-8")
-    runtime_service = (ROOT / "ea/app/services/execution_step_runtime_service.py").read_text(encoding="utf-8")
-    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
+    runtime_service = (
+        ROOT / "ea/app/services/execution_step_runtime_service.py"
+    ).read_text(encoding="utf-8")
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(
+        encoding="utf-8"
+    )
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -2341,24 +3073,44 @@ def test_artifact_evidence_pack_output_template_is_documented_and_guarded() -> N
 
     assert "_artifact_output_template_key" in planner
     assert "artifact_output_template" in planner
-    assert "\"format\": \"evidence_pack\"" in runtime_service
-    assert "test_planner_can_project_evidence_pack_artifact_output_template" in workflow_test
-    assert "test_artifact_then_memory_candidate_evidence_pack_persists_structured_output" in workflow_test
+    assert '"format": "evidence_pack"' in runtime_service
+    assert (
+        "test_planner_can_project_evidence_pack_artifact_output_template"
+        in workflow_test
+    )
+    assert (
+        "test_artifact_then_memory_candidate_evidence_pack_persists_structured_output"
+        in workflow_test
+    )
     assert "plan_execute_artifact_json" in smoke_script
-    assert "artifact_output_template\":\"evidence_pack" in smoke_script
+    assert 'artifact_output_template":"evidence_pack' in smoke_script
     assert "artifact_output_template=evidence_pack" in readme
     assert "artifact_output_template=evidence_pack" in runbook
-    assert "Promoted milestone capability `artifact_evidence_pack_output_template` to released" in changelog
+    assert (
+        "Promoted milestone capability `artifact_evidence_pack_output_template` to released"
+        in changelog
+    )
     assert "artifact_output_template=evidence_pack" in changelog
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "artifact_evidence_pack_output_template")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "artifact_evidence_pack_output_template"
+    )
     assert capability["status"] == "released"
-    assert "release/operator guards now pin that evidence-pack output-template contract" in capability["notes"]
+    assert (
+        "release/operator guards now pin that evidence-pack output-template contract"
+        in capability["notes"]
+    )
 
 
 def test_evidence_pack_memory_candidate_projection_is_documented_and_guarded() -> None:
-    runtime_service = (ROOT / "ea/app/services/execution_step_runtime_service.py").read_text(encoding="utf-8")
-    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
+    runtime_service = (
+        ROOT / "ea/app/services/execution_step_runtime_service.py"
+    ).read_text(encoding="utf-8")
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(
+        encoding="utf-8"
+    )
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -2372,18 +3124,29 @@ def test_evidence_pack_memory_candidate_projection_is_documented_and_guarded() -
     assert "memory-candidate staging" in readme
     assert "memory-candidate staging" in runbook
     assert "memory-candidate staging" in changelog
-    assert "Promoted milestone capability `evidence_pack_memory_candidate_projection` to released" in changelog
+    assert (
+        "Promoted milestone capability `evidence_pack_memory_candidate_projection` to released"
+        in changelog
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "evidence_pack_memory_candidate_projection")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "evidence_pack_memory_candidate_projection"
+    )
     assert capability["status"] == "released"
 
 
 def test_evidence_object_ledger_api_is_documented_and_guarded() -> None:
     router = (ROOT / "ea/app/api/routes/evidence.py").read_text(encoding="utf-8")
     runtime = (ROOT / "ea/app/services/evidence_runtime.py").read_text(encoding="utf-8")
-    tool_execution = (ROOT / "ea/app/services/tool_execution_artifact_adapter.py").read_text(encoding="utf-8")
+    tool_execution = (
+        ROOT / "ea/app/services/tool_execution_artifact_adapter.py"
+    ).read_text(encoding="utf-8")
     tool_test = (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
-    postgres_contracts = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
+    postgres_contracts = (
+        ROOT / "tests/test_postgres_contract_matrix_integration.py"
+    ).read_text(encoding="utf-8")
     smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -2395,28 +3158,52 @@ def test_evidence_object_ledger_api_is_documented_and_guarded() -> None:
     assert 'prefix="/v1/evidence"' in router
     assert "merge_objects(" in runtime
     assert '"evidence_object_id"' in tool_execution
-    assert "test_tool_execution_service_materializes_evidence_objects_for_evidence_pack_artifacts" in tool_test
-    assert "test_postgres_evidence_object_repo_materializes_queries_and_merges_evidence_pack_rows" in postgres_contracts
-    assert "test_evidence_object_routes_materialize_and_merge_evidence_pack_artifacts" in smoke_test
+    assert (
+        "test_tool_execution_service_materializes_evidence_objects_for_evidence_pack_artifacts"
+        in tool_test
+    )
+    assert (
+        "test_postgres_evidence_object_repo_materializes_queries_and_merges_evidence_pack_rows"
+        in postgres_contracts
+    )
+    assert (
+        "test_evidence_object_routes_materialize_and_merge_evidence_pack_artifacts"
+        in smoke_test
+    )
     assert "EVIDENCE_OBJECT_FIELDS" in smoke_script
     assert "/v1/evidence/objects" in readme
     assert "/v1/evidence/objects" in runbook
     assert "/v1/evidence/objects" in changelog
     assert "/v1/evidence/objects" in http_examples
-    assert "Promoted milestone capability `evidence_object_ledger_api` to released" in changelog
+    assert (
+        "Promoted milestone capability `evidence_object_ledger_api` to released"
+        in changelog
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "evidence_object_ledger_api")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "evidence_object_ledger_api"
+    )
     assert capability["status"] == "released"
 
 
 def test_knowledge_fabric_projection_slice_is_documented_and_released() -> None:
-    evidence_runtime = (ROOT / "ea/app/services/evidence_runtime.py").read_text(encoding="utf-8")
-    evidence_router = (ROOT / "ea/app/api/routes/evidence.py").read_text(encoding="utf-8")
+    evidence_runtime = (ROOT / "ea/app/services/evidence_runtime.py").read_text(
+        encoding="utf-8"
+    )
+    evidence_router = (ROOT / "ea/app/api/routes/evidence.py").read_text(
+        encoding="utf-8"
+    )
     evidence_models = (ROOT / "ea/app/domain/models.py").read_text(encoding="utf-8")
     smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    chummer_worker_test = (ROOT / "tests/test_chummer6_guide_worker.py").read_text(encoding="utf-8")
-    chummer_canon_test = (ROOT / "tests/test_chummer6_guide_canon.py").read_text(encoding="utf-8")
+    chummer_worker_test = (ROOT / "tests/test_chummer6_guide_worker.py").read_text(
+        encoding="utf-8"
+    )
+    chummer_canon_test = (ROOT / "tests/test_chummer6_guide_canon.py").read_text(
+        encoding="utf-8"
+    )
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -2425,21 +3212,40 @@ def test_knowledge_fabric_projection_slice_is_documented_and_released() -> None:
     assert "citation_handles = normalize_evidence_strings" in evidence_runtime
     assert 'prefix="/v1/evidence"' in evidence_router
     assert "def evidence_citation_handle(" in evidence_models
-    assert "test_evidence_object_routes_materialize_and_merge_evidence_pack_artifacts" in smoke_test
+    assert (
+        "test_evidence_object_routes_materialize_and_merge_evidence_pack_artifacts"
+        in smoke_test
+    )
     assert "EVIDENCE_OBJECT_FIELDS" in smoke_script
     assert "how_can_i_help" in chummer_worker_test
-    assert "test_load_faq_and_help_canon_track_public_question_sets" in chummer_canon_test
+    assert (
+        "test_load_faq_and_help_canon_track_public_question_sets" in chummer_canon_test
+    )
     assert "/v1/evidence/objects*" in readme
     assert "/v1/evidence/objects" in runbook
-    assert "Promoted milestone capability `knowledge_fabric_projection_slice` to released" in changelog
+    assert (
+        "Promoted milestone capability `knowledge_fabric_projection_slice` to released"
+        in changelog
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "knowledge_fabric_projection_slice")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "knowledge_fabric_projection_slice"
+    )
     assert capability["status"] == "released"
-    assert "Release/operator guards now pin these citation/query/help contracts." in capability["notes"]
+    assert (
+        "Release/operator guards now pin these citation/query/help contracts."
+        in capability["notes"]
+    )
 
 
-def test_dispatch_then_memory_candidate_workflow_template_is_documented_and_guarded() -> None:
-    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
+def test_dispatch_then_memory_candidate_workflow_template_is_documented_and_guarded() -> (
+    None
+):
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(
+        encoding="utf-8"
+    )
     smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -2456,22 +3262,37 @@ def test_dispatch_then_memory_candidate_workflow_template_is_documented_and_guar
     assert "stakeholder_dispatch_memory_candidate" in smoke_script
     assert "dispatch-memory@example.com" in smoke_script
     assert "artifact_then_dispatch_then_memory_candidate" in readme
-    assert "step_input_prepare -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage" in readme
+    assert (
+        "step_input_prepare -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage"
+        in readme
+    )
     assert "artifact_then_dispatch_then_memory_candidate" in runbook
-    assert "step_input_prepare -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage" in runbook
+    assert (
+        "step_input_prepare -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage"
+        in runbook
+    )
     assert "artifact_then_dispatch_then_memory_candidate" in changelog
     assert "stakeholder_dispatch_memory_candidate" in http_examples
     assert "artifact_then_dispatch_then_memory_candidate" in http_examples
-    assert "Promoted milestone capability `dispatch_then_memory_candidate_workflow_template` to released" in changelog
+    assert (
+        "Promoted milestone capability `dispatch_then_memory_candidate_workflow_template` to released"
+        in changelog
+    )
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "dispatch_then_memory_candidate_workflow_template"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "dispatch_then_memory_candidate_workflow_template"
     )
     assert capability["status"] == "released"
 
 
-def test_review_dispatch_then_memory_candidate_workflow_template_is_documented_and_guarded() -> None:
-    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
+def test_review_dispatch_then_memory_candidate_workflow_template_is_documented_and_guarded() -> (
+    None
+):
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(
+        encoding="utf-8"
+    )
     smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -2487,22 +3308,35 @@ def test_review_dispatch_then_memory_candidate_workflow_template_is_documented_a
     assert "stakeholder_review_dispatch_memory_candidate" in smoke_script
     assert "reviewed-memory@example.com" in smoke_script
     assert "artifact_then_dispatch_then_memory_candidate" in readme
-    assert "step_input_prepare -> step_human_review -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage" in readme
+    assert (
+        "step_input_prepare -> step_human_review -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage"
+        in readme
+    )
     assert "artifact_then_dispatch_then_memory_candidate" in runbook
-    assert "step_input_prepare -> step_human_review -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage" in runbook
-    assert "Promoted milestone capability `review_dispatch_then_memory_candidate_workflow_template` to released" in changelog
+    assert (
+        "step_input_prepare -> step_human_review -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage"
+        in runbook
+    )
+    assert (
+        "Promoted milestone capability `review_dispatch_then_memory_candidate_workflow_template` to released"
+        in changelog
+    )
     assert "hybrid human-review case" in changelog
     assert "stakeholder_review_dispatch_memory_candidate" in http_examples
     assert "artifact_then_dispatch_then_memory_candidate" in http_examples
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "review_dispatch_then_memory_candidate_workflow_template"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "review_dispatch_then_memory_candidate_workflow_template"
     )
     assert capability["status"] == "released"
 
 
 def test_unknown_workflow_templates_fail_fast_at_planner_and_api_boundaries() -> None:
-    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(
+        encoding="utf-8"
+    )
     planner = (ROOT / "ea/app/services/planner.py").read_text(encoding="utf-8")
     plans_route = (ROOT / "ea/app/api/routes/plans.py").read_text(encoding="utf-8")
     rewrite_route = (ROOT / "ea/app/api/routes/rewrite.py").read_text(encoding="utf-8")
@@ -2521,14 +3355,23 @@ def test_unknown_workflow_templates_fail_fast_at_planner_and_api_boundaries() ->
     assert "unknown_workflow_template:<value>" in readme
     assert "unknown_workflow_template:<value>" in runbook
     assert "unknown_workflow_template:<value>" in changelog
-    assert "Promoted milestone capability `workflow_template_registry_validation` to released" in changelog
+    assert (
+        "Promoted milestone capability `workflow_template_registry_validation` to released"
+        in changelog
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "workflow_template_registry_validation")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "workflow_template_registry_validation"
+    )
     assert capability["status"] == "released"
 
 
 def test_review_then_dispatch_workflow_template_is_documented_and_guarded() -> None:
-    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(
+        encoding="utf-8"
+    )
     smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -2547,93 +3390,187 @@ def test_review_then_dispatch_workflow_template_is_documented_and_guarded() -> N
     assert "review and send a stakeholder briefing" in workflow_test
     assert "stakeholder_review_dispatch" in smoke_script
     assert "hybrid@example.com" in smoke_script
-    assert "review-then-dispatch workflow to pause behind human review first" in smoke_script
-    assert "expected review-then-dispatch workflow to pause for approval after human return and artifact persistence" in smoke_script
+    assert (
+        "review-then-dispatch workflow to pause behind human review first"
+        in smoke_script
+    )
+    assert (
+        "expected review-then-dispatch workflow to pause for approval after human return and artifact persistence"
+        in smoke_script
+    )
     assert "artifact_then_dispatch" in readme
-    assert "step_human_review -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch" in readme
+    assert (
+        "step_human_review -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch"
+        in readme
+    )
     assert "artifact_then_dispatch" in runbook
-    assert "step_human_review -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch" in runbook
-    assert "Promoted milestone capability `review_then_dispatch_workflow_template` to released" in changelog
+    assert (
+        "step_human_review -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch"
+        in runbook
+    )
+    assert (
+        "Promoted milestone capability `review_then_dispatch_workflow_template` to released"
+        in changelog
+    )
     assert "combined human-review case" in changelog
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "review_then_dispatch_workflow_template")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "review_then_dispatch_workflow_template"
+    )
     assert capability["status"] == "released"
-    assert "release/operator guards now pin that review-then-dispatch workflow" in capability["notes"]
+    assert (
+        "release/operator guards now pin that review-then-dispatch workflow"
+        in capability["notes"]
+    )
 
 
 def test_execution_queue_retry_runtime_is_documented_and_guarded() -> None:
-    retry_test = (ROOT / "tests/test_queue_retry_contracts.py").read_text(encoding="utf-8")
-    postgres_matrix = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
+    retry_test = (ROOT / "tests/test_queue_retry_contracts.py").read_text(
+        encoding="utf-8"
+    )
+    postgres_matrix = (
+        ROOT / "tests/test_postgres_contract_matrix_integration.py"
+    ).read_text(encoding="utf-8")
     script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "test_retry_failure_strategy_requeues_a_failed_step_until_it_succeeds" in retry_test
-    assert "test_retry_failure_strategy_exhausts_into_terminal_session_failure" in retry_test
+    assert (
+        "test_retry_failure_strategy_requeues_a_failed_step_until_it_succeeds"
+        in retry_test
+    )
+    assert (
+        "test_retry_failure_strategy_exhausts_into_terminal_session_failure"
+        in retry_test
+    )
     assert "step_retry_scheduled" in retry_test
-    assert "test_postgres_execution_queue_retry_requeues_the_same_row" in postgres_matrix
+    assert (
+        "test_postgres_execution_queue_retry_requeues_the_same_row" in postgres_matrix
+    )
     assert "retry_queue_item" in postgres_matrix
     assert "tests/test_queue_retry_contracts.py" in script
     assert "failure_strategy=retry" in readme
     assert "failure_strategy=retry" in runbook
-    assert "Queued step failures can now actually honor `failure_strategy=retry`" in changelog
+    assert (
+        "Queued step failures can now actually honor `failure_strategy=retry`"
+        in changelog
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "execution_queue_retry_runtime")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "execution_queue_retry_runtime"
+    )
     assert capability["status"] == "released"
 
 
 def test_inline_retry_drain_runtime_is_documented_and_guarded() -> None:
-    retry_test = (ROOT / "tests/test_queue_retry_contracts.py").read_text(encoding="utf-8")
-    queue_service = (ROOT / "ea/app/services/execution_queue_service.py").read_text(encoding="utf-8")
+    retry_test = (ROOT / "tests/test_queue_retry_contracts.py").read_text(
+        encoding="utf-8"
+    )
+    queue_service = (ROOT / "ea/app/services/execution_queue_service.py").read_text(
+        encoding="utf-8"
+    )
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "test_execute_task_artifact_drains_zero_backoff_retries_inline_to_completion" in retry_test
-    assert "test_approval_resume_drains_zero_backoff_retries_inline_to_completion" in retry_test
+    assert (
+        "test_execute_task_artifact_drains_zero_backoff_retries_inline_to_completion"
+        in retry_test
+    )
+    assert (
+        "test_approval_resume_drains_zero_backoff_retries_inline_to_completion"
+        in retry_test
+    )
     assert "drain_session_inline(" in queue_service
     assert "_next_eligible_queue_item_for_session" in queue_service
-    assert "zero-backoff retries now keep draining same-session queue work inline" in readme
+    assert (
+        "zero-backoff retries now keep draining same-session queue work inline"
+        in readme
+    )
     assert "retry_backoff_seconds=0" in runbook
     assert "Zero-backoff retries now keep draining the same session inline" in changelog
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "inline_retry_drain_runtime")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "inline_retry_drain_runtime"
+    )
     assert capability["status"] == "released"
 
 
 def test_contract_retry_policy_metadata_is_documented_and_guarded() -> None:
     planner_test = (ROOT / "tests/test_planner.py").read_text(encoding="utf-8")
-    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
-    retry_test = (ROOT / "tests/test_queue_retry_contracts.py").read_text(encoding="utf-8")
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(
+        encoding="utf-8"
+    )
+    retry_test = (ROOT / "tests/test_queue_retry_contracts.py").read_text(
+        encoding="utf-8"
+    )
     planner = (ROOT / "ea/app/services/planner.py").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "test_planner_can_compile_artifact_retry_policy_from_task_contract_metadata" in planner_test
-    assert "test_planner_can_compile_dispatch_retry_policy_from_task_contract_metadata" in workflow_test
-    assert "test_execute_task_artifact_uses_compiled_artifact_retry_policy_from_contract_metadata" in retry_test
+    assert (
+        "test_planner_can_compile_artifact_retry_policy_from_task_contract_metadata"
+        in planner_test
+    )
+    assert (
+        "test_planner_can_compile_dispatch_retry_policy_from_task_contract_metadata"
+        in workflow_test
+    )
+    assert (
+        "test_execute_task_artifact_uses_compiled_artifact_retry_policy_from_contract_metadata"
+        in retry_test
+    )
     assert "_step_retry_policy" in planner
     assert 'prefix="artifact"' in planner
     assert 'prefix="dispatch"' in planner
-    assert "budget_policy_json.artifact_failure_strategy|artifact_max_attempts|artifact_retry_backoff_seconds" in readme
-    assert "artifact_failure_strategy|artifact_max_attempts|artifact_retry_backoff_seconds" in runbook
-    assert "Task-contract metadata can now tune the built-in artifact and dispatch retry posture" in changelog
+    assert (
+        "budget_policy_json.artifact_failure_strategy|artifact_max_attempts|artifact_retry_backoff_seconds"
+        in readme
+    )
+    assert (
+        "artifact_failure_strategy|artifact_max_attempts|artifact_retry_backoff_seconds"
+        in runbook
+    )
+    assert (
+        "Task-contract metadata can now tune the built-in artifact and dispatch retry posture"
+        in changelog
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "contract_retry_policy_metadata")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "contract_retry_policy_metadata"
+    )
     assert capability["status"] == "released"
 
 
 def test_delayed_retry_async_acceptance_is_documented_and_guarded() -> None:
-    retry_test = (ROOT / "tests/test_queue_retry_contracts.py").read_text(encoding="utf-8")
-    plan_test = (ROOT / "tests/test_plan_execute_input_contracts.py").read_text(encoding="utf-8")
-    rewrite_test = (ROOT / "tests/test_rewrite_api_scope_contracts.py").read_text(encoding="utf-8")
-    openapi_test = (ROOT / "tests/test_openapi_async_acceptance_examples_contracts.py").read_text(encoding="utf-8")
-    orchestrator = (ROOT / "ea/app/services/orchestrator.py").read_text(encoding="utf-8")
+    retry_test = (ROOT / "tests/test_queue_retry_contracts.py").read_text(
+        encoding="utf-8"
+    )
+    plan_test = (ROOT / "tests/test_plan_execute_input_contracts.py").read_text(
+        encoding="utf-8"
+    )
+    rewrite_test = (ROOT / "tests/test_rewrite_api_scope_contracts.py").read_text(
+        encoding="utf-8"
+    )
+    openapi_test = (
+        ROOT / "tests/test_openapi_async_acceptance_examples_contracts.py"
+    ).read_text(encoding="utf-8")
+    orchestrator = (ROOT / "ea/app/services/orchestrator.py").read_text(
+        encoding="utf-8"
+    )
     plans_route = (ROOT / "ea/app/api/routes/plans.py").read_text(encoding="utf-8")
     rewrite_route = (ROOT / "ea/app/api/routes/rewrite.py").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -2641,24 +3578,45 @@ def test_delayed_retry_async_acceptance_is_documented_and_guarded() -> None:
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "test_execute_task_artifact_returns_queued_async_state_for_delayed_retry" in retry_test
-    assert "test_approval_resume_keeps_delayed_retry_sessions_async_instead_of_erroring" in retry_test
-    assert "test_plan_execute_surfaces_delayed_retry_as_queued_async_acceptance" in plan_test
-    assert "test_rewrite_artifact_surfaces_delayed_retry_as_queued_async_acceptance" in rewrite_test
+    assert (
+        "test_execute_task_artifact_returns_queued_async_state_for_delayed_retry"
+        in retry_test
+    )
+    assert (
+        "test_approval_resume_keeps_delayed_retry_sessions_async_instead_of_erroring"
+        in retry_test
+    )
+    assert (
+        "test_plan_execute_surfaces_delayed_retry_as_queued_async_acceptance"
+        in plan_test
+    )
+    assert (
+        "test_rewrite_artifact_surfaces_delayed_retry_as_queued_async_acceptance"
+        in rewrite_test
+    )
     assert 'example["status"] == "queued"' in openapi_test
     assert "AsyncExecutionQueuedError" in orchestrator
     assert "except AsyncExecutionQueuedError as exc" in plans_route
     assert "except AsyncExecutionQueuedError as exc" in rewrite_route
     assert "first-class `202 queued` async acceptance" in readme
     assert "`202 queued`" in runbook
-    assert "Nonzero-backoff retries now surface as a first-class `202 queued` async acceptance" in changelog
+    assert (
+        "Nonzero-backoff retries now surface as a first-class `202 queued` async acceptance"
+        in changelog
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "delayed_retry_async_acceptance")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "delayed_retry_async_acceptance"
+    )
     assert capability["status"] == "released"
 
 
 def test_review_dispatch_delayed_retry_runtime_is_documented_and_guarded() -> None:
-    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(
+        encoding="utf-8"
+    )
     smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -2666,23 +3624,47 @@ def test_review_dispatch_delayed_retry_runtime_is_documented_and_guarded() -> No
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "test_planner_can_compile_review_then_dispatch_retry_policy_from_task_contract_metadata" in workflow_test
-    assert "test_review_then_dispatch_workflow_template_keeps_delayed_dispatch_retry_async_after_approval" in workflow_test
-    assert "test_review_then_dispatch_delayed_retry_stays_queued_after_http_approval" in smoke_test
+    assert (
+        "test_planner_can_compile_review_then_dispatch_retry_policy_from_task_contract_metadata"
+        in workflow_test
+    )
+    assert (
+        "test_review_then_dispatch_workflow_template_keeps_delayed_dispatch_retry_async_after_approval"
+        in workflow_test
+    )
+    assert (
+        "test_review_then_dispatch_delayed_retry_stays_queued_after_http_approval"
+        in smoke_test
+    )
     assert "stakeholder_review_dispatch_retry" in smoke_script
     assert "hybrid-retry@example.com" in smoke_script
-    assert "expected delayed review-then-dispatch approval flow to leave dispatch queued behind next_attempt_at" in smoke_script
+    assert (
+        "expected delayed review-then-dispatch approval flow to leave dispatch queued behind next_attempt_at"
+        in smoke_script
+    )
     assert "dispatch_failure_strategy|max_attempts|retry_backoff_seconds" in readme
-    assert "dispatch_failure_strategy|dispatch_max_attempts|dispatch_retry_backoff_seconds" in runbook
-    assert "Promoted milestone capability `review_dispatch_delayed_retry_runtime` to released" in changelog
+    assert (
+        "dispatch_failure_strategy|dispatch_max_attempts|dispatch_retry_backoff_seconds"
+        in runbook
+    )
+    assert (
+        "Promoted milestone capability `review_dispatch_delayed_retry_runtime` to released"
+        in changelog
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "review_dispatch_delayed_retry_runtime")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "review_dispatch_delayed_retry_runtime"
+    )
     assert capability["status"] == "released"
 
 
 def test_principal_fallback_contracts_are_wired_into_focused_contract_bundle() -> None:
     script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
-    fallback_test = (ROOT / "tests/test_principal_fallback_contracts.py").read_text(encoding="utf-8")
+    fallback_test = (ROOT / "tests/test_principal_fallback_contracts.py").read_text(
+        encoding="utf-8"
+    )
 
     assert "tests/test_principal_fallback_contracts.py" in script
     assert "principal_id_required" in fallback_test
@@ -2695,10 +3677,18 @@ def test_principal_fallback_contracts_are_wired_into_focused_contract_bundle() -
 def test_artifact_principal_ownership_is_guarded_across_routes_and_smoke() -> None:
     rewrite_route = (ROOT / "ea/app/api/routes/rewrite.py").read_text(encoding="utf-8")
     plans_route = (ROOT / "ea/app/api/routes/plans.py").read_text(encoding="utf-8")
-    artifact_repo = (ROOT / "ea/app/repositories/artifacts_postgres.py").read_text(encoding="utf-8")
-    postgres_test = (ROOT / "tests/test_artifacts_postgres_integration.py").read_text(encoding="utf-8")
-    rewrite_scope_test = (ROOT / "tests/test_rewrite_scope_contracts.py").read_text(encoding="utf-8")
-    rewrite_api_scope_test = (ROOT / "tests/test_rewrite_api_scope_contracts.py").read_text(encoding="utf-8")
+    artifact_repo = (ROOT / "ea/app/repositories/artifacts_postgres.py").read_text(
+        encoding="utf-8"
+    )
+    postgres_test = (ROOT / "tests/test_artifacts_postgres_integration.py").read_text(
+        encoding="utf-8"
+    )
+    rewrite_scope_test = (ROOT / "tests/test_rewrite_scope_contracts.py").read_text(
+        encoding="utf-8"
+    )
+    rewrite_api_scope_test = (
+        ROOT / "tests/test_rewrite_api_scope_contracts.py"
+    ).read_text(encoding="utf-8")
     smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
 
@@ -2707,16 +3697,26 @@ def test_artifact_principal_ownership_is_guarded_across_routes_and_smoke() -> No
     assert "principal_id TEXT NOT NULL" in artifact_repo
     assert "WHERE a.session_id = es.session_id::text" in artifact_repo
     assert 'loaded.principal_id == "principal-default"' in postgres_test
-    assert 'scoped_artifact[0].principal_id == "principal-default"' in rewrite_scope_test
+    assert (
+        'scoped_artifact[0].principal_id == "principal-default"' in rewrite_scope_test
+    )
     assert 'payload["principal_id"] == "principal-default"' in rewrite_api_scope_test
     assert 'body["artifacts"][0]["principal_id"] == "principal-default"' in smoke_test
-    assert 'fetched_artifact.json()["principal_id"] == "principal-default"' in smoke_test
+    assert (
+        'fetched_artifact.json()["principal_id"] == "principal-default"' in smoke_test
+    )
     assert "first.get('principal_id','')" in smoke_script
-    assert 'match="principal_id_required"' in (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
+    assert 'match="principal_id_required"' in (
+        ROOT / "tests/test_tool_execution.py"
+    ).read_text(encoding="utf-8")
 
 
-def test_postgres_ledger_runtime_compatibility_is_guarded_across_runtime_and_smoke() -> None:
-    ledger_repo = (ROOT / "ea/app/repositories/ledger_postgres.py").read_text(encoding="utf-8")
+def test_postgres_ledger_runtime_compatibility_is_guarded_across_runtime_and_smoke() -> (
+    None
+):
+    ledger_repo = (ROOT / "ea/app/repositories/ledger_postgres.py").read_text(
+        encoding="utf-8"
+    )
     smoke_postgres = (ROOT / "scripts/smoke_postgres.sh").read_text(encoding="utf-8")
 
     assert "ADD COLUMN IF NOT EXISTS name TEXT" in ledger_repo
@@ -2730,7 +3730,9 @@ def test_postgres_ledger_runtime_compatibility_is_guarded_across_runtime_and_smo
 
 
 def test_postgres_approval_runtime_compatibility_is_guarded() -> None:
-    approvals_repo = (ROOT / "ea/app/repositories/approvals_postgres.py").read_text(encoding="utf-8")
+    approvals_repo = (ROOT / "ea/app/repositories/approvals_postgres.py").read_text(
+        encoding="utf-8"
+    )
 
     assert "SELECT approval_request_id" in approvals_repo
     assert "approval_request_id" in approvals_repo
@@ -2749,22 +3751,36 @@ def test_artifact_principal_ownership_docs_and_milestone_cover_explicit_scope() 
     assert "explicit `principal_id` ownership" in runbook
     assert "principal_id ownership" in http_examples
     assert "explicit `principal_id` ownership" in changelog
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "artifact_principal_ownership_projection")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "artifact_principal_ownership_projection"
+    )
     assert capability["status"] == "released"
 
 
-def test_step_parent_projection_contracts_are_wired_into_focused_contract_bundle() -> None:
+def test_step_parent_projection_contracts_are_wired_into_focused_contract_bundle() -> (
+    None
+):
     script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
-    parent_test = (ROOT / "tests/test_step_parent_projection_contracts.py").read_text(encoding="utf-8")
+    parent_test = (ROOT / "tests/test_step_parent_projection_contracts.py").read_text(
+        encoding="utf-8"
+    )
     smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
 
     assert "tests/test_step_parent_projection_contracts.py" in script
-    assert 'save_step.parent_step_id is None' in parent_test
-    assert 'policy_step.parent_step_id == input_step.step_id' in parent_test
-    assert 'sidecar_step.parent_step_id == input_step.step_id' in parent_test
-    assert 'steps_by_key["step_policy_evaluate"]["parent_step_id"] == steps_by_key["step_input_prepare"]["step_id"]' in smoke_test
-    assert 'steps_by_key["step_artifact_save"]["parent_step_id"] == steps_by_key["step_policy_evaluate"]["step_id"]' in smoke_test
+    assert "save_step.parent_step_id is None" in parent_test
+    assert "policy_step.parent_step_id == input_step.step_id" in parent_test
+    assert "sidecar_step.parent_step_id == input_step.step_id" in parent_test
+    assert (
+        'steps_by_key["step_policy_evaluate"]["parent_step_id"] == steps_by_key["step_input_prepare"]["step_id"]'
+        in smoke_test
+    )
+    assert (
+        'steps_by_key["step_artifact_save"]["parent_step_id"] == steps_by_key["step_policy_evaluate"]["step_id"]'
+        in smoke_test
+    )
     assert "policy_step.get('parent_step_id') == input_id" in smoke_script
     assert "save_step.get('parent_step_id') == policy_id" in smoke_script
 
@@ -2778,7 +3794,11 @@ def test_single_dependency_parent_projection_docs_and_milestone_are_present() ->
     assert "multi-prerequisite join steps stay parentless" in readme
     assert "multi-prerequisite join steps stay parentless" in runbook
     assert "parent_step_id` only from actual single-dependency edges" in changelog
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "single_dependency_parent_projection")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "single_dependency_parent_projection"
+    )
     assert capability["status"] == "released"
 
 
@@ -2797,9 +3817,16 @@ def test_policy_docs_and_milestone_cover_external_action_evaluation() -> None:
     assert "/v1/policy/evaluate" in http_examples
     assert '"step_kind": "connector_call"' in http_examples
     assert "connector_call|execute|manager" in smoke_api
-    assert "test_policy_requires_approval_for_connector_dispatch_step_even_without_explicit_send_action" in policy_tests
+    assert (
+        "test_policy_requires_approval_for_connector_dispatch_step_even_without_explicit_send_action"
+        in policy_tests
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "external_action_policy_api_exposure")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "external_action_policy_api_exposure"
+    )
     assert capability["status"] == "released"
     assert "policy_step_action_metadata_projection" in capability["scope"]
 
@@ -2816,7 +3843,11 @@ def test_artifact_lookup_docs_and_milestone_cover_direct_fetch() -> None:
     assert "/v1/rewrite/artifacts/{{artifact_id}}" in http_examples
     assert "/v1/rewrite/artifacts/${ARTIFACT_ID}" in smoke_api
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "artifact_lookup_api_exposure")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "artifact_lookup_api_exposure"
+    )
     assert capability["status"] == "released"
 
 
@@ -2839,14 +3870,18 @@ def test_receipt_and_run_cost_lookup_docs_and_milestone_cover_direct_fetch() -> 
     assert "/v1/rewrite/run-costs/${COST_ID}" in smoke_api
     assert "TASK_EXECUTE_RECEIPT_JSON" in smoke_api
     assert "TASK_EXECUTE_COST_JSON" in smoke_api
-    assert 'fetched_receipt.json()["task_key"] == "stakeholder_briefing"' in smoke_runtime
+    assert (
+        'fetched_receipt.json()["task_key"] == "stakeholder_briefing"' in smoke_runtime
+    )
     assert 'fetched_cost.json()["task_key"] == "stakeholder_briefing"' in smoke_runtime
     assert "receipt_and_run_cost_lookup_api_exposure" in changelog
     assert "README/RUNBOOK/examples" in changelog
     assert "receipt and run-cost fetch coverage" in changelog
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "receipt_and_run_cost_lookup_api_exposure"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "receipt_and_run_cost_lookup_api_exposure"
     )
     assert capability["status"] == "released"
 
@@ -2863,7 +3898,11 @@ def test_approval_resume_docs_and_milestone_cover_inline_completion() -> None:
     assert "approve and resume execution" in http_examples
     assert "approval resume path ok" in smoke_api
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "approval_resume_execution")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "approval_resume_execution"
+    )
     assert capability["status"] == "released"
 
 
@@ -2876,23 +3915,46 @@ def test_execution_queue_docs_and_milestone_cover_runtime_path() -> None:
     smoke_postgres = (ROOT / "scripts/smoke_postgres.sh").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    postgres_matrix = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
+    postgres_matrix = (
+        ROOT / "tests/test_postgres_contract_matrix_integration.py"
+    ).read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 
-    assert "rewrite execution now persists durable `execution_queue` rows and drains them inline for API requests before returning" in readme
-    assert "Allowed and approved rewrites now pass through durable `execution_queue` rows first; the current API path drains that queue inline, while non-API runner roles can drain it as workers." in runbook
+    assert (
+        "rewrite execution now persists durable `execution_queue` rows and drains them inline for API requests before returning"
+        in readme
+    )
+    assert (
+        "Allowed and approved rewrites now pass through durable `execution_queue` rows first; the current API path drains that queue inline, while non-API runner roles can drain it as workers."
+        in runbook
+    )
     assert "v0_23 execution queue kernel" in db_bootstrap
     assert "execution_queue" in db_status
     assert "queue_items" in smoke_api
     assert "execution_queue" in smoke_postgres
-    assert "test_postgres_execution_queue_enqueue_lease_complete_and_list" in postgres_matrix
+    assert (
+        "test_postgres_execution_queue_enqueue_lease_complete_and_list"
+        in postgres_matrix
+    )
     assert 'lease_next_queue_item(lease_owner="contract-worker"' in postgres_matrix
-    assert "Promoted milestone capability `execution_queue_inline_worker` to released" in changelog
+    assert (
+        "Promoted milestone capability `execution_queue_inline_worker` to released"
+        in changelog
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "execution_queue_inline_worker")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "execution_queue_inline_worker"
+    )
     assert capability["status"] == "released"
-    assert "ea/schema/20260305_v0_23_execution_queue_kernel.sql" in milestone["migrations"]
-    assert "release/operator guards now pin that inline-drain and worker-lease contract" in capability["notes"]
+    assert (
+        "ea/schema/20260305_v0_23_execution_queue_kernel.sql" in milestone["migrations"]
+    )
+    assert (
+        "release/operator guards now pin that inline-drain and worker-lease contract"
+        in capability["notes"]
+    )
 
 
 def test_runtime_mode_docs_and_smoke_cover_prod_fail_fast_storage() -> None:
@@ -2916,7 +3978,10 @@ def test_runtime_mode_docs_and_smoke_cover_prod_fail_fast_storage() -> None:
     assert "EA_ENABLE_LEGACY_RUNTIME_SURFACES=1" in readme
     assert "legacy authenticated runtime surfaces stay off by default" in runbook
     assert "EA_ENABLE_LEGACY_RUNTIME_SURFACES=0" in runbook
-    assert 'EA_ENABLE_LEGACY_RUNTIME_SURFACES: ${EA_ENABLE_LEGACY_RUNTIME_SURFACES:-0}' in prod_compose
+    assert (
+        "EA_ENABLE_LEGACY_RUNTIME_SURFACES: ${EA_ENABLE_LEGACY_RUNTIME_SURFACES:-0}"
+        in prod_compose
+    )
     assert 'set_env_value "EA_API_TOKEN" "smoke-prod-token"' in smoke_postgres
     assert (
         "EA_RUNTIME_MODE=prod requires (EA_SIGNING_SECRET|DATABASE_URL|a durable postgres runtime profile)"
@@ -2926,7 +3991,11 @@ def test_runtime_mode_docs_and_smoke_cover_prod_fail_fast_storage() -> None:
     )
     assert "prod fail-fast path ok" in smoke_postgres
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "runtime_mode_fail_fast_storage")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "runtime_mode_fail_fast_storage"
+    )
     assert capability["status"] == "released"
 
 
@@ -2950,17 +4019,26 @@ def test_human_task_docs_and_milestone_cover_session_linked_packets() -> None:
     assert "human_task_created" in runbook
     assert "human_task_returned" in runbook
     assert "awaiting_human" in runbook
-    assert "Promoted the human-task packets kernel into a released milestone capability" in changelog
+    assert (
+        "Promoted the human-task packets kernel into a released milestone capability"
+        in changelog
+    )
 
     assert "/v1/human/tasks/{{human_task_id}}/return" in http_examples
     assert "role_required=communications_reviewer&overdue_only=true" in http_examples
     assert "assigned_operator_id=operator&status=claimed" in http_examples
-    assert "/v1/human/tasks/backlog?role_required=communications_reviewer&overdue_only=true&limit=20" in http_examples
-    assert "/v1/human/tasks/unassigned?role_required=communications_reviewer&overdue_only=true&limit=20" in http_examples
+    assert (
+        "/v1/human/tasks/backlog?role_required=communications_reviewer&overdue_only=true&limit=20"
+        in http_examples
+    )
+    assert (
+        "/v1/human/tasks/unassigned?role_required=communications_reviewer&overdue_only=true&limit=20"
+        in http_examples
+    )
     assert "/v1/human/tasks/mine?operator_id=operator&limit=20" in http_examples
     assert "/v1/human/tasks/{{human_task_id}}/assign" in http_examples
     assert "assignment_state=assigned&limit=20" in http_examples
-    assert "\"resume_session_on_return\": true" in http_examples
+    assert '"resume_session_on_return": true' in http_examples
 
     assert "v0_24 human tasks kernel" in db_bootstrap
     assert "v0_25 human task resume kernel" in db_bootstrap
@@ -2979,18 +4057,26 @@ def test_human_task_docs_and_milestone_cover_session_linked_packets() -> None:
     assert "/v1/human/tasks" in smoke_api
     assert "test_human_task_flow_and_session_projection" in smoke_runtime
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_packets_kernel")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_packets_kernel"
+    )
     assert capability["status"] == "released"
 
 
-def test_human_task_review_contract_metadata_release_baseline_is_documented_and_guarded() -> None:
+def test_human_task_review_contract_metadata_release_baseline_is_documented_and_guarded() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = _smoke_runtime_text()
     planner_test = (ROOT / "tests/test_planner.py").read_text(encoding="utf-8")
-    postgres_matrix = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
+    postgres_matrix = (
+        ROOT / "tests/test_postgres_contract_matrix_integration.py"
+    ).read_text(encoding="utf-8")
     db_bootstrap = (ROOT / "scripts/db_bootstrap.sh").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -3002,26 +4088,42 @@ def test_human_task_review_contract_metadata_release_baseline_is_documented_and_
     assert "human_review_quality_rubric_json" in runbook
     assert "send_on_behalf_review" in smoke_api
     assert "External executive communication needs human tone review." in smoke_api
-    assert 'review_task["authority_required"] == "send_on_behalf_review"' in smoke_runtime
+    assert (
+        'review_task["authority_required"] == "send_on_behalf_review"' in smoke_runtime
+    )
     assert "quality_rubric_json" in smoke_runtime
     assert "human_review_authority_required" in planner_test
     assert "human_review_quality_rubric_json" in planner_test
     assert 'authority_required="send_on_behalf_review"' in postgres_matrix
     assert "v0_27 human task review contract kernel" in db_bootstrap
-    assert "Promoted milestone capability `human_task_review_contract_metadata` to released" in changelog
+    assert (
+        "Promoted milestone capability `human_task_review_contract_metadata` to released"
+        in changelog
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_review_contract_metadata")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_review_contract_metadata"
+    )
     assert capability["status"] == "released"
-    assert "release/operator guards now pin that review-contract metadata" in capability["notes"]
+    assert (
+        "release/operator guards now pin that review-contract metadata"
+        in capability["notes"]
+    )
 
 
-def test_operator_profile_specialized_backlog_routing_is_documented_and_released() -> None:
+def test_operator_profile_specialized_backlog_routing_is_documented_and_released() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = _smoke_runtime_text()
-    postgres_matrix = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
+    postgres_matrix = (
+        ROOT / "tests/test_postgres_contract_matrix_integration.py"
+    ).read_text(encoding="utf-8")
     db_bootstrap = (ROOT / "scripts/db_bootstrap.sh").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -3029,9 +4131,18 @@ def test_operator_profile_specialized_backlog_routing_is_documented_and_released
     assert "skill-tag" in readme
     assert "/v1/human/tasks/operators" in runbook
     assert "operator_id=<id>" in runbook
-    assert "Promoted the operator-profile specialized backlog routing slice into a released milestone capability" in changelog
-    assert "Promoted the human-task operator queue filters slice into a released milestone capability" in changelog
-    assert "Promoted milestone capability `human_task_operator_backlog_endpoints` to released" in changelog
+    assert (
+        "Promoted the operator-profile specialized backlog routing slice into a released milestone capability"
+        in changelog
+    )
+    assert (
+        "Promoted the human-task operator queue filters slice into a released milestone capability"
+        in changelog
+    )
+    assert (
+        "Promoted milestone capability `human_task_operator_backlog_endpoints` to released"
+        in changelog
+    )
     assert "release/operator guards" in changelog
     assert "/v1/human/tasks/mine" in changelog
     assert "operator-specialist" in smoke_api
@@ -3043,36 +4154,56 @@ def test_operator_profile_specialized_backlog_routing_is_documented_and_released
     assert "v0_28 operator profiles kernel" in db_bootstrap
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "operator_profile_specialized_backlog_routing"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "operator_profile_specialized_backlog_routing"
     )
     assert capability["status"] == "released"
     resume_capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_pause_resume_session_flow"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_pause_resume_session_flow"
     )
     assert resume_capability["status"] == "released"
     filter_capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_operator_queue_filters"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_operator_queue_filters"
     )
     assert filter_capability["status"] == "released"
     assert "human_task_role_required_filter" in filter_capability["scope"]
     assert "human_task_assigned_operator_filter" in filter_capability["scope"]
     assert "human_task_overdue_only_filter" in filter_capability["scope"]
     backlog_capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_operator_backlog_endpoints"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_operator_backlog_endpoints"
     )
     assert backlog_capability["status"] == "released"
     assignment_capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_operator_assignment"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_operator_assignment"
     )
     assert assignment_capability["status"] == "released"
     visibility_capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_assignment_state_visibility"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_assignment_state_visibility"
     )
     assert visibility_capability["status"] == "released"
     assert "human_task_assignment_state_field" in visibility_capability["scope"]
-    assert "claimed_and_returned_assignment_projection" in visibility_capability["scope"]
-    assert "release/operator guards now pin that assignment-state visibility contract" in visibility_capability["notes"]
-    assert "ea/schema/20260305_v0_26_human_task_assignment_state.sql" in milestone["migrations"]
+    assert (
+        "claimed_and_returned_assignment_projection" in visibility_capability["scope"]
+    )
+    assert (
+        "release/operator guards now pin that assignment-state visibility contract"
+        in visibility_capability["notes"]
+    )
+    assert (
+        "ea/schema/20260305_v0_26_human_task_assignment_state.sql"
+        in milestone["migrations"]
+    )
 
 
 def test_human_task_operator_assignment_hints_are_documented_and_released() -> None:
@@ -3081,7 +4212,9 @@ def test_human_task_operator_assignment_hints_are_documented_and_released() -> N
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = _smoke_runtime_text()
-    postgres_contracts = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
+    postgres_contracts = (
+        ROOT / "tests/test_postgres_contract_matrix_integration.py"
+    ).read_text(encoding="utf-8")
     rewrite_route = (ROOT / "ea/app/api/routes/rewrite.py").read_text(encoding="utf-8")
     human_route = (ROOT / "ea/app/api/routes/human.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
@@ -3100,7 +4233,11 @@ def test_human_task_operator_assignment_hints_are_documented_and_released() -> N
     assert "release/operator guards" in changelog
     assert "recommended_operator_id" in changelog
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_operator_assignment_hints")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_operator_assignment_hints"
+    )
     assert capability["status"] == "released"
     assert "suggested_operator_ids" in capability["scope"]
     assert "auto_assign_operator_id" in capability["scope"]
@@ -3120,12 +4257,17 @@ def test_human_task_recommended_assignment_action_is_documented_and_smoked() -> 
     assert "omits `operator_id`" in runbook
     assert "-d '{}'" in smoke_api
     assert "pending|assigned|operator-specialist" in smoke_api
-    assert 'json={}' in smoke_runtime
-    assert 'assigned.json()["assigned_operator_id"] == "operator-specialist"' in smoke_runtime
+    assert "json={}" in smoke_runtime
+    assert (
+        'assigned.json()["assigned_operator_id"] == "operator-specialist"'
+        in smoke_runtime
+    )
     assert "human_task_no_auto_assign_candidate" in human_route
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_recommended_assignment_action"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_recommended_assignment_action"
     )
     assert capability["status"] == "released"
     assert "auto_assign_operator_id_consumption" in capability["scope"]
@@ -3145,11 +4287,17 @@ def test_planner_human_task_auto_preselection_is_documented_and_smoked() -> None
     assert "assigned|operator-specialist" in smoke_api
     assert "human_review_auto_assign_if_unique" in smoke_runtime
     assert 'review_task["assignment_state"] == "assigned"' in smoke_runtime
-    assert 'review_task["assigned_operator_id"] == "operator-specialist"' in smoke_runtime
+    assert (
+        'review_task["assigned_operator_id"] == "operator-specialist"' in smoke_runtime
+    )
     assert "human_review_auto_assign_if_unique" in planner_test
     assert "auto_assign_if_unique is True" in planner_test
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "planner_human_task_auto_preselection")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "planner_human_task_auto_preselection"
+    )
     assert capability["status"] == "released"
     assert "plan_step_auto_assign_projection" in capability["scope"]
     assert "runtime_human_task_auto_assignment" in capability["scope"]
@@ -3160,7 +4308,9 @@ def test_human_task_assignment_source_visibility_is_documented_and_smoked() -> N
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = _smoke_runtime_text()
-    postgres_matrix = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
+    postgres_matrix = (
+        ROOT / "tests/test_postgres_contract_matrix_integration.py"
+    ).read_text(encoding="utf-8")
     db_bootstrap = (ROOT / "scripts/db_bootstrap.sh").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -3177,11 +4327,16 @@ def test_human_task_assignment_source_visibility_is_documented_and_smoked() -> N
     assert "v0_29 human task assignment-source kernel" in db_bootstrap
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_assignment_source_visibility"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_assignment_source_visibility"
     )
     assert capability["status"] == "released"
     assert "manual_recommended_auto_preselected_labels" in capability["scope"]
-    assert "ea/schema/20260305_v0_29_human_task_assignment_source.sql" in milestone["migrations"]
+    assert (
+        "ea/schema/20260305_v0_29_human_task_assignment_source.sql"
+        in milestone["migrations"]
+    )
 
 
 def test_human_task_assignment_provenance_fields_are_documented_and_released() -> None:
@@ -3190,7 +4345,9 @@ def test_human_task_assignment_provenance_fields_are_documented_and_released() -
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = _smoke_runtime_text()
-    postgres_matrix = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
+    postgres_matrix = (
+        ROOT / "tests/test_postgres_contract_matrix_integration.py"
+    ).read_text(encoding="utf-8")
     db_bootstrap = (ROOT / "scripts/db_bootstrap.sh").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -3201,8 +4358,14 @@ def test_human_task_assignment_provenance_fields_are_documented_and_released() -
     assert "assigned_by_actor_id" in smoke_api
     assert "orchestrator:auto_preselected" in smoke_api
     assert 'task["assigned_by_actor_id"] == ""' in smoke_runtime
-    assert 'assigned.json()["assigned_by_actor_id"] == "principal-default"' in smoke_runtime
-    assert 'review_task["assigned_by_actor_id"] == "orchestrator:auto_preselected"' in smoke_runtime
+    assert (
+        'assigned.json()["assigned_by_actor_id"] == "principal-default"'
+        in smoke_runtime
+    )
+    assert (
+        'review_task["assigned_by_actor_id"] == "orchestrator:auto_preselected"'
+        in smoke_runtime
+    )
     assert 'assigned_by_actor_id="principal-1"' in postgres_matrix
     assert 'assigned_by_actor_id == "operator-1"' in postgres_matrix
     assert "v0_30 human task assignment provenance kernel" in db_bootstrap
@@ -3212,11 +4375,16 @@ def test_human_task_assignment_provenance_fields_are_documented_and_released() -
     assert "assigned_by_actor_id" in changelog
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_assignment_provenance_fields"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_assignment_provenance_fields"
     )
     assert capability["status"] == "released"
     assert "assignment_provenance_event_payloads" in capability["scope"]
-    assert "ea/schema/20260305_v0_30_human_task_assignment_provenance.sql" in milestone["migrations"]
+    assert (
+        "ea/schema/20260305_v0_30_human_task_assignment_provenance.sql"
+        in milestone["migrations"]
+    )
 
 
 def test_human_task_assignment_history_api_is_documented_and_released() -> None:
@@ -3230,19 +4398,37 @@ def test_human_task_assignment_history_api_is_documented_and_released() -> None:
 
     assert "/v1/human/tasks/{human_task_id}/assignment-history" in readme
     assert "/v1/human/tasks/{human_task_id}/assignment-history" in runbook
-    assert "Promoted the human-task assignment-history API slice into a released milestone capability" in changelog
-    assert "assignment history (includes originating task_key and deliverable_type)" in http_examples
+    assert (
+        "Promoted the human-task assignment-history API slice into a released milestone capability"
+        in changelog
+    )
+    assert (
+        "assignment history (includes originating task_key and deliverable_type)"
+        in http_examples
+    )
     assert "/v1/human/tasks/${HUMAN_TASK_ID}/assignment-history" in smoke_api
-    assert "human_task_created,human_task_assigned,human_task_assigned,human_task_claimed,human_task_returned" in smoke_api
+    assert (
+        "human_task_created,human_task_assigned,human_task_assigned,human_task_claimed,human_task_returned"
+        in smoke_api
+    )
     assert '/assignment-history", params={"limit": 10}' in smoke_runtime
-    assert 'all(row["task_key"] == "rewrite_text" for row in history_rows)' in smoke_runtime
+    assert (
+        'all(row["task_key"] == "rewrite_text" for row in history_rows)'
+        in smoke_runtime
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_assignment_history_api")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_assignment_history_api"
+    )
     assert capability["status"] == "released"
     assert "ledger_backed_reassignment_audit" in capability["scope"]
 
 
-def test_human_task_assignment_history_task_identity_projection_is_documented_and_smoked() -> None:
+def test_human_task_assignment_history_task_identity_projection_is_documented_and_smoked() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
@@ -3250,11 +4436,23 @@ def test_human_task_assignment_history_task_identity_projection_is_documented_an
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "assignment-history` exposes task-scoped ownership transitions, now carries originating task identity too" in readme
-    assert "those direct history rows now also carry originating `task_key`/`deliverable_type`" in runbook
-    assert "assignment history (includes originating task_key and deliverable_type)" in http_examples
+    assert (
+        "assignment-history` exposes task-scoped ownership transitions, now carries originating task identity too"
+        in readme
+    )
+    assert (
+        "those direct history rows now also carry originating `task_key`/`deliverable_type`"
+        in runbook
+    )
+    assert (
+        "assignment history (includes originating task_key and deliverable_type)"
+        in http_examples
+    )
     assert "GENERIC_HUMAN_HISTORY_FIELDS" in smoke_api
-    assert 'review_history.json()[0]["task_key"] == "stakeholder_briefing_review"' in smoke_runtime
+    assert (
+        'review_history.json()[0]["task_key"] == "stakeholder_briefing_review"'
+        in smoke_runtime
+    )
 
     capability = next(
         entry
@@ -3264,7 +4462,9 @@ def test_human_task_assignment_history_task_identity_projection_is_documented_an
     assert capability["status"] == "released"
 
 
-def test_session_human_task_assignment_history_projection_is_documented_and_smoked() -> None:
+def test_session_human_task_assignment_history_projection_is_documented_and_smoked() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
@@ -3276,15 +4476,22 @@ def test_session_human_task_assignment_history_projection_is_documented_and_smok
     assert "human_task_assignment_history" in smoke_api
     assert 'body["human_task_assignment_history"] == []' in smoke_runtime
     assert 'session_body["human_task_assignment_history"]' in smoke_runtime
-    assert 'body["human_task_assignment_history"][1]["assignment_source"] == "auto_preselected"' in smoke_runtime
+    assert (
+        'body["human_task_assignment_history"][1]["assignment_source"] == "auto_preselected"'
+        in smoke_runtime
+    )
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "session_human_task_assignment_history_projection"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "session_human_task_assignment_history_projection"
     )
     assert capability["status"] == "released"
 
 
-def test_session_human_task_assignment_history_task_identity_projection_is_documented_and_smoked() -> None:
+def test_session_human_task_assignment_history_task_identity_projection_is_documented_and_smoked() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -3293,23 +4500,44 @@ def test_session_human_task_assignment_history_task_identity_projection_is_docum
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "inline human-task assignment-history rows now carry originating task identity" in readme
-    assert "assignment-history rows now also carry originating `task_key`/`deliverable_type`" in runbook
-    assert "human-task assignment-history rows include originating task_key and deliverable_type" in http_examples
+    assert (
+        "inline human-task assignment-history rows now carry originating task identity"
+        in readme
+    )
+    assert (
+        "assignment-history rows now also carry originating `task_key`/`deliverable_type`"
+        in runbook
+    )
+    assert (
+        "human-task assignment-history rows include originating task_key and deliverable_type"
+        in http_examples
+    )
     assert "GENERIC_HUMAN_SESSION_HISTORY_FIELDS" in smoke_api
-    assert 'review_session_body["human_task_assignment_history"][0]["task_key"] == "stakeholder_briefing_review"' in smoke_runtime
-    assert "Promoted milestone capability `session_human_task_assignment_history_task_identity_projection` to released" in changelog
+    assert (
+        'review_session_body["human_task_assignment_history"][0]["task_key"] == "stakeholder_briefing_review"'
+        in smoke_runtime
+    )
+    assert (
+        "Promoted milestone capability `session_human_task_assignment_history_task_identity_projection` to released"
+        in changelog
+    )
 
     capability = next(
         entry
         for entry in milestone["capabilities"]
-        if entry["name"] == "session_human_task_assignment_history_task_identity_projection"
+        if entry["name"]
+        == "session_human_task_assignment_history_task_identity_projection"
     )
     assert capability["status"] == "released"
-    assert "release/operator guards pin that embedded session assignment-history identity contract" in capability["notes"]
+    assert (
+        "release/operator guards pin that embedded session assignment-history identity contract"
+        in capability["notes"]
+    )
 
 
-def test_session_human_task_packet_task_identity_projection_is_documented_and_smoked() -> None:
+def test_session_human_task_packet_task_identity_projection_is_documented_and_smoked() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -3319,11 +4547,23 @@ def test_session_human_task_packet_task_identity_projection_is_documented_and_sm
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "inline human-task packet rows now carry originating task identity" in readme
-    assert "inline `human_tasks` rows now also carry originating `task_key`/`deliverable_type`" in runbook
-    assert "Promoted milestone capability `session_human_task_packet_task_identity_projection` to released" in changelog
-    assert "human-task packet, and human-task assignment-history rows include originating task_key and deliverable_type" in http_examples
+    assert (
+        "inline `human_tasks` rows now also carry originating `task_key`/`deliverable_type`"
+        in runbook
+    )
+    assert (
+        "Promoted milestone capability `session_human_task_packet_task_identity_projection` to released"
+        in changelog
+    )
+    assert (
+        "human-task packet, and human-task assignment-history rows include originating task_key and deliverable_type"
+        in http_examples
+    )
     assert "GENERIC_HUMAN_SESSION_TASK_FIELDS" in smoke_api
-    assert 'review_session_body["human_tasks"][0]["task_key"] == "stakeholder_briefing_review"' in smoke_runtime
+    assert (
+        'review_session_body["human_tasks"][0]["task_key"] == "stakeholder_briefing_review"'
+        in smoke_runtime
+    )
 
     capability = next(
         entry
@@ -3347,19 +4587,43 @@ def test_human_task_assignment_history_filters_are_documented_and_smoked() -> No
     assert "assigned_by_actor_id" in readme
     assert "assigned_operator_id" in runbook
     assert "assigned_by_actor_id" in runbook
-    assert "event_name=human_task_assigned&assigned_by_actor_id=principal-default" in smoke_api
-    assert "event_name=human_task_returned&assigned_operator_id=operator-junior" in smoke_api
-    assert 'params={"limit": 10, "event_name": "human_task_assigned", "assigned_by_actor_id": "principal-default"}' in smoke_runtime
-    assert 'params={"limit": 10, "event_name": "human_task_returned", "assigned_operator_id": "operator-junior"}' in smoke_runtime
-    assert "/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20&event_name=human_task_assigned&assigned_by_actor_id={{principal_id}}" in http_examples
-    assert "Promoted the human-task assignment-history filters slice into a released milestone capability" in changelog
+    assert (
+        "event_name=human_task_assigned&assigned_by_actor_id=principal-default"
+        in smoke_api
+    )
+    assert (
+        "event_name=human_task_returned&assigned_operator_id=operator-junior"
+        in smoke_api
+    )
+    assert (
+        'params={"limit": 10, "event_name": "human_task_assigned", "assigned_by_actor_id": "principal-default"}'
+        in smoke_runtime
+    )
+    assert (
+        'params={"limit": 10, "event_name": "human_task_returned", "assigned_operator_id": "operator-junior"}'
+        in smoke_runtime
+    )
+    assert (
+        "/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20&event_name=human_task_assigned&assigned_by_actor_id={{principal_id}}"
+        in http_examples
+    )
+    assert (
+        "Promoted the human-task assignment-history filters slice into a released milestone capability"
+        in changelog
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_assignment_history_filters")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_assignment_history_filters"
+    )
     assert capability["status"] == "released"
     assert "assigned_by_actor_history_filter" in capability["scope"]
 
 
-def test_human_task_last_transition_summary_projection_is_documented_and_smoked() -> None:
+def test_human_task_last_transition_summary_projection_is_documented_and_smoked() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -3377,17 +4641,34 @@ def test_human_task_last_transition_summary_projection_is_documented_and_smoked(
     assert "last_transition_by_actor_id" in runbook
     assert "HUMAN_CREATE_SUMMARY_FIELDS" in smoke_api
     assert "HUMAN_REWRITE_SUMMARY_FIELDS" in smoke_api
-    assert "human_task_returned|True|returned|operator-junior|manual|operator-junior" in smoke_api
+    assert (
+        "human_task_returned|True|returned|operator-junior|manual|operator-junior"
+        in smoke_api
+    )
     assert 'task["last_transition_event_name"] == "human_task_created"' in smoke_runtime
-    assert 'assigned.json()["last_transition_event_name"] == "human_task_assigned"' in smoke_runtime
-    assert 'returned.json()["last_transition_event_name"] == "human_task_returned"' in smoke_runtime
-    assert 'review_task["last_transition_event_name"] == "human_task_assigned"' in smoke_runtime
-    assert 'last_transition_event_name: str' in human_route
-    assert 'last_transition_event_name: str' in rewrite_route
-    assert "Promoted the human-task last-transition summary projection slice into a released milestone capability" in changelog
+    assert (
+        'assigned.json()["last_transition_event_name"] == "human_task_assigned"'
+        in smoke_runtime
+    )
+    assert (
+        'returned.json()["last_transition_event_name"] == "human_task_returned"'
+        in smoke_runtime
+    )
+    assert (
+        'review_task["last_transition_event_name"] == "human_task_assigned"'
+        in smoke_runtime
+    )
+    assert "last_transition_event_name: str" in human_route
+    assert "last_transition_event_name: str" in rewrite_route
+    assert (
+        "Promoted the human-task last-transition summary projection slice into a released milestone capability"
+        in changelog
+    )
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_last_transition_summary_projection"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_last_transition_summary_projection"
     )
     assert capability["status"] == "released"
     assert "session_and_queue_row_summary" in capability["scope"]
@@ -3404,19 +4685,29 @@ def test_human_task_last_transition_sorting_is_documented_and_released() -> None
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "sort=last_transition_desc" in readme
-    assert "sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" in runbook
+    assert (
+        "sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc"
+        in runbook
+    )
     assert "human task last-transition sort ok" in smoke_api
     assert "SORT_LIST_JSON" in smoke_api
     assert "SORT_BACKLOG_JSON" in smoke_api
-    assert 'params={"status": "pending", "sort": "last_transition_desc", "limit": 10}' in smoke_runtime
+    assert (
+        'params={"status": "pending", "sort": "last_transition_desc", "limit": 10}'
+        in smoke_runtime
+    )
     assert 'params={"sort": "last_transition_desc", "limit": 10}' in smoke_runtime
     assert "/v1/human/tasks/backlog?sort=last_transition_desc&limit=20" in http_examples
-    assert 'sla_due_at_asc_last_transition_desc' in human_route
+    assert "sla_due_at_asc_last_transition_desc" in human_route
     assert "human_task_last_transition_sorting" in changelog
     assert "release/operator guards" in changelog
     assert "freshest-transition queue ordering" in changelog
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_last_transition_sorting")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_last_transition_sorting"
+    )
     assert capability["status"] == "released"
     assert "last_transition_desc_runtime_ordering" in capability["scope"]
 
@@ -3431,16 +4722,26 @@ def test_human_task_sla_sorting_is_documented_and_smoked() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "sort=sla_due_at_asc" in readme
-    assert "sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" in runbook
+    assert (
+        "sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc"
+        in runbook
+    )
     assert "human task SLA sort ok" in smoke_api
     assert "SLA_LIST_JSON" in smoke_api
     assert "SLA_BACKLOG_JSON" in smoke_api
-    assert 'params={"status": "pending", "sort": "sla_due_at_asc", "limit": 10}' in smoke_runtime
+    assert (
+        'params={"status": "pending", "sort": "sla_due_at_asc", "limit": 10}'
+        in smoke_runtime
+    )
     assert 'params={"sort": "sla_due_at_asc", "limit": 10}' in smoke_runtime
     assert "/v1/human/tasks/backlog?sort=sla_due_at_asc&limit=20" in http_examples
-    assert 'sla_due_at_asc_last_transition_desc' in human_route
+    assert "sla_due_at_asc_last_transition_desc" in human_route
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_sla_sorting")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_sla_sorting"
+    )
     assert capability["status"] == "released"
     assert "sla_due_at_asc_runtime_ordering" in capability["scope"]
 
@@ -3456,20 +4757,37 @@ def test_human_task_combined_sla_transition_sorting_is_documented_and_smoked() -
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "sort=sla_due_at_asc_last_transition_desc" in readme
-    assert "sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" in runbook
+    assert (
+        "sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc"
+        in runbook
+    )
     assert "human task combined sort ok" in smoke_api
     assert "COMBINED_LIST_JSON" in smoke_api
     assert "COMBINED_BACKLOG_JSON" in smoke_api
-    assert 'params={"status": "pending", "sort": "sla_due_at_asc_last_transition_desc", "limit": 10}' in smoke_runtime
-    assert 'params={"sort": "sla_due_at_asc_last_transition_desc", "limit": 10}' in smoke_runtime
-    assert "/v1/human/tasks/backlog?sort=sla_due_at_asc_last_transition_desc&limit=20" in http_examples
-    assert 'sla_due_at_asc_last_transition_desc' in human_route
-    assert "Promoted milestone capability `human_task_sla_transition_combined_sorting` to released" in changelog
+    assert (
+        'params={"status": "pending", "sort": "sla_due_at_asc_last_transition_desc", "limit": 10}'
+        in smoke_runtime
+    )
+    assert (
+        'params={"sort": "sla_due_at_asc_last_transition_desc", "limit": 10}'
+        in smoke_runtime
+    )
+    assert (
+        "/v1/human/tasks/backlog?sort=sla_due_at_asc_last_transition_desc&limit=20"
+        in http_examples
+    )
+    assert "sla_due_at_asc_last_transition_desc" in human_route
+    assert (
+        "Promoted milestone capability `human_task_sla_transition_combined_sorting` to released"
+        in changelog
+    )
     assert "release/operator guards" in changelog
     assert "tie-break ordering contract" in changelog
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_sla_transition_combined_sorting"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_sla_transition_combined_sorting"
     )
     assert capability["status"] == "released"
     assert "sla_due_at_asc_last_transition_desc_runtime_ordering" in capability["scope"]
@@ -3484,18 +4802,36 @@ def test_human_task_unscheduled_fallback_sorting_is_documented_and_smoked() -> N
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "fall back to oldest-created ordering for tasks without `sla_due_at`" in readme
-    assert "fall back to oldest-created ordering for tasks without `sla_due_at`" in runbook
-    assert "Promoted the human-task unscheduled SLA fallback sorting slice into a released milestone capability" in changelog
+    assert (
+        "fall back to oldest-created ordering for tasks without `sla_due_at`" in readme
+    )
+    assert (
+        "fall back to oldest-created ordering for tasks without `sla_due_at`" in runbook
+    )
+    assert (
+        "Promoted the human-task unscheduled SLA fallback sorting slice into a released milestone capability"
+        in changelog
+    )
     assert "human task unscheduled fallback sort ok" in smoke_api
     assert "UNSCHED_SLA_LIST_JSON" in smoke_api
     assert "UNSCHED_COMBINED_BACKLOG_JSON" in smoke_api
-    assert 'params={"status": "pending", "sort": "sla_due_at_asc", "limit": 10}' in smoke_runtime
-    assert 'params={"status": "pending", "sort": "sla_due_at_asc_last_transition_desc", "limit": 10}' in smoke_runtime
-    assert "/v1/human/tasks?principal_id={{principal_id}}&status=pending&sort=sla_due_at_asc&limit=20" in http_examples
+    assert (
+        'params={"status": "pending", "sort": "sla_due_at_asc", "limit": 10}'
+        in smoke_runtime
+    )
+    assert (
+        'params={"status": "pending", "sort": "sla_due_at_asc_last_transition_desc", "limit": 10}'
+        in smoke_runtime
+    )
+    assert (
+        "/v1/human/tasks?principal_id={{principal_id}}&status=pending&sort=sla_due_at_asc&limit=20"
+        in http_examples
+    )
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_unscheduled_fallback_sorting"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_unscheduled_fallback_sorting"
     )
     assert capability["status"] == "released"
     assert "unscheduled_backlog_stability" in capability["scope"]
@@ -3512,20 +4848,33 @@ def test_human_task_created_asc_sorting_is_documented_and_released() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "sort=created_asc" in readme
-    assert "sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" in runbook
+    assert (
+        "sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc"
+        in runbook
+    )
     assert "human task created-asc sort ok" in smoke_api
     assert "CREATED_ASC_LIST_JSON" in smoke_api
     assert "CREATED_ASC_MINE_JSON" in smoke_api
-    assert 'params={"status": "pending", "sort": "created_asc", "limit": 10}' in smoke_runtime
+    assert (
+        'params={"status": "pending", "sort": "created_asc", "limit": 10}'
+        in smoke_runtime
+    )
     assert 'params={"sort": "created_asc", "limit": 10}' in smoke_runtime
-    assert 'params={"operator_id": "operator-sorter", "status": "pending", "sort": "created_asc", "limit": 10}' in smoke_runtime
+    assert (
+        'params={"operator_id": "operator-sorter", "status": "pending", "sort": "created_asc", "limit": 10}'
+        in smoke_runtime
+    )
     assert "/v1/human/tasks/backlog?sort=created_asc&limit=20" in http_examples
     assert "created_asc" in human_route
     assert "human_task_created_asc_sorting" in changelog
     assert "release/operator guards" in changelog
     assert "oldest-created FIFO queue ordering" in changelog
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_created_asc_sorting")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_created_asc_sorting"
+    )
     assert capability["status"] == "released"
     assert "human_task_operator_fifo_queue_ordering" in capability["scope"]
 
@@ -3540,18 +4889,32 @@ def test_human_task_priority_created_sorting_is_documented_and_smoked() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "sort=priority_desc_created_asc" in readme
-    assert "sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" in runbook
+    assert (
+        "sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc"
+        in runbook
+    )
     assert "human task priority-desc-created-asc sort ok" in smoke_api
     assert "PRIORITY_SORT_LIST_JSON" in smoke_api
     assert "PRIORITY_SORT_MINE_JSON" in smoke_api
-    assert 'params={"status": "pending", "sort": "priority_desc_created_asc", "limit": 10}' in smoke_runtime
+    assert (
+        'params={"status": "pending", "sort": "priority_desc_created_asc", "limit": 10}'
+        in smoke_runtime
+    )
     assert 'params={"sort": "priority_desc_created_asc", "limit": 10}' in smoke_runtime
-    assert 'params={"operator_id": "operator-sorter", "status": "pending", "sort": "priority_desc_created_asc", "limit": 10}' in smoke_runtime
-    assert "/v1/human/tasks/backlog?sort=priority_desc_created_asc&limit=20" in http_examples
+    assert (
+        'params={"operator_id": "operator-sorter", "status": "pending", "sort": "priority_desc_created_asc", "limit": 10}'
+        in smoke_runtime
+    )
+    assert (
+        "/v1/human/tasks/backlog?sort=priority_desc_created_asc&limit=20"
+        in http_examples
+    )
     assert "priority_desc_created_asc" in human_route
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_priority_created_sorting"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_priority_created_sorting"
     )
     assert capability["status"] == "released"
     assert "priority_band_fifo_queue_ordering" in capability["scope"]
@@ -3571,12 +4934,28 @@ def test_human_task_priority_filters_are_documented_and_smoked() -> None:
     assert "human task priority filter ok" in smoke_api
     assert "PRIORITY_FILTER_LIST_JSON" in smoke_api
     assert "PRIORITY_FILTER_MINE_JSON" in smoke_api
-    assert 'params={"status": "pending", "priority": "high", "sort": "created_asc", "limit": 10}' in smoke_runtime
-    assert 'params={"priority": "high", "sort": "created_asc", "limit": 10}' in smoke_runtime
-    assert 'params={"operator_id": "operator-sorter", "status": "pending", "priority": "urgent", "sort": "created_asc", "limit": 10}' in smoke_runtime
-    assert "/v1/human/tasks/backlog?priority=high&sort=created_asc&limit=20" in http_examples
+    assert (
+        'params={"status": "pending", "priority": "high", "sort": "created_asc", "limit": 10}'
+        in smoke_runtime
+    )
+    assert (
+        'params={"priority": "high", "sort": "created_asc", "limit": 10}'
+        in smoke_runtime
+    )
+    assert (
+        'params={"operator_id": "operator-sorter", "status": "pending", "priority": "urgent", "sort": "created_asc", "limit": 10}'
+        in smoke_runtime
+    )
+    assert (
+        "/v1/human/tasks/backlog?priority=high&sort=created_asc&limit=20"
+        in http_examples
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_priority_filters")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_priority_filters"
+    )
     assert capability["status"] == "released"
     assert "human_task_operator_priority_band_views" in capability["scope"]
 
@@ -3594,12 +4973,28 @@ def test_human_task_multi_priority_filters_are_documented_and_smoked() -> None:
     assert "human task multi-priority filter ok" in smoke_api
     assert "MULTI_PRIORITY_LIST_JSON" in smoke_api
     assert "MULTI_PRIORITY_MINE_JSON" in smoke_api
-    assert 'params={"status": "pending", "priority": "urgent,high", "sort": "priority_desc_created_asc", "limit": 10}' in smoke_runtime
-    assert 'params={"priority": "urgent,high", "sort": "priority_desc_created_asc", "limit": 10}' in smoke_runtime
-    assert 'params={"operator_id": "operator-sorter", "status": "pending", "priority": "urgent,high", "sort": "priority_desc_created_asc", "limit": 10}' in smoke_runtime
-    assert "/v1/human/tasks/backlog?priority=urgent,high&sort=priority_desc_created_asc&limit=20" in http_examples
+    assert (
+        'params={"status": "pending", "priority": "urgent,high", "sort": "priority_desc_created_asc", "limit": 10}'
+        in smoke_runtime
+    )
+    assert (
+        'params={"priority": "urgent,high", "sort": "priority_desc_created_asc", "limit": 10}'
+        in smoke_runtime
+    )
+    assert (
+        'params={"operator_id": "operator-sorter", "status": "pending", "priority": "urgent,high", "sort": "priority_desc_created_asc", "limit": 10}'
+        in smoke_runtime
+    )
+    assert (
+        "/v1/human/tasks/backlog?priority=urgent,high&sort=priority_desc_created_asc&limit=20"
+        in http_examples
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_multi_priority_filters")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_multi_priority_filters"
+    )
     assert capability["status"] == "released"
     assert "combined_priority_band_queue_views" in capability["scope"]
 
@@ -3619,15 +5014,27 @@ def test_human_task_priority_summary_is_documented_and_released() -> None:
     assert "human task priority summary ok" in smoke_api
     assert "PRIORITY_SUMMARY_JSON" in smoke_api
     assert "PRIORITY_SUMMARY_UNASSIGNED_JSON" in smoke_api
-    assert 'params={"status": "pending", "role_required": role_required}' in smoke_runtime
-    assert 'params={"status": "pending", "role_required": role_required, "assignment_state": "unassigned"}' in smoke_runtime
-    assert "/v1/human/tasks/priority-summary?status=pending&role_required=communications_reviewer" in http_examples
+    assert (
+        'params={"status": "pending", "role_required": role_required}' in smoke_runtime
+    )
+    assert (
+        'params={"status": "pending", "role_required": role_required, "assignment_state": "unassigned"}'
+        in smoke_runtime
+    )
+    assert (
+        "/v1/human/tasks/priority-summary?status=pending&role_required=communications_reviewer"
+        in http_examples
+    )
     assert '@router.get("/priority-summary")' in human_route
     assert "human_task_priority_summary" in changelog
     assert "release/operator guards" in changelog
     assert "highest_priority" in changelog
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_priority_summary")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_priority_summary"
+    )
     assert capability["status"] == "released"
     assert "priority_band_count_projection" in capability["scope"]
 
@@ -3644,15 +5051,27 @@ def test_human_task_assigned_priority_summary_is_documented_and_smoked() -> None
     assert "assigned_operator_id" in runbook
     assert "PRIORITY_SUMMARY_ASSIGNED_JSON" in smoke_api
     assert "PRIORITY_SUMMARY_ASSIGNED_FIELDS" in smoke_api
-    assert 'params={"status": "pending", "role_required": role_required, "assigned_operator_id": operator_id}' in smoke_runtime
-    assert "/v1/human/tasks/priority-summary?status=pending&role_required=communications_reviewer&assigned_operator_id=operator" in http_examples
+    assert (
+        'params={"status": "pending", "role_required": role_required, "assigned_operator_id": operator_id}'
+        in smoke_runtime
+    )
+    assert (
+        "/v1/human/tasks/priority-summary?status=pending&role_required=communications_reviewer&assigned_operator_id=operator"
+        in http_examples
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_assigned_priority_summary")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_assigned_priority_summary"
+    )
     assert capability["status"] == "released"
     assert "mine_queue_priority_band_projection" in capability["scope"]
 
 
-def test_human_task_operator_matched_priority_summary_is_documented_and_smoked() -> None:
+def test_human_task_operator_matched_priority_summary_is_documented_and_smoked() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
@@ -3665,19 +5084,26 @@ def test_human_task_operator_matched_priority_summary_is_documented_and_smoked()
     assert "operator_id" in runbook
     assert "PRIORITY_SUMMARY_MATCHED_JSON" in smoke_api
     assert "PRIORITY_SUMMARY_MATCHED_FIELDS" in smoke_api
-    assert 'params={' in smoke_runtime
-    assert 'operator-specialist-summary-' in smoke_runtime
-    assert "/v1/human/tasks/priority-summary?status=pending&assignment_state=unassigned&operator_id=operator-specialist" in http_examples
+    assert "params={" in smoke_runtime
+    assert "operator-specialist-summary-" in smoke_runtime
+    assert (
+        "/v1/human/tasks/priority-summary?status=pending&assignment_state=unassigned&operator_id=operator-specialist"
+        in http_examples
+    )
     assert "operator_id: str" in human_route
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_operator_matched_priority_summary"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_operator_matched_priority_summary"
     )
     assert capability["status"] == "released"
     assert "role_skill_trust_filtered_backlog_counts" in capability["scope"]
 
 
-def test_human_task_assignment_source_priority_summary_is_documented_and_smoked() -> None:
+def test_human_task_assignment_source_priority_summary_is_documented_and_smoked() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
@@ -3691,18 +5117,24 @@ def test_human_task_assignment_source_priority_summary_is_documented_and_smoked(
     assert "PRIORITY_SUMMARY_MANUAL_JSON" in smoke_api
     assert "HUMAN_REWRITE_AUTO_SUMMARY_JSON" in smoke_api
     assert '"assignment_source": "auto_preselected"' in smoke_runtime
-    assert "/v1/human/tasks/priority-summary?status=pending&assignment_source=manual" in http_examples
+    assert (
+        "/v1/human/tasks/priority-summary?status=pending&assignment_source=manual"
+        in http_examples
+    )
     assert "assignment_source: str" in human_route
 
     capability = next(
-        entry for entry in milestone["capabilities"]
+        entry
+        for entry in milestone["capabilities"]
         if entry["name"] == "human_task_priority_summary_assignment_source_filter"
     )
     assert capability["status"] == "released"
     assert "manual_vs_auto_preselected_pending_projection" in capability["scope"]
 
 
-def test_human_task_priority_summary_mixed_source_non_ownerless_isolation_is_documented_and_released() -> None:
+def test_human_task_priority_summary_mixed_source_non_ownerless_isolation_is_documented_and_released() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
@@ -3713,14 +5145,20 @@ def test_human_task_priority_summary_mixed_source_non_ownerless_isolation_is_doc
     assert "rechecked after extra ownerless rows are added" in runbook
     assert "PRIORITY_SUMMARY_MANUAL_MIXED_FIELDS" in smoke_api
     assert "HUMAN_REWRITE_AUTO_SUMMARY_MIXED_FIELDS" in smoke_api
-    assert "human_task_priority_summary_mixed_source_non_ownerless_isolation" in changelog
+    assert (
+        "human_task_priority_summary_mixed_source_non_ownerless_isolation" in changelog
+    )
     assert "release/operator guards" in changelog
-    assert "mixed-source churn does not contaminate non-ownerless summary counts" in changelog
+    assert (
+        "mixed-source churn does not contaminate non-ownerless summary counts"
+        in changelog
+    )
 
     capability = next(
         entry
         for entry in milestone["capabilities"]
-        if entry["name"] == "human_task_priority_summary_mixed_source_non_ownerless_isolation"
+        if entry["name"]
+        == "human_task_priority_summary_mixed_source_non_ownerless_isolation"
     )
     assert capability["status"] == "released"
     assert "manual_summary_after_ownerless_churn" in capability["scope"]
@@ -3739,24 +5177,38 @@ def test_human_task_assignment_source_queue_filters_are_documented_and_smoked() 
     assert "assignment_source=manual|recommended|auto_preselected" in runbook
     assert "PRIORITY_SUMMARY_MANUAL_LIST_JSON" in smoke_api
     assert "HUMAN_REWRITE_AUTO_BACKLOG_JSON" in smoke_api
-    assert 'params={"status": "pending", "assignment_source": "manual"}' in smoke_runtime
-    assert 'params={"operator_id": "operator-auto-summary", "assignment_source": "auto_preselected"}' in smoke_runtime
-    assert "/v1/human/tasks/backlog?assignment_source=auto_preselected&limit=20" in http_examples
+    assert (
+        'params={"status": "pending", "assignment_source": "manual"}' in smoke_runtime
+    )
+    assert (
+        'params={"operator_id": "operator-auto-summary", "assignment_source": "auto_preselected"}'
+        in smoke_runtime
+    )
+    assert (
+        "/v1/human/tasks/backlog?assignment_source=auto_preselected&limit=20"
+        in http_examples
+    )
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_assignment_source_queue_filters"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_assignment_source_queue_filters"
     )
     assert capability["status"] == "released"
     assert "human_task_backlog_assignment_source_filter" in capability["scope"]
 
 
-def test_human_task_ownerless_assignment_source_alias_is_documented_and_smoked() -> None:
+def test_human_task_ownerless_assignment_source_alias_is_documented_and_smoked() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
-    postgres_matrix = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
+    postgres_matrix = (
+        ROOT / "tests/test_postgres_contract_matrix_integration.py"
+    ).read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -3764,7 +5216,10 @@ def test_human_task_ownerless_assignment_source_alias_is_documented_and_smoked()
     assert "assignment_source=none" in runbook
     assert "HUMAN_UNASSIGNED_NONE_JSON" in smoke_api
     assert "PRIORITY_SUMMARY_NONE_JSON" in smoke_api
-    assert 'params={"status": "pending", "assignment_state": "unassigned", "assignment_source": "none"}' in smoke_runtime
+    assert (
+        'params={"status": "pending", "assignment_state": "unassigned", "assignment_source": "none"}'
+        in smoke_runtime
+    )
     assert 'params={"assignment_source": "none"}' in smoke_runtime
     assert 'assignment_source="none"' in postgres_matrix
     assert "/v1/human/tasks/unassigned?assignment_source=none&limit=20" in http_examples
@@ -3773,7 +5228,9 @@ def test_human_task_ownerless_assignment_source_alias_is_documented_and_smoked()
     assert "ownerless queue and priority-summary alias" in changelog
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_ownerless_assignment_source_alias"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_ownerless_assignment_source_alias"
     )
     assert capability["status"] == "released"
     assert "human_task_unassigned_ownerless_source_alias" in capability["scope"]
@@ -3793,11 +5250,19 @@ def test_human_task_ownerless_session_history_alias_is_documented_and_smoked() -
     assert "HUMAN_HISTORY_NONE_JSON" in smoke_api
     assert 'params={"limit": 10, "assignment_source": "none"}' in smoke_runtime
     assert 'params={"human_task_assignment_source": "none"}' in smoke_runtime
-    assert "/v1/rewrite/sessions/{{session_id}}?human_task_assignment_source=none" in http_examples
-    assert "/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20&assignment_source=none" in http_examples
+    assert (
+        "/v1/rewrite/sessions/{{session_id}}?human_task_assignment_source=none"
+        in http_examples
+    )
+    assert (
+        "/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20&assignment_source=none"
+        in http_examples
+    )
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_ownerless_session_history_alias"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_ownerless_session_history_alias"
     )
     assert capability["status"] == "released"
     assert "session_human_task_ownerless_source_alias" in capability["scope"]
@@ -3815,14 +5280,25 @@ def test_human_task_ownerless_backlog_alias_is_documented_and_smoked() -> None:
     assert "assignment_state=unassigned&assignment_source=none" in readme
     assert "assignment_state=unassigned&assignment_source=none" in runbook
     assert "HUMAN_OWNERLESS_BACKLOG_JSON" in smoke_api
-    assert 'params={"assignment_state": "unassigned", "assignment_source": "none"}' in smoke_runtime
-    assert "/v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&limit=20" in http_examples
-    assert "Promoted milestone capability `human_task_ownerless_backlog_alias` to released" in changelog
+    assert (
+        'params={"assignment_state": "unassigned", "assignment_source": "none"}'
+        in smoke_runtime
+    )
+    assert (
+        "/v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&limit=20"
+        in http_examples
+    )
+    assert (
+        "Promoted milestone capability `human_task_ownerless_backlog_alias` to released"
+        in changelog
+    )
     assert "release/operator guards" in changelog
     assert "backlog and unassigned queue slices aligned" in changelog
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_ownerless_backlog_alias"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_ownerless_backlog_alias"
     )
     assert capability["status"] == "released"
     assert "human_task_backlog_ownerless_source_alias" in capability["scope"]
@@ -3836,20 +5312,34 @@ def test_human_task_ownerless_backlog_created_sort_is_documented_and_smoked() ->
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "assignment_state=unassigned&assignment_source=none&sort=created_asc" in readme
-    assert "assignment_state=unassigned&assignment_source=none&sort=created_asc" in runbook
+    assert (
+        "assignment_state=unassigned&assignment_source=none&sort=created_asc" in readme
+    )
+    assert (
+        "assignment_state=unassigned&assignment_source=none&sort=created_asc" in runbook
+    )
     assert "HUMAN_OWNERLESS_BACKLOG_CREATED_JSON" in smoke_api
-    assert 'params={\n            "assignment_state": "unassigned",\n            "assignment_source": "none",\n            "sort": "created_asc",' in smoke_runtime
-    assert "/v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&sort=created_asc&limit=20" in http_examples
+    assert (
+        'params={\n            "assignment_state": "unassigned",\n            "assignment_source": "none",\n            "sort": "created_asc",'
+        in smoke_runtime
+    )
+    assert (
+        "/v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&sort=created_asc&limit=20"
+        in http_examples
+    )
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_ownerless_backlog_created_sort"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_ownerless_backlog_created_sort"
     )
     assert capability["status"] == "released"
     assert "ownerless_backlog_created_asc_fifo" in capability["scope"]
 
 
-def test_human_task_ownerless_backlog_last_transition_sort_is_documented_and_smoked() -> None:
+def test_human_task_ownerless_backlog_last_transition_sort_is_documented_and_smoked() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
@@ -3857,20 +5347,36 @@ def test_human_task_ownerless_backlog_last_transition_sort_is_documented_and_smo
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "assignment_state=unassigned&assignment_source=none&sort=last_transition_desc" in readme
-    assert "assignment_state=unassigned&assignment_source=none&sort=last_transition_desc" in runbook
+    assert (
+        "assignment_state=unassigned&assignment_source=none&sort=last_transition_desc"
+        in readme
+    )
+    assert (
+        "assignment_state=unassigned&assignment_source=none&sort=last_transition_desc"
+        in runbook
+    )
     assert "HUMAN_OWNERLESS_BACKLOG_TRANSITION_JSON" in smoke_api
-    assert 'params={\n            "assignment_state": "unassigned",\n            "assignment_source": "none",\n            "sort": "last_transition_desc",' in smoke_runtime
-    assert "/v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&sort=last_transition_desc&limit=20" in http_examples
+    assert (
+        'params={\n            "assignment_state": "unassigned",\n            "assignment_source": "none",\n            "sort": "last_transition_desc",'
+        in smoke_runtime
+    )
+    assert (
+        "/v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&sort=last_transition_desc&limit=20"
+        in http_examples
+    )
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_ownerless_backlog_last_transition_sort"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_ownerless_backlog_last_transition_sort"
     )
     assert capability["status"] == "released"
     assert "ownerless_backlog_last_transition_desc_ordering" in capability["scope"]
 
 
-def test_human_task_ownerless_unassigned_last_transition_sort_is_documented_and_smoked() -> None:
+def test_human_task_ownerless_unassigned_last_transition_sort_is_documented_and_smoked() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
@@ -3881,8 +5387,14 @@ def test_human_task_ownerless_unassigned_last_transition_sort_is_documented_and_
     assert "assignment_source=none&sort=last_transition_desc" in readme
     assert "assignment_source=none&sort=last_transition_desc" in runbook
     assert "HUMAN_OWNERLESS_UNASSIGNED_TRANSITION_JSON" in smoke_api
-    assert 'params={"assignment_source": "none", "sort": "last_transition_desc"}' in smoke_runtime
-    assert "/v1/human/tasks/unassigned?assignment_source=none&sort=last_transition_desc&limit=20" in http_examples
+    assert (
+        'params={"assignment_source": "none", "sort": "last_transition_desc"}'
+        in smoke_runtime
+    )
+    assert (
+        "/v1/human/tasks/unassigned?assignment_source=none&sort=last_transition_desc&limit=20"
+        in http_examples
+    )
 
     capability = next(
         entry
@@ -3893,7 +5405,9 @@ def test_human_task_ownerless_unassigned_last_transition_sort_is_documented_and_
     assert "ownerless_unassigned_last_transition_desc_ordering" in capability["scope"]
 
 
-def test_human_task_ownerless_unassigned_created_sort_is_documented_and_smoked() -> None:
+def test_human_task_ownerless_unassigned_created_sort_is_documented_and_smoked() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
@@ -3905,9 +5419,17 @@ def test_human_task_ownerless_unassigned_created_sort_is_documented_and_smoked()
     assert "assignment_source=none&sort=created_asc" in readme
     assert "assignment_source=none&sort=created_asc" in runbook
     assert "HUMAN_OWNERLESS_UNASSIGNED_CREATED_JSON" in smoke_api
-    assert 'params={"assignment_source": "none", "sort": "created_asc"}' in smoke_runtime
-    assert "/v1/human/tasks/unassigned?assignment_source=none&sort=created_asc&limit=20" in http_examples
-    assert "Promoted milestone capability `human_task_ownerless_unassigned_created_sort` to released" in changelog
+    assert (
+        'params={"assignment_source": "none", "sort": "created_asc"}' in smoke_runtime
+    )
+    assert (
+        "/v1/human/tasks/unassigned?assignment_source=none&sort=created_asc&limit=20"
+        in http_examples
+    )
+    assert (
+        "Promoted milestone capability `human_task_ownerless_unassigned_created_sort` to released"
+        in changelog
+    )
 
     capability = next(
         entry
@@ -3926,11 +5448,23 @@ def test_human_task_ownerless_list_created_sort_is_documented_and_smoked() -> No
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "status=pending&assignment_state=unassigned&assignment_source=none&sort=created_asc" in readme
-    assert "status=pending&assignment_state=unassigned&assignment_source=none&sort=created_asc" in runbook
+    assert (
+        "status=pending&assignment_state=unassigned&assignment_source=none&sort=created_asc"
+        in readme
+    )
+    assert (
+        "status=pending&assignment_state=unassigned&assignment_source=none&sort=created_asc"
+        in runbook
+    )
     assert "HUMAN_OWNERLESS_LIST_CREATED_JSON" in smoke_api
-    assert 'params={\n            "status": "pending",\n            "assignment_state": "unassigned",\n            "assignment_source": "none",\n            "sort": "created_asc",' in smoke_runtime
-    assert "/v1/human/tasks?status=pending&assignment_state=unassigned&assignment_source=none&sort=created_asc&limit=20" in http_examples
+    assert (
+        'params={\n            "status": "pending",\n            "assignment_state": "unassigned",\n            "assignment_source": "none",\n            "sort": "created_asc",'
+        in smoke_runtime
+    )
+    assert (
+        "/v1/human/tasks?status=pending&assignment_state=unassigned&assignment_source=none&sort=created_asc&limit=20"
+        in http_examples
+    )
 
     capability = next(
         entry
@@ -3939,12 +5473,17 @@ def test_human_task_ownerless_list_created_sort_is_documented_and_smoked() -> No
     )
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 
-    assert "Promoted milestone capability `human_task_ownerless_list_created_sort` to released" in changelog
+    assert (
+        "Promoted milestone capability `human_task_ownerless_list_created_sort` to released"
+        in changelog
+    )
     assert capability["status"] == "released"
     assert "ownerless_list_created_asc_fifo" in capability["scope"]
 
 
-def test_human_task_ownerless_list_last_transition_sort_is_documented_and_smoked() -> None:
+def test_human_task_ownerless_list_last_transition_sort_is_documented_and_smoked() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -3953,12 +5492,27 @@ def test_human_task_ownerless_list_last_transition_sort_is_documented_and_smoked
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "status=pending&assignment_state=unassigned&assignment_source=none&sort=last_transition_desc" in readme
-    assert "status=pending&assignment_state=unassigned&assignment_source=none&sort=last_transition_desc" in runbook
-    assert "Promoted milestone capability `human_task_ownerless_list_last_transition_sort` to released" in changelog
+    assert (
+        "status=pending&assignment_state=unassigned&assignment_source=none&sort=last_transition_desc"
+        in readme
+    )
+    assert (
+        "status=pending&assignment_state=unassigned&assignment_source=none&sort=last_transition_desc"
+        in runbook
+    )
+    assert (
+        "Promoted milestone capability `human_task_ownerless_list_last_transition_sort` to released"
+        in changelog
+    )
     assert "HUMAN_OWNERLESS_LIST_TRANSITION_JSON" in smoke_api
-    assert 'params={\n            "status": "pending",\n            "assignment_state": "unassigned",\n            "assignment_source": "none",\n            "sort": "last_transition_desc",' in smoke_runtime
-    assert "/v1/human/tasks?status=pending&assignment_state=unassigned&assignment_source=none&sort=last_transition_desc&limit=20" in http_examples
+    assert (
+        'params={\n            "status": "pending",\n            "assignment_state": "unassigned",\n            "assignment_source": "none",\n            "sort": "last_transition_desc",'
+        in smoke_runtime
+    )
+    assert (
+        "/v1/human/tasks?status=pending&assignment_state=unassigned&assignment_source=none&sort=last_transition_desc&limit=20"
+        in http_examples
+    )
 
     capability = next(
         entry
@@ -3980,10 +5534,19 @@ def test_human_task_session_ownerless_created_sort_is_documented_and_smoked() ->
 
     assert "session_id=<id>&assignment_source=none&sort=created_asc" in readme
     assert "session_id=<id>&assignment_source=none&sort=created_asc" in runbook
-    assert "Promoted milestone capability `human_task_session_ownerless_created_sort` to released" in changelog
+    assert (
+        "Promoted milestone capability `human_task_session_ownerless_created_sort` to released"
+        in changelog
+    )
     assert "SESSION_HUMAN_NONE_CREATED_JSON" in smoke_api
-    assert 'params={"session_id": session_id, "assignment_source": "none", "sort": "created_asc"}' in smoke_runtime
-    assert "/v1/human/tasks?session_id={{session_id}}&assignment_source=none&sort=created_asc&limit=20" in http_examples
+    assert (
+        'params={"session_id": session_id, "assignment_source": "none", "sort": "created_asc"}'
+        in smoke_runtime
+    )
+    assert (
+        "/v1/human/tasks?session_id={{session_id}}&assignment_source=none&sort=created_asc&limit=20"
+        in http_examples
+    )
 
     capability = next(
         entry
@@ -3994,7 +5557,9 @@ def test_human_task_session_ownerless_created_sort_is_documented_and_smoked() ->
     assert "session_ownerless_created_asc_fifo" in capability["scope"]
 
 
-def test_human_task_session_ownerless_last_transition_sort_is_documented_and_smoked() -> None:
+def test_human_task_session_ownerless_last_transition_sort_is_documented_and_smoked() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
@@ -4005,8 +5570,14 @@ def test_human_task_session_ownerless_last_transition_sort_is_documented_and_smo
     assert "session_id=<id>&assignment_source=none&sort=last_transition_desc" in readme
     assert "session_id=<id>&assignment_source=none&sort=last_transition_desc" in runbook
     assert "SESSION_HUMAN_NONE_TRANSITION_JSON" in smoke_api
-    assert 'params={"session_id": session_id, "assignment_source": "none", "sort": "last_transition_desc"}' in smoke_runtime
-    assert "/v1/human/tasks?session_id={{session_id}}&assignment_source=none&sort=last_transition_desc&limit=20" in http_examples
+    assert (
+        'params={"session_id": session_id, "assignment_source": "none", "sort": "last_transition_desc"}'
+        in smoke_runtime
+    )
+    assert (
+        "/v1/human/tasks?session_id={{session_id}}&assignment_source=none&sort=last_transition_desc&limit=20"
+        in http_examples
+    )
 
     capability = next(
         entry
@@ -4017,7 +5588,9 @@ def test_human_task_session_ownerless_last_transition_sort_is_documented_and_smo
     assert "session_ownerless_last_transition_desc_ordering" in capability["scope"]
 
 
-def test_human_task_session_ownerless_mixed_source_isolation_is_documented_and_smoked() -> None:
+def test_human_task_session_ownerless_mixed_source_isolation_is_documented_and_smoked() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
@@ -4041,10 +5614,15 @@ def test_human_task_session_ownerless_mixed_source_isolation_is_documented_and_s
 
     assert capability["status"] == "released"
     assert "session_ownerless_created_asc_excludes_non_ownerless" in capability["scope"]
-    assert "Promoted milestone capability `human_task_session_ownerless_mixed_source_isolation` to released" in changelog
+    assert (
+        "Promoted milestone capability `human_task_session_ownerless_mixed_source_isolation` to released"
+        in changelog
+    )
 
 
-def test_human_task_ownerless_sorted_queue_mixed_source_isolation_is_documented_and_smoked() -> None:
+def test_human_task_ownerless_sorted_queue_mixed_source_isolation_is_documented_and_smoked() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
@@ -4073,20 +5651,30 @@ def test_human_task_ownerless_sorted_queue_mixed_source_isolation_is_documented_
     assert "ownerless_backlog_sorted_excludes_non_ownerless" in capability["scope"]
 
 
-def test_human_task_ownerless_priority_summary_mixed_source_counts_are_documented_and_smoked() -> None:
+def test_human_task_ownerless_priority_summary_mixed_source_counts_are_documented_and_smoked() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "ownerless `priority-summary?assignment_state=unassigned&assignment_source=none` slice is now explicitly covered after mixed-source churn" in readme
-    assert "ownerless `priority-summary?status=pending&assignment_state=unassigned&assignment_source=none` slice is now also covered after mixed-source churn" in runbook
+    assert (
+        "ownerless `priority-summary?assignment_state=unassigned&assignment_source=none` slice is now explicitly covered after mixed-source churn"
+        in readme
+    )
+    assert (
+        "ownerless `priority-summary?status=pending&assignment_state=unassigned&assignment_source=none` slice is now also covered after mixed-source churn"
+        in runbook
+    )
     assert "PRIORITY_SUMMARY_NONE_MIXED_JSON" in smoke_api
     assert "stay ownerless-only after mixed-source churn" in smoke_api
     assert "ownerless_summary_after_churn" in smoke_runtime
     assert 'ownerless_summary_after_churn_body["total"] == 2' in smoke_runtime
-    assert 'ownerless_summary_after_churn_body["counts_json"]["low"] == 2' in smoke_runtime
+    assert (
+        'ownerless_summary_after_churn_body["counts_json"]["low"] == 2' in smoke_runtime
+    )
 
     capability = next(
         entry
@@ -4094,18 +5682,29 @@ def test_human_task_ownerless_priority_summary_mixed_source_counts_are_documente
         if entry["name"] == "human_task_ownerless_priority_summary_mixed_source_counts"
     )
     assert capability["status"] == "released"
-    assert "ownerless_priority_summary_total_excludes_non_ownerless_after_churn" in capability["scope"]
+    assert (
+        "ownerless_priority_summary_total_excludes_non_ownerless_after_churn"
+        in capability["scope"]
+    )
 
 
-def test_human_task_ownerless_unsorted_queue_mixed_source_isolation_is_documented_and_smoked() -> None:
+def test_human_task_ownerless_unsorted_queue_mixed_source_isolation_is_documented_and_smoked() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "unsorted ownerless `assignment_source=none` list, backlog, and unassigned slices are now also explicitly covered after mixed-source churn" in readme
-    assert "unsorted ownerless `assignment_source=none` list, backlog, and unassigned slices are now also covered after mixed-source churn" in runbook
+    assert (
+        "unsorted ownerless `assignment_source=none` list, backlog, and unassigned slices are now also explicitly covered after mixed-source churn"
+        in readme
+    )
+    assert (
+        "unsorted ownerless `assignment_source=none` list, backlog, and unassigned slices are now also covered after mixed-source churn"
+        in runbook
+    )
     assert "HUMAN_OWNERLESS_LIST_MIXED_JSON" in smoke_api
     assert "HUMAN_UNASSIGNED_NONE_MIXED_JSON" in smoke_api
     assert "HUMAN_OWNERLESS_BACKLOG_MIXED_JSON" in smoke_api
@@ -4120,18 +5719,29 @@ def test_human_task_ownerless_unsorted_queue_mixed_source_isolation_is_documente
         if entry["name"] == "human_task_ownerless_unsorted_queue_mixed_source_isolation"
     )
     assert capability["status"] == "released"
-    assert "ownerless_list_unsorted_excludes_non_ownerless_after_churn" in capability["scope"]
+    assert (
+        "ownerless_list_unsorted_excludes_non_ownerless_after_churn"
+        in capability["scope"]
+    )
 
 
-def test_human_task_session_ownerless_unsorted_mixed_source_isolation_is_documented_and_smoked() -> None:
+def test_human_task_session_ownerless_unsorted_mixed_source_isolation_is_documented_and_smoked() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "unsorted session-scoped `session_id=<id>&assignment_source=none` slice is now also explicitly covered after mixed-source churn" in readme
-    assert "unsorted session-scoped `session_id=<id>&assignment_source=none` slice is now also covered after mixed-source churn" in runbook
+    assert (
+        "unsorted session-scoped `session_id=<id>&assignment_source=none` slice is now also explicitly covered after mixed-source churn"
+        in readme
+    )
+    assert (
+        "unsorted session-scoped `session_id=<id>&assignment_source=none` slice is now also covered after mixed-source churn"
+        in runbook
+    )
     assert "SESSION_HUMAN_NONE_MIXED_JSON" in smoke_api
     assert "stay ownerless-only after mixed-source churn" in smoke_api
     assert "ownerless_session_list_after_churn_ids ==" in smoke_runtime
@@ -4139,25 +5749,40 @@ def test_human_task_session_ownerless_unsorted_mixed_source_isolation_is_documen
     capability = next(
         entry
         for entry in milestone["capabilities"]
-        if entry["name"] == "human_task_session_ownerless_unsorted_mixed_source_isolation"
+        if entry["name"]
+        == "human_task_session_ownerless_unsorted_mixed_source_isolation"
     )
     assert capability["status"] == "released"
-    assert "session_ownerless_unsorted_excludes_non_ownerless_after_churn" in capability["scope"]
+    assert (
+        "session_ownerless_unsorted_excludes_non_ownerless_after_churn"
+        in capability["scope"]
+    )
 
 
-def test_session_ownerless_projection_mixed_source_counts_are_documented_and_smoked() -> None:
+def test_session_ownerless_projection_mixed_source_counts_are_documented_and_smoked() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "mixed-source session-detail ownerless slice is now also explicitly count-checked" in readme
-    assert "mixed-source session-detail ownerless projection is now also count-checked" in runbook
+    assert (
+        "mixed-source session-detail ownerless slice is now also explicitly count-checked"
+        in readme
+    )
+    assert (
+        "mixed-source session-detail ownerless projection is now also count-checked"
+        in runbook
+    )
     assert "SESSION_HUMAN_NONE_PROJECTION_JSON" in smoke_api
     assert "longer empty-source history trail" in smoke_api
     assert 'len(ownerless_session_projection_body["human_tasks"]) == 2' in smoke_runtime
-    assert 'len(ownerless_session_projection_body["human_task_assignment_history"]) > len(' in smoke_runtime
+    assert (
+        'len(ownerless_session_projection_body["human_task_assignment_history"]) > len('
+        in smoke_runtime
+    )
 
     capability = next(
         entry
@@ -4165,7 +5790,9 @@ def test_session_ownerless_projection_mixed_source_counts_are_documented_and_smo
         if entry["name"] == "session_ownerless_projection_mixed_source_counts"
     )
     assert capability["status"] == "released"
-    assert "session_ownerless_projection_current_count_after_churn" in capability["scope"]
+    assert (
+        "session_ownerless_projection_current_count_after_churn" in capability["scope"]
+    )
 
 
 def test_session_ownerless_projection_created_order_is_documented_and_smoked() -> None:
@@ -4181,19 +5808,35 @@ def test_session_ownerless_projection_created_order_is_documented_and_smoked() -
     assert "human_task_assignment_source=none" in runbook
     assert "SESSION_HUMAN_NONE_PROJECTION_JSON" in smoke_api
     assert 'params={"human_task_assignment_source": "none"}' in smoke_runtime
-    assert "ownerless_session_projection_ids == [ownerless_task_id, ownerless_newer_task_id]" in smoke_runtime
-    assert "ownerless_session_history_ids == [ownerless_task_id, ownerless_newer_task_id]" in smoke_runtime
-    assert "/v1/rewrite/sessions/{{session_id}}?human_task_assignment_source=none" in http_examples
-    assert "Promoted milestone capability `session_ownerless_projection_created_order` to released" in changelog
+    assert (
+        "ownerless_session_projection_ids == [ownerless_task_id, ownerless_newer_task_id]"
+        in smoke_runtime
+    )
+    assert (
+        "ownerless_session_history_ids == [ownerless_task_id, ownerless_newer_task_id]"
+        in smoke_runtime
+    )
+    assert (
+        "/v1/rewrite/sessions/{{session_id}}?human_task_assignment_source=none"
+        in http_examples
+    )
+    assert (
+        "Promoted milestone capability `session_ownerless_projection_created_order` to released"
+        in changelog
+    )
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "session_ownerless_projection_created_order"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "session_ownerless_projection_created_order"
     )
     assert capability["status"] == "released"
     assert "session_ownerless_projection_human_tasks_created_asc" in capability["scope"]
 
 
-def test_session_ownerless_projection_mixed_source_isolation_is_documented_and_smoked() -> None:
+def test_session_ownerless_projection_mixed_source_isolation_is_documented_and_smoked() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
@@ -4213,7 +5856,10 @@ def test_session_ownerless_projection_mixed_source_isolation_is_documented_and_s
         if entry["name"] == "session_ownerless_projection_mixed_source_isolation"
     )
     assert capability["status"] == "released"
-    assert "session_ownerless_projection_current_rows_exclude_non_ownerless" in capability["scope"]
+    assert (
+        "session_ownerless_projection_current_rows_exclude_non_ownerless"
+        in capability["scope"]
+    )
 
 
 def test_human_task_assignment_history_source_filter_is_documented_and_smoked() -> None:
@@ -4224,14 +5870,22 @@ def test_human_task_assignment_history_source_filter_is_documented_and_smoked() 
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "assignment-history` also accepts `event_name`, `assigned_operator_id`, `assigned_by_actor_id`, and `assignment_source`" in readme
+    assert (
+        "assignment-history` also accepts `event_name`, `assigned_operator_id`, `assigned_by_actor_id`, and `assignment_source`"
+        in readme
+    )
     assert "assignment_source" in runbook
     assert "HUMAN_HISTORY_RECOMMENDED_JSON" in smoke_api
     assert 'params={"limit": 10, "assignment_source": "recommended"}' in smoke_runtime
-    assert "/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20&assignment_source=recommended" in http_examples
+    assert (
+        "/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20&assignment_source=recommended"
+        in http_examples
+    )
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_assignment_history_source_filter"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_assignment_history_source_filter"
     )
     assert capability["status"] == "released"
     assert "recommended_transition_isolation" in capability["scope"]
@@ -4250,16 +5904,23 @@ def test_session_human_task_assignment_source_filter_is_documented_and_smoked() 
     assert "SESSION_HUMAN_MANUAL_JSON" in smoke_api
     assert "HUMAN_REWRITE_AUTO_SESSION_JSON" in smoke_api
     assert 'params={"human_task_assignment_source": "manual"}' in smoke_runtime
-    assert "/v1/rewrite/sessions/{{session_id}}?human_task_assignment_source=manual" in http_examples
+    assert (
+        "/v1/rewrite/sessions/{{session_id}}?human_task_assignment_source=manual"
+        in http_examples
+    )
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "session_human_task_assignment_source_filter"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "session_human_task_assignment_source_filter"
     )
     assert capability["status"] == "released"
     assert "manual_session_task_slice" in capability["scope"]
 
 
-def test_session_scoped_human_task_assignment_source_queue_filters_are_documented_and_smoked() -> None:
+def test_session_scoped_human_task_assignment_source_queue_filters_are_documented_and_smoked() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -4272,10 +5933,22 @@ def test_session_scoped_human_task_assignment_source_queue_filters_are_documente
     assert "session_id=<id>&assignment_source=<source>" in runbook
     assert "PRIORITY_SUMMARY_MANUAL_SESSION_JSON" in smoke_api
     assert "HUMAN_REWRITE_AUTO_LIST_JSON" in smoke_api
-    assert 'params={"session_id": session_id, "assignment_source": "manual"}' in smoke_runtime
-    assert "/v1/human/tasks?principal_id={{principal_id}}&session_id={{session_id}}&assignment_source=manual&limit=20" in http_examples
-    assert "Promoted milestone capability `session_scoped_human_task_assignment_source_filters` to released" in changelog
-    assert "release/operator guards now pin the existing README/RUNBOOK/examples plus approved smoke coverage" in changelog
+    assert (
+        'params={"session_id": session_id, "assignment_source": "manual"}'
+        in smoke_runtime
+    )
+    assert (
+        "/v1/human/tasks?principal_id={{principal_id}}&session_id={{session_id}}&assignment_source=manual&limit=20"
+        in http_examples
+    )
+    assert (
+        "Promoted milestone capability `session_scoped_human_task_assignment_source_filters` to released"
+        in changelog
+    )
+    assert (
+        "release/operator guards now pin the existing README/RUNBOOK/examples plus approved smoke coverage"
+        in changelog
+    )
     assert "session-scoped `assignment_source=<source>` queue filtering" in changelog
 
     capability = next(
@@ -4293,19 +5966,37 @@ def test_postgres_contract_matrix_release_baseline_is_documented_and_guarded() -
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
-    postgres_matrix = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
+    postgres_matrix = (
+        ROOT / "tests/test_postgres_contract_matrix_integration.py"
+    ).read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "postgres_contract_matrix")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "postgres_contract_matrix"
+    )
 
-    assert "current matrix covers artifacts, channel runtime, approvals, policy decisions, and task contracts" in readme
-    assert "Current `scripts/test_postgres_contracts.sh` coverage includes artifacts, channel runtime, approvals, policy decisions, and task contracts." in runbook
+    assert (
+        "current matrix covers artifacts, channel runtime, approvals, policy decisions, and task contracts"
+        in readme
+    )
+    assert (
+        "Current `scripts/test_postgres_contracts.sh` coverage includes artifacts, channel runtime, approvals, policy decisions, and task contracts."
+        in runbook
+    )
     assert "bash scripts/test_postgres_contracts.sh" in makefile
     assert "tests/test_postgres_contract_matrix_integration.py" in script
     assert "test_postgres_approvals_create_decide_and_list_history" in postgres_matrix
     assert "test_postgres_policy_decisions_append_and_filter_recent" in postgres_matrix
     assert "test_postgres_task_contracts_upsert_get_and_list" in postgres_matrix
-    assert "test_postgres_evidence_object_repo_materializes_queries_and_merges_evidence_pack_rows" in postgres_matrix
-    assert "Promoted milestone capability `postgres_contract_matrix` to released" in changelog
+    assert (
+        "test_postgres_evidence_object_repo_materializes_queries_and_merges_evidence_pack_rows"
+        in postgres_matrix
+    )
+    assert (
+        "Promoted milestone capability `postgres_contract_matrix` to released"
+        in changelog
+    )
     assert capability["status"] == "released"
     assert "release/operator guards now pin that matrix" in capability["notes"]
 
@@ -4326,7 +6017,10 @@ def test_principal_scoped_memory_seed_surface_is_released_and_smoked() -> None:
     assert "/v1/memory/stakeholders" in runbook
     assert "/v1/memory/interruption-budgets" in runbook
 
-    assert "Promoted milestone capability `principal_scoped_memory_seed_apis` to released" in changelog
+    assert (
+        "Promoted milestone capability `principal_scoped_memory_seed_apis` to released"
+        in changelog
+    )
 
     assert "/v1/memory/candidates" in smoke_api
     assert "/v1/memory/stakeholders" in smoke_api
@@ -4336,7 +6030,11 @@ def test_principal_scoped_memory_seed_surface_is_released_and_smoked() -> None:
     assert "test_memory_stakeholders_principal_scope_flow" in smoke_runtime
     assert "test_memory_interruption_budgets_principal_scope_flow" in smoke_runtime
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "principal_scoped_memory_seed_apis")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "principal_scoped_memory_seed_apis"
+    )
     assert capability["status"] == "released"
 
 
@@ -4367,12 +6065,19 @@ def test_principal_request_context_guardrails_are_documented_and_smoked() -> Non
     assert "principal_scope_mismatch" in smoke_api
 
     assert "test_tool_registry_and_connector_bindings_flow" in smoke_runtime
-    assert "test_memory_routes_use_default_principal_when_header_and_body_are_omitted" in smoke_runtime
+    assert (
+        "test_memory_routes_use_default_principal_when_header_and_body_are_omitted"
+        in smoke_runtime
+    )
     assert "principal_request_context_guardrails" in changelog
     assert "release/operator guards" in changelog
     assert "X-EA-Principal-ID" in changelog
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "principal_request_context_guardrails")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "principal_request_context_guardrails"
+    )
     assert capability["status"] == "released"
 
 
@@ -4393,9 +6098,16 @@ def test_principal_scoped_rewrite_and_plan_routes_are_documented_and_smoked() ->
     assert "REWRITE_SESSION_MISMATCH_CODE" in smoke_api
     assert "PLAN_MISMATCH_CODE" in smoke_api
     assert "test_rewrite_routes_enforce_principal_scope" in smoke_runtime
-    assert "test_plan_compile_derives_request_principal_and_rejects_mismatch" in smoke_runtime
+    assert (
+        "test_plan_compile_derives_request_principal_and_rejects_mismatch"
+        in smoke_runtime
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "principal_scoped_rewrite_and_plan_routes")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "principal_scoped_rewrite_and_plan_routes"
+    )
     assert capability["status"] == "released"
 
 
@@ -4406,13 +6118,23 @@ def test_session_principal_scoped_human_task_routes_are_documented_and_smoked() 
     smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "session-bound human task create/list requests now also enforce the linked execution session principal" in readme
+    assert (
+        "session-bound human task create/list requests now also enforce the linked execution session principal"
+        in readme
+    )
     assert "GET /v1/human/tasks?session_id=..." in runbook
     assert "HUMAN_CREATE_MISMATCH_CODE" in smoke_api
     assert "HUMAN_SESSION_LIST_MISMATCH_CODE" in smoke_api
-    assert "test_human_task_session_routes_enforce_session_principal_scope" in smoke_runtime
+    assert (
+        "test_human_task_session_routes_enforce_session_principal_scope"
+        in smoke_runtime
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "session_principal_scoped_human_task_routes")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "session_principal_scoped_human_task_routes"
+    )
     assert capability["status"] == "released"
 
 
@@ -4423,7 +6145,9 @@ def test_generic_task_execution_runtime_is_documented_and_smoked() -> None:
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = _smoke_runtime_text()
-    postgres_contracts = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
+    postgres_contracts = (
+        ROOT / "tests/test_postgres_contract_matrix_integration.py"
+    ).read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "/v1/plans/execute" in readme
@@ -4432,7 +6156,10 @@ def test_generic_task_execution_runtime_is_documented_and_smoked() -> None:
     assert "/v1/plans/execute" in runbook
     assert "stakeholder briefings" in runbook
     assert "structured `input_json` plus `context_refs`" in runbook
-    assert "Promoted milestone capability `generic_task_execution_runtime` to released" in changelog
+    assert (
+        "Promoted milestone capability `generic_task_execution_runtime` to released"
+        in changelog
+    )
     assert "POST {{host}}/v1/plans/execute" in http_examples
     assert '"input_json": {' in http_examples
     assert '"context_refs": [' in http_examples
@@ -4442,9 +6169,16 @@ def test_generic_task_execution_runtime_is_documented_and_smoked() -> None:
     assert "generic task execution ok" in smoke_api
     assert "test_generic_task_execution_uses_compiled_contract_runtime" in smoke_runtime
     assert 'session_body["steps"][0]["input_json"]["context_refs"] ==' in smoke_runtime
-    assert "test_postgres_orchestrator_executes_non_rewrite_task_contract" in postgres_contracts
+    assert (
+        "test_postgres_orchestrator_executes_non_rewrite_task_contract"
+        in postgres_contracts
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "generic_task_execution_runtime")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "generic_task_execution_runtime"
+    )
     assert capability["status"] == "released"
 
 
@@ -4452,20 +6186,43 @@ def test_memory_reasoning_context_packs_are_documented_and_guarded() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    plan_execute_contracts = (ROOT / "tests/test_plan_execute_input_contracts.py").read_text(encoding="utf-8")
+    plan_execute_contracts = (
+        ROOT / "tests/test_plan_execute_input_contracts.py"
+    ).read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "/v1/memory/context-pack" in readme
-    assert "injects synthesized `context_pack` payloads from principal-scoped memory reasoning" in readme
+    assert (
+        "injects synthesized `context_pack` payloads from principal-scoped memory reasoning"
+        in readme
+    )
     assert "/v1/memory/context-pack" in runbook
-    assert "including promoted-memory signals, conflict rows, commitment-risk rows, and unresolved refs" in runbook
-    assert "Promoted milestone capability `memory_reasoning_context_packs` to released" in changelog
-    assert "test_memory_context_pack_route_returns_reasoned_pack" in plan_execute_contracts
-    assert "test_plan_execute_accepts_structured_input_json_and_context_refs" in plan_execute_contracts
+    assert (
+        "including promoted-memory signals, conflict rows, commitment-risk rows, and unresolved refs"
+        in runbook
+    )
+    assert (
+        "Promoted milestone capability `memory_reasoning_context_packs` to released"
+        in changelog
+    )
+    assert (
+        "test_memory_context_pack_route_returns_reasoned_pack" in plan_execute_contracts
+    )
+    assert (
+        "test_plan_execute_accepts_structured_input_json_and_context_refs"
+        in plan_execute_contracts
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "memory_reasoning_context_packs")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "memory_reasoning_context_packs"
+    )
     assert capability["status"] == "released"
-    assert "release/operator guards now pin that docs plus runtime contract baseline behavior" in capability["notes"]
+    assert (
+        "release/operator guards now pin that docs plus runtime contract baseline behavior"
+        in capability["notes"]
+    )
 
 
 def test_plan_graph_validation_is_documented_and_guarded() -> None:
@@ -4474,12 +6231,27 @@ def test_plan_graph_validation_is_documented_and_guarded() -> None:
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "validates duplicate step keys, unknown dependency keys, and dependency cycles before queue execution starts" in readme
-    assert "duplicate step keys, unknown dependency keys, and dependency cycles before any session rows are started" in runbook
-    assert "duplicate step keys, unknown dependency keys, and dependency cycles before queue execution or session creation begins" in changelog
-    assert "Promoted milestone capability `plan_graph_validation` to released" in changelog
+    assert (
+        "validates duplicate step keys, unknown dependency keys, and dependency cycles before queue execution starts"
+        in readme
+    )
+    assert (
+        "duplicate step keys, unknown dependency keys, and dependency cycles before any session rows are started"
+        in runbook
+    )
+    assert (
+        "duplicate step keys, unknown dependency keys, and dependency cycles before queue execution or session creation begins"
+        in changelog
+    )
+    assert (
+        "Promoted milestone capability `plan_graph_validation` to released" in changelog
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "plan_graph_validation")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "plan_graph_validation"
+    )
     assert capability["status"] == "released"
 
 
@@ -4489,14 +6261,33 @@ def test_step_io_contracts_are_documented_and_guarded() -> None:
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "only merges declared dependency inputs and validates declared step outputs before completion" in readme
-    assert "only merges declared dependency inputs and fails missing declared outputs before a step can complete" in runbook
-    assert "only merge declared dependency inputs and now fail fast when a completed step omits any declared output key" in changelog
-    assert "Promoted milestone capability `step_io_contract_enforcement` to released" in changelog
+    assert (
+        "only merges declared dependency inputs and validates declared step outputs before completion"
+        in readme
+    )
+    assert (
+        "only merges declared dependency inputs and fails missing declared outputs before a step can complete"
+        in runbook
+    )
+    assert (
+        "only merge declared dependency inputs and now fail fast when a completed step omits any declared output key"
+        in changelog
+    )
+    assert (
+        "Promoted milestone capability `step_io_contract_enforcement` to released"
+        in changelog
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "step_io_contract_enforcement")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "step_io_contract_enforcement"
+    )
     assert capability["status"] == "released"
-    assert "release/operator guards now pin those runtime IO contracts" in capability["notes"]
+    assert (
+        "release/operator guards now pin those runtime IO contracts"
+        in capability["notes"]
+    )
 
 
 def test_generic_task_execution_async_contracts_are_documented_and_smoked() -> None:
@@ -4508,28 +6299,55 @@ def test_generic_task_execution_async_contracts_are_documented_and_smoked() -> N
     smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "same first-class `202 awaiting_approval` and `202 awaiting_human` async contract" in readme
-    assert 'step_artifact_save.state=waiting_approval' in readme
+    assert (
+        "same first-class `202 awaiting_approval` and `202 awaiting_human` async contract"
+        in readme
+    )
+    assert "step_artifact_save.state=waiting_approval" in readme
     assert 'blocked_dependency_keys=["step_human_review"]' in readme
-    assert "same first-class `202 awaiting_approval` and `202 awaiting_human` workflow contract" in runbook
-    assert 'step_artifact_save` in `waiting_approval`' in runbook
+    assert (
+        "same first-class `202 awaiting_approval` and `202 awaiting_human` workflow contract"
+        in runbook
+    )
+    assert "step_artifact_save` in `waiting_approval`" in runbook
     assert 'blocked_dependency_keys=["step_human_review"]' in runbook
     assert '"task_key": "decision_brief_approval"' in http_examples
     assert '"task_key": "stakeholder_briefing_review"' in http_examples
-    assert "inspect paused approval-backed session dependency projection" in http_examples
-    assert "inspect paused human-review-backed session dependency projection" in http_examples
+    assert (
+        "inspect paused approval-backed session dependency projection" in http_examples
+    )
+    assert (
+        "inspect paused human-review-backed session dependency projection"
+        in http_examples
+    )
     assert "GENERIC_APPROVAL_JSON" in smoke_api
     assert "GENERIC_APPROVAL_TASK_KEY" in smoke_api
     assert "GENERIC_HUMAN_JSON" in smoke_api
     assert "generic task async contracts ok" in smoke_api
     assert 'local attempts="${3:-120}"' in smoke_api
-    assert 'timed out waiting for session ${session_id} to reach ${expected_status}' in smoke_api
-    assert "test_generic_task_execution_supports_async_approval_and_human_contracts" in smoke_runtime
-    assert "Promoted milestone capability `generic_task_execution_async_contracts` to released" in changelog
+    assert (
+        "timed out waiting for session ${session_id} to reach ${expected_status}"
+        in smoke_api
+    )
+    assert (
+        "test_generic_task_execution_supports_async_approval_and_human_contracts"
+        in smoke_runtime
+    )
+    assert (
+        "Promoted milestone capability `generic_task_execution_async_contracts` to released"
+        in changelog
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "generic_task_execution_async_contracts")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "generic_task_execution_async_contracts"
+    )
     assert capability["status"] == "released"
-    assert "paused generic task sessions keep the same dependency-state projection" in capability["notes"]
+    assert (
+        "paused generic task sessions keep the same dependency-state projection"
+        in capability["notes"]
+    )
 
 
 def test_artifact_lookup_task_identity_projection_is_documented_and_smoked() -> None:
@@ -4544,13 +6362,25 @@ def test_artifact_lookup_task_identity_projection_is_documented_and_smoked() -> 
     assert "originating task key and deliverable type" in readme
     assert "originating `task_key`/`deliverable_type`" in runbook
     assert "includes originating task_key and deliverable_type" in http_examples
-    assert "Promoted the direct artifact task-identity lookup slice into a released milestone capability" in changelog
+    assert (
+        "Promoted the direct artifact task-identity lookup slice into a released milestone capability"
+        in changelog
+    )
     assert "TASK_EXECUTE_ARTIFACT_JSON" in smoke_api
     assert "TASK_EXECUTE_ARTIFACT_FIELDS" in smoke_api
-    assert 'fetched_artifact.json()["task_key"] == "stakeholder_briefing"' in smoke_runtime
-    assert 'fetched_artifact.json()["deliverable_type"] == "stakeholder_briefing"' in smoke_runtime
+    assert (
+        'fetched_artifact.json()["task_key"] == "stakeholder_briefing"' in smoke_runtime
+    )
+    assert (
+        'fetched_artifact.json()["deliverable_type"] == "stakeholder_briefing"'
+        in smoke_runtime
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "artifact_lookup_task_identity_projection")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "artifact_lookup_task_identity_projection"
+    )
     assert capability["status"] == "released"
 
 
@@ -4572,15 +6402,28 @@ def test_artifact_preview_handle_projection_is_documented_and_smoked() -> None:
     assert "mime_type" in runbook
     assert "body_ref" in runbook
     assert "preview_text and storage_handle" in http_examples
-    assert "Promoted milestone capability `artifact_preview_handle_projection` to released" in changelog
+    assert (
+        "Promoted milestone capability `artifact_preview_handle_projection` to released"
+        in changelog
+    )
     assert "TASK_EXECUTE_ARTIFACT_FIELDS" in smoke_api
     assert "REWRITE_ARTIFACT_FIELDS" in smoke_api
     assert 'fetched_artifact.json()["mime_type"] == "text/plain"' in smoke_runtime
-    assert 'fetched_artifact.json()["preview_text"] == "Board context and stakeholder sensitivities."' in smoke_runtime
-    assert 'fetched_artifact.json()["storage_handle"] == f"artifact://{body[\'artifact_id\']}"' in smoke_runtime
+    assert (
+        'fetched_artifact.json()["preview_text"] == "Board context and stakeholder sensitivities."'
+        in smoke_runtime
+    )
+    assert (
+        'fetched_artifact.json()["storage_handle"] == f"artifact://{body[\'artifact_id\']}"'
+        in smoke_runtime
+    )
     assert 'fetched_artifact.json()["body_ref"].startswith("file://")' in smoke_runtime
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "artifact_preview_handle_projection")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "artifact_preview_handle_projection"
+    )
     assert capability["status"] == "released"
 
 
@@ -4595,17 +6438,35 @@ def test_proof_lookup_task_identity_projection_is_documented_and_smoked() -> Non
 
     assert "direct execution proof records" in readme
     assert "originating `task_key`/`deliverable_type`" in runbook
-    assert "fetch receipt (includes originating task_key and deliverable_type)" in http_examples
-    assert "fetch run cost (includes originating task_key and deliverable_type)" in http_examples
+    assert (
+        "fetch receipt (includes originating task_key and deliverable_type)"
+        in http_examples
+    )
+    assert (
+        "fetch run cost (includes originating task_key and deliverable_type)"
+        in http_examples
+    )
     assert "TASK_EXECUTE_RECEIPT_JSON" in smoke_api
     assert "TASK_EXECUTE_COST_JSON" in smoke_api
-    assert 'fetched_receipt.json()["task_key"] == "stakeholder_briefing"' in smoke_runtime
+    assert (
+        'fetched_receipt.json()["task_key"] == "stakeholder_briefing"' in smoke_runtime
+    )
     assert 'fetched_cost.json()["task_key"] == "stakeholder_briefing"' in smoke_runtime
-    assert "Promoted milestone capability `proof_lookup_task_identity_projection` to released" in changelog
+    assert (
+        "Promoted milestone capability `proof_lookup_task_identity_projection` to released"
+        in changelog
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "proof_lookup_task_identity_projection")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "proof_lookup_task_identity_projection"
+    )
     assert capability["status"] == "released"
-    assert "release/operator guards pin that direct proof identity contract" in capability["notes"]
+    assert (
+        "release/operator guards pin that direct proof identity contract"
+        in capability["notes"]
+    )
 
 
 def test_session_artifact_task_identity_projection_is_documented_and_smoked() -> None:
@@ -4618,13 +6479,26 @@ def test_session_artifact_task_identity_projection_is_documented_and_smoked() ->
 
     assert "inline artifact/proof rows now carry originating task identity" in readme
     assert "self-describing artifact/proof task identity" in runbook
-    assert "Promoted milestone capability `session_artifact_task_identity_projection` to released" in changelog
+    assert (
+        "Promoted milestone capability `session_artifact_task_identity_projection` to released"
+        in changelog
+    )
     assert "TASK_EXECUTE_SESSION_FIELDS" in smoke_api
     assert "stakeholder_briefing|stakeholder_briefing|stakeholder_briefing" in smoke_api
-    assert 'session_body["artifacts"][0]["task_key"] == "stakeholder_briefing"' in smoke_runtime
-    assert 'session_body["artifacts"][0]["deliverable_type"] == "stakeholder_briefing"' in smoke_runtime
+    assert (
+        'session_body["artifacts"][0]["task_key"] == "stakeholder_briefing"'
+        in smoke_runtime
+    )
+    assert (
+        'session_body["artifacts"][0]["deliverable_type"] == "stakeholder_briefing"'
+        in smoke_runtime
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "session_artifact_task_identity_projection")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "session_artifact_task_identity_projection"
+    )
     assert capability["status"] == "released"
 
 
@@ -4637,38 +6511,88 @@ def test_async_queue_projection_task_identity_is_documented_and_smoked() -> None
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "approval projections now carry the originating task identity" in readme
-    assert "queue/detail payloads now also carry the originating task identity" in readme
-    assert "Approval and human-task queue/detail payloads now stay self-describing" in runbook
-    assert "Approvals -> pending (includes originating task_key and deliverable_type)" in http_examples
-    assert "Human tasks -> direct detail (includes originating task_key and deliverable_type)" in http_examples
+    assert (
+        "queue/detail payloads now also carry the originating task identity" in readme
+    )
+    assert (
+        "Approval and human-task queue/detail payloads now stay self-describing"
+        in runbook
+    )
+    assert (
+        "Approvals -> pending (includes originating task_key and deliverable_type)"
+        in http_examples
+    )
+    assert (
+        "Human tasks -> direct detail (includes originating task_key and deliverable_type)"
+        in http_examples
+    )
     assert "GENERIC_APPROVAL_PENDING_FIELDS" in smoke_api
     assert "GENERIC_APPROVAL_HISTORY_FIELDS" in smoke_api
     assert "GENERIC_HUMAN_LIST_FIELDS" in smoke_api
     assert 'pending_row["task_key"] == "decision_brief_approval"' in smoke_runtime
-    assert 'review_detail.json()["task_key"] == "stakeholder_briefing_review"' in smoke_runtime
+    assert (
+        'review_detail.json()["task_key"] == "stakeholder_briefing_review"'
+        in smoke_runtime
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "async_queue_projection_task_identity")
-    assert "release/operator guards now pin that self-describing async queue identity contract" in capability["notes"]
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "async_queue_projection_task_identity"
+    )
+    assert (
+        "release/operator guards now pin that self-describing async queue identity contract"
+        in capability["notes"]
+    )
     assert capability["status"] == "released"
 
 
-def test_dependency_aware_execution_scheduler_release_baseline_is_documented_and_guarded() -> None:
+def test_dependency_aware_execution_scheduler_release_baseline_is_documented_and_guarded() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    postgres_contracts = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
+    postgres_contracts = (
+        ROOT / "tests/test_postgres_contract_matrix_integration.py"
+    ).read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "queue advancement now enqueues every currently ready step from satisfied dependency edges" in readme
-    assert "queue advancement now enqueues every currently ready step from satisfied dependency edges" in runbook
-    assert "Queue advancement now enqueues the full ready set from satisfied `depends_on` edges" in changelog
-    assert "Promoted milestone capability `dependency_aware_execution_scheduler` to released" in changelog
-    assert "test_postgres_orchestrator_dependency_scheduler_waits_for_all_dependencies" in postgres_contracts
-    assert "test_postgres_queue_leasing_skips_paused_sessions_even_with_ready_items" in postgres_contracts
+    assert (
+        "queue advancement now enqueues every currently ready step from satisfied dependency edges"
+        in readme
+    )
+    assert (
+        "queue advancement now enqueues every currently ready step from satisfied dependency edges"
+        in runbook
+    )
+    assert (
+        "Queue advancement now enqueues the full ready set from satisfied `depends_on` edges"
+        in changelog
+    )
+    assert (
+        "Promoted milestone capability `dependency_aware_execution_scheduler` to released"
+        in changelog
+    )
+    assert (
+        "test_postgres_orchestrator_dependency_scheduler_waits_for_all_dependencies"
+        in postgres_contracts
+    )
+    assert (
+        "test_postgres_queue_leasing_skips_paused_sessions_even_with_ready_items"
+        in postgres_contracts
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "dependency_aware_execution_scheduler")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "dependency_aware_execution_scheduler"
+    )
     assert capability["status"] == "released"
-    assert "release/operator guards now pin that dependency-aware ready-set scheduling contract" in capability["notes"]
+    assert (
+        "release/operator guards now pin that dependency-aware ready-set scheduling contract"
+        in capability["notes"]
+    )
 
 
 def test_queued_policy_step_audit_truthfulness_is_documented_and_smoked() -> None:
@@ -4679,16 +6603,32 @@ def test_queued_policy_step_audit_truthfulness_is_documented_and_smoked() -> Non
     smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "policy_decision` is now recorded by the queued `step_policy_evaluate` handler after `input_prepared`" in readme
-    assert "policy_decision` is now emitted from the queued `step_policy_evaluate` handler after `input_prepared`" in runbook
-    assert "Policy decisions are now recorded from the queued `step_policy_evaluate` handler after `input_prepared`" in changelog
+    assert (
+        "policy_decision` is now recorded by the queued `step_policy_evaluate` handler after `input_prepared`"
+        in readme
+    )
+    assert (
+        "policy_decision` is now emitted from the queued `step_policy_evaluate` handler after `input_prepared`"
+        in runbook
+    )
+    assert (
+        "Policy decisions are now recorded from the queued `step_policy_evaluate` handler after `input_prepared`"
+        in changelog
+    )
     assert "queued_policy_step_audit_truthfulness" in changelog
     assert "release/operator guards" in changelog
     assert "policy_decision" in smoke_api
     assert "order_ok" in smoke_api
-    assert 'event_names.index("input_prepared") < event_names.index("policy_decision")' in smoke_runtime
+    assert (
+        'event_names.index("input_prepared") < event_names.index("policy_decision")'
+        in smoke_runtime
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "queued_policy_step_audit_truthfulness")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "queued_policy_step_audit_truthfulness"
+    )
     assert capability["status"] == "released"
 
 
@@ -4696,15 +6636,32 @@ def test_human_task_dependency_input_merge_is_documented_and_released() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    postgres_contracts = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
+    postgres_contracts = (
+        ROOT / "tests/test_postgres_contract_matrix_integration.py"
+    ).read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "compiled human-review steps now merge dependency outputs into the created packet input" in readme
-    assert "queued human-review step now also merges dependency outputs into the packet input" in runbook
-    assert "Human-review step execution now merges dependency outputs into the created packet input" in changelog
-    assert "test_postgres_human_task_step_merges_dependency_outputs" in postgres_contracts
+    assert (
+        "compiled human-review steps now merge dependency outputs into the created packet input"
+        in readme
+    )
+    assert (
+        "queued human-review step now also merges dependency outputs into the packet input"
+        in runbook
+    )
+    assert (
+        "Human-review step execution now merges dependency outputs into the created packet input"
+        in changelog
+    )
+    assert (
+        "test_postgres_human_task_step_merges_dependency_outputs" in postgres_contracts
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_dependency_input_merge")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_dependency_input_merge"
+    )
     assert capability["status"] == "released"
 
 
@@ -4737,7 +6694,11 @@ def test_typed_step_handler_gateway_is_documented_and_smoked() -> None:
     assert "release/operator guards" in changelog
     assert "step_input_prepare" in changelog
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "typed_step_handler_gateway")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "typed_step_handler_gateway"
+    )
     assert capability["status"] == "released"
 
 
@@ -4750,19 +6711,45 @@ def test_planner_dependency_graph_projection_is_documented_and_smoked() -> None:
     planner_test = (ROOT / "tests/test_planner.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "queued step execution now only merges declared dependency inputs and validates declared step outputs before completion" in readme
-    assert "`POST /v1/plans/compile` now exposes explicit plan-step dependencies plus declared input/output keys" in readme
-    assert "`POST /v1/plans/compile` exposes `depends_on`, `input_keys`, and `output_keys`" in runbook
-    assert "The queue runtime now only merges declared dependency inputs and fails missing declared outputs before a step can complete" in runbook
-    assert "Promoted the dependency-aware planner graph projection into a released milestone capability" in changelog
-    assert "expected direct three-step plan compile response with explicit artifact-save semantics" in smoke_api
-    assert 'compiled.json()["plan"]["steps"][1]["depends_on"] == ["step_input_prepare"]' in smoke_runtime
+    assert (
+        "queued step execution now only merges declared dependency inputs and validates declared step outputs before completion"
+        in readme
+    )
+    assert (
+        "`POST /v1/plans/compile` now exposes explicit plan-step dependencies plus declared input/output keys"
+        in readme
+    )
+    assert (
+        "`POST /v1/plans/compile` exposes `depends_on`, `input_keys`, and `output_keys`"
+        in runbook
+    )
+    assert (
+        "The queue runtime now only merges declared dependency inputs and fails missing declared outputs before a step can complete"
+        in runbook
+    )
+    assert (
+        "Promoted the dependency-aware planner graph projection into a released milestone capability"
+        in changelog
+    )
+    assert (
+        "expected direct three-step plan compile response with explicit artifact-save semantics"
+        in smoke_api
+    )
+    assert (
+        'compiled.json()["plan"]["steps"][1]["depends_on"] == ["step_input_prepare"]'
+        in smoke_runtime
+    )
     assert 'compiled.json()["plan"]["steps"][1]["output_keys"] == [' in smoke_runtime
     assert 'plan.steps[1].depends_on == ("step_input_prepare",)' in planner_test
-    assert 'plan.steps[0].output_keys == ("normalized_text", "text_length")' in planner_test
+    assert (
+        'plan.steps[0].output_keys == ("normalized_text", "text_length")'
+        in planner_test
+    )
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "planner_dependency_graph_projection"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "planner_dependency_graph_projection"
     )
     assert capability["status"] == "released"
 
@@ -4776,19 +6763,44 @@ def test_plan_step_operational_semantics_are_documented_and_smoked() -> None:
     planner_test = (ROOT / "tests/test_planner.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "owner`, `authority_class`, `review_class`, `failure_strategy`, `timeout_budget_seconds`, `max_attempts`, and `retry_backoff_seconds`" in readme
-    assert "`owner`, `authority_class`, `review_class`, `failure_strategy`, `timeout_budget_seconds`, `max_attempts`, and `retry_backoff_seconds`" in runbook
-    assert "Compiled plan steps now project explicit owner, authority_class, review_class, failure_strategy, timeout_budget_seconds, max_attempts, and retry_backoff_seconds semantics" in changelog
-    assert "expected direct three-step plan compile response with explicit artifact-save semantics" in smoke_api
+    assert (
+        "owner`, `authority_class`, `review_class`, `failure_strategy`, `timeout_budget_seconds`, `max_attempts`, and `retry_backoff_seconds`"
+        in readme
+    )
+    assert (
+        "`owner`, `authority_class`, `review_class`, `failure_strategy`, `timeout_budget_seconds`, `max_attempts`, and `retry_backoff_seconds`"
+        in runbook
+    )
+    assert (
+        "Compiled plan steps now project explicit owner, authority_class, review_class, failure_strategy, timeout_budget_seconds, max_attempts, and retry_backoff_seconds semantics"
+        in changelog
+    )
+    assert (
+        "expected direct three-step plan compile response with explicit artifact-save semantics"
+        in smoke_api
+    )
     assert 'compiled.json()["plan"]["steps"][0]["owner"] == "system"' in smoke_runtime
-    assert 'compiled.json()["plan"]["steps"][0]["timeout_budget_seconds"] == 30' in smoke_runtime
-    assert 'compiled_review.json()["plan"]["steps"][2]["review_class"] == "operator"' in smoke_runtime
-    assert 'compiled_review.json()["plan"]["steps"][2]["timeout_budget_seconds"] == 3600' in smoke_runtime
+    assert (
+        'compiled.json()["plan"]["steps"][0]["timeout_budget_seconds"] == 30'
+        in smoke_runtime
+    )
+    assert (
+        'compiled_review.json()["plan"]["steps"][2]["review_class"] == "operator"'
+        in smoke_runtime
+    )
+    assert (
+        'compiled_review.json()["plan"]["steps"][2]["timeout_budget_seconds"] == 3600'
+        in smoke_runtime
+    )
     assert 'plan.steps[2].authority_class == "draft"' in planner_test
     assert 'plan.steps[2].owner == "human"' in planner_test
-    assert 'plan.steps[2].timeout_budget_seconds == 3600' in planner_test
+    assert "plan.steps[2].timeout_budget_seconds == 3600" in planner_test
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "plan_step_operational_semantics_projection")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "plan_step_operational_semantics_projection"
+    )
     assert capability["status"] == "released"
 
 
@@ -4812,7 +6824,9 @@ def test_planner_human_task_branch_projection_is_documented_and_smoked() -> None
     assert "step_human_review" in planner_test
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "planner_human_task_branch_projection"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "planner_human_task_branch_projection"
     )
     assert capability["status"] == "released"
 
@@ -4827,14 +6841,21 @@ def test_runtime_human_task_step_execution_is_documented_and_released() -> None:
 
     assert "202 awaiting_human" in runbook
     assert "awaiting_human" in readme
-    assert "Promoted the compiled human-review runtime execution slice into a released milestone capability" in changelog
+    assert (
+        "Promoted the compiled human-review runtime execution slice into a released milestone capability"
+        in changelog
+    )
     assert "compiled human review runtime ok" in smoke_api
     assert "awaiting_human|poll_or_subscribe|True|" in smoke_api
-    assert "test_rewrite_compiled_human_review_branch_pauses_and_resumes" in smoke_runtime
+    assert (
+        "test_rewrite_compiled_human_review_branch_pauses_and_resumes" in smoke_runtime
+    )
     assert "human_task_step_started" in smoke_runtime
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "runtime_human_task_step_execution"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "runtime_human_task_step_execution"
     )
     assert capability["status"] == "released"
 
@@ -4857,7 +6878,9 @@ def test_human_review_payload_artifact_override_is_documented_and_released() -> 
     assert "reviewer-edited content" in changelog
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "human_review_payload_artifact_override"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_review_payload_artifact_override"
     )
     assert capability["status"] == "released"
 
@@ -4877,17 +6900,27 @@ def test_planner_human_review_operational_metadata_is_documented_and_released() 
     assert "human_review_priority" in runbook
     assert "human_review_sla_minutes" in runbook
     assert "human_review_desired_output_json" in runbook
-    assert "Promoted the planner human-review operational metadata slice into a released milestone capability" in changelog
+    assert (
+        "Promoted the planner human-review operational metadata slice into a released milestone capability"
+        in changelog
+    )
     assert "manager_review" in smoke_api
     assert "high|45|3600|1|0|True|manager_review" in smoke_api
     assert 'review_task["priority"] == "high"' in smoke_runtime
-    assert 'review_task["desired_output_json"]["escalation_policy"] == "manager_review"' in smoke_runtime
+    assert (
+        'review_task["desired_output_json"]["escalation_policy"] == "manager_review"'
+        in smoke_runtime
+    )
     assert "human_review_sla_minutes" in planner_test
-    assert 'timeout_budget_seconds == 3600' in planner_test
-    assert 'desired_output_json["escalation_policy"] == "manager_review"' in planner_test
+    assert "timeout_budget_seconds == 3600" in planner_test
+    assert (
+        'desired_output_json["escalation_policy"] == "manager_review"' in planner_test
+    )
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "planner_human_review_operational_metadata"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "planner_human_review_operational_metadata"
     )
     assert capability["status"] == "released"
 
@@ -4898,7 +6931,9 @@ def test_registry_backed_tool_execution_service_is_documented_and_smoked() -> No
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = _smoke_runtime_text()
-    tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
+    tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(
+        encoding="utf-8"
+    )
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "ToolExecutionService" in readme
@@ -4907,16 +6942,29 @@ def test_registry_backed_tool_execution_service_is_documented_and_smoked() -> No
     assert "ToolExecutionService" in runbook
     assert "tool.v1" in runbook
     assert "self-heals its registry definition" in runbook
-    assert "Promoted the registry-backed tool execution service slice into a released milestone capability" in changelog
+    assert (
+        "Promoted the registry-backed tool execution service slice into a released milestone capability"
+        in changelog
+    )
     assert "artifact_repository|tool.v1" in smoke_api
     assert "tool_execution_completed" in smoke_api
     assert "artifact_repository" in smoke_runtime
     assert "tool_execution_completed" in smoke_runtime
     assert "invocation_contract" in smoke_runtime
-    assert "test_tool_execution_service_self_heals_missing_builtin_artifact_definition" in tool_execution_tests
-    assert "test_tool_execution_service_self_heals_missing_builtin_connector_dispatch_definition" in tool_execution_tests
+    assert (
+        "test_tool_execution_service_self_heals_missing_builtin_artifact_definition"
+        in tool_execution_tests
+    )
+    assert (
+        "test_tool_execution_service_self_heals_missing_builtin_connector_dispatch_definition"
+        in tool_execution_tests
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "registry_backed_tool_execution_service")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "registry_backed_tool_execution_service"
+    )
     assert capability["status"] == "released"
     assert "builtin_tool_registry_self_heal" in capability["scope"]
 
@@ -4927,7 +6975,9 @@ def test_connector_dispatch_tool_execution_slice_is_documented_and_smoked() -> N
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = _smoke_runtime_text()
-    tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
+    tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(
+        encoding="utf-8"
+    )
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "/v1/tools/execute" in readme
@@ -4937,24 +6987,38 @@ def test_connector_dispatch_tool_execution_slice_is_documented_and_smoked() -> N
     assert "/v1/tools/execute" in http_examples
     assert "connector.dispatch" in http_examples
     assert 'TOOL_EXEC_STATUS="$(python3 -c ' in smoke_api
-    assert '"${TOOL_EXEC_STATUS}" != "queued" && "${TOOL_EXEC_STATUS}" != "retry"' in smoke_api
+    assert (
+        '"${TOOL_EXEC_STATUS}" != "queued" && "${TOOL_EXEC_STATUS}" != "retry"'
+        in smoke_api
+    )
     assert "connector.dispatch|tool.v1" in smoke_api
     assert "connector.dispatch" in smoke_runtime
     assert "/v1/tools/execute" in smoke_runtime
-    assert "test_tool_execution_service_executes_builtin_connector_dispatch_handler" in tool_execution_tests
+    assert (
+        "test_tool_execution_service_executes_builtin_connector_dispatch_handler"
+        in tool_execution_tests
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "connector_dispatch_tool_execution_slice")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "connector_dispatch_tool_execution_slice"
+    )
     assert capability["status"] == "released"
 
 
-def test_browseract_account_facts_tool_execution_slice_is_documented_and_released() -> None:
+def test_browseract_account_facts_tool_execution_slice_is_documented_and_released() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = _smoke_runtime_text()
-    tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
+    tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(
+        encoding="utf-8"
+    )
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "/v1/tools/execute" in readme
@@ -4963,43 +7027,71 @@ def test_browseract_account_facts_tool_execution_slice_is_documented_and_release
     assert "browseract.extract_account_facts" in runbook
     assert "/v1/tools/execute" in http_examples
     assert "browseract.extract_account_facts" in http_examples
-    assert "Promoted the BrowserAct account-facts tool execution slice into a released milestone capability" in changelog
-    assert "browseract.extract_account_facts|BrowserAct|Tier 3|ops@example.com" in smoke_api
+    assert (
+        "Promoted the BrowserAct account-facts tool execution slice into a released milestone capability"
+        in changelog
+    )
+    assert (
+        "browseract.extract_account_facts|BrowserAct|Tier 3|ops@example.com"
+        in smoke_api
+    )
     assert "browseract.extract_account_facts" in smoke_runtime
     assert "browseract_ltd_discovery" in smoke_runtime
-    assert "test_tool_execution_service_executes_builtin_browseract_extract_handler" in tool_execution_tests
-    assert "test_tool_execution_service_self_heals_missing_builtin_browseract_definition" in tool_execution_tests
+    assert (
+        "test_tool_execution_service_executes_builtin_browseract_extract_handler"
+        in tool_execution_tests
+    )
+    assert (
+        "test_tool_execution_service_self_heals_missing_builtin_browseract_definition"
+        in tool_execution_tests
+    )
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "browseract_account_facts_tool_execution_slice"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "browseract_account_facts_tool_execution_slice"
     )
     assert capability["status"] == "released"
 
 
-def test_connector_dispatch_binding_scope_guardrails_are_documented_and_released() -> None:
+def test_connector_dispatch_binding_scope_guardrails_are_documented_and_released() -> (
+    None
+):
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = _smoke_runtime_text()
-    tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
+    tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(
+        encoding="utf-8"
+    )
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "enabled connector binding" in readme
     assert "principal scope" in runbook
-    assert "\"binding_id\"" in http_examples
+    assert '"binding_id"' in http_examples
     assert "principal_scope_mismatch" in smoke_api
     assert "binding_id" in smoke_api
     assert "execute_mismatch" in smoke_runtime
     assert "binding_id" in smoke_runtime
-    assert 'execute_mismatch.json()["error"]["code"] == "operator_scope_required"' in smoke_runtime
-    assert "test_tool_execution_service_rejects_foreign_connector_binding_scope" in tool_execution_tests
+    assert (
+        'execute_mismatch.json()["error"]["code"] == "operator_scope_required"'
+        in smoke_runtime
+    )
+    assert (
+        "test_tool_execution_service_rejects_foreign_connector_binding_scope"
+        in tool_execution_tests
+    )
     assert "connector_dispatch_binding_scope_guardrails" in changelog
     assert "release/operator guards" in changelog
     assert "delivery side effect is queued" in changelog
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "connector_dispatch_binding_scope_guardrails")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "connector_dispatch_binding_scope_guardrails"
+    )
     assert capability["status"] == "released"
 
 
@@ -5025,7 +7117,11 @@ def test_approval_async_acceptance_contract_is_documented_and_released() -> None
     assert "release/operator guards" in changelog
     assert "202 Accepted" in changelog
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "approval_async_acceptance_contract")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "approval_async_acceptance_contract"
+    )
     assert capability["status"] == "released"
 
 
@@ -5034,7 +7130,9 @@ def test_typed_task_and_skill_policy_models_are_documented_and_released() -> Non
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    runtime_policy_tests = (ROOT / "tests/test_task_contract_runtime_policy.py").read_text(encoding="utf-8")
+    runtime_policy_tests = (
+        ROOT / "tests/test_task_contract_runtime_policy.py"
+    ).read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "typed runtime policy models" in readme
@@ -5043,48 +7141,87 @@ def test_typed_task_and_skill_policy_models_are_documented_and_released() -> Non
     assert "typed runtime policy models" in runbook
     assert "artifact_retry" in runbook
     assert "skill_catalog" in runbook
-    assert "Promoted milestone capability `typed_task_and_skill_policy_models` to released" in changelog
+    assert (
+        "Promoted milestone capability `typed_task_and_skill_policy_models` to released"
+        in changelog
+    )
     assert "typed runtime policy projection" in changelog
     assert "artifact_failure_strategy" in smoke_api
     assert "human_review_role" in smoke_api
     assert "artifact_output_template" in smoke_api
     assert "pre_artifact_tool_name" in smoke_api
-    assert "test_task_contract_runtime_policy_parses_typed_metadata" in runtime_policy_tests
+    assert (
+        "test_task_contract_runtime_policy_parses_typed_metadata"
+        in runtime_policy_tests
+    )
     assert "policy.skill_catalog.skill_key" in runtime_policy_tests
     assert "policy.artifact_retry.failure_strategy" in runtime_policy_tests
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "typed_task_and_skill_policy_models")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "typed_task_and_skill_policy_models"
+    )
     assert capability["status"] == "released"
-    assert "release/operator guards now pin that typed runtime-policy projection" in capability["notes"]
+    assert (
+        "release/operator guards now pin that typed runtime-policy projection"
+        in capability["notes"]
+    )
 
 
 def test_provider_registry_capability_routing_is_documented_and_released() -> None:
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_runtime = _smoke_runtime_text()
-    tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
+    tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(
+        encoding="utf-8"
+    )
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "Promoted milestone capability `provider_registry_capability_routing` to released" in changelog
+    assert (
+        "Promoted milestone capability `provider_registry_capability_routing` to released"
+        in changelog
+    )
     assert "dynamically registered runtime tools" in changelog
-    assert 'execute_unregistered.json()["error"]["code"] == "tool_not_registered:provider.not_registered"' in smoke_runtime
-    assert 'email_handler_missing.json()["error"]["code"] == "tool_handler_missing:email.send"' in smoke_runtime
-    assert "test_tool_execution_service_executes_registered_tool_not_in_provider_catalog" in tool_execution_tests
+    assert (
+        'execute_unregistered.json()["error"]["code"] == "tool_not_registered:provider.not_registered"'
+        in smoke_runtime
+    )
+    assert (
+        'email_handler_missing.json()["error"]["code"] == "tool_handler_missing:email.send"'
+        in smoke_runtime
+    )
+    assert (
+        "test_tool_execution_service_executes_registered_tool_not_in_provider_catalog"
+        in tool_execution_tests
+    )
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "provider_registry_capability_routing"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "provider_registry_capability_routing"
     )
     assert capability["status"] == "released"
-    assert "release/operator guards now pin that capability-addressed routing baseline" in capability["notes"]
+    assert (
+        "release/operator guards now pin that capability-addressed routing baseline"
+        in capability["notes"]
+    )
 
 
-def test_append_only_session_ledger_and_delta_sync_slice_is_documented_and_released() -> None:
+def test_append_only_session_ledger_and_delta_sync_slice_is_documented_and_released() -> (
+    None
+):
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     rewrite_route = (ROOT / "ea/app/api/routes/rewrite.py").read_text(encoding="utf-8")
     memory_ledger = (ROOT / "ea/app/repositories/ledger.py").read_text(encoding="utf-8")
-    postgres_ledger = (ROOT / "ea/app/repositories/ledger_postgres.py").read_text(encoding="utf-8")
+    postgres_ledger = (ROOT / "ea/app/repositories/ledger_postgres.py").read_text(
+        encoding="utf-8"
+    )
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "Promoted milestone capability `append_only_session_ledger_and_delta_sync_slice` to released" in changelog
+    assert (
+        "Promoted milestone capability `append_only_session_ledger_and_delta_sync_slice` to released"
+        in changelog
+    )
     assert "append-only session-event writes" in changelog
     assert "events_for(...)" in changelog
     assert "delta-sync baseline" in changelog
@@ -5092,12 +7229,14 @@ def test_append_only_session_ledger_and_delta_sync_slice_is_documented_and_relea
     assert "created_at: str" in rewrite_route
     assert "events: list[SessionEventOut]" in rewrite_route
     assert "self._events[sid].append(event)" in memory_ledger
-    assert "return list(self._events.get(str(session_id or \"\"), []))" in memory_ledger
+    assert 'return list(self._events.get(str(session_id or ""), []))' in memory_ledger
     assert "INSERT INTO execution_events" in postgres_ledger
     assert "ORDER BY created_at ASC, event_id ASC" in postgres_ledger
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "append_only_session_ledger_and_delta_sync_slice"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "append_only_session_ledger_and_delta_sync_slice"
     )
     assert capability["status"] == "released"
     assert capability.get("task_refs") == ["D-518"]
@@ -5109,27 +7248,44 @@ def test_portable_engine_host_posture_is_documented_and_released() -> None:
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "Promoted milestone capability `portable_engine_host_posture` to released" in changelog
+    assert (
+        "Promoted milestone capability `portable_engine_host_posture` to released"
+        in changelog
+    )
     assert "deterministic core host-portability posture" in changelog
     assert "server/browser/embed host profile planning" in changelog
     assert "release/operator guards now pin that portability contract" in changelog
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "portable_engine_host_posture")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "portable_engine_host_posture"
+    )
     assert capability["status"] == "released"
     assert capability.get("task_refs") == ["D-519"]
-    assert "release/operator guards now pin that portability contract" in capability["notes"]
+    assert (
+        "release/operator guards now pin that portability contract"
+        in capability["notes"]
+    )
 
 
 def test_local_coprocessor_optional_lane_is_documented_and_released() -> None:
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "Promoted milestone capability `local_coprocessor_optional_lane` to released" in changelog
+    assert (
+        "Promoted milestone capability `local_coprocessor_optional_lane` to released"
+        in changelog
+    )
     assert "optional/local BYOC acceleration lane" in changelog
     assert "feature-flagged and advisory-only baseline behavior" in changelog
     assert "no shipped runtime path requires local co-processor execution" in changelog
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "local_coprocessor_optional_lane")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "local_coprocessor_optional_lane"
+    )
     assert capability["status"] == "released"
     assert capability.get("task_refs") == ["D-520"]
     assert "optional and non-blocking branch baseline behavior" in capability["notes"]
@@ -5139,11 +7295,20 @@ def test_local_coprocessor_optional_lane_is_documented_and_released() -> None:
 def test_codex_onemin_specialist_router_admission_is_documented_and_released() -> None:
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
-    brain_catalog = (ROOT / "ea/app/services/brain_catalog.py").read_text(encoding="utf-8")
-    provider_registry = (ROOT / "ea/app/services/provider_registry.py").read_text(encoding="utf-8")
-    responses_upstream = (ROOT / "ea/app/services/responses_upstream.py").read_text(encoding="utf-8")
+    brain_catalog = (ROOT / "ea/app/services/brain_catalog.py").read_text(
+        encoding="utf-8"
+    )
+    provider_registry = (ROOT / "ea/app/services/provider_registry.py").read_text(
+        encoding="utf-8"
+    )
+    responses_upstream = (ROOT / "ea/app/services/responses_upstream.py").read_text(
+        encoding="utf-8"
+    )
 
-    assert "Promoted milestone capability `codex_onemin_specialist_router_admission` to released" in changelog
+    assert (
+        "Promoted milestone capability `codex_onemin_specialist_router_admission` to released"
+        in changelog
+    )
     assert "1min specialist-escalation-only router posture" in changelog
     assert "core lane admission stays explicit and capacity-gated" in changelog
     assert "proof-backed 1min top-up/billing snapshots" in changelog
@@ -5156,12 +7321,17 @@ def test_codex_onemin_specialist_router_admission_is_documented_and_released() -
     assert "depletes_before_next_topup" in responses_upstream
 
     capability = next(
-        entry for entry in milestone["capabilities"] if entry["name"] == "codex_onemin_specialist_router_admission"
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "codex_onemin_specialist_router_admission"
     )
     assert capability["status"] == "released"
     assert capability.get("task_refs") == ["D-521"]
     assert "specialist escalation posture" in capability["notes"]
-    assert "release/operator guards now pin those admission and specialist bindings" in capability["notes"]
+    assert (
+        "release/operator guards now pin those admission and specialist bindings"
+        in capability["notes"]
+    )
 
 
 def test_replay_forensics_horizon_bootstrap_is_documented_and_released() -> None:
@@ -5169,23 +7339,46 @@ def test_replay_forensics_horizon_bootstrap_is_documented_and_released() -> None
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
     rewrite_route = (ROOT / "ea/app/api/routes/rewrite.py").read_text(encoding="utf-8")
     memory_ledger = (ROOT / "ea/app/repositories/ledger.py").read_text(encoding="utf-8")
-    postgres_ledger = (ROOT / "ea/app/repositories/ledger_postgres.py").read_text(encoding="utf-8")
-    retry_contracts = (ROOT / "tests/test_queue_retry_contracts.py").read_text(encoding="utf-8")
+    postgres_ledger = (ROOT / "ea/app/repositories/ledger_postgres.py").read_text(
+        encoding="utf-8"
+    )
+    retry_contracts = (ROOT / "tests/test_queue_retry_contracts.py").read_text(
+        encoding="utf-8"
+    )
 
-    assert "Promoted milestone capability `replay_forensics_horizon_bootstrap` to released" in changelog
+    assert (
+        "Promoted milestone capability `replay_forensics_horizon_bootstrap` to released"
+        in changelog
+    )
     assert "retry/approval snapshot replay stability coverage" in changelog
     assert "event_id: str" in rewrite_route
     assert "created_at: str" in rewrite_route
     assert '@router.get("/receipts/{receipt_id}")' in rewrite_route
     assert '@router.get("/run-costs/{cost_id}")' in rewrite_route
     assert '@router.get("/artifacts/{artifact_id}")' in rewrite_route
-    assert "return list(self._events.get(str(session_id or \"\"), []))" in memory_ledger
+    assert 'return list(self._events.get(str(session_id or ""), []))' in memory_ledger
     assert "ORDER BY created_at ASC, event_id ASC" in postgres_ledger
-    assert "test_approval_resume_snapshot_is_stable_for_retry_session_replay" in retry_contracts
-    assert "test_approval_resume_service_snapshot_is_stable_for_retry_session_replay" in retry_contracts
-    assert "test_approval_resume_delayed_retry_snapshot_is_stable_for_async_replay" in retry_contracts
+    assert (
+        "test_approval_resume_snapshot_is_stable_for_retry_session_replay"
+        in retry_contracts
+    )
+    assert (
+        "test_approval_resume_service_snapshot_is_stable_for_retry_session_replay"
+        in retry_contracts
+    )
+    assert (
+        "test_approval_resume_delayed_retry_snapshot_is_stable_for_async_replay"
+        in retry_contracts
+    )
 
-    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "replay_forensics_horizon_bootstrap")
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "replay_forensics_horizon_bootstrap"
+    )
     assert capability["status"] == "released"
     assert capability.get("task_refs") == ["D-522"]
-    assert "release/operator guards now pin those bootstrap artifacts" in capability["notes"]
+    assert (
+        "release/operator guards now pin those bootstrap artifacts"
+        in capability["notes"]
+    )

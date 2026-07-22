@@ -159,7 +159,9 @@ def test_manfred_image_build_passes_and_records_exact_source_revision(
     source_root = tmp_path / "repo"
     (source_root / ".git").mkdir(parents=True)
     commit = "b" * 40
+    image_id = f"sha256:{'e' * 64}"
     commands: list[list[str]] = []
+    image_list_calls = 0
 
     monkeypatch.setattr(builder, "_commit_for_ref", lambda _root, _ref: commit)
 
@@ -175,17 +177,37 @@ def test_manfred_image_build_passes_and_records_exact_source_revision(
         cwd: Path | None = None,
         stdout: object | None = subprocess.PIPE,
     ) -> subprocess.CompletedProcess[bytes]:
+        nonlocal image_list_calls
         del cwd, stdout
         commands.append(list(argv))
-        return subprocess.CompletedProcess(argv, 0, stdout=b"", stderr=b"")
+        rendered = b""
+        if argv[:3] == ["docker", "buildx", "ls"]:
+            rendered = (
+                f"{builder.BUILDX_BUILDER_NAME}\t"
+                f"{builder.BUILDX_BUILDER_DRIVER}\n"
+            ).encode("utf-8")
+        elif argv[:3] == ["docker", "buildx", "inspect"]:
+            rendered = (
+                f"Name: {builder.BUILDX_BUILDER_NAME}\n"
+                f"Driver: {builder.BUILDX_BUILDER_DRIVER}\n"
+                "Nodes:\n"
+                f"Name: {builder.BUILDX_BUILDER_NODE_NAME}\n"
+                f"Endpoint: {builder.BUILDX_BUILDER_ENDPOINT}\n"
+            ).encode("utf-8")
+        elif argv[:3] == ["docker", "image", "ls"]:
+            image_list_calls += 1
+            if image_list_calls > 1:
+                rendered = f"{image_id}\n".encode("utf-8")
+        return subprocess.CompletedProcess(argv, 0, stdout=rendered, stderr=b"")
 
     monkeypatch.setattr(builder, "_materialize_tracked_context", materialize_context)
+    monkeypatch.setattr(builder, "_require_root_disk_capacity", lambda: None)
     monkeypatch.setattr(builder, "_run", record_run)
     monkeypatch.setattr(
         builder,
         "_image_inspection",
         lambda _tag, *, expected_commit: (
-            "sha256:image",
+            image_id,
             {"RootFS": {"Layers": ["sha256:layer"]}},
         ),
     )
@@ -194,11 +216,15 @@ def test_manfred_image_build_passes_and_records_exact_source_revision(
     receipt = builder.build_image(
         source_root=source_root,
         ref="HEAD",
-        tag="ea-runtime:manfred-test",
+        tag=f"ea-runtime:manfred-{commit}",
         receipt_path=tmp_path / "receipt.json",
     )
 
-    build_command = next(command for command in commands if command[:2] == ["docker", "build"])
+    build_command = next(
+        command
+        for command in commands
+        if command[:3] == ["docker", "buildx", "build"]
+    )
     build_arg_index = build_command.index("--build-arg")
     assert build_command[build_arg_index + 1] == f"EA_SOURCE_REVISION={commit}"
     assert receipt["schema"] == "ea.manfred_memorial_image_build.v2"

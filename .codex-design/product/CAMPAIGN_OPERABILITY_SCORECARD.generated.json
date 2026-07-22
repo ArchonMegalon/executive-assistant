@@ -1,0 +1,2087 @@
+{
+  "contract_name": "chummer.campaign_operability_scorecard",
+  "contract_version": 1,
+  "generated_at_utc": "2026-07-17T04:37:51Z",
+  "status": "fail",
+  "verdict": "CAMPAIGN_OPERABILITY_NOT_READY",
+  "rubric_path": "products/chummer/CAMPAIGN_OPERABILITY_SCORING_RUBRIC.yaml",
+  "journey_gate_path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+  "required_surfaces": [
+    "desktop_workbench",
+    "public_front_door_and_support",
+    "install_claim_restore_continue",
+    "build_explain_publish",
+    "run_and_rejoin",
+    "improve_and_close_the_loop"
+  ],
+  "required_dimensions": [
+    "route_clarity",
+    "rules_and_continuity_truth",
+    "recovery_confidence",
+    "closure_honesty",
+    "responsiveness",
+    "design_authorship"
+  ],
+  "summary": {
+    "surface_count": 6,
+    "dimension_count": 6,
+    "cell_count": 36,
+    "score_3_count": 19,
+    "below_3_count": 17,
+    "minimum_score": 1
+  },
+  "cells": [
+    {
+      "surface_id": "desktop_workbench",
+      "dimension_id": "route_clarity",
+      "score": 1,
+      "owners": [
+        "chummer6-ui",
+        "chummer6-core",
+        "chummer6-ui-kit"
+      ],
+      "journey_ids": [
+        "install_claim_restore_continue",
+        "build_explain_publish"
+      ],
+      "evidence_ids": [
+        "fleet_flagship",
+        "desktop_visual",
+        "desktop_workflow"
+      ],
+      "evidence": [
+        {
+          "id": "install_claim_restore_continue",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "build_explain_publish",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "fleet_flagship",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json",
+          "status": "fail",
+          "source_status": "fail",
+          "source_verdict": "",
+          "generated_at": "2026-07-13T04:39:23Z",
+          "failure": "fleet_flagship is not passing"
+        },
+        {
+          "id": "desktop_visual",
+          "path": "$CHUMMER_WORKSPACE/chummer-presentation/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-13T03:51:29.190961Z",
+          "failure": ""
+        },
+        {
+          "id": "desktop_workflow",
+          "path": "$CHUMMER_WORKSPACE/chummer-presentation/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-13T04:39:22.679304Z",
+          "failure": ""
+        }
+      ],
+      "failures": [
+        "fleet_flagship is not passing"
+      ]
+    },
+    {
+      "surface_id": "desktop_workbench",
+      "dimension_id": "rules_and_continuity_truth",
+      "score": 3,
+      "owners": [
+        "chummer6-ui",
+        "chummer6-core",
+        "chummer6-ui-kit"
+      ],
+      "journey_ids": [
+        "install_claim_restore_continue",
+        "build_explain_publish"
+      ],
+      "evidence_ids": [
+        "engine_proof",
+        "ruleset_readiness",
+        "localization"
+      ],
+      "evidence": [
+        {
+          "id": "install_claim_restore_continue",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "build_explain_publish",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "engine_proof",
+          "path": "$CHUMMER_WORKSPACE/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json",
+          "status": "pass",
+          "source_status": "passed",
+          "source_verdict": "",
+          "generated_at": "2026-06-20T22:36:41Z",
+          "failure": ""
+        },
+        {
+          "id": "ruleset_readiness",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/RULESET_READINESS.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T17:10:13.855471Z",
+          "failure": ""
+        },
+        {
+          "id": "localization",
+          "path": "$CHUMMER_WORKSPACE/chummer-presentation/.codex-studio/published/UI_LOCALIZATION_RELEASE_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-13T23:39:57Z",
+          "failure": ""
+        }
+      ],
+      "failures": []
+    },
+    {
+      "surface_id": "desktop_workbench",
+      "dimension_id": "recovery_confidence",
+      "score": 1,
+      "owners": [
+        "chummer6-ui",
+        "chummer6-core",
+        "chummer6-ui-kit"
+      ],
+      "journey_ids": [
+        "install_claim_restore_continue",
+        "build_explain_publish"
+      ],
+      "evidence_ids": [
+        "desktop_executable",
+        "release_ready"
+      ],
+      "evidence": [
+        {
+          "id": "install_claim_restore_continue",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "build_explain_publish",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "desktop_executable",
+          "path": "$CHUMMER_WORKSPACE/chummer-presentation/.codex-studio/published/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json",
+          "status": "fail",
+          "source_status": "fail",
+          "source_verdict": "",
+          "generated_at": "2026-07-13T05:05:19.851311Z",
+          "failure": "desktop_executable is not passing"
+        },
+        {
+          "id": "release_ready",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/RELEASE_READY.generated.json",
+          "status": "fail",
+          "source_status": "fail",
+          "source_verdict": "NOT_RELEASE_READY",
+          "generated_at": "2026-07-14T03:51:45Z",
+          "failure": "release_ready is not passing"
+        }
+      ],
+      "failures": [
+        "desktop_executable is not passing",
+        "release_ready is not passing"
+      ]
+    },
+    {
+      "surface_id": "desktop_workbench",
+      "dimension_id": "closure_honesty",
+      "score": 1,
+      "owners": [
+        "chummer6-ui",
+        "chummer6-core",
+        "chummer6-ui-kit"
+      ],
+      "journey_ids": [
+        "install_claim_restore_continue",
+        "build_explain_publish"
+      ],
+      "evidence_ids": [
+        "release_ready",
+        "release_channel"
+      ],
+      "evidence": [
+        {
+          "id": "install_claim_restore_continue",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "build_explain_publish",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "release_ready",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/RELEASE_READY.generated.json",
+          "status": "fail",
+          "source_status": "fail",
+          "source_verdict": "NOT_RELEASE_READY",
+          "generated_at": "2026-07-14T03:51:45Z",
+          "failure": "release_ready is not passing"
+        },
+        {
+          "id": "release_channel",
+          "path": "$CHUMMER_WORKSPACE/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json",
+          "status": "fail",
+          "source_status": "published",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T18:46:26Z",
+          "failure": "release channel is not public_stable and gold_supported"
+        }
+      ],
+      "failures": [
+        "release_ready is not passing",
+        "release channel is not public_stable and gold_supported"
+      ]
+    },
+    {
+      "surface_id": "desktop_workbench",
+      "dimension_id": "responsiveness",
+      "score": 3,
+      "owners": [
+        "chummer6-ui",
+        "chummer6-core",
+        "chummer6-ui-kit"
+      ],
+      "journey_ids": [
+        "install_claim_restore_continue",
+        "build_explain_publish"
+      ],
+      "evidence_ids": [
+        "engine_proof",
+        "desktop_workflow"
+      ],
+      "evidence": [
+        {
+          "id": "install_claim_restore_continue",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "build_explain_publish",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "engine_proof",
+          "path": "$CHUMMER_WORKSPACE/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json",
+          "status": "pass",
+          "source_status": "passed",
+          "source_verdict": "",
+          "generated_at": "2026-06-20T22:36:41Z",
+          "failure": ""
+        },
+        {
+          "id": "desktop_workflow",
+          "path": "$CHUMMER_WORKSPACE/chummer-presentation/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-13T04:39:22.679304Z",
+          "failure": ""
+        }
+      ],
+      "failures": []
+    },
+    {
+      "surface_id": "desktop_workbench",
+      "dimension_id": "design_authorship",
+      "score": 3,
+      "owners": [
+        "chummer6-ui",
+        "chummer6-core",
+        "chummer6-ui-kit"
+      ],
+      "journey_ids": [
+        "install_claim_restore_continue",
+        "build_explain_publish"
+      ],
+      "evidence_ids": [
+        "desktop_visual",
+        "design_quality",
+        "localization"
+      ],
+      "evidence": [
+        {
+          "id": "install_claim_restore_continue",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "build_explain_publish",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "desktop_visual",
+          "path": "$CHUMMER_WORKSPACE/chummer-presentation/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-13T03:51:29.190961Z",
+          "failure": ""
+        },
+        {
+          "id": "design_quality",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/DESIGN_QUALITY_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "DESIGN_READY",
+          "generated_at": "2026-07-12T17:18:37Z",
+          "failure": ""
+        },
+        {
+          "id": "localization",
+          "path": "$CHUMMER_WORKSPACE/chummer-presentation/.codex-studio/published/UI_LOCALIZATION_RELEASE_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-13T23:39:57Z",
+          "failure": ""
+        }
+      ],
+      "failures": []
+    },
+    {
+      "surface_id": "public_front_door_and_support",
+      "dimension_id": "route_clarity",
+      "score": 3,
+      "owners": [
+        "chummer6-hub",
+        "chummer6-hub-registry",
+        "fleet"
+      ],
+      "journey_ids": [
+        "report_cluster_release_notify",
+        "organize_community_and_close_loop"
+      ],
+      "evidence_ids": [
+        "public_route",
+        "public_edge"
+      ],
+      "evidence": [
+        {
+          "id": "report_cluster_release_notify",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "organize_community_and_close_loop",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "public_route",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/CHUMMER_PUBLIC_ROUTE_PROOF.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T17:09:53.656297Z",
+          "failure": ""
+        },
+        {
+          "id": "public_edge",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/PUBLIC_EDGE_POSTDEPLOY_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T17:16:47.060432+00:00",
+          "failure": ""
+        }
+      ],
+      "failures": []
+    },
+    {
+      "surface_id": "public_front_door_and_support",
+      "dimension_id": "rules_and_continuity_truth",
+      "score": 1,
+      "owners": [
+        "chummer6-hub",
+        "chummer6-hub-registry",
+        "fleet"
+      ],
+      "journey_ids": [
+        "report_cluster_release_notify",
+        "organize_community_and_close_loop"
+      ],
+      "evidence_ids": [
+        "release_channel",
+        "public_copy"
+      ],
+      "evidence": [
+        {
+          "id": "report_cluster_release_notify",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "organize_community_and_close_loop",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "release_channel",
+          "path": "$CHUMMER_WORKSPACE/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json",
+          "status": "fail",
+          "source_status": "published",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T18:46:26Z",
+          "failure": "release channel is not public_stable and gold_supported"
+        },
+        {
+          "id": "public_copy",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/PUBLIC_COPY_LEAK_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T17:08:53Z",
+          "failure": ""
+        }
+      ],
+      "failures": [
+        "release channel is not public_stable and gold_supported"
+      ]
+    },
+    {
+      "surface_id": "public_front_door_and_support",
+      "dimension_id": "recovery_confidence",
+      "score": 3,
+      "owners": [
+        "chummer6-hub",
+        "chummer6-hub-registry",
+        "fleet"
+      ],
+      "journey_ids": [
+        "report_cluster_release_notify",
+        "organize_community_and_close_loop"
+      ],
+      "evidence_ids": [
+        "support_packets",
+        "account_handoff"
+      ],
+      "evidence": [
+        {
+          "id": "report_cluster_release_notify",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "organize_community_and_close_loop",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "support_packets",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/SUPPORT_CASE_PACKETS.generated.json",
+          "status": "pass",
+          "source_status": "clear",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T17:37:44Z",
+          "failure": ""
+        },
+        {
+          "id": "account_handoff",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/ACCOUNT_HANDOFF_RUNTIME_CONFIG.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "READY",
+          "generated_at": "2026-07-14T01:41:00Z",
+          "failure": ""
+        }
+      ],
+      "failures": []
+    },
+    {
+      "surface_id": "public_front_door_and_support",
+      "dimension_id": "closure_honesty",
+      "score": 1,
+      "owners": [
+        "chummer6-hub",
+        "chummer6-hub-registry",
+        "fleet"
+      ],
+      "journey_ids": [
+        "report_cluster_release_notify",
+        "organize_community_and_close_loop"
+      ],
+      "evidence_ids": [
+        "support_packets",
+        "release_ready",
+        "release_channel"
+      ],
+      "evidence": [
+        {
+          "id": "report_cluster_release_notify",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "organize_community_and_close_loop",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "support_packets",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/SUPPORT_CASE_PACKETS.generated.json",
+          "status": "pass",
+          "source_status": "clear",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T17:37:44Z",
+          "failure": ""
+        },
+        {
+          "id": "release_ready",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/RELEASE_READY.generated.json",
+          "status": "fail",
+          "source_status": "fail",
+          "source_verdict": "NOT_RELEASE_READY",
+          "generated_at": "2026-07-14T03:51:45Z",
+          "failure": "release_ready is not passing"
+        },
+        {
+          "id": "release_channel",
+          "path": "$CHUMMER_WORKSPACE/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json",
+          "status": "fail",
+          "source_status": "published",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T18:46:26Z",
+          "failure": "release channel is not public_stable and gold_supported"
+        }
+      ],
+      "failures": [
+        "release_ready is not passing",
+        "release channel is not public_stable and gold_supported"
+      ]
+    },
+    {
+      "surface_id": "public_front_door_and_support",
+      "dimension_id": "responsiveness",
+      "score": 3,
+      "owners": [
+        "chummer6-hub",
+        "chummer6-hub-registry",
+        "fleet"
+      ],
+      "journey_ids": [
+        "report_cluster_release_notify",
+        "organize_community_and_close_loop"
+      ],
+      "evidence_ids": [
+        "public_edge",
+        "ui_frame"
+      ],
+      "evidence": [
+        {
+          "id": "report_cluster_release_notify",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "organize_community_and_close_loop",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "public_edge",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/PUBLIC_EDGE_POSTDEPLOY_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T17:16:47.060432+00:00",
+          "failure": ""
+        },
+        {
+          "id": "ui_frame",
+          "path": "$CHUMMER_WORKSPACE/_completion/chummer_run_redesign_closure/UI_FRAME_INTEGRITY.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "READY",
+          "generated_at": "2026-07-12T17:08:45.455Z",
+          "failure": ""
+        }
+      ],
+      "failures": []
+    },
+    {
+      "surface_id": "public_front_door_and_support",
+      "dimension_id": "design_authorship",
+      "score": 3,
+      "owners": [
+        "chummer6-hub",
+        "chummer6-hub-registry",
+        "fleet"
+      ],
+      "journey_ids": [
+        "report_cluster_release_notify",
+        "organize_community_and_close_loop"
+      ],
+      "evidence_ids": [
+        "design_quality",
+        "ui_frame",
+        "public_copy"
+      ],
+      "evidence": [
+        {
+          "id": "report_cluster_release_notify",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "organize_community_and_close_loop",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "design_quality",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/DESIGN_QUALITY_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "DESIGN_READY",
+          "generated_at": "2026-07-12T17:18:37Z",
+          "failure": ""
+        },
+        {
+          "id": "ui_frame",
+          "path": "$CHUMMER_WORKSPACE/_completion/chummer_run_redesign_closure/UI_FRAME_INTEGRITY.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "READY",
+          "generated_at": "2026-07-12T17:08:45.455Z",
+          "failure": ""
+        },
+        {
+          "id": "public_copy",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/PUBLIC_COPY_LEAK_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T17:08:53Z",
+          "failure": ""
+        }
+      ],
+      "failures": []
+    },
+    {
+      "surface_id": "install_claim_restore_continue",
+      "dimension_id": "route_clarity",
+      "score": 1,
+      "owners": [
+        "chummer6-ui",
+        "chummer6-hub",
+        "chummer6-hub-registry"
+      ],
+      "journey_ids": [
+        "install_claim_restore_continue"
+      ],
+      "evidence_ids": [
+        "desktop_executable",
+        "public_route"
+      ],
+      "evidence": [
+        {
+          "id": "install_claim_restore_continue",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "desktop_executable",
+          "path": "$CHUMMER_WORKSPACE/chummer-presentation/.codex-studio/published/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json",
+          "status": "fail",
+          "source_status": "fail",
+          "source_verdict": "",
+          "generated_at": "2026-07-13T05:05:19.851311Z",
+          "failure": "desktop_executable is not passing"
+        },
+        {
+          "id": "public_route",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/CHUMMER_PUBLIC_ROUTE_PROOF.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T17:09:53.656297Z",
+          "failure": ""
+        }
+      ],
+      "failures": [
+        "desktop_executable is not passing"
+      ]
+    },
+    {
+      "surface_id": "install_claim_restore_continue",
+      "dimension_id": "rules_and_continuity_truth",
+      "score": 1,
+      "owners": [
+        "chummer6-ui",
+        "chummer6-hub",
+        "chummer6-hub-registry"
+      ],
+      "journey_ids": [
+        "install_claim_restore_continue"
+      ],
+      "evidence_ids": [
+        "engine_proof",
+        "release_channel"
+      ],
+      "evidence": [
+        {
+          "id": "install_claim_restore_continue",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "engine_proof",
+          "path": "$CHUMMER_WORKSPACE/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json",
+          "status": "pass",
+          "source_status": "passed",
+          "source_verdict": "",
+          "generated_at": "2026-06-20T22:36:41Z",
+          "failure": ""
+        },
+        {
+          "id": "release_channel",
+          "path": "$CHUMMER_WORKSPACE/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json",
+          "status": "fail",
+          "source_status": "published",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T18:46:26Z",
+          "failure": "release channel is not public_stable and gold_supported"
+        }
+      ],
+      "failures": [
+        "release channel is not public_stable and gold_supported"
+      ]
+    },
+    {
+      "surface_id": "install_claim_restore_continue",
+      "dimension_id": "recovery_confidence",
+      "score": 1,
+      "owners": [
+        "chummer6-ui",
+        "chummer6-hub",
+        "chummer6-hub-registry"
+      ],
+      "journey_ids": [
+        "install_claim_restore_continue"
+      ],
+      "evidence_ids": [
+        "desktop_executable",
+        "account_handoff"
+      ],
+      "evidence": [
+        {
+          "id": "install_claim_restore_continue",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "desktop_executable",
+          "path": "$CHUMMER_WORKSPACE/chummer-presentation/.codex-studio/published/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json",
+          "status": "fail",
+          "source_status": "fail",
+          "source_verdict": "",
+          "generated_at": "2026-07-13T05:05:19.851311Z",
+          "failure": "desktop_executable is not passing"
+        },
+        {
+          "id": "account_handoff",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/ACCOUNT_HANDOFF_RUNTIME_CONFIG.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "READY",
+          "generated_at": "2026-07-14T01:41:00Z",
+          "failure": ""
+        }
+      ],
+      "failures": [
+        "desktop_executable is not passing"
+      ]
+    },
+    {
+      "surface_id": "install_claim_restore_continue",
+      "dimension_id": "closure_honesty",
+      "score": 1,
+      "owners": [
+        "chummer6-ui",
+        "chummer6-hub",
+        "chummer6-hub-registry"
+      ],
+      "journey_ids": [
+        "install_claim_restore_continue"
+      ],
+      "evidence_ids": [
+        "release_channel",
+        "windows_visual",
+        "release_ready"
+      ],
+      "evidence": [
+        {
+          "id": "install_claim_restore_continue",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "release_channel",
+          "path": "$CHUMMER_WORKSPACE/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json",
+          "status": "fail",
+          "source_status": "published",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T18:46:26Z",
+          "failure": "release channel is not public_stable and gold_supported"
+        },
+        {
+          "id": "windows_visual",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/WINDOWS_INSTALLER_VISUAL_AUDIT.generated.json",
+          "status": "fail",
+          "source_status": "fail",
+          "source_verdict": "",
+          "generated_at": "2026-07-14T03:53:53Z",
+          "failure": "windows_visual is not passing"
+        },
+        {
+          "id": "release_ready",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/RELEASE_READY.generated.json",
+          "status": "fail",
+          "source_status": "fail",
+          "source_verdict": "NOT_RELEASE_READY",
+          "generated_at": "2026-07-14T03:51:45Z",
+          "failure": "release_ready is not passing"
+        }
+      ],
+      "failures": [
+        "release channel is not public_stable and gold_supported",
+        "windows_visual is not passing",
+        "release_ready is not passing"
+      ]
+    },
+    {
+      "surface_id": "install_claim_restore_continue",
+      "dimension_id": "responsiveness",
+      "score": 1,
+      "owners": [
+        "chummer6-ui",
+        "chummer6-hub",
+        "chummer6-hub-registry"
+      ],
+      "journey_ids": [
+        "install_claim_restore_continue"
+      ],
+      "evidence_ids": [
+        "desktop_executable",
+        "windows_visual"
+      ],
+      "evidence": [
+        {
+          "id": "install_claim_restore_continue",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "desktop_executable",
+          "path": "$CHUMMER_WORKSPACE/chummer-presentation/.codex-studio/published/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json",
+          "status": "fail",
+          "source_status": "fail",
+          "source_verdict": "",
+          "generated_at": "2026-07-13T05:05:19.851311Z",
+          "failure": "desktop_executable is not passing"
+        },
+        {
+          "id": "windows_visual",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/WINDOWS_INSTALLER_VISUAL_AUDIT.generated.json",
+          "status": "fail",
+          "source_status": "fail",
+          "source_verdict": "",
+          "generated_at": "2026-07-14T03:53:53Z",
+          "failure": "windows_visual is not passing"
+        }
+      ],
+      "failures": [
+        "desktop_executable is not passing",
+        "windows_visual is not passing"
+      ]
+    },
+    {
+      "surface_id": "install_claim_restore_continue",
+      "dimension_id": "design_authorship",
+      "score": 1,
+      "owners": [
+        "chummer6-ui",
+        "chummer6-hub",
+        "chummer6-hub-registry"
+      ],
+      "journey_ids": [
+        "install_claim_restore_continue"
+      ],
+      "evidence_ids": [
+        "desktop_visual",
+        "windows_visual",
+        "localization"
+      ],
+      "evidence": [
+        {
+          "id": "install_claim_restore_continue",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "desktop_visual",
+          "path": "$CHUMMER_WORKSPACE/chummer-presentation/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-13T03:51:29.190961Z",
+          "failure": ""
+        },
+        {
+          "id": "windows_visual",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/WINDOWS_INSTALLER_VISUAL_AUDIT.generated.json",
+          "status": "fail",
+          "source_status": "fail",
+          "source_verdict": "",
+          "generated_at": "2026-07-14T03:53:53Z",
+          "failure": "windows_visual is not passing"
+        },
+        {
+          "id": "localization",
+          "path": "$CHUMMER_WORKSPACE/chummer-presentation/.codex-studio/published/UI_LOCALIZATION_RELEASE_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-13T23:39:57Z",
+          "failure": ""
+        }
+      ],
+      "failures": [
+        "windows_visual is not passing"
+      ]
+    },
+    {
+      "surface_id": "build_explain_publish",
+      "dimension_id": "route_clarity",
+      "score": 3,
+      "owners": [
+        "chummer6-core",
+        "chummer6-ui",
+        "chummer6-media-factory"
+      ],
+      "journey_ids": [
+        "build_explain_publish"
+      ],
+      "evidence_ids": [
+        "desktop_workflow",
+        "public_route"
+      ],
+      "evidence": [
+        {
+          "id": "build_explain_publish",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "desktop_workflow",
+          "path": "$CHUMMER_WORKSPACE/chummer-presentation/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-13T04:39:22.679304Z",
+          "failure": ""
+        },
+        {
+          "id": "public_route",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/CHUMMER_PUBLIC_ROUTE_PROOF.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T17:09:53.656297Z",
+          "failure": ""
+        }
+      ],
+      "failures": []
+    },
+    {
+      "surface_id": "build_explain_publish",
+      "dimension_id": "rules_and_continuity_truth",
+      "score": 3,
+      "owners": [
+        "chummer6-core",
+        "chummer6-ui",
+        "chummer6-media-factory"
+      ],
+      "journey_ids": [
+        "build_explain_publish"
+      ],
+      "evidence_ids": [
+        "engine_proof",
+        "ruleset_readiness"
+      ],
+      "evidence": [
+        {
+          "id": "build_explain_publish",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "engine_proof",
+          "path": "$CHUMMER_WORKSPACE/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json",
+          "status": "pass",
+          "source_status": "passed",
+          "source_verdict": "",
+          "generated_at": "2026-06-20T22:36:41Z",
+          "failure": ""
+        },
+        {
+          "id": "ruleset_readiness",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/RULESET_READINESS.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T17:10:13.855471Z",
+          "failure": ""
+        }
+      ],
+      "failures": []
+    },
+    {
+      "surface_id": "build_explain_publish",
+      "dimension_id": "recovery_confidence",
+      "score": 1,
+      "owners": [
+        "chummer6-core",
+        "chummer6-ui",
+        "chummer6-media-factory"
+      ],
+      "journey_ids": [
+        "build_explain_publish"
+      ],
+      "evidence_ids": [
+        "desktop_executable",
+        "release_ready"
+      ],
+      "evidence": [
+        {
+          "id": "build_explain_publish",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "desktop_executable",
+          "path": "$CHUMMER_WORKSPACE/chummer-presentation/.codex-studio/published/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json",
+          "status": "fail",
+          "source_status": "fail",
+          "source_verdict": "",
+          "generated_at": "2026-07-13T05:05:19.851311Z",
+          "failure": "desktop_executable is not passing"
+        },
+        {
+          "id": "release_ready",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/RELEASE_READY.generated.json",
+          "status": "fail",
+          "source_status": "fail",
+          "source_verdict": "NOT_RELEASE_READY",
+          "generated_at": "2026-07-14T03:51:45Z",
+          "failure": "release_ready is not passing"
+        }
+      ],
+      "failures": [
+        "desktop_executable is not passing",
+        "release_ready is not passing"
+      ]
+    },
+    {
+      "surface_id": "build_explain_publish",
+      "dimension_id": "closure_honesty",
+      "score": 1,
+      "owners": [
+        "chummer6-core",
+        "chummer6-ui",
+        "chummer6-media-factory"
+      ],
+      "journey_ids": [
+        "build_explain_publish"
+      ],
+      "evidence_ids": [
+        "black_ledger_media",
+        "external_distribution",
+        "release_ready"
+      ],
+      "evidence": [
+        {
+          "id": "build_explain_publish",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "black_ledger_media",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/BLACK_LEDGER_LIVE_MEDIA_PROOF.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T16:55:40Z",
+          "failure": ""
+        },
+        {
+          "id": "external_distribution",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/EXTERNAL_DISTRIBUTION_MIRROR_PROOF.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T17:10:11Z",
+          "failure": ""
+        },
+        {
+          "id": "release_ready",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/RELEASE_READY.generated.json",
+          "status": "fail",
+          "source_status": "fail",
+          "source_verdict": "NOT_RELEASE_READY",
+          "generated_at": "2026-07-14T03:51:45Z",
+          "failure": "release_ready is not passing"
+        }
+      ],
+      "failures": [
+        "release_ready is not passing"
+      ]
+    },
+    {
+      "surface_id": "build_explain_publish",
+      "dimension_id": "responsiveness",
+      "score": 3,
+      "owners": [
+        "chummer6-core",
+        "chummer6-ui",
+        "chummer6-media-factory"
+      ],
+      "journey_ids": [
+        "build_explain_publish"
+      ],
+      "evidence_ids": [
+        "engine_proof",
+        "desktop_workflow"
+      ],
+      "evidence": [
+        {
+          "id": "build_explain_publish",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "engine_proof",
+          "path": "$CHUMMER_WORKSPACE/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json",
+          "status": "pass",
+          "source_status": "passed",
+          "source_verdict": "",
+          "generated_at": "2026-06-20T22:36:41Z",
+          "failure": ""
+        },
+        {
+          "id": "desktop_workflow",
+          "path": "$CHUMMER_WORKSPACE/chummer-presentation/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-13T04:39:22.679304Z",
+          "failure": ""
+        }
+      ],
+      "failures": []
+    },
+    {
+      "surface_id": "build_explain_publish",
+      "dimension_id": "design_authorship",
+      "score": 3,
+      "owners": [
+        "chummer6-core",
+        "chummer6-ui",
+        "chummer6-media-factory"
+      ],
+      "journey_ids": [
+        "build_explain_publish"
+      ],
+      "evidence_ids": [
+        "desktop_visual",
+        "design_quality",
+        "localization"
+      ],
+      "evidence": [
+        {
+          "id": "build_explain_publish",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "desktop_visual",
+          "path": "$CHUMMER_WORKSPACE/chummer-presentation/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-13T03:51:29.190961Z",
+          "failure": ""
+        },
+        {
+          "id": "design_quality",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/DESIGN_QUALITY_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "DESIGN_READY",
+          "generated_at": "2026-07-12T17:18:37Z",
+          "failure": ""
+        },
+        {
+          "id": "localization",
+          "path": "$CHUMMER_WORKSPACE/chummer-presentation/.codex-studio/published/UI_LOCALIZATION_RELEASE_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-13T23:39:57Z",
+          "failure": ""
+        }
+      ],
+      "failures": []
+    },
+    {
+      "surface_id": "run_and_rejoin",
+      "dimension_id": "route_clarity",
+      "score": 3,
+      "owners": [
+        "chummer6-mobile",
+        "chummer6-hub",
+        "chummer6-core"
+      ],
+      "journey_ids": [
+        "campaign_session_recover_recap",
+        "recover_from_sync_conflict"
+      ],
+      "evidence_ids": [
+        "mobile_proof",
+        "public_route"
+      ],
+      "evidence": [
+        {
+          "id": "campaign_session_recover_recap",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "recover_from_sync_conflict",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "mobile_proof",
+          "path": "$CHUMMER_WORKSPACE/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json",
+          "status": "pass",
+          "source_status": "passed",
+          "source_verdict": "",
+          "generated_at": "2026-07-14T03:51:44Z",
+          "failure": ""
+        },
+        {
+          "id": "public_route",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/CHUMMER_PUBLIC_ROUTE_PROOF.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T17:09:53.656297Z",
+          "failure": ""
+        }
+      ],
+      "failures": []
+    },
+    {
+      "surface_id": "run_and_rejoin",
+      "dimension_id": "rules_and_continuity_truth",
+      "score": 3,
+      "owners": [
+        "chummer6-mobile",
+        "chummer6-hub",
+        "chummer6-core"
+      ],
+      "journey_ids": [
+        "campaign_session_recover_recap",
+        "recover_from_sync_conflict"
+      ],
+      "evidence_ids": [
+        "mobile_proof",
+        "engine_proof"
+      ],
+      "evidence": [
+        {
+          "id": "campaign_session_recover_recap",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "recover_from_sync_conflict",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "mobile_proof",
+          "path": "$CHUMMER_WORKSPACE/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json",
+          "status": "pass",
+          "source_status": "passed",
+          "source_verdict": "",
+          "generated_at": "2026-07-14T03:51:44Z",
+          "failure": ""
+        },
+        {
+          "id": "engine_proof",
+          "path": "$CHUMMER_WORKSPACE/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json",
+          "status": "pass",
+          "source_status": "passed",
+          "source_verdict": "",
+          "generated_at": "2026-06-20T22:36:41Z",
+          "failure": ""
+        }
+      ],
+      "failures": []
+    },
+    {
+      "surface_id": "run_and_rejoin",
+      "dimension_id": "recovery_confidence",
+      "score": 1,
+      "owners": [
+        "chummer6-mobile",
+        "chummer6-hub",
+        "chummer6-core"
+      ],
+      "journey_ids": [
+        "campaign_session_recover_recap",
+        "recover_from_sync_conflict"
+      ],
+      "evidence_ids": [
+        "mobile_proof",
+        "release_ready"
+      ],
+      "evidence": [
+        {
+          "id": "campaign_session_recover_recap",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "recover_from_sync_conflict",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "mobile_proof",
+          "path": "$CHUMMER_WORKSPACE/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json",
+          "status": "pass",
+          "source_status": "passed",
+          "source_verdict": "",
+          "generated_at": "2026-07-14T03:51:44Z",
+          "failure": ""
+        },
+        {
+          "id": "release_ready",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/RELEASE_READY.generated.json",
+          "status": "fail",
+          "source_status": "fail",
+          "source_verdict": "NOT_RELEASE_READY",
+          "generated_at": "2026-07-14T03:51:45Z",
+          "failure": "release_ready is not passing"
+        }
+      ],
+      "failures": [
+        "release_ready is not passing"
+      ]
+    },
+    {
+      "surface_id": "run_and_rejoin",
+      "dimension_id": "closure_honesty",
+      "score": 1,
+      "owners": [
+        "chummer6-mobile",
+        "chummer6-hub",
+        "chummer6-core"
+      ],
+      "journey_ids": [
+        "campaign_session_recover_recap",
+        "recover_from_sync_conflict"
+      ],
+      "evidence_ids": [
+        "mobile_proof",
+        "release_ready"
+      ],
+      "evidence": [
+        {
+          "id": "campaign_session_recover_recap",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "recover_from_sync_conflict",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "mobile_proof",
+          "path": "$CHUMMER_WORKSPACE/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json",
+          "status": "pass",
+          "source_status": "passed",
+          "source_verdict": "",
+          "generated_at": "2026-07-14T03:51:44Z",
+          "failure": ""
+        },
+        {
+          "id": "release_ready",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/RELEASE_READY.generated.json",
+          "status": "fail",
+          "source_status": "fail",
+          "source_verdict": "NOT_RELEASE_READY",
+          "generated_at": "2026-07-14T03:51:45Z",
+          "failure": "release_ready is not passing"
+        }
+      ],
+      "failures": [
+        "release_ready is not passing"
+      ]
+    },
+    {
+      "surface_id": "run_and_rejoin",
+      "dimension_id": "responsiveness",
+      "score": 3,
+      "owners": [
+        "chummer6-mobile",
+        "chummer6-hub",
+        "chummer6-core"
+      ],
+      "journey_ids": [
+        "campaign_session_recover_recap",
+        "recover_from_sync_conflict"
+      ],
+      "evidence_ids": [
+        "mobile_proof",
+        "public_edge"
+      ],
+      "evidence": [
+        {
+          "id": "campaign_session_recover_recap",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "recover_from_sync_conflict",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "mobile_proof",
+          "path": "$CHUMMER_WORKSPACE/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json",
+          "status": "pass",
+          "source_status": "passed",
+          "source_verdict": "",
+          "generated_at": "2026-07-14T03:51:44Z",
+          "failure": ""
+        },
+        {
+          "id": "public_edge",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/PUBLIC_EDGE_POSTDEPLOY_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T17:16:47.060432+00:00",
+          "failure": ""
+        }
+      ],
+      "failures": []
+    },
+    {
+      "surface_id": "run_and_rejoin",
+      "dimension_id": "design_authorship",
+      "score": 3,
+      "owners": [
+        "chummer6-mobile",
+        "chummer6-hub",
+        "chummer6-core"
+      ],
+      "journey_ids": [
+        "campaign_session_recover_recap",
+        "recover_from_sync_conflict"
+      ],
+      "evidence_ids": [
+        "mobile_proof",
+        "design_quality",
+        "localization"
+      ],
+      "evidence": [
+        {
+          "id": "campaign_session_recover_recap",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "recover_from_sync_conflict",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "mobile_proof",
+          "path": "$CHUMMER_WORKSPACE/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json",
+          "status": "pass",
+          "source_status": "passed",
+          "source_verdict": "",
+          "generated_at": "2026-07-14T03:51:44Z",
+          "failure": ""
+        },
+        {
+          "id": "design_quality",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/DESIGN_QUALITY_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "DESIGN_READY",
+          "generated_at": "2026-07-12T17:18:37Z",
+          "failure": ""
+        },
+        {
+          "id": "localization",
+          "path": "$CHUMMER_WORKSPACE/chummer-presentation/.codex-studio/published/UI_LOCALIZATION_RELEASE_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-13T23:39:57Z",
+          "failure": ""
+        }
+      ],
+      "failures": []
+    },
+    {
+      "surface_id": "improve_and_close_the_loop",
+      "dimension_id": "route_clarity",
+      "score": 3,
+      "owners": [
+        "chummer6-hub",
+        "fleet",
+        "executive-assistant"
+      ],
+      "journey_ids": [
+        "report_cluster_release_notify",
+        "organize_community_and_close_loop"
+      ],
+      "evidence_ids": [
+        "support_packets",
+        "public_route"
+      ],
+      "evidence": [
+        {
+          "id": "report_cluster_release_notify",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "organize_community_and_close_loop",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "support_packets",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/SUPPORT_CASE_PACKETS.generated.json",
+          "status": "pass",
+          "source_status": "clear",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T17:37:44Z",
+          "failure": ""
+        },
+        {
+          "id": "public_route",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/CHUMMER_PUBLIC_ROUTE_PROOF.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T17:09:53.656297Z",
+          "failure": ""
+        }
+      ],
+      "failures": []
+    },
+    {
+      "surface_id": "improve_and_close_the_loop",
+      "dimension_id": "rules_and_continuity_truth",
+      "score": 1,
+      "owners": [
+        "chummer6-hub",
+        "fleet",
+        "executive-assistant"
+      ],
+      "journey_ids": [
+        "report_cluster_release_notify",
+        "organize_community_and_close_loop"
+      ],
+      "evidence_ids": [
+        "public_copy",
+        "release_channel"
+      ],
+      "evidence": [
+        {
+          "id": "report_cluster_release_notify",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "organize_community_and_close_loop",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "public_copy",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/PUBLIC_COPY_LEAK_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T17:08:53Z",
+          "failure": ""
+        },
+        {
+          "id": "release_channel",
+          "path": "$CHUMMER_WORKSPACE/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json",
+          "status": "fail",
+          "source_status": "published",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T18:46:26Z",
+          "failure": "release channel is not public_stable and gold_supported"
+        }
+      ],
+      "failures": [
+        "release channel is not public_stable and gold_supported"
+      ]
+    },
+    {
+      "surface_id": "improve_and_close_the_loop",
+      "dimension_id": "recovery_confidence",
+      "score": 3,
+      "owners": [
+        "chummer6-hub",
+        "fleet",
+        "executive-assistant"
+      ],
+      "journey_ids": [
+        "report_cluster_release_notify",
+        "organize_community_and_close_loop"
+      ],
+      "evidence_ids": [
+        "support_packets",
+        "account_handoff"
+      ],
+      "evidence": [
+        {
+          "id": "report_cluster_release_notify",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "organize_community_and_close_loop",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "support_packets",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/SUPPORT_CASE_PACKETS.generated.json",
+          "status": "pass",
+          "source_status": "clear",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T17:37:44Z",
+          "failure": ""
+        },
+        {
+          "id": "account_handoff",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/ACCOUNT_HANDOFF_RUNTIME_CONFIG.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "READY",
+          "generated_at": "2026-07-14T01:41:00Z",
+          "failure": ""
+        }
+      ],
+      "failures": []
+    },
+    {
+      "surface_id": "improve_and_close_the_loop",
+      "dimension_id": "closure_honesty",
+      "score": 1,
+      "owners": [
+        "chummer6-hub",
+        "fleet",
+        "executive-assistant"
+      ],
+      "journey_ids": [
+        "report_cluster_release_notify",
+        "organize_community_and_close_loop"
+      ],
+      "evidence_ids": [
+        "support_packets",
+        "release_ready",
+        "google_oauth"
+      ],
+      "evidence": [
+        {
+          "id": "report_cluster_release_notify",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "organize_community_and_close_loop",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "support_packets",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/SUPPORT_CASE_PACKETS.generated.json",
+          "status": "pass",
+          "source_status": "clear",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T17:37:44Z",
+          "failure": ""
+        },
+        {
+          "id": "release_ready",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/RELEASE_READY.generated.json",
+          "status": "fail",
+          "source_status": "fail",
+          "source_verdict": "NOT_RELEASE_READY",
+          "generated_at": "2026-07-14T03:51:45Z",
+          "failure": "release_ready is not passing"
+        },
+        {
+          "id": "google_oauth",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/GOOGLE_OAUTH_LINKING_PROOF.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T17:18:08.965804Z",
+          "failure": ""
+        }
+      ],
+      "failures": [
+        "release_ready is not passing"
+      ]
+    },
+    {
+      "surface_id": "improve_and_close_the_loop",
+      "dimension_id": "responsiveness",
+      "score": 3,
+      "owners": [
+        "chummer6-hub",
+        "fleet",
+        "executive-assistant"
+      ],
+      "journey_ids": [
+        "report_cluster_release_notify",
+        "organize_community_and_close_loop"
+      ],
+      "evidence_ids": [
+        "public_edge",
+        "ui_frame"
+      ],
+      "evidence": [
+        {
+          "id": "report_cluster_release_notify",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "organize_community_and_close_loop",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "public_edge",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/PUBLIC_EDGE_POSTDEPLOY_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-12T17:16:47.060432+00:00",
+          "failure": ""
+        },
+        {
+          "id": "ui_frame",
+          "path": "$CHUMMER_WORKSPACE/_completion/chummer_run_redesign_closure/UI_FRAME_INTEGRITY.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "READY",
+          "generated_at": "2026-07-12T17:08:45.455Z",
+          "failure": ""
+        }
+      ],
+      "failures": []
+    },
+    {
+      "surface_id": "improve_and_close_the_loop",
+      "dimension_id": "design_authorship",
+      "score": 3,
+      "owners": [
+        "chummer6-hub",
+        "fleet",
+        "executive-assistant"
+      ],
+      "journey_ids": [
+        "report_cluster_release_notify",
+        "organize_community_and_close_loop"
+      ],
+      "evidence_ids": [
+        "design_quality",
+        "ui_frame",
+        "localization"
+      ],
+      "evidence": [
+        {
+          "id": "report_cluster_release_notify",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "organize_community_and_close_loop",
+          "path": "$FLEET_WORKSPACE/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "status": "pass",
+          "source_status": "ready",
+          "generated_at": "2026-07-12T06:21:20Z",
+          "failure": ""
+        },
+        {
+          "id": "design_quality",
+          "path": "$CHUMMER_WORKSPACE/chummer.run-services/.codex-studio/published/DESIGN_QUALITY_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "DESIGN_READY",
+          "generated_at": "2026-07-12T17:18:37Z",
+          "failure": ""
+        },
+        {
+          "id": "ui_frame",
+          "path": "$CHUMMER_WORKSPACE/_completion/chummer_run_redesign_closure/UI_FRAME_INTEGRITY.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "READY",
+          "generated_at": "2026-07-12T17:08:45.455Z",
+          "failure": ""
+        },
+        {
+          "id": "localization",
+          "path": "$CHUMMER_WORKSPACE/chummer-presentation/.codex-studio/published/UI_LOCALIZATION_RELEASE_GATE.generated.json",
+          "status": "pass",
+          "source_status": "pass",
+          "source_verdict": "",
+          "generated_at": "2026-07-13T23:39:57Z",
+          "failure": ""
+        }
+      ],
+      "failures": []
+    }
+  ],
+  "failures": [
+    "desktop_workbench.route_clarity: fleet_flagship is not passing",
+    "desktop_workbench.recovery_confidence: desktop_executable is not passing, release_ready is not passing",
+    "desktop_workbench.closure_honesty: release_ready is not passing, release channel is not public_stable and gold_supported",
+    "public_front_door_and_support.rules_and_continuity_truth: release channel is not public_stable and gold_supported",
+    "public_front_door_and_support.closure_honesty: release_ready is not passing, release channel is not public_stable and gold_supported",
+    "install_claim_restore_continue.route_clarity: desktop_executable is not passing",
+    "install_claim_restore_continue.rules_and_continuity_truth: release channel is not public_stable and gold_supported",
+    "install_claim_restore_continue.recovery_confidence: desktop_executable is not passing",
+    "install_claim_restore_continue.closure_honesty: release channel is not public_stable and gold_supported, windows_visual is not passing, release_ready is not passing",
+    "install_claim_restore_continue.responsiveness: desktop_executable is not passing, windows_visual is not passing",
+    "install_claim_restore_continue.design_authorship: windows_visual is not passing",
+    "build_explain_publish.recovery_confidence: desktop_executable is not passing, release_ready is not passing",
+    "build_explain_publish.closure_honesty: release_ready is not passing",
+    "run_and_rejoin.recovery_confidence: release_ready is not passing",
+    "run_and_rejoin.closure_honesty: release_ready is not passing",
+    "improve_and_close_the_loop.rules_and_continuity_truth: release channel is not public_stable and gold_supported",
+    "improve_and_close_the_loop.closure_honesty: release_ready is not passing"
+  ]
+}

@@ -237,6 +237,60 @@ recipe_families:
       - locale
       - text_fallback
       - dismissability
+  - id: origin_dossier_private_edition
+    family: private_origin_edition
+    source_pack: approved_origin_dossier_source_packet
+    primary_lane:
+      tool: Subscribr
+      output: full_chaptered_origin_story_manuscript
+    fallback_lanes:
+      - tool: Chummer PublicationAssembler
+        output: private_epub_and_pdf_with_fitted_cover
+        when: manuscript_is_approved_and_cover_art_is_ready
+      - tool: MagicFit
+        output: fitted_cover_three_portraits_and_selected_scene_render
+        when: visual_provider_receipts_and_likeness_consent_are_available
+      - tool: approved_narration_provider
+        output: scoped_origin_audiobook
+        when: owner_requests_a_voice_after_ebook_handoff
+    approval_path: private_owner_origin_publication
+    publish_surfaces:
+      - account_origin_dossier_library
+      - account_origin_dossier_detail
+      - scoped_audiobookshelf_share
+    truth_order:
+      - approved_origin_dossier_source_packet
+      - Subscribr_full_story_receipt
+      - Chummer_canon_privacy_audit
+      - ebook_with_fitted_cover_handoff
+      - selected_portrait
+      - selected_voice_request
+      - selected_chapter_scene
+      - media_factory_receipts
+    launch_requirements:
+      - full_chaptered_story_not_summary
+      - ebook_and_fitted_cover_first
+      - consented_runner_link_codes_only_for_shared_history
+      - accepted_runner_links_enter_source_packet_as_story_context_only
+      - exactly_three_story_fit_portraits
+      - selected_portrait_before_cinematic_request
+      - audiobook_optional_and_owner_requested
+      - one_selected_scene_only
+      - selected_character_visible_in_cinematic
+      - no_sheet_mechanics_mutation_from_story
+    proof_anchors:
+      - approved_source_packet_ref
+      - manuscript_sha256
+      - ebook_sha256
+      - cover_sha256
+      - accepted_runner_story_link_ids
+      - shared_history_policy
+      - portrait_choice_ids
+      - selected_portrait_id
+      - selected_voice_id
+      - selected_scene_id
+      - cinematic_receipt_ref
+      - scoped_owner_links
   - id: runsite_host_mode
     family: spatial_orientation_bundle
     source_pack: approved_runsite_pack
@@ -280,6 +334,255 @@ recipe_families:
       - route_preview
       - preview_card
       - publication_ref
+  - id: runsite_continuous_walkthrough
+    family: governed_spatial_orientation_walkthrough
+    status: pending
+    amendment_state: proposed_for_independent_re_review
+    implementation_state: blocked
+    implementation_authorized: false
+    release_scope_widened: false
+    contract: governed_spatial_render_v1
+    propertyquarry_external_boundary:
+      authority_decision_path: /docker/property/PROPERTYQUARRY_GOVERNED_SPATIAL_RENDER_AUTHORITY_DECISION.md
+      authority_decision_sha256: 401fe42211e2d8283ea9ca2a7cfc1a1eaffc80ff13c63fdf9e6158a116eff50a
+      product_bridge:
+        repo: /docker/property
+        package: app.product
+        module: app.product.property_tour_hosting
+      privacy_lifecycle_intake_and_closeout:
+        repo: /docker/property
+        package: app.api.routes
+        module: app.api.routes.landing
+      enforcement_dependency: public_tour_payloads
+      revocation_and_deletion_execution_dependency: property_tour_hosting
+      contract_relation: PropertyQuarry owns its provider-neutral product contract and may use an explicit boundary mapper only; this Chummer recipe does not assign or implement that external contract.
+      chummer_authority: record_only_cannot_assign_implement_authorize_or_act
+      propertyquarry_implementation_state: blocked_pending_numeric_product_policy_and_independent_re_review
+    source_pack: approved_runsite_spatial_source_packet
+    source_pack_requirements:
+      - approved_runsite_pack_ref
+      - immutable_room_graph_ref
+      - immutable_walkable_mesh_ref
+      - immutable_portal_graph_ref
+      - required_room_ids
+      - approved_route_summary_ref
+      - style_pack_and_license_refs
+      - permission_and_audience_refs
+      - source_and_provenance_hashes
+    valid_without_combat_fields: true
+    combat_or_encounter_fields: forbidden
+    primary_lane:
+      tool: chummer6_media_factory_governed_spatial_lane
+      output: one_continuous_runsite_orientation_walkthrough
+      contract_operation: compose_then_separately_authorized_build
+    operation_split:
+      compose:
+        authoritative_owner: chummer6-media-factory
+        enqueue_provider_job: false
+        reserve_or_consume_quota: false
+      build:
+        authoritative_owner: chummer6-media-factory
+        current_state: blocked
+        requires_hub_authorization: true
+        requires_current_capability_and_quota_evidence: true
+    fallback_lanes:
+      - tool: AvoMap
+        output: inspectable_runsite_route_overlay
+        when: governed_walkthrough_build_is_blocked_or_unavailable
+      - tool: Crezlo Tours
+        output: accepted_runsite_tour_sibling
+        when: a_current_independent_tour_receipt_exists
+      - tool: first_party_runsite_pack
+        output: static_pack_floorplan_and_hotspot_orientation
+        when: no_continuous_or_tour_artifact_is_accepted
+    approval_path: hub_runsite_source_and_audience_then_build_authorization_then_registry_publication
+    required_approvals:
+      - hub_owned_source_purpose_permission_and_audience_approval
+      - media_factory_authoritative_compose_acceptance
+      - hub_owned_time_limited_build_and_quota_authorization
+      - registry_publication_approval_when_public
+    required_receipts:
+      - source_pack_approval_receipt
+      - zero_burn_compose_receipt
+      - consumer_build_authorization_ref
+      - current_exact_family_capability_and_quota_evidence
+      - encrypted_private_execution_receipt
+      - immutable_output_manifest
+      - spatial_continuity_and_effective_motion_receipt
+      - browser_mobile_and_accessibility_receipt
+      - privacy_deletion_and_takedown_receipt
+      - registry_publication_or_revocation_ref_when_public
+    publish_surfaces:
+      - hub_campaign_home_spatial_orientation
+      - mobile_campaign_home_spatial_orientation
+      - registry_backed_artifacts_gallery
+    publication_meaning: spatial_orientation_only
+    inspection_siblings:
+      - approved_runsite_pack
+      - approved_route_summary
+      - runsite_route_overlay
+      - accepted_runsite_tour_or_static_pack
+    quality_gates:
+      - required_room_coverage_100_percent
+      - continuous_shot_count_1
+      - cut_count_0
+      - teleport_or_scene_jump_count_0
+      - collision_or_portal_failures_0
+      - stable_room_topology_and_revisit_identity
+      - final_delivery_fps_target_60
+      - minimum_effective_motion_fps_30
+      - duplicate_frame_run_during_motion_maximum_2
+      - desktop_mobile_browser_and_accessibility_pass
+    retention_policy: GOVERNED_SPATIAL_RENDER_PRIVACY_RETENTION_POLICY
+    retention_class: governed_spatial_preview_or_published_artifact
+    deletion_owner: chummer6-media-factory
+    takedown_intake_owner: chummer6-hub
+    publication_revocation_owner: chummer6-hub-registry
+    product_closeout_owner: chummer6-hub
+    proof_anchors:
+      - governed_spatial_render_v1
+      - accepted_composition_digest
+      - idempotency_key_and_request_digest
+      - approved_runsite_spatial_source_packet
+      - approved_route_summary
+      - inspectable_sibling_refs
+      - consumer_authorization_ref
+      - GOVERNED_SPATIAL_RENDER_CAPABILITY_QUOTA_EVIDENCE.schema.yaml
+      - immutable_output_manifest_ref
+      - private_execution_receipt_ref
+      - retention_deletion_and_takedown_receipt_ref
+      - publication_or_revocation_ref_when_public
+  - id: runsite_private_encounter_preview
+    family: governed_private_fictional_encounter_preview
+    status: pending
+    amendment_state: proposed_for_independent_re_review
+    implementation_state: blocked
+    implementation_authorized: false
+    release_scope_widened: false
+    contract: governed_spatial_render_v1
+    propertyquarry_external_boundary:
+      authority_decision_path: /docker/property/PROPERTYQUARRY_GOVERNED_SPATIAL_RENDER_AUTHORITY_DECISION.md
+      authority_decision_sha256: 401fe42211e2d8283ea9ca2a7cfc1a1eaffc80ff13c63fdf9e6158a116eff50a
+      product_bridge:
+        repo: /docker/property
+        package: app.product
+        module: app.product.property_tour_hosting
+      privacy_lifecycle_intake_and_closeout:
+        repo: /docker/property
+        package: app.api.routes
+        module: app.api.routes.landing
+      enforcement_dependency: public_tour_payloads
+      revocation_and_deletion_execution_dependency: property_tour_hosting
+      eligible_as_propertyquarry_input: false
+      contract_relation: This private Chummer recipe never enters the PropertyQuarry-owned provider-neutral product contract or boundary mapper.
+      chummer_authority: record_only_cannot_assign_implement_authorize_or_act
+      propertyquarry_implementation_state: blocked_pending_numeric_product_policy_and_independent_re_review
+    source_pack: approved_runsite_private_encounter_source_packet
+    source_pack_requirements:
+      - approved_runsite_spatial_source_packet_ref
+      - immutable_core_mechanics_receipt_refs
+      - immutable_hub_encounter_run_scene_actor_and_equipment_refs
+      - immutable_hub_approved_outcome_refs
+      - stable_location_and_route_anchor_refs
+      - explicit_private_audience_allowlist_ref
+      - content_rating_and_consent_refs
+      - style_pack_and_license_refs
+    primary_lane:
+      tool: chummer6_media_factory_governed_spatial_lane
+      output: private_continuous_fictional_encounter_preview
+      contract_operation: compose_then_separately_authorized_build
+    operation_split:
+      compose:
+        authoritative_owner: chummer6-media-factory
+        enqueue_provider_job: false
+        reserve_or_consume_quota: false
+      build:
+        authoritative_owner: chummer6-media-factory
+        current_state: blocked
+        requires_hub_authorization: true
+        requires_current_exact_family_capability_and_quota_evidence: true
+    fallback_lanes:
+      - tool: runsite_continuous_walkthrough
+        output: non_combat_spatial_orientation_walkthrough
+        when: encounter_content_capability_audience_or_truth_gate_fails
+      - tool: AvoMap
+        output: inspectable_runsite_route_overlay
+        when: continuous_rendering_is_unavailable
+      - tool: first_party_runsite_pack
+        output: static_pack_floorplan_and_hotspot_orientation
+        when: no_rendered_artifact_is_accepted
+    approval_path: hub_private_encounter_source_audience_and_outcome_approval_then_time_limited_build_authorization
+    required_approvals:
+      - hub_owned_source_purpose_permission_and_private_audience_approval
+      - hub_owned_immutable_encounter_and_provided_outcome_approval
+      - media_factory_authoritative_compose_acceptance
+      - hub_owned_time_limited_build_and_quota_authorization
+    required_receipts:
+      - source_pack_and_immutable_truth_approval_receipt
+      - zero_burn_compose_receipt
+      - private_audience_and_consumer_build_authorization_ref
+      - current_exact_family_capability_and_quota_evidence
+      - encrypted_private_execution_receipt
+      - immutable_output_manifest
+      - spatial_actor_continuity_and_effective_motion_receipt
+      - private_browser_mobile_and_accessibility_receipt
+      - privacy_deletion_takedown_and_access_revocation_receipt
+    publish_surfaces:
+      - gm_private_runsite_workspace
+      - explicitly_authorized_campaign_private_preview
+    publication_posture: private_only_no_public_registry_publication
+    audience_gate:
+      visibility: private
+      membership: explicit_allowlist
+      link_scope: short_lived_authenticated
+      resharing: forbidden
+      public_projection: forbidden
+    content_gate:
+      fictional_characters_only: true
+      graphic_injury: false
+      real_person_likeness: false
+      minor_combatants: false
+      provider_policy_and_rights_check_before_quota: required
+    mechanics_boundary:
+      consumes_immutable_truth_refs_only: true
+      consumes_explicit_provided_outcome_refs_only: true
+      calculate_initiative_actions_damage_effects_or_outcomes: forbidden
+      reinterpret_or_mutate_mechanics_or_campaign_truth: forbidden
+    excluded_from:
+      - propertyquarry_input
+      - public_runsite_meaning
+      - live_session_truth
+      - tactical_authority
+      - vtt_claim
+    inspection_siblings:
+      - approved_runsite_pack
+      - approved_route_summary
+      - runsite_route_overlay
+      - runsite_continuous_walkthrough_or_static_fallback
+    quality_gates:
+      - all_runsite_continuous_walkthrough_spatial_gates
+      - stable_actor_identity_equipment_handedness_and_transforms
+      - overlay_introduces_no_cut_teleport_collision_or_room_coverage_loss
+      - immutable_truth_and_provided_outcome_refs_remain_explainable
+    retention_policy: GOVERNED_SPATIAL_RENDER_PRIVACY_RETENTION_POLICY
+    retention_class: private_encounter_preview
+    deletion_owner: chummer6-media-factory
+    takedown_intake_owner: chummer6-hub
+    private_access_revocation_owner: chummer6-hub
+    product_closeout_owner: chummer6-hub
+    proof_anchors:
+      - governed_spatial_render_v1
+      - accepted_composition_digest
+      - idempotency_key_and_request_digest
+      - approved_runsite_private_encounter_source_packet
+      - immutable_core_mechanics_receipt_refs
+      - immutable_hub_encounter_and_provided_outcome_refs
+      - explicit_private_audience_allowlist_ref
+      - inspectable_sibling_refs
+      - GOVERNED_SPATIAL_RENDER_CAPABILITY_QUOTA_EVIDENCE.schema.yaml
+      - immutable_output_manifest_ref
+      - private_execution_receipt_ref
+      - retention_deletion_takedown_and_access_revocation_receipt_ref
   - id: table_pulse_debrief_pack
     family: private_post_session_bundle
     source_pack: approved_session_recap_or_debrief_packet

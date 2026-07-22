@@ -5,6 +5,7 @@ index.db-wal
 index.db-shm
 vexp.log
 daemon.log
+daemon.log.*
 daemon.sock
 daemon.pid
 daemon.pipe
@@ -12,3 +13,5 @@ mcp.port
 healthy
 parent_workspace.json
 token-savings-report.md
+index.lock
+mcp.token

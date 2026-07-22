@@ -163,6 +163,43 @@ def test_operator_runtime_context_grounding_posture_blocks_ungrounded_actionable
     assert detail["next_action"] == "repair_proactive_context_grounding"
 
 
+def test_operator_runtime_context_grounding_posture_ignores_empty_current_packet_placeholder() -> None:
+    module = _load_script()
+
+    ready, detail = module._operator_runtime_context_grounding_posture_for_packet(  # noqa: SLF001
+        {
+            "context_grounding": {
+                "grounded": True,
+                "item_count": 1,
+                "grounded_item_count": 1,
+                "ungrounded_item_count": 0,
+                "applied_context_count": 3,
+                "recipient_location_count": 1,
+                "current_packet_context_grounding": {
+                    "grounded": False,
+                    "item_count": 0,
+                    "grounded_item_count": 0,
+                    "ungrounded_item_count": 0,
+                    "applied_context_count": 0,
+                    "recipient_location_count": 0,
+                },
+            }
+        },
+        stage_packet={
+            "stage": {"payload": {"work_type": "draft"}},
+        },
+        safe_work_result={
+            "recommended_option_or_draft": {"kind": "draft_text"},
+        },
+    )
+
+    assert ready is True
+    assert detail["context_grounding_ready"] is True
+    assert detail["context_grounding_source"] == "context_grounding"
+    assert detail["context_grounding_grounded"] is True
+    assert detail["next_action"] == ""
+
+
 def test_operator_runtime_suppressed_projection_posture_blocks_recovery() -> None:
     module = _load_script()
 
@@ -3827,6 +3864,87 @@ def test_materialize_proactive_ooda_gold_acceptance_downgrades_unverified_telegr
     assert proof["manual_capture_present"] is True
     assert proof["manual_outcome_capture_ready"] is True
     assert proof["telegram_approval_surface_ready"] is False
+
+
+def test_approval_capture_surface_receipt_accepts_matching_manual_capture_surface_without_live_capture_probe(
+    tmp_path: Path,
+) -> None:
+    module = _load_script()
+
+    callback_dir = tmp_path / "state" / "proactive_ooda_approval_callbacks"
+    callback_dir.mkdir(parents=True, exist_ok=True)
+    approval_outcome_path = tmp_path / "state" / "proactive_ooda_latest_approval_outcome.generated.json"
+
+    stage_packet = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": "stage_packet:pkt-manual-surface",
+        "stage": {"kind": "approval_packet"},
+        "approval": {"required": True},
+        "safe_work_order": {
+            "handoff_policy": {
+                "safe_to_execute_before_approval": True,
+                "external_actions_remain_staged_only": True,
+            }
+        },
+    }
+    safe_work_result = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": "safe_work_result:res-manual-surface",
+        "source_packet_ref_hash": _sha256(stage_packet["packet_ref"]),
+        "status": "staged_for_user_decision",
+        "recommended_option_or_draft": {
+            "kind": "shortlist_candidate",
+            "value": {"label": "Vendor A", "url": "https://example.test/vendor-a"},
+        },
+        "shortlist": [{"label": "Vendor A"}],
+        "approval": {"required": True},
+        "audit": {"status": "pass", "issues": []},
+        "execution_receipt": {
+            "network_fetch_count": 1,
+            "network_fetch_success_count": 1,
+            "page_checks": [{"url": "https://example.test/vendor-a", "reachable": True}],
+            "irreversible_actions_attempted": [],
+        },
+    }
+    operator_status = {
+        "approval_capture_surface": {
+            "present": True,
+            "ready": True,
+            "mode": "manual_outcome_capture_ready",
+            "selected_channel": "telegram",
+            "callback_dir_exists": True,
+            "callback_dir_writable": True,
+            "current_packet_present": True,
+            "current_packet_status": "staged",
+            "current_packet_approval_request_recordable": True,
+            "current_packet_user_action_required": True,
+            "manual_outcome_capture_ready": True,
+            "telegram_approval_surface_ready": False,
+            "current_packet_ref_sha256": _sha256(stage_packet["packet_ref"]),
+            "current_staged_artifact_ref_sha256": _sha256(safe_work_result["result_ref"]),
+            "source": "docker_compose_exec",
+        },
+        "delivery_route": {"selected_channel": "telegram"},
+    }
+    bundle = {
+        "stage_packet": stage_packet,
+        "safe_work_result": safe_work_result,
+        "approval_callback_dir": callback_dir,
+    }
+
+    surface, ready = module._approval_capture_surface_receipt(  # noqa: SLF001
+        operator_status=operator_status,
+        bundle=bundle,
+        approval_outcome_path=approval_outcome_path,
+        used_live_runtime_probe=False,
+    )
+
+    assert ready is True
+    assert surface["ready"] is True
+    assert surface["manual_outcome_capture_ready"] is True
+    assert surface["current_packet_matches_packet_artifacts"] is True
+    assert surface["current_packet_ref_sha256"] == _sha256(stage_packet["packet_ref"])
+    assert surface["current_staged_artifact_ref_sha256"] == _sha256(safe_work_result["result_ref"])
 
 
 def test_materialize_proactive_ooda_gold_acceptance_blocks_noisy_transcript_language_reference(

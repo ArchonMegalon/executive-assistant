@@ -703,6 +703,16 @@ def _onemin_billing_usage_workflow_spec(*, output_dir: str) -> dict[str, object]
     nodes.extend(
         [
             {
+                "id": "extract_home_after_login",
+                "type": "extract",
+                "label": "Extract Home After Login",
+                "config": {
+                    "selector": "main, body",
+                    "field_name": "home_after_login",
+                    "mode": "text",
+                },
+            },
+            {
                 "id": "open_billing_usage",
                 "type": "visit_page",
                 "label": "Open Billing Usage",
@@ -721,7 +731,8 @@ def _onemin_billing_usage_workflow_spec(*, output_dir: str) -> dict[str, object]
     )
     edges.extend(
         [
-            [last_login_node, "open_billing_usage"],
+            [last_login_node, "extract_home_after_login"],
+            ["extract_home_after_login", "open_billing_usage"],
             ["open_billing_usage", "wait_billing_usage"],
         ]
     )

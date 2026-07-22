@@ -65,6 +65,16 @@ def test_proactive_next_action_surface_maps_pocket_transcript_sync() -> None:
     }
 
 
+def test_proactive_next_action_surface_maps_onemin_refresh_recovery_to_goals() -> None:
+    surface = proactive_next_action_surface("resume_onemin_direct_refresh_after_cooldown")
+
+    assert surface == {
+        "href": "https://myexternalbrain.com/admin/goals",
+        "label": "Open goals",
+        "method": "get",
+    }
+
+
 def test_proactive_next_action_surface_maps_google_workspace_sync() -> None:
     surface = proactive_next_action_surface("reauthorize_or_sync_google_workspace_sources")
 

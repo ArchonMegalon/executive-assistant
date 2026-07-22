@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import secrets
 import shutil
 import stat
@@ -19,7 +20,8 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
 
-RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_projection.v1"
+RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_projection.v2"
+PROJECT_NAME_PREFIX = "ea-manfred-candidate-"
 PRIVATE_CONTEXT_FILENAME = "memorial_private_context.json"
 HELPER_IMAGE = "postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229"
 PUBLIC_GIT_FILES = (
@@ -57,6 +59,21 @@ MAX_ASSET_BYTES = 128 * 1024 * 1024
 MAX_ARCHIVE_BYTES = 128 * 1024 * 1024
 
 
+def _validate_project_name(value: object) -> str:
+    project = str(value or "").strip()
+    suffix = project.removeprefix(PROJECT_NAME_PREFIX)
+    if (
+        project != project.lower()
+        or project == "ea"
+        or not project.startswith(PROJECT_NAME_PREFIX)
+        or len(project) > 63
+        or len(suffix) < 8
+        or re.fullmatch(r"[a-z0-9][a-z0-9-]*", suffix) is None
+    ):
+        raise ValueError("manfred_candidate_project_name_invalid")
+    return project
+
+
 def _run(
     argv: list[str],
     *,
@@ -75,11 +92,23 @@ def _run(
 
 
 def _commit(source_root: Path, ref: str) -> str:
-    value = _run(
-        ["git", "rev-parse", "--verify", f"{str(ref or 'HEAD').strip()}^{{commit}}"],
-        cwd=source_root,
-    ).decode("ascii").strip().lower()
-    if len(value) != 40 or any(character not in "0123456789abcdef" for character in value):
+    value = (
+        _run(
+            [
+                "git",
+                "rev-parse",
+                "--verify",
+                f"{str(ref or 'HEAD').strip()}^{{commit}}",
+            ],
+            cwd=source_root,
+        )
+        .decode("ascii")
+        .strip()
+        .lower()
+    )
+    if len(value) != 40 or any(
+        character not in "0123456789abcdef" for character in value
+    ):
         raise ValueError("manfred_candidate_commit_invalid")
     return value
 
@@ -107,7 +136,9 @@ def _sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
-def _copy_regular(source: Path, destination: Path, *, maximum: int, mode: int) -> dict[str, object]:
+def _copy_regular(
+    source: Path, destination: Path, *, maximum: int, mode: int
+) -> dict[str, object]:
     try:
         metadata = source.lstat()
     except OSError as exc:
@@ -132,7 +163,9 @@ def _write_bytes(destination: Path, content: bytes, *, mode: int) -> dict[str, o
     return {"sha256": _sha256(content), "size_bytes": len(content)}
 
 
-def _load_private_context(source_root: Path, slug: str) -> tuple[dict[str, object], bytes]:
+def _load_private_context(
+    source_root: Path, slug: str
+) -> tuple[dict[str, object], bytes]:
     app_root = source_root / "ea"
     if str(app_root) not in sys.path:
         sys.path.insert(0, str(app_root))
@@ -156,7 +189,9 @@ def _declared_assets(
     def add(value: object, *, private: bool) -> None:
         if not str(value or "").strip():
             return
-        assets[_safe_relative(value, suffix_required=True)] = 0o400 if private else 0o444
+        assets[_safe_relative(value, suffix_required=True)] = (
+            0o400 if private else 0o444
+        )
 
     for field in ("audio_clips", "public_documents", "candidate_recordings"):
         rows = merged.get(field)
@@ -212,19 +247,32 @@ def _copy_archive(
 
 
 def _tree_digest(root: Path) -> tuple[str, list[dict[str, object]]]:
+    root_metadata = root.lstat()
+    if (
+        not stat.S_ISDIR(root_metadata.st_mode)
+        or stat.S_ISLNK(root_metadata.st_mode)
+        or stat.S_IMODE(root_metadata.st_mode) != 0o550
+    ):
+        raise ValueError("manfred_candidate_projection_root_invalid")
     rows: list[dict[str, object]] = []
     for path in sorted(root.rglob("*")):
-        if path.is_dir():
-            continue
         metadata = path.lstat()
+        if stat.S_ISDIR(metadata.st_mode) and not stat.S_ISLNK(metadata.st_mode):
+            if stat.S_IMODE(metadata.st_mode) != 0o550:
+                raise ValueError("manfred_candidate_projection_directory_mode_invalid")
+            continue
         if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
             raise ValueError("manfred_candidate_projection_entry_invalid")
+        mode = stat.S_IMODE(metadata.st_mode)
+        if mode not in {0o440, 0o444}:
+            raise ValueError("manfred_candidate_projection_file_mode_invalid")
         content = path.read_bytes()
         rows.append(
             {
                 "path": path.relative_to(root).as_posix(),
                 "sha256": _sha256(content),
                 "size_bytes": len(content),
+                "mode": format(mode, "03o"),
             }
         )
     encoded = json.dumps(rows, separators=(",", ":"), sort_keys=True).encode("utf-8")
@@ -234,11 +282,11 @@ def _tree_digest(root: Path) -> tuple[str, list[dict[str, object]]]:
 def _set_modes(root: Path) -> None:
     for path in sorted(root.rglob("*"), reverse=True):
         if path.is_dir():
-            path.chmod(0o500)
+            path.chmod(0o550)
         elif path.is_file():
             current = stat.S_IMODE(path.stat().st_mode)
-            path.chmod(0o400 if current & 0o044 == 0 else 0o444)
-    root.chmod(0o500)
+            path.chmod(0o440 if current & 0o044 == 0 else 0o444)
+    root.chmod(0o550)
 
 
 def _make_tree_removable(root: Path) -> None:
@@ -252,6 +300,28 @@ def _make_tree_removable(root: Path) -> None:
             path.chmod(0o600)
 
 
+def _install_or_verify_release(
+    *,
+    staging: Path,
+    release_root: Path,
+    projection_sha256: str,
+    projected_files: list[dict[str, object]],
+) -> None:
+    if release_root.exists():
+        if release_root.is_symlink() or not release_root.is_dir():
+            raise ValueError("manfred_candidate_existing_release_invalid")
+        try:
+            existing_sha256, existing_files = _tree_digest(release_root)
+        except (OSError, ValueError) as exc:
+            raise ValueError("manfred_candidate_existing_release_unverifiable") from exc
+        if existing_sha256 != projection_sha256 or existing_files != projected_files:
+            raise ValueError("manfred_candidate_existing_release_digest_mismatch")
+        _make_tree_removable(staging)
+        shutil.rmtree(staging)
+        return
+    os.replace(staging, release_root)
+
+
 def _chown_for_runtime(paths: list[Path], *, uid: int, gid: int) -> None:
     if os.geteuid() == 0:
         for root in paths:
@@ -259,8 +329,10 @@ def _chown_for_runtime(paths: list[Path], *, uid: int, gid: int) -> None:
             for path in root.rglob("*"):
                 os.chown(path, uid, gid, follow_symlinks=False)
         return
-    command = "chown -R " + f"{uid}:{gid} " + " ".join(
-        f"/target/{index}" for index in range(len(paths))
+    command = (
+        "chown -R "
+        + f"{uid}:{gid} "
+        + " ".join(f"/target/{index}" for index in range(len(paths)))
     )
     argv = [
         "docker",
@@ -315,7 +387,9 @@ def _image_revision(image: str) -> tuple[str, str]:
         raise ValueError("manfred_candidate_image_missing")
     row = payload[0]
     labels = dict((row.get("Config") or {}).get("Labels") or {})
-    return str(row.get("Id") or ""), str(labels.get("org.opencontainers.image.revision") or "")
+    return str(row.get("Id") or ""), str(
+        labels.get("org.opencontainers.image.revision") or ""
+    )
 
 
 def _parse_env(path: Path) -> dict[str, str]:
@@ -331,7 +405,10 @@ def _parse_env(path: Path) -> dict[str, str]:
         if "=" not in line:
             raise ValueError("manfred_candidate_env_invalid")
         key, value = line.split("=", 1)
-        if not key or any(character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_" for character in key):
+        if not key or any(
+            character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+            for character in key
+        ):
             raise ValueError("manfred_candidate_env_invalid")
         if "\x00" in value or "\n" in value or "\r" in value:
             raise ValueError("manfred_candidate_env_invalid")
@@ -347,6 +424,7 @@ def _write_env(
     runtime_root: Path,
     public_base_url: str,
     host_port: int,
+    project_name: str,
     rotate_secrets: bool = False,
 ) -> None:
     current = _parse_env(path)
@@ -360,7 +438,7 @@ def _write_env(
         "" if rotate_secrets else current.get("EA_SIGNING_SECRET", "")
     ) or secrets.token_urlsafe(64)
     values = {
-        "EA_MANFRED_COMPOSE_PROJECT": "ea-manfred-candidate",
+        "EA_MANFRED_COMPOSE_PROJECT": _validate_project_name(project_name),
         "EA_MANFRED_IMAGE": image,
         "EA_MANFRED_ENV_FILE": str(path.resolve()),
         "EA_MANFRED_RELEASE_ROOT": str(release_root.resolve()),
@@ -373,7 +451,9 @@ def _write_env(
         "EA_PUBLIC_APP_BASE_URL": public_base_url,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{path.name}.", dir=str(path.parent)
+    )
     try:
         os.fchmod(descriptor, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
@@ -392,7 +472,9 @@ def _write_env(
 
 def _atomic_receipt(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{path.name}.", dir=str(path.parent)
+    )
     try:
         os.fchmod(descriptor, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
@@ -417,6 +499,7 @@ def prepare_candidate(
     deploy_root: Path,
     public_base_url: str,
     host_port: int,
+    project_name: str,
     runtime_uid: int = 10001,
     runtime_gid: int = 10001,
     rotate_secrets: bool = False,
@@ -425,6 +508,7 @@ def prepare_candidate(
     deploy_root = deploy_root.expanduser().resolve()
     if not 1024 <= host_port <= 65535:
         raise ValueError("manfred_candidate_host_port_invalid")
+    project_name = _validate_project_name(project_name)
     public_base_url = _validate_public_base_url(public_base_url)
     commit = _commit(source_root, ref)
     image_id, image_commit = _image_revision(image)
@@ -473,18 +557,26 @@ def prepare_candidate(
                 maximum=MAX_ASSET_BYTES,
                 mode=mode,
             )
-            file_receipts.append({"path": f"public_memorials/{slug}/{relative.as_posix()}", **info})
+            file_receipts.append(
+                {"path": f"public_memorials/{slug}/{relative.as_posix()}", **info}
+            )
 
-        private_source = source_root / "memorial_data" / "private_memorial_profiles" / slug
+        private_source = (
+            source_root / "memorial_data" / "private_memorial_profiles" / slug
+        )
         for name in PRIVATE_METADATA_FILES:
             source = private_source / name
             if name == PRIVATE_CONTEXT_FILENAME:
                 info = _write_bytes(private_root / name, private_document, mode=0o400)
             elif source.exists():
-                info = _copy_regular(source, private_root / name, maximum=8 * 1024 * 1024, mode=0o400)
+                info = _copy_regular(
+                    source, private_root / name, maximum=8 * 1024 * 1024, mode=0o400
+                )
             else:
                 continue
-            file_receipts.append({"path": f"private_memorial_profiles/{slug}/{name}", **info})
+            file_receipts.append(
+                {"path": f"private_memorial_profiles/{slug}/{name}", **info}
+            )
 
         voice_manifest_path = private_source / "voice_profile_manifest.json"
         if voice_manifest_path.is_file():
@@ -502,7 +594,12 @@ def prepare_candidate(
                     maximum=MAX_ASSET_BYTES,
                     mode=0o400,
                 )
-                file_receipts.append({"path": f"private_memorial_profiles/{slug}/{relative.as_posix()}", **info})
+                file_receipts.append(
+                    {
+                        "path": f"private_memorial_profiles/{slug}/{relative.as_posix()}",
+                        **info,
+                    }
+                )
         curated = Path("voice_profile/curated/unmixr-challenger-youtube-v5.wav")
         if (private_source / curated).is_file():
             info = _copy_regular(
@@ -511,7 +608,12 @@ def prepare_candidate(
                 maximum=MAX_ASSET_BYTES,
                 mode=0o400,
             )
-            file_receipts.append({"path": f"private_memorial_profiles/{slug}/{curated.as_posix()}", **info})
+            file_receipts.append(
+                {
+                    "path": f"private_memorial_profiles/{slug}/{curated.as_posix()}",
+                    **info,
+                }
+            )
 
         archive_receipts = _copy_archive(
             source_root=source_root,
@@ -519,18 +621,23 @@ def prepare_candidate(
             destination=archive_root,
         )
         file_receipts.extend(
-            {"path": f"memorial_archive/{row['path']}", "sha256": row["sha256"], "size_bytes": row["size_bytes"]}
+            {
+                "path": f"memorial_archive/{row['path']}",
+                "sha256": row["sha256"],
+                "size_bytes": row["size_bytes"],
+            }
             for row in archive_receipts
         )
+        _set_modes(staging)
         projection_sha256, projected_files = _tree_digest(staging)
         release_id = f"{commit[:12]}-{projection_sha256[:12]}"
         release_root = releases_root / release_id
-        _set_modes(staging)
-        if release_root.exists():
-            _make_tree_removable(staging)
-            shutil.rmtree(staging)
-        else:
-            os.replace(staging, release_root)
+        _install_or_verify_release(
+            staging=staging,
+            release_root=release_root,
+            projection_sha256=projection_sha256,
+            projected_files=projected_files,
+        )
 
         public_contributions = runtime_root / "public-contributions"
         private_contributions = runtime_root / "private-contributions"
@@ -543,8 +650,10 @@ def prepare_candidate(
             if not path.exists():
                 path.mkdir(parents=True, exist_ok=True)
                 path.chmod(mode)
+        operator_gid = os.getgid()
+        _chown_for_runtime([release_root], uid=runtime_uid, gid=operator_gid)
         _chown_for_runtime(
-            [release_root, public_contributions, private_contributions, state_root],
+            [public_contributions, private_contributions, state_root],
             uid=runtime_uid,
             gid=runtime_gid,
         )
@@ -557,9 +666,15 @@ def prepare_candidate(
             runtime_root=runtime_root,
             public_base_url=public_base_url,
             host_port=host_port,
+            project_name=project_name,
             rotate_secrets=rotate_secrets,
         )
-        created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        created_at = (
+            datetime.now(timezone.utc)
+            .replace(microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
         receipt = {
             "schema": RECEIPT_SCHEMA,
             "status": "pass",
@@ -572,6 +687,7 @@ def prepare_candidate(
             "runtime_root": str(runtime_root),
             "env_file": str(env_path),
             "host_port": host_port,
+            "compose_project": project_name,
             "projection_sha256": projection_sha256,
             "private_context_sha256": _sha256(private_document),
             "file_count": len(projected_files),
@@ -583,6 +699,7 @@ def prepare_candidate(
             "candidate_secrets_rotated": rotate_secrets,
             "runtime_uid": runtime_uid,
             "runtime_gid": runtime_gid,
+            "projection_operator_gid": operator_gid,
             "spatial_handoff_included": False,
         }
         _atomic_receipt(receipts_root / f"{release_id}.json", receipt)
@@ -597,7 +714,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Prepare a private, hash-receipted Manfred Memorial candidate projection."
     )
-    parser.add_argument("--source-root", default=str(Path(__file__).resolve().parents[1]))
+    parser.add_argument(
+        "--source-root", default=str(Path(__file__).resolve().parents[1])
+    )
     parser.add_argument("--ref", default="HEAD")
     parser.add_argument("--image", required=True)
     parser.add_argument(
@@ -606,6 +725,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--public-base-url", required=True)
     parser.add_argument("--host-port", type=int, default=18090)
+    parser.add_argument(
+        "--project-name",
+        required=True,
+        help="Unique ea-manfred-candidate-<deployment> Compose project name.",
+    )
     parser.add_argument("--rotate-secrets", action="store_true")
     return parser
 
@@ -620,9 +744,16 @@ def main(argv: list[str] | None = None) -> int:
             deploy_root=Path(args.deploy_root),
             public_base_url=args.public_base_url,
             host_port=args.host_port,
+            project_name=args.project_name,
             rotate_secrets=args.rotate_secrets,
         )
-    except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+    except (
+        OSError,
+        ValueError,
+        RuntimeError,
+        subprocess.CalledProcessError,
+        json.JSONDecodeError,
+    ) as exc:
         print(
             json.dumps(
                 {

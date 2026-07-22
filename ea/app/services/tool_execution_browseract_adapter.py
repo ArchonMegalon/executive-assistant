@@ -591,6 +591,7 @@ class BrowserActToolAdapter:
                         "raw_text",
                         "text",
                         "normalized_text",
+                        "home_after_login",
                         "page_body",
                         "billing_usage_page",
                         "billing_usage_pre_bonus_page",
@@ -736,6 +737,25 @@ class BrowserActToolAdapter:
             if match is not None:
                 return str(match.group(1) or "").strip()
         return ""
+
+    @classmethod
+    def _extract_onemin_home_visible_credits(cls, raw_text: str) -> int | None:
+        text = str(raw_text or "").strip()
+        if not text:
+            return None
+        patterns = (
+            r"1min\.ai\s+([0-9][0-9,]*)\s+magic notebook",
+            r"1min\.ai\s+([0-9][0-9,]*)\s+ai discovery",
+            r"1min ai\s+([0-9][0-9,]*)\s+magic notebook",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, text, flags=re.IGNORECASE)
+            if match is None:
+                continue
+            parsed = cls._parse_credit_int(match.group(1))
+            if parsed is not None:
+                return parsed
+        return None
 
     @classmethod
     def _visible_labels(cls, raw_text: str, labels: tuple[str, ...]) -> list[str]:
@@ -1038,6 +1058,7 @@ class BrowserActToolAdapter:
         billing_settings_text = extract_texts.get("billing_settings_page", "")
         usage_records_text = extract_texts.get("usage_records_page", "")
         billing_bonus_text = extract_texts.get("billing_usage_bonus_page", "")
+        home_after_login_text = extract_texts.get("home_after_login", "")
         json_rows = cls._extract_onemin_json_rows_from_text(raw_text)
         for row in json_rows:
             inferred_section = cls._infer_onemin_billing_section_name(row)
@@ -1144,6 +1165,9 @@ class BrowserActToolAdapter:
                 cls._first_scalar_for_aliases(scalar_map, "credit")
                 or cls._find_label_value(raw_text, ("Credit",))
             )
+        home_visible_credits = cls._extract_onemin_home_visible_credits(home_after_login_text or raw_text)
+        if remaining_credits is None and home_visible_credits is not None:
+            remaining_credits = home_visible_credits
         max_credits = cls._parse_credit_int(
             cls._first_scalar_for_aliases(
                 scalar_map,
@@ -1322,7 +1346,18 @@ class BrowserActToolAdapter:
         observed_usage_credits_total = usage_summary.get("observed_usage_credits_total")
         observed_usage_window_hours = usage_summary.get("observed_usage_window_hours")
         observed_usage_burn_credits_per_hour = usage_summary.get("observed_usage_burn_credits_per_hour")
-        basis = "actual_billing_usage_page" if remaining_credits is not None else "page_seen_but_unparsed"
+        used_home_visible_credits = bool(
+            remaining_credits is not None
+            and home_visible_credits is not None
+            and remaining_credits == home_visible_credits
+            and settings_remaining_credits is None
+        )
+        if remaining_credits is None:
+            basis = "page_seen_but_unparsed"
+        elif used_home_visible_credits:
+            basis = "actual_home_credit_badge"
+        else:
+            basis = "actual_billing_usage_page"
         structured_output_json = {
             "raw_text": raw_text,
             "label_map": label_map,
@@ -1344,6 +1379,11 @@ class BrowserActToolAdapter:
                 "observed_usage_credits_total": observed_usage_credits_total,
                 "observed_usage_window_hours": observed_usage_window_hours,
                 "observed_usage_burn_credits_per_hour": observed_usage_burn_credits_per_hour,
+            },
+            "home_credit_badge_json": {
+                "present": home_visible_credits is not None,
+                "remaining_credits": home_visible_credits,
+                "basis": "logged_in_home_badge" if home_visible_credits is not None else "",
             },
         }
         if bonus_rows:

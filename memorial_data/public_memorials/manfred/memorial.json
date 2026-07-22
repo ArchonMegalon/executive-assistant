@@ -13,8 +13,8 @@
     "source_url": "https://mobbing-konkret.jimdofree.com/notwehrgesetze-angst-der-b%C3%BCrger-waffen-boom/"
   },
   "subtitle": "Eine ruhige Seite für Erinnerungen, belegte Gedanken und öffentliche Quellen von Manfred Hoza.",
-  "disclosure": "Originalaufnahmen sind als Original gekennzeichnet. Neue Antworttexte werden aus gespeicherten Quellen formuliert und sprechen nicht an seiner Stelle.",
-  "intro": "Diese Seite ist als Gedenkort gedacht: warm, ruhig und ehrlich. Sie darf seine Stimme aus echten Aufnahmen und verlinkten Originalinterviews wiedergeben, aber sie behauptet nicht, dass er live antwortet.",
+  "disclosure": "Freigegebene Originalaufnahmen werden als Original gekennzeichnet, sobald sie verfügbar sind. Neue Antworttexte werden aus gespeicherten Quellen formuliert und sprechen nicht an seiner Stelle.",
+  "intro": "Diese Seite ist als Gedenkort gedacht: warm, ruhig und ehrlich. Der synthetische Gedenkbegleiter ordnet nur freigegebene Quellen ein, ist nicht Manfred und spricht nicht für ihn. Originalaufnahmen erscheinen erst nach einer eigenen Freigabe.",
   "audio_clips": [],
   "memory_cards": [
     {
@@ -36,9 +36,9 @@
     {
       "visibility": "public",
       "source_label": "Für Angehörige",
-      "title": "Ein Ort zum Hören",
-      "body": "Der Schwerpunkt liegt auf echten Stimmen, echten Erinnerungen und einem Chat, der seine Quellen zeigt.",
-      "public_excerpt": "Der Schwerpunkt liegt auf echten Stimmen, echten Erinnerungen und einem Chat, der seine Quellen zeigt.",
+      "title": "Ein Ort für belegte Erinnerungen",
+      "body": "Der Schwerpunkt liegt auf belegten Erinnerungen und einem Gedenkbegleiter, der seine Quellen und Grenzen zeigt. Originalaufnahmen erscheinen erst nach einer eigenen Freigabe.",
+      "public_excerpt": "Der Schwerpunkt liegt auf belegten Erinnerungen und einem Gedenkbegleiter, der seine Quellen und Grenzen zeigt. Originalaufnahmen erscheinen erst nach einer eigenen Freigabe.",
       "approved": true
     },
     {
@@ -68,12 +68,85 @@
   ],
   "candidate_recordings": [],
   "suggested_prompts": [
-    "Was ist aus den Aufnahmen wirklich belegt?",
-    "Welche Originalstellen kann ich anhören?",
+    "Was ist aus den freigegebenen Quellen wirklich belegt?",
+    "Welche Erinnerungen lassen sich öffentlich belegen?",
     "Was war ihm bei Familie wichtig?",
     "Was zeigt die Jimdo-Seite über seine Arbeit und seine Themen?"
   ],
-  "external_sources": [],
+  "external_sources": [
+    {
+      "visibility": "public",
+      "label": "Manfred-Hoza-Jimdo-Seite",
+      "url": "https://manfred-hoza.jimdofree.com/",
+      "status": "public_reference_curated_for_memorial_signal"
+    },
+    {
+      "visibility": "public",
+      "label": "Jimdo: Autor",
+      "url": "https://manfred-hoza.jimdofree.com/autor/",
+      "status": "public_reference_curated_for_memorial_signal"
+    },
+    {
+      "visibility": "public",
+      "label": "Jimdo: Vorträge und Interviews",
+      "url": "https://manfred-hoza.jimdofree.com/vortr%C3%A4ge-interviews/",
+      "status": "public_reference_curated_for_memorial_signal"
+    },
+    {
+      "visibility": "public",
+      "label": "Interview zur Nicht-Gesetzeslage gegen Mobbing in Österreich",
+      "url": "https://selbsthilfegruppe-mobbing-graz.jimdofree.com/2018/12/28/minr-regr-mag-iur-manfred-hoza-im-interview-zur-nicht-gesetzeslage-gegen-mobbing-in-%C3%B6sterreich/",
+      "status": "public_reference_not_ingested"
+    },
+    {
+      "visibility": "public",
+      "label": "Schachprofil Manfred Hoza",
+      "url": "https://www.chess.com/players/manfred-hoza",
+      "status": "public_reference"
+    },
+    {
+      "visibility": "public",
+      "label": "Parlament: Stellungnahmen Suche Manfred Hoza",
+      "url": "https://www.parlament.gv.at/suche?suchbegriff=Manfred%20Hoza",
+      "status": "public_legal_reference"
+    },
+    {
+      "visibility": "public",
+      "label": "RIS Suche: Manfred Hoza",
+      "url": "https://www.ris.bka.gv.at/Suchergebnis.wxe?Suchworte=Manfred%20Hoza",
+      "status": "public_legal_search_reference"
+    },
+    {
+      "visibility": "public",
+      "label": "Mobbing konkret: Interview Teil 2",
+      "url": "https://www.youtube.com/watch?v=Fxy9VsuVGlI",
+      "status": "public_audio_reference_not_ingested"
+    },
+    {
+      "visibility": "public",
+      "label": "YouTube Interview, 22 Minuten",
+      "url": "https://www.youtube.com/watch?v=_oXBWKa3A5M",
+      "status": "public_audio_reference_not_ingested"
+    },
+    {
+      "visibility": "public",
+      "label": "Mobbing Selbsthilfegruppe - 1.Teil Einleitung",
+      "url": "https://www.youtube.com/watch?v=m6QosScYyP8",
+      "status": "public_audio_reference_not_ingested"
+    },
+    {
+      "visibility": "public",
+      "label": "Mobbing konkret: Interview Teil 1",
+      "url": "https://www.youtube.com/watch?v=mGChED-hGsI",
+      "status": "public_audio_reference_not_ingested"
+    },
+    {
+      "visibility": "public",
+      "label": "Mobbing Selbsthilfegruppe - 3.Teil",
+      "url": "https://www.youtube.com/watch?v=xlrEDbQDTFA",
+      "status": "public_audio_reference_not_ingested"
+    }
+  ],
   "source_grounded_profile": [
     {
       "visibility": "public",

@@ -1,10 +1,10 @@
 {
   "slug": "manfred",
-  "champion_voice_id": "${EA_MEMORIAL_MANFRED_VOICE_A_ID}",
-  "current_index": 0,
+  "champion_voice_id": "",
+  "current_index": 1,
   "challengers": [
     {
-      "voice_id": "${EA_MEMORIAL_MANFRED_VOICE_B_ID}",
+      "voice_id": "provider-test-challenger-v2",
       "label": "Stimme B · neuer Challenger",
       "description": "Frueherer Champion als direkter Gegenvergleich zur neuen Hauptstimme.",
       "unmixr_speaking_rate": "low",
@@ -24,7 +24,7 @@
       "hypothesis": ""
     },
     {
-      "voice_id": "${EA_MEMORIAL_MANFRED_VOICE_C_ID}",
+      "voice_id": "",
       "label": "Stimme B · naeher an ihm",
       "description": "Bisher bester identitaetsnaher Challenger",
       "unmixr_speaking_rate": "low",
@@ -46,8 +46,15 @@
   ],
   "retired_voices": [
     {
-      "voice_id": "${EA_MEMORIAL_MANFRED_RETIRED_VOICE_ID}",
+      "voice_id": "",
       "retired_at": "2026-06-06T20:16:19Z",
+      "delete_status": "pending_manual_delete",
+      "profile_id": "",
+      "error": "unmixr_api_key_missing"
+    },
+    {
+      "voice_id": "provider-test-challenger-old",
+      "retired_at": "2026-07-11T19:33:02Z",
       "delete_status": "pending_manual_delete",
       "profile_id": "",
       "error": "unmixr_api_key_missing"

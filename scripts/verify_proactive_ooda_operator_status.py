@@ -455,6 +455,59 @@ def _verify_provider_cost_pressure(receipt: dict[str, Any], issues: list[str]) -
             issues.append("provider_cost_pressure recovery requires next_action=repair_provider_cost_routing")
 
 
+def _verify_onemin_direct_refresh_posture(receipt: dict[str, Any], issues: list[str]) -> None:
+    posture = dict(receipt.get("onemin_direct_refresh_posture") or {})
+    if not posture:
+        issues.append("onemin_direct_refresh_posture missing")
+        return
+    if "checked" not in posture:
+        issues.append("onemin_direct_refresh_posture.checked missing")
+    if "probe_ok" not in posture:
+        issues.append("onemin_direct_refresh_posture.probe_ok missing")
+    status = str(posture.get("status") or "").strip()
+    if not status:
+        issues.append("onemin_direct_refresh_posture.status missing")
+    if bool(posture.get("checked")):
+        if not str(posture.get("source") or "").strip():
+            issues.append("checked onemin_direct_refresh_posture requires source")
+        if not str(posture.get("observed_at") or "").strip():
+            issues.append("checked onemin_direct_refresh_posture requires observed_at")
+        if not str(posture.get("receipt_name") or "").strip():
+            issues.append("checked onemin_direct_refresh_posture requires receipt_name")
+    if str(posture.get("next_action") or "").strip():
+        if not str(posture.get("next_action_href") or "").strip():
+            issues.append("onemin_direct_refresh_posture next_action requires next_action_href")
+        if not str(posture.get("next_action_label") or "").strip():
+            issues.append("onemin_direct_refresh_posture next_action requires next_action_label")
+        if str(posture.get("next_action_method") or "").strip().lower() != "get":
+            issues.append("onemin_direct_refresh_posture next_action requires next_action_method=get")
+    controls = dict(posture.get("controls") or {})
+    if int(controls.get("batch_size") or 0) < 1:
+        issues.append("onemin_direct_refresh_posture controls.batch_size must be >=1")
+    for key in ("batch_backoff_seconds", "max_rate_limit_sleep_seconds"):
+        if float(controls.get(key) or 0.0) < 0.0:
+            issues.append(f"onemin_direct_refresh_posture controls.{key} must be non-negative")
+    if controls and str(controls.get("refresh_transport") or "").strip() != "direct_provider_api":
+        issues.append("onemin_direct_refresh_posture controls.refresh_transport must remain direct_provider_api")
+    if controls and str(controls.get("proxy_mode") or "").strip() != "direct_no_ui_proxy":
+        issues.append("onemin_direct_refresh_posture controls.proxy_mode must remain direct_no_ui_proxy")
+    telegram_delivery = dict(posture.get("telegram_delivery") or {})
+    if "checked" not in telegram_delivery:
+        issues.append("onemin_direct_refresh_posture.telegram_delivery.checked missing")
+    if int(telegram_delivery.get("message_count") or 0) < 0:
+        issues.append("onemin_direct_refresh_posture.telegram_delivery.message_count must be non-negative")
+    if bool(telegram_delivery.get("sent")) and int(telegram_delivery.get("message_count") or 0) <= 0:
+        issues.append("sent onemin_direct_refresh_posture.telegram_delivery requires message_count>0")
+    privacy = dict(posture.get("privacy") or {})
+    for key in (
+        "raw_owner_email_exposed",
+        "raw_login_secret_exposed",
+        "raw_telegram_chat_ref_exposed",
+    ):
+        if privacy.get(key) is not False:
+            issues.append(f"onemin_direct_refresh_posture.privacy.{key} must remain false")
+
+
 def _verify_approval_capture(approval_capture: dict[str, Any], issues: list[str], *, required: bool) -> None:
     if not approval_capture:
         if required:
@@ -846,6 +899,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
     _verify_assistant_grade_packet(receipt, issues)
     _verify_suppressed_projection(receipt, issues)
     _verify_provider_cost_pressure(receipt, issues)
+    _verify_onemin_direct_refresh_posture(receipt, issues)
 
     gmail_draft_followthrough = dict(receipt.get("gmail_draft_followthrough") or {})
     if "checked" not in gmail_draft_followthrough:

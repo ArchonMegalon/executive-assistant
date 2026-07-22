@@ -45,8 +45,9 @@ No other repo may compute or redefine canonical mechanics.
 * the initial bounded home for campaign continuity, product-control, and world-state domains
 * account-aware download/install UX
 * service-to-service coordination
+* the Chummer-owned governed spatial-render bridge and orchestration, including approved truth refs, audience scope, consumer authorization, and product closeout
 
-It must not own duplicate mechanics, registry persistence after split, or media rendering after split.
+It must not own duplicate mechanics, registry persistence after split, media rendering after split, provider execution, provider jobs, media quota mutation, immutable output manifests, render-asset lifecycle, or private provider execution receipts.
 If campaign continuity, product control, or world-state semantics live in Hub, they do so as explicit bounded contexts with dedicated contract families, not as a license for Hub to become the hidden owner of every middle-layer concern.
 
 ### Rule 5 — Workbench and play stay separate
@@ -65,10 +66,13 @@ They do not fork it.
 ### Rule 7 — Registry is a service boundary
 
 Artifact catalog, publication workflow, release channels, installs, update-feed metadata, reviews, and compatibility metadata belong in `chummer6-hub-registry`.
+For governed spatial artifacts, Registry alone owns Chummer publication, renewal, revocation, public artifact refs, and public-ref tombstones; it does not own provider execution or private execution receipts.
 
 ### Rule 8 — Media execution is a service boundary
 
 Render jobs, manifests, previews, asset lifecycle, and provider adapters belong in `chummer6-media-factory`.
+That boundary also owns `governed_spatial_render_v1` in `Chummer.Media.Contracts`, authoritative compose receipts, provider selection, job/retry/cancellation state, atomic quota accounting, immutable output manifests, deletion execution, provider-deletion evidence, and encrypted private execution receipts.
+Media-factory consumes approved immutable refs; it does not calculate mechanics, reinterpret outcomes, own campaign/audience/approval truth, or publish public refs.
 
 ### Rule 9 — Legacy is reference-only
 
@@ -216,6 +220,36 @@ They form a product-control plane with first-class truth for:
 The initial DTO family for that plane is `Chummer.Control.Contracts`.
 It starts inside `chummer6-hub` as a bounded context that Hub owns for intake and closure, while Fleet consumes it for clustering and execution aids and design/governor roles consume it for governed change.
 
+### Rule 20 — Governed spatial rendering is contract-owned and fail-closed
+
+The proposed Chummer spatial-render seam is `governed_spatial_render_v1` in `Chummer.Media.Contracts`.
+Its amendment state is `proposed_for_independent_re_review`; implementation, provider execution, quota use, release widening, and mirror publication remain blocked.
+The earlier `ea.*` prototype label is not a Chummer contract name or alias.
+
+Authority is split as follows:
+
+* `chummer6-core` emits deterministic mechanics receipts; no render plane may calculate or mutate mechanics, initiative, actions, effects, damage, or outcomes
+* `chummer6-hub` owns the Chummer bridge, approved runsite/campaign/run/scene/actor/outcome/permission refs, audience and consumer authorization, orchestration, provider-redacted product meaning, takedown intake, and user-visible Chummer closeout
+* `chummer6-media-factory` owns the canonical contract, authoritative compose receipt, provider adapters and selection, jobs, retries and cancellation, idempotency ledger, quota reservation/consumption/compensation, provider-route kill switch, immutable output manifest, artifact lifecycle/deletion, and encrypted private execution receipt
+* `chummer6-hub-registry` owns publication, lease renewal, revocation, public artifact refs, and public-ref tombstones
+* `fleet` verifies execution-budget, gate, canary, rollback, and landing evidence without mutating the media quota journal
+* the product governor retains freeze and reroute authority
+* `executive-assistant` may expose provider-redacted derived telemetry and assist synthetic zero-burn composition only; its output is non-authoritative and cannot project readiness
+* the verified PropertyQuarry authority decision records repository `/docker/property`, package `app.product`, module `app.product.property_tour_hosting` as product bridge owner; repository `/docker/property`, package `app.api.routes`, module `app.api.routes.landing` as privacy lifecycle, intake, and closeout owner; `public_tour_payloads` as enforcement dependency; and `property_tour_hosting` as revocation/deletion execution dependency
+* Chummer may record those external owners but cannot assign, implement, authorize, operate, restore, revoke, delete, or close PropertyQuarry work for them; PropertyQuarry implementation remains blocked pending its numeric product policy and independent re-review
+
+Compose and build are separate operations.
+Authoritative compose is media-factory-owned, deterministic, idempotent, provider-neutral, and zero enqueue/reservation/credit burn.
+Build additionally requires an accepted composition digest, current exact-family capability evidence, a fresh consumer-owned authorization, an atomic media-factory reservation, `consume_quota: true`, and bounded attempts.
+Missing, stale, revoked, wrong-family, wrong-environment, wrong-route, or wrong-gate evidence projects only `unverified` or `blocked`.
+Capability `verified` is not artifact `ready`; an artifact also needs an authorized build, accepted immutable manifest and quality receipts, and Registry publication when public.
+
+The generic spatial base remains valid with no encounter or combat fields.
+`runsite_private_encounter_preview` is a separate private Chummer recipe that consumes immutable Chummer truth and provided-outcome refs.
+It is not PropertyQuarry input, public RUNSITE meaning, live-session truth, tactical authority, or a VTT surface.
+The verified PropertyQuarry decision supplies external owner evidence, not implementation authority.
+Any later independently authorized cross-product wire must use the PropertyQuarry-owned provider-neutral contract and explicit mapper, then map into, never source-copy, `Chummer.Media.Contracts` at the Chummer boundary.
+
 ## Repo graph
 
 ```text
@@ -252,22 +286,38 @@ chummer6-hub
   ├─ consumes Chummer.Engine.Contracts
   ├─ consumes Chummer.Hub.Registry.Contracts
   ├─ consumes Chummer.Media.Contracts
+  ├─ owns the Chummer governed-spatial bridge, authorization, audience, orchestration, and product closeout
   └─ renders hosted workflows and registry-backed public download UX
 
 chummer6-hub-registry
   ├─ publishes Chummer.Hub.Registry.Contracts
-  └─ owns release/install/update/read-model truth
+  ├─ consumes provider-redacted immutable media manifests
+  └─ owns release/install/update/read-model plus spatial publication/revocation truth
 
 chummer6-media-factory
-  └─ publishes Chummer.Media.Contracts
+  ├─ publishes Chummer.Media.Contracts and owns governed_spatial_render_v1
+  ├─ owns authoritative compose/build, provider jobs, idempotency, quota accounting, manifests, lifecycle, and private receipts
+  └─ consumes approved immutable campaign/world refs without redefining their meaning
 
 fleet
   ├─ consumes mirrored Chummer canon from chummer6-design
   ├─ owns parity automation and clustered queue synthesis for mirrored canon
   ├─ orchestrates repo work across Chummer codebases
   ├─ orchestrates release waves across core/ui/registry
+  ├─ verifies governed spatial capability, canary, rollback, and execution-budget evidence without mutating quota
   ├─ keeps cheap groundwork as the default execution plane
   └─ may open explicit premium burst lanes that still land through review authority
+
+executive-assistant
+  ├─ consumes mirrored Chummer canon and provider-redacted derived telemetry
+  └─ may assist synthetic zero-burn compose only; it owns no spatial contract, provider job, quota mutation, product truth, or readiness projection
+
+PropertyQuarry (external owners recorded; implementation blocked)
+  ├─ product bridge: /docker/property :: app.product :: app.product.property_tour_hosting
+  ├─ privacy lifecycle/intake/closeout: /docker/property :: app.api.routes :: app.api.routes.landing
+  ├─ enforcement dependency: public_tour_payloads
+  ├─ revocation/deletion execution dependency: property_tour_hosting
+  └─ may map its own provider-neutral contract into Chummer.Media.Contracts only after numeric product policy, independent re-review, and separate implementation authorization; it never consumes the private encounter recipe
 ```
 
 ## Allowed dependency directions
@@ -292,6 +342,10 @@ fleet
 * hub -> media contracts
 * media-factory -> campaign contracts
 * media-factory -> world contracts
+* hub-registry -> provider-redacted immutable media manifests and publication candidates
+* executive-assistant -> provider-redacted spatial telemetry and synthetic zero-burn compose interfaces
+* fleet -> read-only capability, quota-budget, canary, rollback, and landing evidence
+* the recorded PropertyQuarry bridge (`/docker/property` -> `app.product` -> `app.product.property_tour_hosting`) -> an explicit Chummer boundary mapper, only after PropertyQuarry numeric product policy, independent re-review, and separate implementation authorization, without source copies
 * hub-registry -> its own contracts
 * media-factory -> its own contracts
 * fleet -> mirrored design canon
@@ -308,6 +362,14 @@ fleet
 * ui-kit -> domain DTO packages
 * media-factory -> play contracts
 * media-factory -> campaign/session DB semantics
+* media-factory -> mechanics calculation or mutation
+* media-factory -> Hub audience, approval, campaign, or product-state mutation
+* media-factory -> Registry publication or public-ref mutation
+* hub -> governed spatial provider adapters, provider jobs, quota journal, immutable output-manifest ownership, asset lifecycle, or private execution receipts
+* hub-registry -> provider execution, quota mutation, or private execution receipts
+* executive-assistant -> durable spatial contracts, provider execution, provider-run receipts, quota mutation, Chummer or PropertyQuarry product truth, or readiness projection
+* PropertyQuarry -> runsite_private_encounter_preview or public RUNSITE semantic authority
+* any consumer -> a source copy or `ea.*` alias of governed_spatial_render_v1
 * hub -> duplicated engine semantic DTOs once canonical package owner exists
 * fleet -> canonical product design ownership
 * hub -> raw participant Codex/OpenAI auth caches

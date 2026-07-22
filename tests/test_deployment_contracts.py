@@ -1686,7 +1686,7 @@ def test_deploy_script_materializes_release_manifest_after_health() -> None:
     assert 'RELEASE_MANIFEST_PATH="${RELEASE_MANIFEST_PATH:-${APP_ROOT}/.codex-studio/published/release_manifest.generated.json}"' in deploy
     assert 'RELEASE_AUTHORITY_STATUS_PATH="${RELEASE_AUTHORITY_STATUS_PATH:-${APP_ROOT}/.codex-studio/published/release_authority_status.generated.json}"' in deploy
     assert 'DEPLOY_PRIMARY_MODE="${EA_DEPLOY_PRIMARY_MODE:-${EA_DEPLOY_PROJECT_MODE:-EA_CORE}}"' in deploy
-    assert 'allow_dirty_worktree="${PROPERTYQUARRY_DEPLOY_ALLOW_DIRTY_WORKTREE:-${EA_DEPLOY_ALLOW_DIRTY_WORKTREE:-0}}"' in deploy
+    assert "from source_state_head import source_worktree_metadata" in deploy
     assert "Refusing to deploy without a public runtime origin." in deploy
     assert "EA_PUBLIC_APP_BASE_URL=https://assistant.example.test" in deploy
     assert "PROPERTYQUARRY_PUBLIC_BASE_URL=https://property.example.test" in deploy
@@ -1727,8 +1727,10 @@ def test_deploy_script_materializes_release_manifest_after_health() -> None:
     assert 'workspace_issuer="$(normalize_origin_like "$(effective_value EA_WORKSPACE_ACCESS_TOKEN_ISSUER)")"' in deploy
     assert 'workspace_audience="$(normalize_origin_like "$(effective_value EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE)")"' in deploy
     assert 'workspace_key_version="$(normalize_origin_like "$(effective_value EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION)")"' in deploy
-    assert "Refusing to deploy from a dirty git worktree." in deploy
-    assert 'EA_DEPLOY_ALLOW_DIRTY_WORKTREE=1 bash scripts/deploy.sh' in deploy
+    assert "Refusing to deploy from a source-dirty git worktree." in deploy
+    assert "Only paths classified as generated-only by source_state_head are permitted" in deploy
+    assert "EA_DEPLOY_ALLOW_DIRTY_WORKTREE" not in deploy
+    assert "Refusing to deploy from a detached or untracked Git worktree." in deploy
     assert 'export EA_DEPLOYMENT_ID="deploy-$(date -u +%Y%m%dT%H%M%SZ)-${deploy_commit_fragment}"' in deploy
     assert 'EA_DEPLOY_COMPOSE_FILES="${compose_files_csv}" \\' in deploy
     assert 'EA_DEPLOY_COMPOSE_OVERRIDES="${compose_overrides_csv}" \\' in deploy

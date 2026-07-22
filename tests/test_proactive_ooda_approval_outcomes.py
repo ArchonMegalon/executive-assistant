@@ -10,6 +10,7 @@ from app.services.proactive_ooda_approval_outcomes import (
     default_proactive_ooda_approval_outcome_path,
     record_proactive_ooda_approval_outcome,
 )
+from app.services import proactive_ooda_approval_outcomes as approval_outcomes
 from app.services.proactive_ooda_approval_capture import finalize_proactive_ooda_approval_outcome
 
 
@@ -21,6 +22,19 @@ def test_default_proactive_ooda_approval_outcome_path_tracks_run_receipt_directo
     )
 
     assert path == tmp_path / "provider-ledger" / "proactive_ooda_latest_approval_outcome.generated.json"
+
+
+def test_writable_path_returns_false_when_exists_raises_permission_error(monkeypatch) -> None:
+    original_exists = Path.exists
+
+    def fake_exists(self: Path) -> bool:
+        if self.as_posix() == "/denied/provider-ledger":
+            raise PermissionError("denied")
+        return original_exists(self)
+
+    monkeypatch.setattr(Path, "exists", fake_exists)
+
+    assert approval_outcomes._writable_path(Path("/denied/provider-ledger")) is False  # noqa: SLF001
 
 
 def test_record_proactive_ooda_approval_outcome_writes_redacted_artifact(tmp_path: Path) -> None:

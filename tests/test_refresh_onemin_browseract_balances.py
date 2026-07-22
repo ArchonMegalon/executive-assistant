@@ -114,6 +114,7 @@ def test_account_proxy_settings_hashes_into_pool(monkeypatch):
         "http://ea-fastestvpn-proxy:3128,http://ea-fastestvpn-proxy-ie:3128",
     )
     monkeypatch.delenv("EA_UI_BROWSER_PROXY_SERVER", raising=False)
+    monkeypatch.setattr(module, "_sidecar_running", lambda name: True)
 
     alpha = module._account_proxy_settings("ONEMIN_AI_API_KEY_FALLBACK_27")
     bravo = module._account_proxy_settings("ONEMIN_AI_API_KEY_FALLBACK_28")
@@ -152,6 +153,42 @@ def test_browser_proxy_settings_expand_compose_style_placeholders(monkeypatch):
     )
 
 
+def test_effective_proxy_settings_filters_dead_fastestvpn_services(monkeypatch):
+    module = _load_module()
+    monkeypatch.setenv("EA_UI_BROWSER_PROXY_SERVER", "http://ea-fastestvpn-proxy:3128")
+    monkeypatch.setenv(
+        "EA_UI_BROWSER_PROXY_POOL",
+        "http://ea-fastestvpn-proxy:3128,http://ea-fastestvpn-proxy-ie:3128",
+    )
+    monkeypatch.setattr(
+        module,
+        "_sidecar_running",
+        lambda name: name == "ea-fastestvpn-proxy-ie",
+    )
+
+    settings = module._effective_proxy_settings()
+
+    assert settings["EA_UI_BROWSER_PROXY_SERVER"] == "http://ea-fastestvpn-proxy-ie:3128"
+    assert settings["EA_UI_BROWSER_PROXY_POOL"] == "http://ea-fastestvpn-proxy-ie:3128"
+    assert settings["EA_UI_BROWSER_PROXY_DEAD_SERVICES"] == "ea-fastestvpn-proxy"
+
+
+def test_effective_proxy_settings_falls_back_to_direct_when_fastestvpn_pool_is_dead(monkeypatch):
+    module = _load_module()
+    monkeypatch.setenv("EA_UI_BROWSER_PROXY_SERVER", "http://ea-fastestvpn-proxy:3128")
+    monkeypatch.setenv(
+        "EA_UI_BROWSER_PROXY_POOL",
+        "http://ea-fastestvpn-proxy:3128,http://ea-fastestvpn-proxy-ie:3128",
+    )
+    monkeypatch.setattr(module, "_sidecar_running", lambda name: False)
+
+    settings = module._effective_proxy_settings()
+
+    assert settings["EA_UI_BROWSER_PROXY_SERVER"] == "direct://"
+    assert "EA_UI_BROWSER_PROXY_POOL" not in settings
+    assert settings["EA_UI_BROWSER_PROXY_DEAD_SERVICES"] == "ea-fastestvpn-proxy,ea-fastestvpn-proxy-ie"
+
+
 def test_rotate_proxy_passes_service_name(monkeypatch):
     module = _load_module()
     captured = {}
@@ -176,6 +213,186 @@ def test_rotate_proxy_passes_service_name(monkeypatch):
     ]
     assert event["returncode"] == 0
     assert event["service_name"] == "ea-fastestvpn-proxy-ie"
+
+
+def test_proxy_server_is_direct_detects_disabled_routes():
+    module = _load_module()
+
+    assert module._proxy_server_is_direct("")
+    assert module._proxy_server_is_direct("direct://")
+    assert module._proxy_server_is_direct("DIRECT")
+    assert module._proxy_server_is_direct("off")
+    assert not module._proxy_server_is_direct("http://ea-fastestvpn-proxy-ie:3128")
+
+
+def test_can_retry_failed_account_rejects_direct_only_retry():
+    module = _load_module()
+
+    assert not module._can_retry_failed_account(
+        {
+            "failure_code": "timeout",
+            "proxy_server": "direct://",
+            "proxy_service_name": "",
+        },
+        summary={
+            "proxy_server": "direct://",
+            "proxy_pool": ["direct://"],
+        },
+    )
+
+
+def test_can_retry_failed_account_allows_alternate_proxy_pool_without_service_name():
+    module = _load_module()
+
+    assert module._can_retry_failed_account(
+        {
+            "failure_code": "timeout",
+            "proxy_server": "http://ea-fastestvpn-proxy:3128",
+            "proxy_service_name": "",
+        },
+        summary={
+            "proxy_server": "http://ea-fastestvpn-proxy:3128",
+            "proxy_pool": [
+                "http://ea-fastestvpn-proxy:3128",
+                "http://ea-fastestvpn-proxy-ie:3128",
+            ],
+        },
+    )
+
+
+def test_can_retry_failed_account_allows_named_proxy_service():
+    module = _load_module()
+
+    assert module._can_retry_failed_account(
+        {
+            "failure_code": "timeout",
+            "proxy_server": "http://ea-fastestvpn-proxy-ie:3128",
+            "proxy_service_name": "ea-fastestvpn-proxy-ie",
+        },
+        summary={
+            "proxy_server": "http://ea-fastestvpn-proxy-ie:3128",
+            "proxy_pool": ["http://ea-fastestvpn-proxy-ie:3128"],
+        },
+    )
+
+
+def test_processed_summary_preserves_dead_proxy_services(monkeypatch, tmp_path):
+    module = _load_module()
+
+    persisted = module._write_summary(
+        tmp_path / "summary.json",
+        {
+            "results": [],
+            "rotations": [],
+            "dead_proxy_services": [
+                "ea-fastestvpn-proxy",
+                "ea-fastestvpn-proxy-ie",
+            ],
+        },
+        started=0.0,
+    )
+
+    assert persisted["dead_proxy_services"] == [
+        "ea-fastestvpn-proxy",
+        "ea-fastestvpn-proxy-ie",
+    ]
+
+
+def test_run_account_timeout_keeps_proxy_and_partial_artifact_context(monkeypatch, tmp_path):
+    module = _load_module()
+    monkeypatch.setenv("ONEMIN_DEFAULT_PASSWORD", "secret")
+    monkeypatch.setattr(
+        module,
+        "_effective_proxy_settings",
+        lambda: {
+            "EA_UI_BROWSER_PROXY_SERVER": "direct://",
+        },
+    )
+    monkeypatch.setattr(module, "_effective_worker_env", lambda: {})
+
+    output_path = tmp_path / "output.json"
+
+    def fake_tempdir(prefix=""):
+        return str(tmp_path)
+
+    def fake_run(command, **kwargs):
+        output_path.write_text(
+            json.dumps(
+                {
+                    "asset_path": "/tmp/result.html",
+                    "screenshot_path": "/tmp/result.png",
+                    "warnings": ["partial_capture"],
+                    "error": "worker hung after login",
+                }
+            ),
+            encoding="utf-8",
+        )
+        raise module.subprocess.TimeoutExpired(cmd=command, timeout=60)
+
+    monkeypatch.setattr(module.tempfile, "mkdtemp", fake_tempdir)
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    record = module.AccountRecord(
+        slot="fallback_58",
+        account_label="ONEMIN_AI_API_KEY_FALLBACK_58",
+        owner_email="Valmai.Johnston@myexternalbrain.com",
+        owner_name="Valmai Johnston",
+    )
+
+    result = module._run_account(record, timeout_seconds=30)
+
+    assert result["status"] == "worker_failed"
+    assert result["failure_code"] == "timeout"
+    assert result["proxy_server"] == "direct://"
+    assert result["asset_path"] == "/tmp/result.html"
+    assert result["screenshot_path"] == "/tmp/result.png"
+    assert result["warnings"] == ["partial_capture"]
+    assert "worker hung after login" in result["worker_error"]
+
+
+def test_run_account_preserves_worker_timeout_receipt_fields(monkeypatch, tmp_path):
+    module = _load_module()
+    monkeypatch.setenv("ONEMIN_DEFAULT_PASSWORD", "secret")
+    monkeypatch.setattr(module, "_effective_proxy_settings", lambda: {"EA_UI_BROWSER_PROXY_SERVER": "direct://"})
+    monkeypatch.setattr(module, "_effective_worker_env", lambda: {})
+    monkeypatch.setattr(module, "browseract_ui_template_spec", lambda *_args, **_kwargs: {})
+
+    def fake_tempdir(prefix=""):
+        return str(tmp_path)
+
+    class _Completed:
+        returncode = 1
+        stdout = json.dumps(
+            {
+                "render_status": "failed",
+                "asset_path": "/tmp/onemin-timeout.html",
+                "screenshot_path": "/tmp/02-billing.png",
+                "warnings": ["timeout_stage:node:billing"],
+                "failure_code": "timeout",
+                "error": "template_worker_timeout:ea-ui-worker-abc123",
+            }
+        )
+        stderr = ""
+
+    monkeypatch.setattr(module.tempfile, "mkdtemp", fake_tempdir)
+    monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: _Completed())
+
+    record = module.AccountRecord(
+        slot="fallback_59",
+        account_label="ONEMIN_AI_API_KEY_FALLBACK_59",
+        owner_email="Mable.Fox@myexternalbrain.com",
+        owner_name="Mable Fox",
+    )
+
+    result = module._run_account(record, timeout_seconds=60)
+
+    assert result["status"] == "ui_lane_failure"
+    assert result["failure_code"] == "timeout"
+    assert result["proxy_server"] == "direct://"
+    assert result["asset_path"] == "/tmp/onemin-timeout.html"
+    assert result["screenshot_path"] == "/tmp/02-billing.png"
+    assert result["warnings"] == ["timeout_stage:node:billing"]
+    assert "template_worker_timeout" in result["error"]
 
 
 def test_run_account_marks_unparsed_billing_page_as_failure(monkeypatch, tmp_path):

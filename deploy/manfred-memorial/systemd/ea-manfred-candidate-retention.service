@@ -1,0 +1,54 @@
+[Unit]
+Description=Bounded Manfred candidate retention
+Documentation=file:///docker/EA/scripts/cleanup_manfred_memorial_candidates.py
+ConditionUser=tibor
+StartLimitIntervalSec=1h
+StartLimitBurst=20
+
+[Service]
+Type=oneshot
+WorkingDirectory=/docker/EA
+UnsetEnvironment=LD_AUDIT LD_LIBRARY_PATH LD_PRELOAD PYTHONHOME PYTHONPATH DOCKER_CERT_PATH DOCKER_CONFIG DOCKER_CONTEXT DOCKER_HOST DOCKER_TLS_VERIFY COMPOSE_FILE COMPOSE_PROJECT_NAME SSH_AUTH_SOCK
+ExecStartPre=/usr/bin/sha256sum --check --strict --status /home/tibor/.local/share/ea-deploy/manfred-candidate-retention.sha256
+ExecStart=/usr/bin/env -i HOME=%h USER=%u LOGNAME=%u PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 LC_ALL=C.UTF-8 XDG_RUNTIME_DIR=%t XDG_STATE_HOME=%h/.local/state DOCKER_HOST=unix:///run/docker.sock /usr/bin/python3 -I -B -X pycache_prefix=/dev/null /docker/EA/scripts/cleanup_manfred_memorial_candidates.py --apply
+TimeoutStartSec=80min
+TimeoutStopSec=30s
+Restart=no
+UMask=0077
+StateDirectory=ea
+StateDirectoryMode=0700
+Nice=19
+IOSchedulingClass=idle
+CPUWeight=10
+IOWeight=10
+TasksMax=64
+MemoryHigh=256M
+MemoryMax=512M
+MemorySwapMax=256M
+LimitNOFILE=512
+LimitCORE=0
+NoNewPrivileges=true
+KeyringMode=private
+PrivateTmp=true
+PrivateMounts=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectKernelTunables=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallFilter=~@clock @debug @module @mount @obsolete @privileged @raw-io @reboot @swap
+SystemCallErrorNumber=EPERM
+ReadOnlyPaths=/docker/EA %h/.local/share/ea-deploy
+ReadWritePaths=%h/.local/state/ea /run/lock /run/docker.sock
+StandardOutput=journal
+StandardError=journal
+LogRateLimitIntervalSec=1h
+LogRateLimitBurst=20
