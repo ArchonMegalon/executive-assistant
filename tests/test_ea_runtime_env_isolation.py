@@ -170,6 +170,21 @@ def test_runtime_directory_symlink_is_rejected(tmp_path: Path) -> None:
     assert list(outside.iterdir()) == []
 
 
+def test_trusted_group_writable_repository_root_is_supported(tmp_path: Path) -> None:
+    module = _module()
+    root = _repo(tmp_path)
+    root.chmod(0o775)
+    _secret_file(
+        root / ".env",
+        b"EA_KEEP=yes\nEMAILIT_API_KEY=property-mail-secret\n",
+    )
+
+    receipt = module.prepare_runtime_env(root)
+
+    assert receipt["removed_key_count"] == 1
+    assert (root / ".runtime" / "ea_runtime.env").read_bytes() == b"EA_KEEP=yes\n"
+
+
 def test_atomic_replace_failure_preserves_previous_projection_and_cleans_temp(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

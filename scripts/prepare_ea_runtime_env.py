@@ -368,8 +368,8 @@ def prepare_runtime_env(root: Path) -> dict[str, Any]:
         raise SanitizerError(f"could not inspect repository root: errno {exc.errno}") from None
     if not stat.S_ISDIR(root_metadata.st_mode) or stat.S_ISLNK(root_metadata.st_mode):
         raise SanitizerError("repository root must be a real directory")
-    if root_metadata.st_mode & 0o022:
-        raise SanitizerError("repository root must not be group- or world-writable")
+    if root_metadata.st_mode & 0o002:
+        raise SanitizerError("repository root must not be world-writable")
     if not hasattr(os, "O_NOFOLLOW"):
         raise SanitizerError("this platform cannot safely open the repository root")
 
