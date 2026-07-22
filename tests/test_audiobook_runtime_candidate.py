@@ -11,6 +11,8 @@ import sys
 
 import pytest
 
+from scripts.prepare_ea_runtime_env import prepare_runtime_env
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "scripts" / "verify_audiobook_runtime_candidate.py"
@@ -255,9 +257,11 @@ def _prepare_real_compose(tmp_path: Path) -> tuple[Path, dict[str, str]]:
         ROOT / "deploy" / "audiobook-runtime-candidate" / "docker-compose.candidate.yml",
         candidate_dir / "docker-compose.candidate.yml",
     )
-    (compose_root / ".env").write_text(
+    source_env = compose_root / ".env"
+    source_env.write_text(
         "# Empty environment file for static Compose rendering.\n", encoding="utf-8"
     )
+    source_env.chmod(0o600)
 
     config = compose_root / "config"
     gemini = compose_root / "gemini"
@@ -322,6 +326,8 @@ def _render_real_compose(
     environment: dict[str, str],
     *compose_names: str,
 ) -> dict[str, object]:
+    runtime_projection = prepare_runtime_env(compose_root)
+    assert runtime_projection["status"] == "prepared"
     command = [
         "docker",
         "compose",

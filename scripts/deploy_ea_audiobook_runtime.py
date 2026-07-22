@@ -33,6 +33,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping, Protocol, Sequence
 
+if __package__:
+    from .prepare_ea_runtime_env import SanitizerError, prepare_runtime_env
+else:
+    from prepare_ea_runtime_env import SanitizerError, prepare_runtime_env
+
 
 ROOT = Path(__file__).resolve().parents[1]
 UTC = timezone.utc
@@ -3683,6 +3688,7 @@ class AudiobookRuntimeDeployLane:
                 allowed_uids=allowed_uids,
                 reason="rollback_env_snapshot",
             )
+            self._prepare_runtime_env_projection(Path(working))
             compose_config_sha256: dict[str, str] = {}
             for service in services:
                 hash_result = self._run(
@@ -3735,6 +3741,14 @@ class AudiobookRuntimeDeployLane:
             if not isinstance(rendered, dict):
                 raise DeployError("rollback_rendered_compose_invalid")
             rendered_services = dict(rendered.get("services") or {})
+            for rendered_service, rendered_payload in rendered_services.items():
+                if not isinstance(rendered_payload, dict):
+                    raise DeployError("rollback_rendered_compose_invalid")
+                if "env_file" in rendered_payload:
+                    raise DeployError(
+                        "rollback_rendered_env_file_not_inlined:"
+                        f"{rendered_service}"
+                    )
             projection_sha256: dict[str, str] = {}
             restorable_contract_sha256: dict[str, str] = {}
             for service in services:
@@ -3757,7 +3771,6 @@ class AudiobookRuntimeDeployLane:
                 ]["runtime"]["restorable_contract_sha256"]
                 payload.pop("build", None)
                 payload.pop("depends_on", None)
-                payload.pop("env_file", None)
                 payload["pull_policy"] = "never"
             rendered_path = self.rollback_snapshot_dir / (
                 f"plan-{plan_index:02d}.rendered.json"
@@ -3886,6 +3899,32 @@ class AudiobookRuntimeDeployLane:
         if "rollback_plan" in self.receipt:
             self.receipt["rollback_plan"]["cleanup_status"] = "pass"
 
+    def _prepare_runtime_env_projection(self, root: Path) -> None:
+        try:
+            projection = prepare_runtime_env(root)
+        except SanitizerError as exc:
+            raise DeployError("runtime_env_projection_failed") from exc
+        if not isinstance(projection, dict) or projection.get("status") != "prepared":
+            raise DeployError("runtime_env_projection_failed")
+        if root == self.root:
+            try:
+                self.receipt["runtime_env_projection"] = {
+                    "status": "prepared",
+                    "output_count": int(projection["output_count"]),
+                    "removed_key_count": int(projection["removed_key_count"]),
+                    "optional_local_source": str(
+                        projection["optional_local_source"]
+                    ),
+                    "stale_local_output_removed": bool(
+                        projection["stale_local_output_removed"]
+                    ),
+                    "directory_mode": "0700",
+                    "file_mode": "0600",
+                    "secret_values_emitted": False,
+                }
+            except (KeyError, TypeError, ValueError) as exc:
+                raise DeployError("runtime_env_projection_receipt_invalid") from exc
+
     def _compose_command(
         self,
         root: Path,
@@ -3919,6 +3958,7 @@ class AudiobookRuntimeDeployLane:
     def _render_target(
         self, files: Sequence[str], *, env_file: Path | None = None
     ) -> dict[str, Any]:
+        self._prepare_runtime_env_projection(self.root)
         result = self._run(
             self._compose_command(
                 self.root,
@@ -4097,6 +4137,7 @@ class AudiobookRuntimeDeployLane:
     ) -> dict[str, str]:
         if not files:
             raise DeployError("target_compose_files_missing")
+        self._prepare_runtime_env_projection(self.root)
         observed: dict[str, str] = {}
         for service in WORKER_SERVICES:
             result = self._run(
@@ -4537,6 +4578,7 @@ class AudiobookRuntimeDeployLane:
         scale: list[str] = []
         for service in services:
             scale.extend(("--scale", f"{service}=1"))
+        self._prepare_runtime_env_projection(self.root)
         self._run(
             self._compose_command(
                 self.root,

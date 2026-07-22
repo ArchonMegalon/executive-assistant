@@ -32,9 +32,24 @@ except ModuleNotFoundError:  # pragma: no cover - direct script import
         validate_plan_payload,
     )
 
+try:
+    from scripts.prepare_ea_runtime_env import (
+        RUNTIME_DIRECTORY,
+        SanitizerError,
+        prepare_runtime_env,
+        sanitize_env_bytes,
+    )
+except ModuleNotFoundError:  # pragma: no cover - direct script import
+    from prepare_ea_runtime_env import (  # type: ignore[no-redef]
+        RUNTIME_DIRECTORY,
+        SanitizerError,
+        prepare_runtime_env,
+        sanitize_env_bytes,
+    )
 
-BUNDLE_CONTRACT = "ea.memorial_api_baseline_bundle.v3"
-BUNDLE_VERSION = 3
+
+BUNDLE_CONTRACT = "ea.memorial_api_baseline_bundle.v4"
+BUNDLE_VERSION = 4
 BASELINE_RENDER_ENV_KEYS = frozenset(
     {
         "EA_MEMORIAL_DATA_HOST_PATH",
@@ -47,6 +62,9 @@ BASELINE_RENDER_ENV_KEYS = frozenset(
 COMPOSE_BLOB_PATHS = ("docker-compose.yml", "docker-compose.memorial.yml")
 NORMALIZATION_OVERRIDE = "docker-compose.api-baseline-normalization.yml"
 MANIFEST_NAME = "baseline-bundle-manifest.json"
+RUNTIME_ENV_FILE = "ea_runtime.env"
+RUNTIME_LOCAL_ENV_FILE = "ea_runtime.local.env"
+RUNTIME_ENV_FILES = (RUNTIME_ENV_FILE, RUNTIME_LOCAL_ENV_FILE)
 RECOVERY_SEAL_CONTRACT = "ea.memorial_api_baseline_bundle_recovery_seal.v1"
 _RENDER_ENV_MARKER = b"# ea-memorial-api-baseline-render-environment:v2\n"
 GIT_EXECUTABLE = "/usr/bin/git"
@@ -66,6 +84,7 @@ INFO_KEYS = {
     "manifest_sha256",
     "origin_main_commit",
     "plan_sha256",
+    "runtime_environment_files",
     "source_revision",
     "version",
 }
@@ -81,6 +100,7 @@ MANIFEST_KEYS = {
     "plan_sha256",
     "render_environment_key_count",
     "render_environment_key_set_sha256",
+    "runtime_environment_files",
     "source_revision",
     "trusted_environment_records_sha256",
     "version",
@@ -372,6 +392,189 @@ def _write_at(
     finally:
         if descriptor >= 0:
             os.close(descriptor)
+
+
+def _open_runtime_directory_at(bundle_fd: int) -> int:
+    descriptor = -1
+    try:
+        named = os.stat(
+            RUNTIME_DIRECTORY,
+            dir_fd=bundle_fd,
+            follow_symlinks=False,
+        )
+        descriptor = os.open(
+            RUNTIME_DIRECTORY,
+            os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | os.O_NOFOLLOW,
+            dir_fd=bundle_fd,
+        )
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISDIR(opened.st_mode)
+            or stat.S_ISLNK(named.st_mode)
+            or opened.st_uid != os.geteuid()
+            or stat.S_IMODE(opened.st_mode) != 0o700
+            or _directory_object_identity(opened)
+            != _directory_object_identity(named)
+        ):
+            raise BaselineBundleError("bundle_runtime_directory_invalid")
+        return descriptor
+    except BaselineBundleError:
+        if descriptor >= 0:
+            os.close(descriptor)
+        raise
+    except OSError as exc:
+        if descriptor >= 0:
+            os.close(descriptor)
+        raise BaselineBundleError("bundle_runtime_directory_unavailable") from exc
+
+
+def _runtime_directory_binding_at(
+    bundle_fd: int,
+    runtime_fd: int,
+) -> tuple[int, ...]:
+    """Return a twice-sampled full identity for the named runtime directory."""
+
+    try:
+        named_before = os.stat(
+            RUNTIME_DIRECTORY,
+            dir_fd=bundle_fd,
+            follow_symlinks=False,
+        )
+        opened = os.fstat(runtime_fd)
+        named_after = os.stat(
+            RUNTIME_DIRECTORY,
+            dir_fd=bundle_fd,
+            follow_symlinks=False,
+        )
+    except OSError as exc:
+        raise BaselineBundleError("bundle_runtime_directory_changed") from exc
+    identities = (
+        _directory_identity(named_before),
+        _directory_identity(opened),
+        _directory_identity(named_after),
+    )
+    if (
+        not stat.S_ISDIR(named_before.st_mode)
+        or not stat.S_ISDIR(opened.st_mode)
+        or not stat.S_ISDIR(named_after.st_mode)
+        or stat.S_ISLNK(named_before.st_mode)
+        or stat.S_ISLNK(named_after.st_mode)
+        or opened.st_uid != os.geteuid()
+        or stat.S_IMODE(opened.st_mode) != 0o700
+        or len(set(identities)) != 1
+    ):
+        raise BaselineBundleError("bundle_runtime_directory_changed")
+    return identities[1]
+
+
+def _runtime_environment_at(
+    bundle_fd: int,
+) -> tuple[list[dict[str, object]], tuple[bytes, bytes]]:
+    runtime_fd = _open_runtime_directory_at(bundle_fd)
+    try:
+        expected_entries = set(RUNTIME_ENV_FILES)
+        initial_identity = _runtime_directory_binding_at(bundle_fd, runtime_fd)
+        if set(os.listdir(runtime_fd)) != expected_entries:
+            raise BaselineBundleError("bundle_runtime_directory_unsealed")
+        if _runtime_directory_binding_at(bundle_fd, runtime_fd) != initial_identity:
+            raise BaselineBundleError("bundle_runtime_directory_changed")
+        records: list[dict[str, object]] = []
+        contents: list[bytes] = []
+        for name in RUNTIME_ENV_FILES:
+            raw, record = _read_at(
+                runtime_fd,
+                name,
+                required=True,
+                reason="bundle_runtime_environment",
+            )
+            assert raw is not None
+            records.append(record)
+            contents.append(raw)
+        if _runtime_directory_binding_at(bundle_fd, runtime_fd) != initial_identity:
+            raise BaselineBundleError("bundle_runtime_directory_changed")
+        if set(os.listdir(runtime_fd)) != expected_entries:
+            raise BaselineBundleError("bundle_runtime_directory_changed")
+        if _runtime_directory_binding_at(bundle_fd, runtime_fd) != initial_identity:
+            raise BaselineBundleError("bundle_runtime_directory_changed")
+        return records, (contents[0], contents[1])
+    except BaselineBundleError:
+        raise
+    except OSError as exc:
+        raise BaselineBundleError("bundle_runtime_directory_changed") from exc
+    finally:
+        os.close(runtime_fd)
+
+
+def _prepare_runtime_environment_at(
+    *,
+    parent: Path,
+    parent_fd: int,
+    staging_name: str,
+    bundle_fd: int,
+    env_raw: bytes,
+    local_raw: bytes,
+) -> list[dict[str, object]]:
+    staging_path = parent / staging_name
+    try:
+        receipt = prepare_runtime_env(staging_path)
+    except SanitizerError as exc:
+        raise BaselineBundleError("bundle_runtime_environment_failed") from exc
+
+    try:
+        named = os.stat(staging_name, dir_fd=parent_fd, follow_symlinks=False)
+        opened = os.fstat(bundle_fd)
+    except OSError as exc:
+        raise BaselineBundleError("bundle_staging_identity_changed") from exc
+    if (
+        not stat.S_ISDIR(named.st_mode)
+        or _directory_object_identity(named) != _directory_object_identity(opened)
+    ):
+        raise BaselineBundleError("bundle_staging_identity_changed")
+    _revalidate_directory(parent, parent_fd, "bundle_parent_changed")
+
+    records, retained = _runtime_environment_at(bundle_fd)
+    expected_primary, primary_removed = sanitize_env_bytes(env_raw)
+    expected_local, local_removed = sanitize_env_bytes(local_raw)
+    if retained != (expected_primary, expected_local):
+        raise BaselineBundleError("bundle_runtime_environment_mismatch")
+
+    outputs = receipt.get("outputs") if isinstance(receipt, Mapping) else None
+    if not isinstance(outputs, list) or any(
+        not isinstance(item, Mapping) for item in outputs
+    ):
+        raise BaselineBundleError("bundle_runtime_environment_receipt_invalid")
+    expected_outputs = {
+        f"{RUNTIME_DIRECTORY}/{RUNTIME_ENV_FILE}": (
+            ".env",
+            expected_primary,
+            primary_removed,
+        ),
+        f"{RUNTIME_DIRECTORY}/{RUNTIME_LOCAL_ENV_FILE}": (
+            ".env.local",
+            expected_local,
+            local_removed,
+        ),
+    }
+    observed_outputs = {
+        str(item.get("destination") or ""): item for item in outputs
+    }
+    if (
+        receipt.get("status") != "prepared"
+        or receipt.get("output_count") != 2
+        or receipt.get("optional_local_source") != "present"
+        or set(observed_outputs) != set(expected_outputs)
+    ):
+        raise BaselineBundleError("bundle_runtime_environment_receipt_invalid")
+    for destination, (source, raw, removed) in expected_outputs.items():
+        item = observed_outputs[destination]
+        if (
+            item.get("source") != source
+            or item.get("byte_count") != len(raw)
+            or item.get("removed_key_count") != removed
+            or item.get("sha256") != _sha(raw)
+        ):
+            raise BaselineBundleError("bundle_runtime_environment_receipt_invalid")
+    return records
 
 
 def _git_env() -> dict[str, str]:
@@ -1057,6 +1260,7 @@ def _validate_bundle(path: Path) -> tuple[dict[str, Any], str]:
         manifest = _strict_manifest(raw)
         compose = manifest.get("ordered_compose_files")
         environment = manifest.get("environment_files")
+        runtime_environment = manifest.get("runtime_environment_files")
         if (
             set(manifest) != MANIFEST_KEYS
             or manifest.get("contract_name") != BUNDLE_CONTRACT
@@ -1089,6 +1293,12 @@ def _validate_bundle(path: Path) -> tuple[dict[str, Any], str]:
             or not isinstance(environment, list)
             or len(environment) != 2
             or not all(_record_valid(item, allow_absent=False) for item in environment)
+            or not isinstance(runtime_environment, list)
+            or len(runtime_environment) != 2
+            or not all(
+                _record_valid(item, allow_absent=False)
+                for item in runtime_environment
+            )
         ):
             raise BaselineBundleError("bundle_manifest_invalid")
         if [item["relative_path"] for item in compose] != [
@@ -1101,12 +1311,19 @@ def _validate_bundle(path: Path) -> tuple[dict[str, Any], str]:
             ".env.local",
         ]:
             raise BaselineBundleError("bundle_environment_order_invalid")
+        if [item["relative_path"] for item in runtime_environment] != list(
+            RUNTIME_ENV_FILES
+        ):
+            raise BaselineBundleError("bundle_runtime_environment_order_invalid")
         if (
             any(item["git_blob_id"] is None for item in compose[:2])
             or compose[2]["git_blob_id"] is not None
             or environment[0]["present"] is not True
             or environment[1]["present"] is not True
             or any(item["git_blob_id"] is not None for item in environment)
+            or any(
+                item["git_blob_id"] is not None for item in runtime_environment
+            )
         ):
             raise BaselineBundleError("bundle_source_binding_invalid")
         present_records = [
@@ -1115,6 +1332,7 @@ def _validate_bundle(path: Path) -> tuple[dict[str, Any], str]:
         ]
         expected_names = {
             MANIFEST_NAME,
+            RUNTIME_DIRECTORY,
             *(str(item["relative_path"]) for item in present_records),
         }
         if set(os.listdir(directory_fd)) != expected_names:
@@ -1133,6 +1351,11 @@ def _validate_bundle(path: Path) -> tuple[dict[str, Any], str]:
                 or current["mode"] != expected["mode"]
             ):
                 raise BaselineBundleError("bundle_artifact_seal_mismatch")
+        current_runtime_records, _runtime_contents = _runtime_environment_at(
+            directory_fd
+        )
+        if current_runtime_records != runtime_environment:
+            raise BaselineBundleError("bundle_runtime_environment_seal_mismatch")
         if _directory_identity(os.fstat(directory_fd)) != anchor:
             raise BaselineBundleError("bundle_directory_changed")
         _revalidate_directory(path, directory_fd, "bundle_directory_changed")
@@ -1204,6 +1427,17 @@ def _require_bundle_semantics(
         trusted_local_prefix, retained_render_environment = (
             _split_augmented_environment_local(retained_local)
         )
+        runtime_records, runtime_contents = _runtime_environment_at(directory_fd)
+        if runtime_records != manifest["runtime_environment_files"]:
+            raise BaselineBundleError(
+                "existing_bundle_runtime_environment_record_mismatch"
+            )
+        expected_runtime_env, _primary_removed = sanitize_env_bytes(retained_env)
+        expected_runtime_local, _local_removed = sanitize_env_bytes(retained_local)
+        if runtime_contents != (expected_runtime_env, expected_runtime_local):
+            raise BaselineBundleError(
+                "existing_bundle_runtime_environment_mismatch"
+            )
         if authoritative_environment is not None:
             if (
                 authoritative_render_environment is None
@@ -1350,6 +1584,10 @@ def _info(manifest: Mapping[str, Any], manifest_sha: str) -> dict[str, Any]:
         "manifest_sha256": manifest_sha,
         "origin_main_commit": manifest["origin_main_commit"],
         "plan_sha256": manifest["plan_sha256"],
+        "runtime_environment_files": [
+            str(root / RUNTIME_DIRECTORY / str(item["relative_path"]))
+            for item in manifest["runtime_environment_files"]
+        ],
         "source_revision": manifest["source_revision"],
         "version": BUNDLE_VERSION,
     }
@@ -1571,7 +1809,7 @@ def _materialize_baseline_bundle(
     parent = _path(bundle_parent, "bundle_parent_invalid")
     durable_root_check(parent)
     parent_fd = _open_dir(parent, private=True, owner=True)
-    name = "api-baseline-v3-" + str(plan["plan_id"])
+    name = "api-baseline-v4-" + str(plan["plan_id"])
     if not NAME_RE.fullmatch(name):
         os.close(parent_fd)
         raise BaselineBundleError("bundle_name_invalid")
@@ -1684,6 +1922,14 @@ def _materialize_baseline_bundle(
             ]
             if copied_environment_records[0] != trusted_environment_records[0]:
                 raise BaselineBundleError("environment_copy_identity_mismatch")
+            runtime_environment_records = _prepare_runtime_environment_at(
+                parent=parent,
+                parent_fd=parent_fd,
+                staging_name=staging_name,
+                bundle_fd=bundle_fd,
+                env_raw=env_raw,
+                local_raw=augmented_local_raw,
+            )
             manifest = {
                 "ancestry_ref": "origin/main",
                 "bundle_path": str(bundle_path),
@@ -1698,6 +1944,7 @@ def _materialize_baseline_bundle(
                 "render_environment_key_set_sha256": _sha(
                     _canonical_bytes(sorted(fresh_render_environment))
                 ),
+                "runtime_environment_files": runtime_environment_records,
                 "source_revision": revision,
                 "trusted_environment_records_sha256": (
                     _trusted_environment_records_digest(trusted_environment_records)

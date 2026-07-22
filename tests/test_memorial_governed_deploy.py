@@ -1557,7 +1557,9 @@ def _exact_spatial_browser_receipt(
 def release_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / "release"
     root.mkdir()
-    (root / ".env").write_text("EA_HOST_PORT=8090\n", encoding="utf-8")
+    environment = root / ".env"
+    environment.write_text("EA_HOST_PORT=8090\n", encoding="utf-8")
+    environment.chmod(0o600)
     for filename in (
         "docker-compose.yml",
         "docker-compose.prod.yml",
@@ -1573,6 +1575,40 @@ def release_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         hashlib.sha256(SPATIAL_TEST_FILES["tour.json"]).hexdigest(),
     )
     return root
+
+
+def test_prepares_sanitized_runtime_environment_before_compose(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "release"
+    root.mkdir()
+    primary = root / ".env"
+    local = root / ".env.local"
+    primary.write_bytes(
+        b"EA_HOST_PORT=8090\n"
+        b"PROPERTYQUARRY_PRIVATE_KEY=propertyquarry-sentinel\n"
+    )
+    local.write_bytes(
+        b"EA_RUNTIME_SAFE=retained\nEMAILIT_API_KEY=email-sentinel\n"
+    )
+    primary.chmod(0o600)
+    local.chmod(0o600)
+
+    receipt = deploy._prepare_ea_runtime_environment(root)
+
+    runtime_root = root / deploy.EA_RUNTIME_ENV_DIRECTORY
+    runtime_primary = runtime_root / deploy.EA_RUNTIME_ENV_FILE
+    runtime_local = runtime_root / deploy.EA_RUNTIME_LOCAL_ENV_FILE
+    assert receipt["status"] == "prepared"
+    assert receipt["output_count"] == 2
+    assert receipt["removed_key_count"] == 2
+    assert runtime_primary.read_bytes() == b"EA_HOST_PORT=8090\n"
+    assert runtime_local.read_bytes() == b"EA_RUNTIME_SAFE=retained\n"
+    assert stat.S_IMODE(runtime_root.stat().st_mode) == 0o700
+    assert stat.S_IMODE(runtime_primary.stat().st_mode) == 0o600
+    assert stat.S_IMODE(runtime_local.stat().st_mode) == 0o600
+    assert "propertyquarry-sentinel" not in json.dumps(receipt, sort_keys=True)
+    assert "email-sentinel" not in json.dumps(receipt, sort_keys=True)
 
 
 def _passing_bind_source_validator(
@@ -3087,6 +3123,16 @@ def test_private_release_evidence_preserves_tracked_defaults_and_binds_phase(
     } == {
         str(release_root / ".env"),
         str(release_root / ".env.local"),
+        str(
+            release_root
+            / deploy.EA_RUNTIME_ENV_DIRECTORY
+            / deploy.EA_RUNTIME_ENV_FILE
+        ),
+        str(
+            release_root
+            / deploy.EA_RUNTIME_ENV_DIRECTORY
+            / deploy.EA_RUNTIME_LOCAL_ENV_FILE
+        ),
         str(release_root / "docker-compose.yml"),
         str(release_root / deploy.MEMORIAL_COMPOSE_FILE),
     }

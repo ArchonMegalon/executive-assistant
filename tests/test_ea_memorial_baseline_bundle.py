@@ -276,9 +276,9 @@ def test_materializes_exact_git_blobs_and_value_free_override(
     info = _materialize(inputs, runner)
 
     root = Path(info["bundle_path"])
-    assert root.name == "api-baseline-v3-baseline-plan-001"
-    assert info["contract_name"] == "ea.memorial_api_baseline_bundle.v3"
-    assert info["version"] == 3
+    assert root.name == "api-baseline-v4-baseline-plan-001"
+    assert info["contract_name"] == "ea.memorial_api_baseline_bundle.v4"
+    assert info["version"] == 4
     assert info["origin_main_commit"] == REVISION
     assert stat.S_IMODE(root.stat().st_mode) == 0o700
     assert Path(info["compose_files"][0]).read_bytes() == BASE
@@ -308,6 +308,16 @@ def test_materializes_exact_git_blobs_and_value_free_override(
         b"EA_SOURCE_REVISION='2e5b40f9fe2ef4acb7946eb7e80537fcd01ab047'\n"
     )
     assert Path(info["environment_files"][1]).read_bytes() == expected_local
+    assert Path(info["runtime_environment_files"][0]).read_bytes() == (
+        Path(info["environment_files"][0]).read_bytes()
+    )
+    assert Path(info["runtime_environment_files"][1]).read_bytes() == expected_local
+    runtime_root = root / bundle.RUNTIME_DIRECTORY
+    assert stat.S_IMODE(runtime_root.stat().st_mode) == 0o700
+    assert all(
+        stat.S_IMODE(path.stat().st_mode) == 0o600
+        for path in runtime_root.iterdir()
+    )
     manifest = Path(info["manifest_path"]).read_text(encoding="utf-8")
     manifest_payload = json.loads(manifest)
     public = json.dumps(info, sort_keys=True)
@@ -330,11 +340,119 @@ def test_materializes_exact_git_blobs_and_value_free_override(
         assert key not in manifest
         if key != "EA_SOURCE_REVISION":
             assert value not in manifest + public
-    assert all(path.stat().st_nlink == 1 for path in root.iterdir())
-    assert all(stat.S_IMODE(path.stat().st_mode) == 0o600 for path in root.iterdir())
+    assert all(
+        path.stat().st_nlink == 1 for path in root.iterdir() if path.is_file()
+    )
+    assert all(
+        stat.S_IMODE(path.stat().st_mode) == 0o600
+        for path in root.iterdir()
+        if path.is_file()
+    )
     assert all(call[0] == "/usr/bin/git" for call in runner.calls)
     assert sum(call[2:4] == ("cat-file", "blob") for call in runner.calls) == 2
     assert bundle.require_baseline_bundle_seal(info) == info
+
+
+def test_runtime_projection_strips_propertyquarry_and_shared_email_secrets(
+    tmp_path: Path,
+) -> None:
+    inputs = _inputs(tmp_path)
+    primary = inputs["trusted"] / ".env"
+    local = inputs["trusted"] / ".env.local"
+    primary_secret = b"propertyquarry-private-key-sentinel"
+    local_secret = b"shared-email-api-key-sentinel"
+    _private_file(
+        primary,
+        primary.read_bytes()
+        + b"PROPERTYQUARRY_PRIVATE_KEY="
+        + primary_secret
+        + b"\nEA_RUNTIME_SAFE=retained\n",
+    )
+    _private_file(
+        local,
+        local.read_bytes() + b"EMAILIT_API_KEY=" + local_secret + b"\n",
+    )
+
+    info = _materialize(inputs, FakeRunner())
+
+    retained_primary = Path(info["environment_files"][0]).read_bytes()
+    retained_local = Path(info["environment_files"][1]).read_bytes()
+    runtime_primary = Path(info["runtime_environment_files"][0]).read_bytes()
+    runtime_local = Path(info["runtime_environment_files"][1]).read_bytes()
+    assert primary_secret in retained_primary
+    assert local_secret in retained_local
+    assert primary_secret not in runtime_primary
+    assert local_secret not in runtime_local
+    assert b"PROPERTYQUARRY_PRIVATE_KEY=" not in runtime_primary
+    assert b"EMAILIT_API_KEY=" not in runtime_local
+    assert b"EA_RUNTIME_SAFE=retained\n" in runtime_primary
+    public_metadata = json.dumps(
+        {
+            "info": info,
+            "manifest": json.loads(Path(info["manifest_path"]).read_bytes()),
+        },
+        sort_keys=True,
+    )
+    assert primary_secret.decode() not in public_metadata
+    assert local_secret.decode() not in public_metadata
+    assert bundle.require_baseline_bundle_seal(info) == info
+
+
+def test_runtime_projection_tamper_breaks_bundle_seal(tmp_path: Path) -> None:
+    inputs = _inputs(tmp_path)
+    info = _materialize(inputs, FakeRunner())
+    runtime_primary = Path(info["runtime_environment_files"][0])
+    runtime_primary.write_bytes(runtime_primary.read_bytes() + b"FORGED=1\n")
+
+    with pytest.raises(
+        bundle.BaselineBundleError,
+        match="bundle_runtime_environment_seal_mismatch",
+    ):
+        bundle.require_baseline_bundle_seal(info)
+
+
+def test_runtime_directory_same_uid_replacement_during_read_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inputs = _inputs(tmp_path)
+    info = _materialize(inputs, FakeRunner())
+    bundle_root = Path(info["bundle_path"])
+    runtime_root = bundle_root / bundle.RUNTIME_DIRECTORY
+    original_read = bundle._read_at
+    swapped = False
+
+    def swapping_read(
+        directory_fd: int,
+        name: str,
+        **kwargs: Any,
+    ) -> tuple[bytes | None, dict[str, object]]:
+        nonlocal swapped
+        result = original_read(directory_fd, name, **kwargs)
+        if name == bundle.RUNTIME_ENV_FILE and not swapped:
+            swapped = True
+            held = tmp_path / "held-runtime-secrets"
+            runtime_root.rename(held)
+            _private_dir(runtime_root)
+            for runtime_name in bundle.RUNTIME_ENV_FILES:
+                _private_file(
+                    runtime_root / runtime_name,
+                    (held / runtime_name).read_bytes(),
+                )
+            assert runtime_root.stat().st_uid == os.geteuid()
+        return result
+
+    monkeypatch.setattr(bundle, "_read_at", swapping_read)
+    bundle_fd = bundle._open_dir(bundle_root, private=True, owner=True)
+    try:
+        with pytest.raises(
+            bundle.BaselineBundleError,
+            match="bundle_runtime_directory_changed",
+        ):
+            bundle._runtime_environment_at(bundle_fd)
+    finally:
+        os.close(bundle_fd)
+    assert swapped is True
 
 
 def test_absent_trusted_local_is_synthesized_and_sealed(
@@ -775,7 +893,7 @@ def test_pre_journal_reuse_requires_exact_retained_environment_bytes(
 
     with pytest.raises(
         bundle.BaselineBundleError,
-        match="existing_bundle_trusted_environment_mismatch",
+        match="existing_bundle_runtime_environment_mismatch",
     ):
         _materialize(inputs, runner)
 
@@ -1045,7 +1163,7 @@ def test_rejects_non_ancestor_and_occupied_bundle_path(
     ):
         _materialize(inputs, FakeRunner(ancestor=False))
 
-    occupied = inputs["bundle_parent"] / "api-baseline-v3-baseline-plan-001"
+    occupied = inputs["bundle_parent"] / "api-baseline-v4-baseline-plan-001"
     occupied.symlink_to(inputs["trusted"], target_is_directory=True)
     with pytest.raises(bundle.BaselineBundleError, match="bundle_path_occupied"):
         _materialize(inputs, FakeRunner())
@@ -1528,7 +1646,7 @@ def test_publish_race_never_overwrites_and_leaves_private_staging(
     with pytest.raises(bundle.BaselineBundleError, match="bundle_creation_race"):
         _materialize(inputs, FakeRunner())
 
-    destination = inputs["bundle_parent"] / "api-baseline-v3-baseline-plan-001"
+    destination = inputs["bundle_parent"] / "api-baseline-v4-baseline-plan-001"
     assert (destination / "owner-marker").read_bytes() == b"do-not-overwrite\n"
     staging = [
         entry

@@ -260,8 +260,15 @@ def test_base_compose_loads_optional_local_env_for_provider_runtime_only() -> No
     for service_name in ("ea-api", "ea-worker", "ea-scheduler", "ea-responses-proxy"):
         service = services.get(service_name) or {}
         env_files = list(service.get("env_file") or [])
-        assert ".env" in env_files, service_name
-        assert {"path": ".env.local", "required": False} in env_files, service_name
+        assert ".ea-runtime-secrets/ea_runtime.env" in env_files, service_name
+        assert {
+            "path": ".ea-runtime-secrets/ea_runtime.local.env",
+            "required": False,
+        } in env_files, service_name
+        assert ".env" not in env_files, service_name
+        assert {"path": ".env.local", "required": False} not in env_files, (
+            service_name
+        )
 
     for service_name in (
         "ea-teable-relay",
@@ -271,7 +278,14 @@ def test_base_compose_loads_optional_local_env_for_provider_runtime_only() -> No
     ):
         service = services.get(service_name) or {}
         env_files = list(service.get("env_file") or [])
-        assert {"path": ".env.local", "required": False} not in env_files, service_name
+        if service_name == "ea-db":
+            assert ".ea-runtime-secrets/ea_runtime.env" not in env_files
+        else:
+            assert ".ea-runtime-secrets/ea_runtime.env" in env_files, service_name
+        assert {
+            "path": ".ea-runtime-secrets/ea_runtime.local.env",
+            "required": False,
+        } not in env_files, service_name
 
 
 def test_base_compose_applies_auxiliary_runtime_privilege_limits() -> None:

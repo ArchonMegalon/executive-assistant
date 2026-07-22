@@ -113,7 +113,7 @@ make verify-ea-memorial-api-baseline-normalization
 Preflight requires clean current `main`, exact agreement among the plan, live
 container, immutable image, and Git source revision, and an exact reconstruction
 of the live API Compose hash. It creates a private sealed, tamper-evident
-Git-object/config/environment bundle. Bundle v3 reserves exactly five render
+Git-object/config/environment bundle. Bundle v4 reserves exactly five render
 inputs reconstructed from the already-validated live API: its immutable image,
 source revision, read-only Memorial data bind root, writable Memorial runtime
 bind root, and trusted proxy CIDRs. Those values are appended to the bundle's
@@ -122,7 +122,7 @@ never accepted from the caller environment. The two public source bindings
 (image reference and revision) remain in receipts and the recovery journal as
 required evidence; the two private host roots and proxy CIDRs do not. Any
 same-named entry in the trusted environment is an ambiguity and fails closed.
-For dotenv-only settings, v3 also derives a value-free environment-name
+For dotenv-only settings, v4 also derives a value-free environment-name
 inventory from the live API before and after rendering. The retained private
 environment files remain complete, but the canonical normalization override
 projects only trusted names already present in that stable live inventory.
@@ -131,6 +131,16 @@ baseline. The selected count and name-set digest are sealed in the manifest;
 the exact live Compose-hash equality gate proves the selected values without
 putting names or values into public receipts. Recovery replays that sealed
 canonical subset and never consults the then-current live inventory.
+Bundle v4 also materializes owner-only
+`.ea-runtime-secrets/ea_runtime.env` and
+`.ea-runtime-secrets/ea_runtime.local.env` inside the private bundle. The
+directory is mode `0700`; both projections are mode `0600`, manifest-sealed,
+and strip all `PROPERTYQUARRY_*`, shared registration-mail, and Google identity
+assignments. This lets base Compose render under `--project-directory` against
+the retained bundle without reading those identities. The raw `.env` and
+`.env.local` remain private and complete; the normalization override resets the
+API's inherited `env_file` and reconstructs the exact audited live API
+environment, so the label-only normalization keeps its exact Compose identity.
 The preflight also captures the API, cloudflared, Docker daemon, public-network,
 and twice-stable 12-probe public identities, and writes an operational preflight
 receipt. It does not create the recovery journal, protect or retag an image,
@@ -140,9 +150,11 @@ Bundle v1 is deliberately not recovery-compatible: it did not guarantee these
 five render values were retained and therefore cannot prove a caller-free
 restart after API mutation. Bundle v2 projected every eligible trusted
 dotenv-only name and cannot preserve an older live baseline after new disabled
-settings are inventoried. Upgrade only while the canonical normalization
-journal is securely absent, retain old bundles for audit, and create the
-distinct immutable v3 bundle. Never relabel or rewrite a v1/v2 artifact as v3.
+settings are inventoried. Bundle v3 lacks the sealed sanitized runtime
+projections required by the current base Compose contract. Upgrade only while
+the canonical normalization journal is securely absent, retain old bundles for
+audit, and create the distinct immutable v4 bundle. Never relabel or rewrite a
+v1/v2/v3 artifact as v4.
 
 After the read-only preflight passes, use a new operation ID and run:
 
@@ -213,6 +225,12 @@ This performs source, API, Compose-input, ingress, network, public-edge,
 rollback-renderability, candidate, and spatial checks without mutation. A
 preflight receipt is single-use evidence; select a new deployment ID for the
 actual promotion.
+
+Before any base-Compose render or `up`, the governed API lane refreshes the
+same owner-only sanitized runtime projections in the release root. Their exact
+files are included with the raw private dotenv inputs and Compose files in the
+forward deployment-input seal. The rollback capsule remains independently
+sealed and unchanged.
 
 The API half is image-pure: the Memorial Compose override replaces inherited
 base volumes and never overlays host source, scripts, configuration, or

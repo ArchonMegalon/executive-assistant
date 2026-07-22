@@ -30,11 +30,11 @@ def test_governed_spatial_schema_validator_is_installed_and_constrained() -> Non
     }.issubset(lock)
 
 
-def test_crypto_constraint_and_lock_remain_compatible() -> None:
+def test_crypto_requirement_and_lock_remain_exactly_pinned() -> None:
     requirements = _dependency_lines(REQUIREMENTS)
     lock = _dependency_lines(LOCK)
 
-    assert "cryptography>=48.0.1,<49.0.0" in requirements
+    assert "cryptography==48.0.1" in requirements
     assert "cryptography==48.0.1" in lock
 
 

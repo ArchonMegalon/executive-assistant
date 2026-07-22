@@ -37,6 +37,19 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
     from source_state_head import source_worktree_metadata
 
 try:
+    from scripts.prepare_ea_runtime_env import (
+        RUNTIME_DIRECTORY as EA_RUNTIME_ENV_DIRECTORY,
+        SanitizerError as RuntimeEnvSanitizerError,
+        prepare_runtime_env,
+    )
+except ModuleNotFoundError:  # pragma: no cover - direct script execution
+    from prepare_ea_runtime_env import (  # type: ignore[no-redef]
+        RUNTIME_DIRECTORY as EA_RUNTIME_ENV_DIRECTORY,
+        SanitizerError as RuntimeEnvSanitizerError,
+        prepare_runtime_env,
+    )
+
+try:
     from scripts.ea_memorial_recovery_interlock import (
         MemorialRecoveryInterlockError,
         default_joint_recovery_journal_path,
@@ -103,6 +116,8 @@ except ModuleNotFoundError as exc:  # pragma: no cover - direct script execution
 
 
 ROOT = Path(__file__).resolve().parents[1]
+EA_RUNTIME_ENV_FILE = "ea_runtime.env"
+EA_RUNTIME_LOCAL_ENV_FILE = "ea_runtime.local.env"
 MEMORIAL_COMPOSE_FILE = "docker-compose.memorial.yml"
 API_BASELINE_NORMALIZATION_COMPOSE_FILE = (
     "docker-compose.api-baseline-normalization.yml"
@@ -846,6 +861,61 @@ def _parse_env_file(path: Path) -> dict[str, str]:
         if normalized_key:
             values[normalized_key] = normalized_value
     return values
+
+
+def _prepare_ea_runtime_environment(root: Path) -> dict[str, Any]:
+    """Materialize and validate the secret-safe Compose env projection."""
+
+    try:
+        receipt = prepare_runtime_env(root)
+    except RuntimeEnvSanitizerError as exc:
+        raise DeployError("runtime_environment_projection_failed") from exc
+    outputs = receipt.get("outputs") if isinstance(receipt, Mapping) else None
+    if not isinstance(outputs, list) or any(
+        not isinstance(item, Mapping) for item in outputs
+    ):
+        raise DeployError("runtime_environment_projection_invalid")
+    expected_outputs = {
+        f"{EA_RUNTIME_ENV_DIRECTORY}/{EA_RUNTIME_ENV_FILE}": ".env",
+    }
+    if (root / ".env.local").is_file():
+        expected_outputs[
+            f"{EA_RUNTIME_ENV_DIRECTORY}/{EA_RUNTIME_LOCAL_ENV_FILE}"
+        ] = ".env.local"
+    observed_outputs = {
+        str(item.get("destination") or ""): item for item in outputs
+    }
+    expected_local_state = "present" if len(expected_outputs) == 2 else "absent"
+    if (
+        receipt.get("status") != "prepared"
+        or receipt.get("output_count") != len(expected_outputs)
+        or len(outputs) != len(expected_outputs)
+        or len(observed_outputs) != len(expected_outputs)
+        or set(observed_outputs) != set(expected_outputs)
+        or receipt.get("optional_local_source") != expected_local_state
+        or not isinstance(receipt.get("stale_local_output_removed"), bool)
+    ):
+        raise DeployError("runtime_environment_projection_invalid")
+    removed_total = 0
+    for destination, source in expected_outputs.items():
+        item = observed_outputs[destination]
+        byte_count = item.get("byte_count")
+        removed_count = item.get("removed_key_count")
+        if (
+            item.get("source") != source
+            or not isinstance(byte_count, int)
+            or isinstance(byte_count, bool)
+            or byte_count < 0
+            or not isinstance(removed_count, int)
+            or isinstance(removed_count, bool)
+            or removed_count < 0
+            or not SHA256_HEX_PATTERN.fullmatch(str(item.get("sha256") or ""))
+        ):
+            raise DeployError("runtime_environment_projection_invalid")
+        removed_total += removed_count
+    if receipt.get("removed_key_count") != removed_total:
+        raise DeployError("runtime_environment_projection_invalid")
+    return dict(receipt)
 
 
 def _first_nonempty(*values: object) -> str:
@@ -4057,7 +4127,16 @@ class MemorialDeployLane:
         del previous
         forward_required_paths = [
             self.root / ".env",
+            self.root
+            / EA_RUNTIME_ENV_DIRECTORY
+            / EA_RUNTIME_ENV_FILE,
             *(self.root / item for item in self.target_compose_files),
+        ]
+        forward_optional_paths = [
+            self.root / ".env.local",
+            self.root
+            / EA_RUNTIME_ENV_DIRECTORY
+            / EA_RUNTIME_LOCAL_ENV_FILE,
         ]
         rollback_required_paths = [self.rollback_capsule_path]
 
@@ -4070,7 +4149,7 @@ class MemorialDeployLane:
         first = {
             "forward": [
                 *capture(forward_required_paths),
-                *capture_optional([self.root / ".env.local"]),
+                *capture_optional(forward_optional_paths),
             ],
             "rollback": [
                 *capture(rollback_required_paths),
@@ -4079,7 +4158,7 @@ class MemorialDeployLane:
         second = {
             "forward": [
                 *capture(forward_required_paths),
-                *capture_optional([self.root / ".env.local"]),
+                *capture_optional(forward_optional_paths),
             ],
             "rollback": [
                 *capture(rollback_required_paths),
@@ -9590,6 +9669,11 @@ class MemorialDeployLane:
         self._write_receipt()
         if not (self.root / ".env").is_file():
             raise DeployError("env_file_missing")
+        runtime_environment_projection = _prepare_ea_runtime_environment(self.root)
+        self.receipt["runtime_environment_projection"] = (
+            runtime_environment_projection
+        )
+        self._write_receipt()
         if self.control_tour_slug != REQUIRED_CONTROL_TOUR_SLUG:
             raise DeployError("memorial_control_tour_slug_required")
         release_source = self._release_source_metadata()

@@ -202,6 +202,8 @@ def _root(tmp_path: Path) -> Path:
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("services: {}\n", encoding="utf-8")
+        if name == ".env":
+            path.chmod(0o600)
     return root
 
 
@@ -640,6 +642,58 @@ def test_evidence_paths_must_be_absolute(tmp_path: Path) -> None:
     }
     with pytest.raises(deploy.DeployError, match="receipt_path_not_absolute"):
         deploy.AudiobookRuntimeDeployLane(root=root, env=env)
+
+
+def test_runtime_env_projection_failure_precedes_compose_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = RenderRunner({})
+    lane = _lane(tmp_path, runner=runner)
+    lane.compose_bin = ("docker", "compose")
+    secret = "runtime-secret-that-must-not-escape"
+
+    def fail_projection(_root: Path) -> dict[str, object]:
+        raise deploy.SanitizerError(secret)
+
+    monkeypatch.setattr(deploy, "prepare_runtime_env", fail_projection)
+
+    with pytest.raises(
+        deploy.DeployError, match="runtime_env_projection_failed"
+    ) as caught:
+        lane._render_target(deploy.PRODUCTION_BASE_COMPOSE_FILES)
+
+    assert secret not in str(caught.value)
+    assert runner.calls == []
+
+
+def test_runtime_env_projection_receipt_omits_secret_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lane = _lane(tmp_path)
+    secret = "runtime-secret-digest-that-must-not-escape"
+    monkeypatch.setattr(
+        deploy,
+        "prepare_runtime_env",
+        lambda _root: {
+            "status": "prepared",
+            "output_count": 1,
+            "removed_key_count": 2,
+            "optional_local_source": "absent",
+            "stale_local_output_removed": False,
+            "outputs": [{"sha256": secret, "byte_count": 999}],
+        },
+    )
+
+    lane._prepare_runtime_env_projection(lane.root)
+
+    projection = lane.receipt["runtime_env_projection"]
+    assert projection["directory_mode"] == "0700"
+    assert projection["file_mode"] == "0600"
+    assert projection["secret_values_emitted"] is False
+    assert "outputs" not in projection
+    assert secret not in json.dumps(lane.receipt, sort_keys=True)
 
 
 def test_inert_candidate_projection_is_hard_rejected(tmp_path: Path) -> None:
@@ -1965,7 +2019,12 @@ def test_active_forward_topology_is_retained_and_reproduced_by_next_preflight(
     assert lane.rollback_snapshot_dir.is_dir()
 
 
-def test_rollback_uses_private_immutable_render_and_pull_never(tmp_path: Path) -> None:
+@pytest.mark.parametrize("source_env_drift", ("remove", "mode", "content"))
+def test_rollback_uses_private_immutable_inputs_after_source_env_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    source_env_drift: str,
+) -> None:
     lane = _lane(tmp_path)
     rendered = _prepare_snapshot_state(lane)
     runner = RenderRunner(rendered)
@@ -1996,24 +2055,51 @@ def test_rollback_uses_private_immutable_render_and_pull_never(tmp_path: Path) -
         "services:\n  ea-worker:\n    image: attacker/latest\n    privileged: true\n",
         encoding="utf-8",
     )
+    source_env = lane.root / ".env"
+    if source_env_drift == "remove":
+        source_env.unlink()
+    elif source_env_drift == "mode":
+        source_env.chmod(0o644)
+    else:
+        source_env.write_text("ATTACKER_DRIFT=1\n", encoding="utf-8")
+
+    def reject_projection_refresh(_root: Path) -> dict[str, object]:
+        raise AssertionError("rollback refreshed mutable runtime projection")
+
+    monkeypatch.setattr(deploy, "prepare_runtime_env", reject_projection_refresh)
     lane._retag_prior_reference = types.MethodType(lambda self, service: None, lane)
     lane._wait_ready = types.MethodType(lambda self, services: None, lane)
     lane._inspect_container = types.MethodType(lambda self, service: {}, lane)
-    lane._container_identity = types.MethodType(
-        lambda self, inspection, service: {
+
+    def restored_identity(
+        self: deploy.AudiobookRuntimeDeployLane,
+        inspection: Mapping[str, Any],
+        service: str,
+    ) -> dict[str, Any]:
+        del inspection
+        plan = self.rollback_plans[service]
+        return {
             "runtime": {
                 "restorable_contract_sha256": self.pre_state["services"][service][
                     "runtime"
                 ]["restorable_contract_sha256"]
-            }
-        },
+            },
+            "topology": {
+                "compose_files": [str(Path(plan["rendered_file"]).resolve())],
+                "env_file": str(Path(plan["env_file"]).resolve()),
+                "topology_manifest_sha256": plan["topology_manifest_sha256"],
+                "compose_config_sha256": plan["compose_config_sha256"][service],
+            },
+        }
+
+    lane._container_identity = types.MethodType(
+        restored_identity,
         lane,
     )
-    lane._verify_rollback_active_topology = types.MethodType(
-        lambda self, **kwargs: None, lane
-    )
     lane._rollback_services(("ea-worker",))
-    rollback_call = runner.calls[-1]
+    rollback_call = next(
+        call for call in reversed(runner.calls) if "up" in call and "ea-worker" in call
+    )
     assert "--pull" in rollback_call
     assert rollback_call[rollback_call.index("--pull") + 1] == "never"
     assert any(value.endswith(".rendered.json") for value in rollback_call)
@@ -2306,29 +2392,26 @@ def test_one_retag_failure_does_not_suppress_other_recovery(tmp_path: Path) -> N
     assert "ea-worker" in up_calls[0]
 
 
-def test_rollback_private_snapshot_drift_fails_before_retag_or_recreate(
+@pytest.mark.parametrize("sealed_input", ("rendered_file", "env_file"))
+def test_tampered_sealed_rollback_projection_fails_before_retag_or_recreate(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    sealed_input: str,
 ) -> None:
-    runner = RenderRunner({})
-    lane = _lane(tmp_path, runner=runner)
+    lane = _lane(tmp_path)
+    rendered = _prepare_snapshot_state(lane)
+    runner = RenderRunner(rendered)
+    lane.runner = runner
     lane.compose_bin = ("docker", "compose")
-    rendered_file = lane.root / "rollback.json"
-    rendered_file.write_text('{"services":{}}\n', encoding="utf-8")
-    env_file = lane.root / ".env"
-    lane.rollback_plans = {
-        "ea-worker": {
-            "working_dir": str(lane.root),
-            "rendered_file": str(rendered_file),
-            "rendered_sha256": hashlib.sha256(rendered_file.read_bytes()).hexdigest(),
-            "env_file": str(env_file),
-            "env_sha256": hashlib.sha256(env_file.read_bytes()).hexdigest(),
-        }
-    }
-    lane.pre_state = {"services": {"ea-worker": {"runtime": {"lifecycle": "running"}}}}
-    rendered_file.write_text(
-        '{"services":{"attacker":{"privileged":true}}}\n',
-        encoding="utf-8",
-    )
+    lane._snapshot_and_validate_rollback_inputs()
+    sealed_path = Path(lane.rollback_plans["ea-worker"][sealed_input])
+    sealed_path.write_bytes(sealed_path.read_bytes() + b"# tampered\n")
+    runner.calls.clear()
+
+    def reject_projection_refresh(_root: Path) -> dict[str, object]:
+        raise AssertionError("rollback refreshed mutable runtime projection")
+
+    monkeypatch.setattr(deploy, "prepare_runtime_env", reject_projection_refresh)
     retagged: list[str] = []
     lane._retag_prior_reference = types.MethodType(
         lambda self, service: retagged.append(service), lane
@@ -2337,6 +2420,34 @@ def test_rollback_private_snapshot_drift_fails_before_retag_or_recreate(
         lane._rollback_services(("ea-worker",))
     assert retagged == []
     assert runner.calls == []
+    lane._cleanup_rollback_snapshots()
+
+
+def test_rollback_snapshot_rejects_unsealed_env_file_reference(
+    tmp_path: Path,
+) -> None:
+    lane = _lane(tmp_path)
+    rendered = _prepare_snapshot_state(lane)
+    rendered["services"]["unrelated"] = {
+        "image": "registry.example/unrelated:latest",
+        "env_file": [str(lane.root / ".ea-runtime-secrets" / "unrelated.env")],
+    }
+    runner = RenderRunner(rendered)
+    lane.runner = runner
+    lane.compose_bin = ("docker", "compose")
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="rollback_rendered_env_file_not_inlined:unrelated",
+    ):
+        lane._snapshot_and_validate_rollback_inputs()
+
+    assert not any(
+        value.endswith(".rendered.json")
+        for path in lane.rollback_snapshot_paths
+        for value in (str(path),)
+    )
+    lane._cleanup_rollback_snapshots()
 
 
 def test_partial_image_tags_are_accounted_and_cleanable(tmp_path: Path) -> None:
@@ -2644,6 +2755,16 @@ def test_real_preflight_prepares_bound_plan_before_fake_execute(
 
     lane.preflight()
 
+    assert lane.receipt["runtime_env_projection"] == {
+        "status": "prepared",
+        "output_count": 1,
+        "removed_key_count": 0,
+        "optional_local_source": "absent",
+        "stale_local_output_removed": False,
+        "directory_mode": "0700",
+        "file_mode": "0600",
+        "secret_values_emitted": False,
+    }
     assert deploy.SHA256_RE.fullmatch(lane.forward_input_plan_sha256)
     assert lane.receipt["forward_input_plan"]["sha256"] == (
         lane.forward_input_plan_sha256

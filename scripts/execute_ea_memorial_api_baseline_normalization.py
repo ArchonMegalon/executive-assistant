@@ -49,6 +49,9 @@ try:
         BASELINE_RENDER_ENV_KEYS,
         BUNDLE_CONTRACT,
         BUNDLE_VERSION,
+        RUNTIME_DIRECTORY,
+        RUNTIME_ENV_FILE,
+        RUNTIME_LOCAL_ENV_FILE,
         BaselineBundleError,
         materialize_baseline_bundle,
         require_baseline_bundle_seal,
@@ -102,6 +105,9 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
         BASELINE_RENDER_ENV_KEYS,
         BUNDLE_CONTRACT,
         BUNDLE_VERSION,
+        RUNTIME_DIRECTORY,
+        RUNTIME_ENV_FILE,
+        RUNTIME_LOCAL_ENV_FILE,
         BaselineBundleError,
         materialize_baseline_bundle,
         require_baseline_bundle_seal,
@@ -1273,14 +1279,26 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             _normal_absolute_path(item, reason="normalization_bundle_env_invalid")
             for item in list(bundle.get("environment_files") or [])
         ]
+        runtime_environment_files = [
+            _normal_absolute_path(
+                item,
+                reason="normalization_bundle_runtime_env_invalid",
+            )
+            for item in list(bundle.get("runtime_environment_files") or [])
+        ]
         expected_compose = [bundle_root / name for name in NORMALIZATION_COMPOSE_FILES]
         expected_environment = [bundle_root / ".env"]
         if len(environment_files) == 2:
             expected_environment.append(bundle_root / ".env.local")
+        expected_runtime_environment = [
+            bundle_root / RUNTIME_DIRECTORY / RUNTIME_ENV_FILE,
+            bundle_root / RUNTIME_DIRECTORY / RUNTIME_LOCAL_ENV_FILE,
+        ]
         if (
             compose_files != expected_compose
             or environment_files != expected_environment
             or len(environment_files) not in {1, 2}
+            or runtime_environment_files != expected_runtime_environment
         ):
             raise DeployError("normalization_bundle_layout_invalid")
         prefix = [
@@ -2079,17 +2097,32 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             _normal_absolute_path(item, reason="normalization_bundle_env_invalid")
             for item in list(bundle.get("environment_files") or [])
         ]
-        if len(compose_files) != 3 or len(environment_files) not in {1, 2}:
+        runtime_environment_files = [
+            _normal_absolute_path(
+                item,
+                reason="normalization_bundle_runtime_env_invalid",
+            )
+            for item in list(bundle.get("runtime_environment_files") or [])
+        ]
+        bundle_root = _normal_absolute_path(
+            bundle.get("bundle_path"), reason="normalization_bundle_path_invalid"
+        )
+        expected_runtime_environment = [
+            bundle_root / RUNTIME_DIRECTORY / RUNTIME_ENV_FILE,
+            bundle_root / RUNTIME_DIRECTORY / RUNTIME_LOCAL_ENV_FILE,
+        ]
+        if (
+            len(compose_files) != 3
+            or len(environment_files) not in {1, 2}
+            or runtime_environment_files != expected_runtime_environment
+        ):
             raise DeployError("normalization_bundle_layout_invalid")
         return self.journal.new_payload(
             transaction_id=self.deployment_id,
             release_root=self.root,
             transaction_receipt_path=self.transaction_receipt_path,
             public_origin=str(prepared.get("public_origin") or ""),
-            retained_bundle_path=_normal_absolute_path(
-                bundle.get("bundle_path"),
-                reason="normalization_bundle_path_invalid",
-            ),
+            retained_bundle_path=bundle_root,
             retained_bundle_manifest_path=_normal_absolute_path(
                 bundle.get("manifest_path"),
                 reason="normalization_bundle_manifest_invalid",
@@ -2466,6 +2499,10 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
         local_file = retained.get("environment_local_file")
         if local_file is not None:
             expected_environment.append(str(local_file))
+        expected_runtime_environment = [
+            str(bundle_path / RUNTIME_DIRECTORY / RUNTIME_ENV_FILE),
+            str(bundle_path / RUNTIME_DIRECTORY / RUNTIME_LOCAL_ENV_FILE),
+        ]
 
         def reseal() -> dict[str, Any]:
             try:
@@ -2487,6 +2524,7 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
                     "manifest_sha256",
                     "origin_main_commit",
                     "plan_sha256",
+                    "runtime_environment_files",
                     "source_revision",
                     "version",
                 }
@@ -2501,6 +2539,8 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
                 or current.get("source_revision") != payload.get("source_revision")
                 or current.get("compose_files") != expected_compose
                 or current.get("environment_files") != expected_environment
+                or current.get("runtime_environment_files")
+                != expected_runtime_environment
                 or REVISION_RE.fullmatch(str(current.get("origin_main_commit") or ""))
                 is None
             ):

@@ -260,6 +260,18 @@ def _bundle(bundle_root: Path) -> dict[str, Any]:
             for filename in normalization.NORMALIZATION_COMPOSE_FILES
         ],
         "environment_files": [str(bundle_root / ".env")],
+        "runtime_environment_files": [
+            str(
+                bundle_root
+                / normalization.RUNTIME_DIRECTORY
+                / normalization.RUNTIME_ENV_FILE
+            ),
+            str(
+                bundle_root
+                / normalization.RUNTIME_DIRECTORY
+                / normalization.RUNTIME_LOCAL_ENV_FILE
+            ),
+        ],
     }
 
 
@@ -268,9 +280,10 @@ def _bundle(bundle_root: Path) -> dict[str, Any]:
     [
         ("ea.memorial_api_baseline_bundle.v1", 1, False, False),
         ("ea.memorial_api_baseline_bundle.v2", 2, True, False),
-        ("ea.memorial_api_baseline_bundle.v3", 3, True, True),
-        ("ea.memorial_api_baseline_bundle.v1", 3, True, False),
-        ("ea.memorial_api_baseline_bundle.v3", 1, False, False),
+        ("ea.memorial_api_baseline_bundle.v3", 3, True, False),
+        ("ea.memorial_api_baseline_bundle.v4", 4, True, True),
+        ("ea.memorial_api_baseline_bundle.v1", 4, True, False),
+        ("ea.memorial_api_baseline_bundle.v4", 1, False, False),
     ],
 )
 def test_recovery_bundle_loader_accepts_only_exact_current_contract_pair(
@@ -289,6 +302,18 @@ def test_recovery_bundle_loader_accepts_only_exact_current_contract_pair(
     local_file = bundle_root / ".env.local"
     if local_present:
         environment_files.append(str(local_file))
+    runtime_environment_files = [
+        str(
+            bundle_root
+            / normalization.RUNTIME_DIRECTORY
+            / normalization.RUNTIME_ENV_FILE
+        ),
+        str(
+            bundle_root
+            / normalization.RUNTIME_DIRECTORY
+            / normalization.RUNTIME_LOCAL_ENV_FILE
+        ),
+    ]
     seal = {
         "contract_name": ("ea.memorial_api_baseline_bundle_recovery_seal.v1"),
         "manifest_sha256": MANIFEST_SHA256,
@@ -303,6 +328,7 @@ def test_recovery_bundle_loader_accepts_only_exact_current_contract_pair(
         "manifest_sha256": MANIFEST_SHA256,
         "origin_main_commit": REVISION,
         "plan_sha256": PLAN_SHA256,
+        "runtime_environment_files": runtime_environment_files,
         "source_revision": REVISION,
         "version": version,
     }

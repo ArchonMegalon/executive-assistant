@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -142,19 +144,46 @@ def test_compose_override_declares_whatsapp_web_session_sidecar() -> None:
     assert "name: ea_whatsapp_web_teable_sync" in compose
 
 
-def test_main_compose_mounts_whatsapp_web_runtime_code_into_ea_services() -> None:
-    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+def test_main_compose_uses_one_coherent_runtime_artifact_for_whatsapp_code() -> None:
+    compose_text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    compose = yaml.safe_load(compose_text)
+    services = compose["services"]
+    dockerfile = (ROOT / "ea" / "Dockerfile").read_text(encoding="utf-8")
 
-    assert "./ea/app/api/routes/channels.py:/app/app/api/routes/channels.py:ro" in compose
-    assert "./ea/app/services/whatsapp_delivery_router.py:/app/app/services/whatsapp_delivery_router.py:ro" in compose
-    assert "./ea/app/services/whatsapp_web_session_delivery.py:/app/app/services/whatsapp_web_session_delivery.py:ro" in compose
-    assert "./ea/app/services/whatsapp_delivery_outbox.py:/app/app/services/whatsapp_delivery_outbox.py:ro" in compose
-    assert "./ea/app/services/whatsapp_web_session_readiness.py:/app/app/services/whatsapp_web_session_readiness.py:ro" in compose
-    assert compose.count("./ea/app/services/whatsapp_delivery_outbox.py:/app/app/services/whatsapp_delivery_outbox.py:ro") >= 2
-    assert compose.count("./ea/app/services/whatsapp_delivery_router.py:/app/app/services/whatsapp_delivery_router.py:ro") >= 3
-    assert "ea-telegram-teable-sync:" in compose
-    assert "container_name: ea-telegram-teable-sync" in compose
-    assert "python /app/scripts/sync_telegram_conversations_to_teable.py || true" in compose
+    runtime_services = (
+        "ea-api",
+        "ea-responses-proxy",
+        "ea-worker",
+        "ea-scheduler",
+        "ea-proactive-ooda",
+        "ea-telegram-teable-sync",
+    )
+    for service_name in runtime_services:
+        assert services[service_name]["image"] == "ea-runtime:latest", service_name
+
+    # The runtime image contains the whole Python package and script set. This
+    # prevents a restart from combining one freshly mounted module with stale
+    # neighboring modules from an older image.
+    assert "COPY . /tmp/src" in dockerfile
+    assert 'cp -r "$APP_SRC/app" /app/;' in dockerfile
+    assert "if [ -d /tmp/src/scripts ]; then" in dockerfile
+    assert 'cp "$script" /app/scripts/;' in dockerfile
+
+    coherent_app_mount = "./ea/app:/app/app:ro"
+    for service_name in ("ea-api", "ea-responses-proxy", "ea-worker", "ea-scheduler"):
+        volumes = [str(item) for item in services[service_name].get("volumes") or []]
+        assert coherent_app_mount in volumes, service_name
+
+    obsolete_partial_mounts = (
+        "./ea/app/api/routes/channels.py:/app/app/api/routes/channels.py:ro",
+        "./ea/app/services/whatsapp_delivery_router.py:/app/app/services/whatsapp_delivery_router.py:ro",
+        "./ea/app/services/whatsapp_web_session_delivery.py:/app/app/services/whatsapp_web_session_delivery.py:ro",
+        "./ea/app/services/whatsapp_delivery_outbox.py:/app/app/services/whatsapp_delivery_outbox.py:ro",
+        "./ea/app/services/whatsapp_web_session_readiness.py:/app/app/services/whatsapp_web_session_readiness.py:ro",
+    )
+    assert not any(mount in compose_text for mount in obsolete_partial_mounts)
+    assert services["ea-telegram-teable-sync"]["container_name"] == "ea-telegram-teable-sync"
+    assert "python /app/scripts/sync_telegram_conversations_to_teable.py || true" in compose_text
 
 
 def test_sidecar_package_uses_whatsapp_web_js_local_auth_stack() -> None:
