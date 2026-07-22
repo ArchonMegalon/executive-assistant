@@ -2760,10 +2760,12 @@ def _tour_no_released_scenes_html(
         media_title = "Released interactive reconstruction"
         media_summary = "Use the room route to inspect the reconstructed layout. Confirm dimensions and finishes in person."
         media_html = (
-            '<iframe class="media-frame" '
+            '<iframe id="generated-tour-viewer" class="media-frame" '
             f'src="{html.escape(viewer_url)}" '
-            f'title="{html.escape(title)} interactive generated reconstruction" '
-            'sandbox="allow-scripts" loading="eager" allowfullscreen referrerpolicy="no-referrer"></iframe>'
+            f'title="{html.escape(title)} interactive generated 3D reconstruction" '
+            'sandbox="allow-scripts" loading="eager" allowfullscreen '
+            'referrerpolicy="no-referrer" '
+            'aria-describedby="generated-viewer-disclosure"></iframe>'
         )
     elif video_url:
         media_title = "Released generated walkthrough"
@@ -2803,6 +2805,7 @@ def _tour_no_released_scenes_html(
     )
     if media_state == "unreleased":
         disclosure = media_summary
+    disclosure_id = ' id="generated-viewer-disclosure"' if viewer_url else ""
     actions = ['<a class="primary" href="#media-review">Review media status</a>']
     if listing_url:
         actions.append(
@@ -2871,7 +2874,7 @@ def _tour_no_released_scenes_html(
       <section id="media-review" class="panel" aria-labelledby="media-review-title">
         <div class="eyebrow">Reviewed media lane</div>
         <h2 id="media-review-title">{html.escape(media_title)}</h2>
-        <p class="summary">{html.escape(disclosure)}</p>
+        <p class="summary"{disclosure_id}>{html.escape(disclosure)}</p>
         <div class="media-wrap">{media_html}</div>
       </section>
     </div>

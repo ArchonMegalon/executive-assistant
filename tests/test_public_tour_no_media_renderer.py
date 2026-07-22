@@ -141,6 +141,10 @@ def test_scene_less_released_viewer_keeps_opaque_origin_sandbox() -> None:
 
     assert 'data-media-state="released"' in source
     assert "Released interactive reconstruction" in source
+    assert 'id="generated-tour-viewer"' in source
+    assert 'title="Reviewed Vienna apartment interactive generated 3D reconstruction"' in source
+    assert 'aria-describedby="generated-viewer-disclosure"' in source
+    assert 'id="generated-viewer-disclosure"' in source
     assert 'sandbox="allow-scripts"' in source
     assert "allow-same-origin" not in source
     assert "No released scenes" not in source
