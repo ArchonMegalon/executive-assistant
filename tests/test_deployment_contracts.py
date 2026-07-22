@@ -410,7 +410,7 @@ def test_ea_runtime_preserves_tour_publication_volume_and_isolates_tunnel_networ
 
     assert public_tours == {
         "external": True,
-        "name": "property_propertyquarry_public_tours",
+        "name": "ea_myexternalbrain_public_tours",
     }
     for service_name in ("ea-api", "ea-worker", "ea-responses-proxy"):
         service_volumes = [

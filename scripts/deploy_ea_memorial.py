@@ -41,12 +41,14 @@ try:
         RUNTIME_DIRECTORY as EA_RUNTIME_ENV_DIRECTORY,
         SanitizerError as RuntimeEnvSanitizerError,
         prepare_runtime_env,
+        sanitize_env_bytes,
     )
 except ModuleNotFoundError:  # pragma: no cover - direct script execution
     from prepare_ea_runtime_env import (  # type: ignore[no-redef]
         RUNTIME_DIRECTORY as EA_RUNTIME_ENV_DIRECTORY,
         SanitizerError as RuntimeEnvSanitizerError,
         prepare_runtime_env,
+        sanitize_env_bytes,
     )
 
 try:
@@ -244,8 +246,21 @@ ROLLBACK_CAPSULE_CONTRACT_NAME = "ea.memorial_api_rollback_capsule.v2"
 ROLLBACK_CAPSULE_VERSION = 2
 ROLLBACK_RECOVERY_CONTRACT_NAME = "ea.memorial_api_active_recovery.v2"
 ROLLBACK_RECOVERY_VERSION = 2
+TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER = (
+    "docker-compose.yml",
+    "docker-compose.prod.yml",
+    MEMORIAL_COMPOSE_FILE,
+    "docker-compose.whatsapp-web-session.yml",
+    "docker-compose.cloudflared.yml",
+)
+TRUSTED_EXTERNAL_BRIDGE_ONLY_LAYERS = frozenset(
+    {
+        "docker-compose.whatsapp-web-session.yml",
+        "docker-compose.cloudflared.yml",
+    }
+)
 ROLLBACK_CAPSULE_ALLOWED_EXTERNAL_LAYERS = frozenset(
-    {"docker-compose.yml", "docker-compose.prod.yml", MEMORIAL_COMPOSE_FILE}
+    TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER
 )
 ROLLBACK_CAPSULE_COMPOSE_LABEL_PREFIX = "com.docker.compose."
 ROLLBACK_CAPSULE_CONFIG_MAPPED_KEYS = frozenset(
@@ -2474,11 +2489,14 @@ class MemorialDeployLane:
         self._global_lock_handle: Any | None = None
         self.compose_bin: tuple[str, ...] = ()
         self.target_compose_files: tuple[str, ...] = ()
+        self.target_compose_environment_files: tuple[str, ...] = ()
         self.bind_source_snapshot_sha256 = ""
         self._rollback_capsule_seal: dict[str, object] | None = None
         self._rollback_recovery_seal: dict[str, object] | None = None
         self._rollback_capsule_document: dict[str, Any] | None = None
         self._rollback_recovery_document: dict[str, Any] | None = None
+        self._prior_compose_environment_files: tuple[str, ...] = ()
+        self._prior_compose_environment_file_label = ""
         self.release_env = self._release_env()
         self.receipt: dict[str, Any] = {
             "contract_name": "ea.memorial_scoped_deploy_receipt.v2",
@@ -3324,28 +3342,48 @@ class MemorialDeployLane:
             return
         raise DeployError("docker_compose_unavailable")
 
-    def _compose_args(self, *, root: Path, files: Sequence[str]) -> list[str]:
+    def _compose_args(
+        self,
+        *,
+        root: Path,
+        files: Sequence[str],
+        environment_files: Sequence[str] | None = None,
+    ) -> list[str]:
         if not self.compose_bin:
             raise DeployError("docker_compose_unavailable")
         selected_root = root.expanduser()
         if not selected_root.is_absolute() or ".." in selected_root.parts:
             raise DeployError("compose_root_invalid")
-        env_file = selected_root / ".env"
-        try:
-            self._deployment_input_file_seal(env_file)
-        except DeployError as exc:
-            if str(exc) == f"deployment_input_file_unavailable:{env_file.name}":
-                raise DeployError(f"env_file_missing:{env_file}") from exc
-            raise
+        selected_environment_files = (
+            tuple(environment_files)
+            if environment_files is not None
+            else (".env",)
+        )
+        if not selected_environment_files:
+            raise DeployError("compose_environment_files_missing")
         args = [
             *self.compose_bin,
             "--project-name",
             PROJECT_NAME,
             "--project-directory",
             str(selected_root),
-            "--env-file",
-            str(env_file),
         ]
+        for filename in selected_environment_files:
+            candidate = Path(str(filename)).expanduser()
+            env_file = (
+                candidate if candidate.is_absolute() else selected_root / candidate
+            )
+            if not env_file.is_absolute() or ".." in env_file.parts:
+                raise DeployError("compose_environment_file_path_invalid")
+            try:
+                self._deployment_input_file_seal(env_file)
+            except DeployError as exc:
+                if str(exc) == (
+                    f"deployment_input_file_unavailable:{env_file.name}"
+                ):
+                    raise DeployError(f"env_file_missing:{env_file}") from exc
+                raise
+            args.extend(["--env-file", str(env_file)])
         for filename in files:
             candidate = Path(str(filename)).expanduser()
             path = candidate if candidate.is_absolute() else selected_root / candidate
@@ -3364,9 +3402,337 @@ class MemorialDeployLane:
         if not self.target_compose_files:
             raise DeployError("forward_compose_topology_unresolved")
         return [
-            *self._compose_args(root=self.root, files=self.target_compose_files),
+            *self._compose_args(
+                root=self.root,
+                files=self.target_compose_files,
+                environment_files=(
+                    self.target_compose_environment_files or None
+                ),
+            ),
             *args,
         ]
+
+    def _release_head_blob_identity(
+        self, path: Path, *, source_revision: str
+    ) -> str:
+        try:
+            relative = path.relative_to(self.root).as_posix()
+        except ValueError as exc:
+            raise DeployError("forward_external_bridge_release_path_invalid") from exc
+        if (
+            not relative
+            or relative.startswith("../")
+            or SOURCE_REVISION_PATTERN.fullmatch(source_revision) is None
+        ):
+            raise DeployError("forward_external_bridge_release_path_invalid")
+        worktree = self._run(
+            ["git", "hash-object", "--no-filters", "--", relative],
+            check=False,
+        )
+        committed = self._run(
+            ["git", "rev-parse", f"{source_revision}:{relative}"],
+            check=False,
+        )
+        worktree_blob = (worktree.stdout or "").strip()
+        committed_blob = (committed.stdout or "").strip()
+        object_pattern = re.compile(r"^[0-9a-f]{40,64}$")
+        if (
+            worktree.returncode != 0
+            or committed.returncode != 0
+            or object_pattern.fullmatch(worktree_blob) is None
+            or object_pattern.fullmatch(committed_blob) is None
+            or worktree_blob != committed_blob
+        ):
+            raise DeployError(
+                f"forward_external_bridge_release_head_blob_mismatch:{path.name}"
+            )
+        return committed_blob
+
+    def _validate_trusted_external_topology_bridge(
+        self,
+        *,
+        previous: Mapping[str, Any],
+        prior_root: Path,
+        prior_files: Sequence[Path],
+    ) -> dict[str, Any]:
+        expected_names = TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER
+        observed_names = tuple(path.name for path in prior_files)
+        if observed_names != expected_names:
+            raise DeployError("forward_external_bridge_layer_order_invalid")
+        try:
+            first_prior_root = self._deployment_input_directory_seal(prior_root)
+        except DeployError as exc:
+            raise DeployError("forward_external_bridge_working_dir_invalid") from exc
+        prior_git_root = self._run(
+            ["git", "-C", str(prior_root), "rev-parse", "--show-toplevel"],
+            check=False,
+        )
+        if (
+            prior_git_root.returncode != 0
+            or (prior_git_root.stdout or "").strip() != str(prior_root)
+        ):
+            raise DeployError("forward_external_bridge_working_dir_untrusted")
+        if any(
+            not path.is_absolute()
+            or ".." in path.parts
+            or os.path.normpath(str(path)) != str(path)
+            for path in prior_files
+        ):
+            raise DeployError("forward_external_bridge_compose_path_invalid")
+        common_roots = {path.parent for path in prior_files}
+        if len(common_roots) != 1:
+            raise DeployError("forward_external_bridge_common_root_invalid")
+        common_root = next(iter(common_roots))
+        if common_root == prior_root or any(
+            path != common_root / basename
+            for path, basename in zip(prior_files, expected_names, strict=True)
+        ):
+            raise DeployError("forward_external_bridge_common_root_invalid")
+        try:
+            first_common_root = self._deployment_input_directory_seal(common_root)
+        except DeployError as exc:
+            raise DeployError("forward_external_bridge_common_root_invalid") from exc
+        if first_common_root.get("mode") != "0700":
+            raise DeployError("forward_external_bridge_common_root_mode_invalid")
+
+        release_paths = tuple(self.root / basename for basename in expected_names)
+
+        def compose_seals(paths: Sequence[Path]) -> list[dict[str, object]]:
+            seals: list[dict[str, object]] = []
+            for selected in paths:
+                try:
+                    seal = self._deployment_input_file_seal(selected)
+                except DeployError as exc:
+                    raise DeployError(
+                        f"forward_external_bridge_compose_invalid:{selected.name}"
+                    ) from exc
+                seals.append(seal)
+            return seals
+
+        first_external_compose = compose_seals(prior_files)
+        if any(seal.get("mode") != "0600" for seal in first_external_compose):
+            raise DeployError("forward_external_bridge_compose_mode_invalid")
+        first_release_compose = compose_seals(release_paths)
+        source_revision = str(
+            dict(self.receipt.get("release_source") or {}).get("source_revision")
+            or ""
+        )
+        head_blobs = [
+            self._release_head_blob_identity(
+                release_path, source_revision=source_revision
+            )
+            for release_path in release_paths
+        ]
+        for basename, external_seal, release_seal in zip(
+            expected_names,
+            first_external_compose,
+            first_release_compose,
+            strict=True,
+        ):
+            if (
+                external_seal.get("sha256") != release_seal.get("sha256")
+                or external_seal.get("size_bytes")
+                != release_seal.get("size_bytes")
+            ):
+                raise DeployError(
+                    f"forward_external_bridge_compose_blob_mismatch:{basename}"
+                )
+
+        prior_runtime_root = prior_root / EA_RUNTIME_ENV_DIRECTORY
+        prior_environment_files = (
+            prior_runtime_root / EA_RUNTIME_ENV_FILE,
+            prior_runtime_root / EA_RUNTIME_LOCAL_ENV_FILE,
+        )
+        expected_environment_label = ",".join(
+            path.as_posix() for path in prior_environment_files
+        )
+        if (
+            self._prior_compose_environment_file_label
+            != expected_environment_label
+            or self._prior_compose_environment_files
+            != tuple(path.as_posix() for path in prior_environment_files)
+        ):
+            raise DeployError("forward_external_bridge_environment_label_invalid")
+        try:
+            first_prior_runtime_root = self._deployment_input_directory_seal(
+                prior_runtime_root
+            )
+        except DeployError as exc:
+            raise DeployError(
+                "forward_external_bridge_environment_root_invalid"
+            ) from exc
+        if first_prior_runtime_root.get("mode") != "0700":
+            raise DeployError("forward_external_bridge_environment_root_mode_invalid")
+
+        def private_environment_bytes(
+            paths: Sequence[Path], *, reason: str
+        ) -> tuple[list[bytes], list[dict[str, object]]]:
+            payloads: list[bytes] = []
+            seals: list[dict[str, object]] = []
+            for selected in paths:
+                try:
+                    payload, seal = self._deployment_input_file_bytes(selected)
+                except DeployError as exc:
+                    raise DeployError(reason) from exc
+                if seal.get("mode") != "0600":
+                    raise DeployError(f"{reason}_mode_invalid")
+                payloads.append(payload)
+                seals.append(seal)
+            return payloads, seals
+
+        prior_source_files = (prior_root / ".env", prior_root / ".env.local")
+        prior_source_bytes, first_prior_sources = private_environment_bytes(
+            prior_source_files,
+            reason="forward_external_bridge_environment_source_invalid",
+        )
+        prior_projection_bytes, first_prior_environment = private_environment_bytes(
+            prior_environment_files,
+            reason="forward_external_bridge_environment_file_invalid",
+        )
+        if any(b"\x00" in payload for payload in prior_source_bytes):
+            raise DeployError("forward_external_bridge_environment_source_invalid")
+        expected_prior_projection = [
+            sanitize_env_bytes(payload)[0] for payload in prior_source_bytes
+        ]
+        if prior_projection_bytes != expected_prior_projection:
+            raise DeployError("forward_external_bridge_environment_projection_invalid")
+
+        release_runtime_root = self.root / EA_RUNTIME_ENV_DIRECTORY
+        release_environment_files = (
+            release_runtime_root / EA_RUNTIME_ENV_FILE,
+            release_runtime_root / EA_RUNTIME_LOCAL_ENV_FILE,
+        )
+        try:
+            first_release_runtime_root = self._deployment_input_directory_seal(
+                release_runtime_root
+            )
+        except DeployError as exc:
+            raise DeployError(
+                "forward_external_bridge_release_environment_root_invalid"
+            ) from exc
+        if first_release_runtime_root.get("mode") != "0700":
+            raise DeployError(
+                "forward_external_bridge_release_environment_root_mode_invalid"
+            )
+        release_environment_bytes, first_release_environment = (
+            private_environment_bytes(
+                release_environment_files,
+                reason="forward_external_bridge_release_environment_file_invalid",
+            )
+        )
+        if prior_projection_bytes != release_environment_bytes:
+            raise DeployError(
+                "forward_external_bridge_environment_projection_mismatch"
+            )
+
+        runtime_projection = self.receipt.get("runtime_environment_projection")
+        outputs = (
+            runtime_projection.get("outputs")
+            if isinstance(runtime_projection, Mapping)
+            else None
+        )
+        if not isinstance(outputs, list) or len(outputs) != 2:
+            raise DeployError("forward_external_bridge_environment_projection_invalid")
+        output_by_destination = {
+            str(item.get("destination") or ""): item
+            for item in outputs
+            if isinstance(item, Mapping)
+        }
+        expected_projection_sources = {
+            f"{EA_RUNTIME_ENV_DIRECTORY}/{EA_RUNTIME_ENV_FILE}": ".env",
+            f"{EA_RUNTIME_ENV_DIRECTORY}/{EA_RUNTIME_LOCAL_ENV_FILE}": ".env.local",
+        }
+        if set(output_by_destination) != set(expected_projection_sources):
+            raise DeployError("forward_external_bridge_environment_projection_invalid")
+
+        for seal, (destination, source) in zip(
+            first_release_environment,
+            expected_projection_sources.items(),
+            strict=True,
+        ):
+            output = output_by_destination[destination]
+            if (
+                output.get("source") != source
+                or output.get("sha256") != seal.get("sha256")
+                or output.get("byte_count") != seal.get("size_bytes")
+            ):
+                raise DeployError(
+                    "forward_external_bridge_environment_projection_invalid"
+                )
+
+        second = {
+            "prior_root": self._deployment_input_directory_seal(prior_root),
+            "common_root": self._deployment_input_directory_seal(common_root),
+            "external_compose": compose_seals(prior_files),
+            "release_compose": compose_seals(release_paths),
+            "prior_runtime_root": self._deployment_input_directory_seal(
+                prior_runtime_root
+            ),
+            "prior_sources": [
+                self._deployment_input_file_seal(path)
+                for path in prior_source_files
+            ],
+            "prior_environment": [
+                self._deployment_input_file_seal(path)
+                for path in prior_environment_files
+            ],
+            "release_runtime_root": self._deployment_input_directory_seal(
+                release_runtime_root
+            ),
+            "release_environment": [
+                self._deployment_input_file_seal(path)
+                for path in release_environment_files
+            ],
+        }
+        first = {
+            "prior_root": first_prior_root,
+            "common_root": first_common_root,
+            "external_compose": first_external_compose,
+            "release_compose": first_release_compose,
+            "prior_runtime_root": first_prior_runtime_root,
+            "prior_sources": first_prior_sources,
+            "prior_environment": first_prior_environment,
+            "release_runtime_root": first_release_runtime_root,
+            "release_environment": first_release_environment,
+        }
+        if first != second:
+            raise DeployError("forward_external_bridge_seal_unstable")
+        return {
+            "status": "pass",
+            "bridge": "direct_joint_without_baseline_normalization",
+            "working_dir": prior_root.as_posix(),
+            "common_external_root": common_root.as_posix(),
+            "ordered_layer_basenames": list(expected_names),
+            "environment_files": [
+                path.as_posix() for path in prior_environment_files
+            ],
+            "trusted_prior_root_seal": first_prior_root,
+            "common_external_root_seal": first_common_root,
+            "runtime_environment_root_seal": first_prior_runtime_root,
+            "compose_file_seals": [
+                {
+                    "basename": basename,
+                    "external": external_seal,
+                    "release": release_seal,
+                    "release_head_blob": head_blob,
+                }
+                for basename, external_seal, release_seal, head_blob in zip(
+                    expected_names,
+                    first_external_compose,
+                    first_release_compose,
+                    head_blobs,
+                    strict=True,
+                )
+            ],
+            "environment_source_seals": first_prior_sources,
+            "environment_file_seals": first_prior_environment,
+            "release_environment_file_seals": first_release_environment,
+            "rollback_capsule_source_environment_sha256": str(
+                previous.get("environment_sha256") or ""
+            ),
+            "original_topology_retained_in_receipt": True,
+            "two_sample_seal_verified": True,
+        }
 
     def _configure_forward_topology(self, previous: Mapping[str, Any]) -> None:
         prior_root = Path(str(previous.get("working_dir") or "")).expanduser()
@@ -3380,11 +3746,55 @@ class MemorialDeployLane:
         if not prior_files:
             raise DeployError("forward_baseline_compose_files_missing")
 
+        external_layer_names: list[str] = []
+        for prior_file in prior_files:
+            try:
+                prior_file.relative_to(prior_root)
+            except ValueError:
+                if prior_file.name not in ROLLBACK_CAPSULE_ALLOWED_EXTERNAL_LAYERS:
+                    raise DeployError(
+                        f"forward_baseline_compose_file_unmappable:{prior_file.name}"
+                    )
+                external_layer_names.append(prior_file.name)
+        if TRUSTED_EXTERNAL_BRIDGE_ONLY_LAYERS.intersection(
+            path.name for path in prior_files
+        ):
+            bridge = self._validate_trusted_external_topology_bridge(
+                previous=previous,
+                prior_root=prior_root,
+                prior_files=prior_files,
+            )
+            release_files = list(TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER)
+            self.target_compose_files = tuple(release_files)
+            self.target_compose_environment_files = tuple(
+                str(self.root / EA_RUNTIME_ENV_DIRECTORY / filename)
+                for filename in (EA_RUNTIME_ENV_FILE, EA_RUNTIME_LOCAL_ENV_FILE)
+            )
+            self.release_env["EA_DEPLOY_COMPOSE_FILES"] = ",".join(release_files)
+            self.receipt["target_compose_files"] = release_files
+            self.receipt["forward_topology_source"] = {
+                "working_dir": str(prior_root),
+                "compose_config_files": [str(path) for path in prior_files],
+                "compose_environment_files": list(
+                    self._prior_compose_environment_files
+                ),
+                "mapping": (
+                    "exact_trusted_external_five_layer_topology_rebased_"
+                    "in_place_to_release_root"
+                ),
+                "prior_memorial_layer_replaced": True,
+                "prior_normalization_layer_dropped": False,
+                "external_layer_basenames": external_layer_names,
+                "trusted_external_bridge": bridge,
+            }
+            self._write_receipt()
+            return
+
         release_files: list[str] = []
         seen: set[str] = set()
         prior_memorial_layer_replaced = False
         prior_normalization_layer_dropped = False
-        external_layer_names: list[str] = []
+        external_layer_names = []
         for prior_file in prior_files:
             try:
                 relative = prior_file.relative_to(prior_root)
@@ -3924,6 +4334,72 @@ class MemorialDeployLane:
         return environment
 
     @staticmethod
+    def _deployment_input_directory_seal(path: Path) -> dict[str, object]:
+        candidate = path.expanduser()
+        if (
+            not candidate.is_absolute()
+            or candidate == Path("/")
+            or ".." in candidate.parts
+            or os.path.normpath(str(candidate)) != str(candidate)
+            or not hasattr(os, "O_DIRECTORY")
+            or not hasattr(os, "O_NOFOLLOW")
+        ):
+            raise DeployError("deployment_input_directory_path_invalid")
+        flags = os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | os.O_NOFOLLOW
+        try:
+            descriptor = os.open("/", flags)
+        except OSError as exc:  # pragma: no cover - host invariant
+            raise DeployError("deployment_input_root_unavailable") from exc
+        try:
+            for component in candidate.parts[1:]:
+                try:
+                    path_metadata = os.stat(
+                        component,
+                        dir_fd=descriptor,
+                        follow_symlinks=False,
+                    )
+                    child = os.open(component, flags, dir_fd=descriptor)
+                except OSError as exc:
+                    raise DeployError(
+                        f"deployment_input_directory_invalid:{candidate.name}"
+                    ) from exc
+                try:
+                    opened_metadata = os.fstat(child)
+                    if (
+                        not stat.S_ISDIR(path_metadata.st_mode)
+                        or stat.S_ISLNK(path_metadata.st_mode)
+                        or not stat.S_ISDIR(opened_metadata.st_mode)
+                        or _trusted_file_identity(path_metadata)
+                        != _trusted_file_identity(opened_metadata)
+                    ):
+                        raise DeployError(
+                            f"deployment_input_directory_invalid:{candidate.name}"
+                        )
+                except BaseException:
+                    os.close(child)
+                    raise
+                os.close(descriptor)
+                descriptor = child
+            metadata = os.fstat(descriptor)
+            if metadata.st_uid != os.geteuid():
+                raise DeployError(
+                    f"deployment_input_directory_invalid:{candidate.name}"
+                )
+            return {
+                "path": candidate.as_posix(),
+                "mode": format(stat.S_IMODE(metadata.st_mode), "04o"),
+                "device": int(metadata.st_dev),
+                "inode": int(metadata.st_ino),
+                "uid": int(metadata.st_uid),
+                "gid": int(metadata.st_gid),
+                "link_count": int(metadata.st_nlink),
+                "mtime_ns": int(metadata.st_mtime_ns),
+                "ctime_ns": int(metadata.st_ctime_ns),
+            }
+        finally:
+            os.close(descriptor)
+
+    @staticmethod
     def _deployment_input_file_seal(path: Path) -> dict[str, object]:
         candidate = path.expanduser()
         if not candidate.is_absolute() or ".." in candidate.parts:
@@ -4062,6 +4538,76 @@ class MemorialDeployLane:
             }
         finally:
             os.close(file_descriptor)
+
+    @classmethod
+    def _deployment_input_file_bytes(
+        cls, path: Path
+    ) -> tuple[bytes, dict[str, object]]:
+        candidate = path.expanduser()
+        first = cls._deployment_input_file_seal(candidate)
+        if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
+            raise DeployError("deployment_input_nofollow_unavailable")
+        directory_flags = os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | os.O_NOFOLLOW
+        file_flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NONBLOCK | os.O_NOFOLLOW
+        directory_descriptor = os.open("/", directory_flags)
+        file_descriptor = -1
+        try:
+            for component in candidate.parts[1:-1]:
+                child = os.open(component, directory_flags, dir_fd=directory_descriptor)
+                metadata = os.fstat(child)
+                if not stat.S_ISDIR(metadata.st_mode):
+                    os.close(child)
+                    raise DeployError(
+                        f"deployment_input_ancestor_invalid:{candidate.name}"
+                    )
+                os.close(directory_descriptor)
+                directory_descriptor = child
+            file_descriptor = os.open(
+                candidate.name,
+                file_flags,
+                dir_fd=directory_descriptor,
+            )
+            metadata = os.fstat(file_descriptor)
+            if (
+                int(first["device"]) != metadata.st_dev
+                or int(first["inode"]) != metadata.st_ino
+                or int(first["uid"]) != metadata.st_uid
+                or int(first["link_count"]) != metadata.st_nlink
+                or int(first["size_bytes"]) != metadata.st_size
+                or first["mode"] != format(stat.S_IMODE(metadata.st_mode), "04o")
+            ):
+                raise DeployError(f"deployment_input_file_changed:{candidate.name}")
+            payload = bytearray()
+            while True:
+                chunk = os.read(file_descriptor, 1024 * 1024)
+                if not chunk:
+                    break
+                payload.extend(chunk)
+                if len(payload) > MAX_DEPLOYMENT_INPUT_BYTES:
+                    raise DeployError(
+                        f"deployment_input_file_too_large:{candidate.name}"
+                    )
+            after = os.fstat(file_descriptor)
+            second = cls._deployment_input_file_seal(candidate)
+            if (
+                first != second
+                or after.st_dev != metadata.st_dev
+                or after.st_ino != metadata.st_ino
+                or after.st_size != len(payload)
+                or hashlib.sha256(payload).hexdigest() != first["sha256"]
+            ):
+                raise DeployError(f"deployment_input_file_changed:{candidate.name}")
+            return bytes(payload), first
+        except DeployError:
+            raise
+        except OSError as exc:
+            raise DeployError(
+                f"deployment_input_file_unavailable:{candidate.name}"
+            ) from exc
+        finally:
+            if file_descriptor >= 0:
+                os.close(file_descriptor)
+            os.close(directory_descriptor)
 
     @staticmethod
     def _deployment_input_absence_seal(path: Path) -> dict[str, object]:
@@ -8210,6 +8756,19 @@ class MemorialDeployLane:
             raise DeployError("deployed_api_working_dir_mismatch")
         if topology["compose_config_files"] != expected_files:
             raise DeployError("deployed_api_compose_topology_mismatch")
+        if self.target_compose_environment_files:
+            labels = dict(dict(inspection.get("Config") or {}).get("Labels") or {})
+            expected_environment_label = ",".join(
+                self.target_compose_environment_files
+            )
+            if (
+                str(
+                    labels.get("com.docker.compose.project.environment_file")
+                    or ""
+                )
+                != expected_environment_label
+            ):
+                raise DeployError("deployed_api_compose_environment_mismatch")
         image_id = str(inspection.get("Image") or "").strip()
         if image_id != str(candidate.get("image_id") or ""):
             raise DeployError("deployed_api_image_mismatch")
@@ -8371,6 +8930,14 @@ class MemorialDeployLane:
             reason_prefix="prior_api",
             trust_inputs=False,
         )
+        compose_labels = dict(config.get("Labels") or {})
+        environment_file_label = str(
+            compose_labels.get("com.docker.compose.project.environment_file") or ""
+        )
+        self._prior_compose_environment_file_label = environment_file_label
+        self._prior_compose_environment_files = tuple(
+            environment_file_label.split(",") if environment_file_label else ()
+        )
         working_dir = Path(str(topology["working_dir"]))
         mount_identities = _mount_identities(inspection)
         runtime_config = _container_runtime_config_digests(inspection)
@@ -8406,6 +8973,28 @@ class MemorialDeployLane:
                 "health": health,
             },
         }
+
+    def _require_previous_api_unchanged(
+        self, previous: Mapping[str, Any]
+    ) -> None:
+        current = self._inspect_container(API_SERVICE)
+        self._require_compose_identity(
+            current,
+            service=API_SERVICE,
+            reason_prefix="prior_api_before_mutation",
+        )
+        state = dict(current.get("State") or {})
+        if (
+            str(current.get("Id") or "")
+            != str(previous.get("container_id") or "")
+            or not bool(state.get("Running"))
+            or bool(state.get("Restarting"))
+            or str(dict(state.get("Health") or {}).get("Status") or "")
+            != "healthy"
+            or _container_functional_identity(current)
+            != previous.get("functional_identity")
+        ):
+            raise DeployError("prior_api_changed_before_mutation")
 
     def _container_ready(
         self, name: str, *, require_health: bool
@@ -9833,6 +10422,10 @@ class MemorialDeployLane:
                     boundary="before_recreate_api"
                 )
                 self._require_deployment_input_seal(
+                    context["deployment_input_seal"], scope="forward"
+                )
+                self._require_previous_api_unchanged(previous)
+                self._require_deployment_input_seal(
                     context["deployment_input_seal"], scope="rollback"
                 )
                 self._arm_rollback_recovery(
@@ -9850,6 +10443,10 @@ class MemorialDeployLane:
                 self._revalidate_rollback_external_resources(
                     dict(previous["rollback_capsule_document"]),
                     boundary="before_recreate_api",
+                )
+                self._require_previous_api_unchanged(previous)
+                self._require_deployment_input_seal(
+                    context["deployment_input_seal"], scope="forward"
                 )
                 mutation_started = True
                 self._recreate_api()

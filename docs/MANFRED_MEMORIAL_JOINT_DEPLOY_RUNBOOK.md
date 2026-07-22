@@ -61,11 +61,21 @@ every mutation boundary and before the final spatial handoff.
 
 ## Split-label API baseline normalization
 
-If the live API's Compose labels name a working directory without `.env` and
-ordered Compose files below a different root, normal preflight must continue to
-reject that baseline. Do not copy files into the recorded directory, use the
-mutable external checkout, invoke raw Compose, or relax the external-layer
-check.
+Normal preflight recognizes one direct bridge for the captured split-label
+shape: exactly `docker-compose.yml`, `docker-compose.prod.yml`,
+`docker-compose.memorial.yml`, `docker-compose.whatsapp-web-session.yml`, then
+`docker-compose.cloudflared.yml`, all as mode-`0600` regular files under one
+current-operator-owned mode-`0700` external root. The files must be twice
+stable and byte-identical to the clean target revision's Git blobs. The live
+working directory must be a real Git root, and its Compose environment label
+must name exactly the primary and local mode-`0600` sanitizer projections under
+that same root, in that order; both projections must equal their live sources
+after sanitization and the target release projections byte-for-byte. This exact
+shape may proceed directly through the joint lane, preserving layer order and
+rebasing every forward input to the clean release root. Any name, order, root,
+mode, link, byte, environment, or identity drift still requires the governed
+normalization workflow below. Do not copy files into the recorded directory,
+invoke raw Compose, or broaden the bridge.
 
 The following target writes only a private, non-authoritative recovery plan. It
 does not inspect or mutate Docker, invoke Compose or Git, contact HTTP origins,
@@ -261,6 +271,13 @@ promotion inputs. Preserve the private receipt at:
 export MEMORIAL_SPATIAL_DEPLOY_RECEIPT="$RELEASE_ROOT/.runtime/deployments/memorial/$EA_DEPLOYMENT_ID.json"
 test "$(stat -c %a "$MEMORIAL_SPATIAL_DEPLOY_RECEIPT")" = 600
 ```
+
+A successful rollback restores the captured runtime, but the restored API's
+Compose provenance labels refer to the private rollback capsule that terminal
+cleanup clears. Treat that runtime as recovered, not immediately redeployable:
+before another joint deployment, use governed baseline normalization or its
+journal-driven recovery to establish a durable renderable baseline. Do not
+claim that a successful rollback alone authorizes an immediate redeploy.
 
 ### Crash-recovery journal
 

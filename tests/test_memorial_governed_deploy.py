@@ -313,6 +313,8 @@ class FakeRunner:
         include_working_dir_label: bool = True,
         baseline_root: Path | None = None,
         baseline_config_root: Path | None = None,
+        baseline_environment_files: tuple[str, ...] | None = None,
+        trusted_baseline_root: bool = True,
         redis_present: bool = True,
         redis_running: bool = True,
         redis_health: str = "healthy",
@@ -332,6 +334,8 @@ class FakeRunner:
         self.root = root
         self.baseline_root = baseline_root or root
         self.baseline_config_root = baseline_config_root or self.baseline_root
+        self.baseline_environment_files = baseline_environment_files
+        self.trusted_baseline_root = trusted_baseline_root
         self.authority_status = authority_status
         self.readiness_status = readiness_status
         self.baseline_files = baseline_files
@@ -344,6 +348,7 @@ class FakeRunner:
         self.calls: list[list[str]] = []
         self.call_envs: list[dict[str, str]] = []
         self.old_image = "sha256:" + "a" * 64
+        self.prior_container_id = "container-ea-api"
         self.candidate_image = "sha256:" + "c" * 64
         self.candidate_reference = f"ea-runtime:memorial-{'b' * 40}"
         self.prior_image_reference = prior_image_reference
@@ -363,6 +368,7 @@ class FakeRunner:
         self.api_mode = "prior"
         self.api_present = True
         self.forward_files: list[str] = []
+        self.forward_environment_files: list[str] = []
         self.forward_working_root = self.root
         self.forward_image_id = self.candidate_image
         self.forward_project = "ea"
@@ -450,6 +456,7 @@ class FakeRunner:
         self.head_tree = "d" * 40
         self.head_tree_after_materialization: str | None = None
         self.index_list = "H scripts/deploy_ea_memorial.py\0"
+        self.head_blob_overrides: dict[str, str] = {}
         self.authority_public_origin = "https://memorial.example.org"
         self.postdeploy_authority_public_origin: str | None = None
         self.authority_posture = "authoritative_runtime"
@@ -632,6 +639,14 @@ class FakeRunner:
                 stdout = self.upstream + "\n"
             else:
                 returncode = 1
+        elif (
+            argv[:2] == ["git", "-C"]
+            and argv[3:] == ["rev-parse", "--show-toplevel"]
+        ):
+            if self.trusted_baseline_root:
+                stdout = str(self.baseline_root) + "\n"
+            else:
+                returncode = 1
         elif argv == ["git", "rev-parse", "HEAD"]:
             revision = (
                 self.head_after_materialization
@@ -648,6 +663,25 @@ class FakeRunner:
                 else self.head_tree
             )
             stdout = tree + "\n"
+        elif argv[:4] == ["git", "hash-object", "--no-filters", "--"]:
+            relative = argv[4]
+            content = (self.root / relative).read_bytes()
+            stdout = hashlib.sha1(
+                f"blob {len(content)}\0".encode("ascii") + content
+            ).hexdigest() + "\n"
+        elif (
+            argv[:2] == ["git", "rev-parse"]
+            and len(argv) == 3
+            and ":" in argv[2]
+        ):
+            _revision, relative = argv[2].split(":", 1)
+            content = (self.root / relative).read_bytes()
+            stdout = self.head_blob_overrides.get(
+                relative,
+                hashlib.sha1(
+                    f"blob {len(content)}\0".encode("ascii") + content
+                ).hexdigest(),
+            ) + "\n"
         elif argv == ["git", "write-tree"]:
             tree = (
                 self.head_tree_after_materialization
@@ -805,6 +839,15 @@ class FakeRunner:
                 "com.docker.compose.service": service,
                 "com.docker.compose.project.config_files": ",".join(config_files),
             }
+            environment_files = (
+                self.forward_environment_files
+                if forward
+                else list(self.baseline_environment_files or ())
+            )
+            if environment_files:
+                labels["com.docker.compose.project.environment_file"] = ",".join(
+                    environment_files
+                )
             if name == "ea-api":
                 labels.update(self.prior_noncompose_labels)
             if self.include_working_dir_label:
@@ -865,7 +908,11 @@ class FakeRunner:
                 if mount.get("Type") == "volume":
                     mount.setdefault("Driver", "local")
             payload = {
-                "Id": "container-" + name,
+                "Id": (
+                    self.prior_container_id
+                    if name == "ea-api" and not forward
+                    else "container-" + name
+                ),
                 "Created": "2026-07-13T00:00:00Z",
                 "Image": image_id,
                 "Path": "/usr/bin/tini" if name == "ea-api" else "",
@@ -1071,6 +1118,11 @@ class FakeRunner:
                     argv[index + 1]
                     for index, item in enumerate(argv[:-1])
                     if item == "-f"
+                ]
+                self.forward_environment_files = [
+                    argv[index + 1]
+                    for index, item in enumerate(argv[:-1])
+                    if item == "--env-file"
                 ]
                 if self.tamper_capsule_on_forward:
                     capsule_path = Path(self.rollback_capsule_file)
@@ -3708,6 +3760,79 @@ def test_happy_path_mutates_only_redis_and_api(
     assert "_contract" not in postdeploy_openapi
 
 
+def test_runtime_local_tamper_during_bind_revalidation_stops_before_api_up(
+    release_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    local_source = release_root / ".env.local"
+    local_source.write_bytes(b"EA_LOCAL_SAFE=sealed\n")
+    local_source.chmod(0o600)
+    runner = FakeRunner(release_root)
+
+    def tampering_validator(
+        rendered: Mapping[str, object],
+        **kwargs: object,
+    ) -> dict[str, object]:
+        if kwargs.get("expected_snapshot_sha256"):
+            runtime_local = (
+                release_root
+                / deploy.EA_RUNTIME_ENV_DIRECTORY
+                / deploy.EA_RUNTIME_LOCAL_ENV_FILE
+            )
+            runtime_local.write_bytes(b"EA_LOCAL_SAFE=tampered\n")
+            runtime_local.chmod(0o600)
+        return _passing_bind_source_validator(rendered, **kwargs)
+
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="^deployment_input_seal_changed:forward$",
+    ):
+        _lane(
+            release_root,
+            runner,
+            bind_source_validator=tampering_validator,
+        ).deploy()
+
+    assert not any("up" in call and call[-1] == "ea-api" for call in runner.calls)
+
+
+def test_out_of_band_api_replacement_stops_before_api_up(
+    release_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = FakeRunner(release_root)
+
+    def replacing_validator(
+        rendered: Mapping[str, object],
+        **kwargs: object,
+    ) -> dict[str, object]:
+        if kwargs.get("expected_snapshot_sha256"):
+            runner.prior_container_id = "container-ea-api-replaced"
+        return _passing_bind_source_validator(rendered, **kwargs)
+
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="^prior_api_changed_before_mutation$",
+    ):
+        _lane(
+            release_root,
+            runner,
+            bind_source_validator=replacing_validator,
+        ).deploy()
+
+    assert not any("up" in call and call[-1] == "ea-api" for call in runner.calls)
+
+
 def test_candidate_promotion_receipt_is_explicit_private_and_non_symlink(
     release_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -6074,6 +6199,243 @@ def _configure_observed_live_rollback_posture(
             "NetworkID": "2" * 64,
         },
     }
+def _captured_five_layer_live_runner(
+    release_root: Path,
+    tmp_path: Path,
+) -> tuple[FakeRunner, Path, Path]:
+    layer_names = deploy.TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER
+    for index, filename in enumerate(layer_names):
+        (release_root / filename).write_text(
+            f"services: {{}}\n# trusted-layer-{index}\n",
+            encoding="utf-8",
+        )
+    release_local = release_root / ".env.local"
+    release_local.write_bytes(
+        b"EA_PRIOR_LOCAL=retained\nEMAILIT_API_KEY=blocked\n"
+    )
+    release_local.chmod(0o600)
+
+    prior_root = tmp_path / "trusted-prior-repo"
+    prior_root.mkdir()
+    prior_primary = prior_root / ".env"
+    prior_local = prior_root / ".env.local"
+    prior_primary.write_bytes(
+        b"EA_HOST_PORT=8090\nPROPERTYQUARRY_PRIVATE_KEY=blocked\n"
+    )
+    prior_local.write_bytes(
+        b"EA_PRIOR_LOCAL=retained\nEMAILIT_API_KEY=blocked\n"
+    )
+    prior_primary.chmod(0o600)
+    prior_local.chmod(0o600)
+    prior_runtime_root = prior_root / deploy.EA_RUNTIME_ENV_DIRECTORY
+    prior_runtime_root.mkdir(mode=0o700)
+    prior_runtime_root.chmod(0o700)
+    for source, filename in (
+        (prior_primary, deploy.EA_RUNTIME_ENV_FILE),
+        (prior_local, deploy.EA_RUNTIME_LOCAL_ENV_FILE),
+    ):
+        destination = prior_runtime_root / filename
+        destination.write_bytes(deploy.sanitize_env_bytes(source.read_bytes())[0])
+        destination.chmod(0o600)
+
+    external_root = tmp_path / "captured-live-compose"
+    external_root.mkdir(mode=0o700)
+    external_root.chmod(0o700)
+    for filename in layer_names:
+        destination = external_root / filename
+        destination.write_bytes((release_root / filename).read_bytes())
+        destination.chmod(0o600)
+    environment_files = tuple(
+        str(prior_runtime_root / filename)
+        for filename in (
+            deploy.EA_RUNTIME_ENV_FILE,
+            deploy.EA_RUNTIME_LOCAL_ENV_FILE,
+        )
+    )
+    runner = FakeRunner(
+        release_root,
+        baseline_root=prior_root,
+        baseline_config_root=external_root,
+        baseline_files=layer_names,
+        baseline_environment_files=environment_files,
+    )
+    return runner, prior_root, external_root
+
+
+def test_captured_five_layer_topology_uses_direct_joint_bridge_in_place(
+    release_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, prior_root, external_root = _captured_five_layer_live_runner(
+        release_root, tmp_path
+    )
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    receipt = _lane(release_root, runner).deploy(preflight_only=True)
+
+    expected_layers = list(deploy.TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER)
+    assert receipt["status"] == "preflight_only_pass"
+    assert receipt["target_compose_files"] == expected_layers
+    topology = receipt["forward_topology_source"]
+    assert topology["working_dir"] == str(prior_root)
+    assert topology["compose_config_files"] == [
+        str(external_root / filename) for filename in expected_layers
+    ]
+    assert topology["trusted_external_bridge"]["status"] == "pass"
+    assert (
+        topology["trusted_external_bridge"]["bridge"]
+        == "direct_joint_without_baseline_normalization"
+    )
+    assert topology["trusted_external_bridge"]["two_sample_seal_verified"] is True
+    config_call = [
+        call for call in runner.calls if call[-2:] == ["config", "--quiet"]
+    ][0]
+    configured_layers = [
+        Path(config_call[index + 1]).name
+        for index, item in enumerate(config_call[:-1])
+        if item == "-f"
+    ]
+    assert configured_layers == expected_layers
+    assert configured_layers.index(deploy.MEMORIAL_COMPOSE_FILE) < (
+        configured_layers.index("docker-compose.whatsapp-web-session.yml")
+    )
+    assert configured_layers.index(deploy.MEMORIAL_COMPOSE_FILE) < (
+        configured_layers.index("docker-compose.cloudflared.yml")
+    )
+    configured_environment = [
+        config_call[index + 1]
+        for index, item in enumerate(config_call[:-1])
+        if item == "--env-file"
+    ]
+    assert configured_environment == [
+        str(
+            release_root
+            / deploy.EA_RUNTIME_ENV_DIRECTORY
+            / deploy.EA_RUNTIME_ENV_FILE
+        ),
+        str(
+            release_root
+            / deploy.EA_RUNTIME_ENV_DIRECTORY
+            / deploy.EA_RUNTIME_LOCAL_ENV_FILE
+        ),
+    ]
+    assert deploy.API_BASELINE_NORMALIZATION_COMPOSE_FILE not in configured_layers
+    assert receipt["rollback_compose_files"] == [
+        "memorial-release-001.rollback-capsule.compose.json"
+    ]
+    assert not any("up" in call for call in runner.calls)
+
+
+@pytest.mark.parametrize(
+    ("drift", "reason"),
+    [
+        ("order", "forward_external_bridge_layer_order_invalid"),
+        ("name", "forward_baseline_compose_file_unmappable"),
+        ("root", "forward_external_bridge_common_root_invalid"),
+        ("blob", "forward_external_bridge_compose_blob_mismatch"),
+        ("head_blob", "forward_external_bridge_release_head_blob_mismatch"),
+        ("common_root_mode", "forward_external_bridge_common_root_mode_invalid"),
+        ("environment_label", "forward_external_bridge_environment_label_invalid"),
+        (
+            "environment_projection",
+            "forward_external_bridge_environment_projection_invalid",
+        ),
+        (
+            "target_environment_projection",
+            "forward_external_bridge_environment_projection_mismatch",
+        ),
+        (
+            "environment_mode",
+            "forward_external_bridge_environment_file_invalid_mode_invalid",
+        ),
+        ("symlink", "forward_external_bridge_compose_invalid"),
+        ("mode", "forward_external_bridge_compose_mode_invalid"),
+        ("untrusted_prior_root", "forward_external_bridge_working_dir_untrusted"),
+    ],
+)
+def test_captured_five_layer_bridge_rejects_drift_before_mutation(
+    release_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    drift: str,
+    reason: str,
+) -> None:
+    runner, prior_root, external_root = _captured_five_layer_live_runner(
+        release_root, tmp_path
+    )
+    layers = list(deploy.TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER)
+    if drift == "order":
+        layers[2], layers[3] = layers[3], layers[2]
+        runner.baseline_files = tuple(layers)
+    elif drift == "name":
+        unknown = external_root / "docker-compose.untrusted.yml"
+        unknown.write_bytes((external_root / layers[3]).read_bytes())
+        unknown.chmod(0o600)
+        layers[3] = unknown.name
+        runner.baseline_files = tuple(layers)
+    elif drift == "root":
+        other_root = tmp_path / "other-compose-root"
+        other_root.mkdir(mode=0o700)
+        other_root.chmod(0o700)
+        moved = other_root / layers[-1]
+        moved.write_bytes((external_root / layers[-1]).read_bytes())
+        moved.chmod(0o600)
+        layers[-1] = str(moved)
+        runner.baseline_files = tuple(layers)
+    elif drift == "blob":
+        (external_root / layers[1]).write_bytes(b"services: {drift: true}\n")
+    elif drift == "head_blob":
+        runner.head_blob_overrides[layers[1]] = "0" * 40
+    elif drift == "common_root_mode":
+        external_root.chmod(0o750)
+    elif drift == "environment_label":
+        runner.baseline_environment_files = tuple(
+            reversed(runner.baseline_environment_files or ())
+        )
+    elif drift == "environment_projection":
+        projection = (
+            prior_root
+            / deploy.EA_RUNTIME_ENV_DIRECTORY
+            / deploy.EA_RUNTIME_LOCAL_ENV_FILE
+        )
+        projection.write_bytes(b"EA_PRIOR_LOCAL=drifted\n")
+        projection.chmod(0o600)
+    elif drift == "target_environment_projection":
+        target_local = release_root / ".env.local"
+        target_local.write_bytes(b"EA_PRIOR_LOCAL=target-drifted\n")
+        target_local.chmod(0o600)
+    elif drift == "environment_mode":
+        projection = (
+            prior_root
+            / deploy.EA_RUNTIME_ENV_DIRECTORY
+            / deploy.EA_RUNTIME_LOCAL_ENV_FILE
+        )
+        projection.chmod(0o640)
+    elif drift == "symlink":
+        selected = external_root / layers[3]
+        selected.unlink()
+        selected.symlink_to(release_root / layers[3])
+    elif drift == "mode":
+        (external_root / layers[3]).chmod(0o640)
+    elif drift == "untrusted_prior_root":
+        runner.trusted_baseline_root = False
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(deploy.DeployError, match=reason):
+        _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+
+
 def test_split_topology_never_opens_external_compose_or_environment_bytes(
     release_root: Path,
     tmp_path: Path,
