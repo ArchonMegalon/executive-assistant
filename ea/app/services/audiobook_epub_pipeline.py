@@ -44,6 +44,12 @@ from app.services.memorial_openvoice import (
     unmixr_speaking_volume,
     unmixr_synthesize_request,
 )
+from app.services.audiobook_tts import (
+    AudiobookProviderRouter,
+    ProviderVoiceRef,
+    SpeechSynthesisRequest,
+)
+from app.services.audiobook_tts.providers import UnmixrProvider
 from app.services.audiobook_narration_planner import (
     BOUNDARY_POLICY_NAME,
     PLANNER_CONTRACT_NAME,
@@ -7830,19 +7836,72 @@ def _synthesize_unmixr_with_retries(
 ) -> tuple[bytes, str, list[str]]:
     attempts = _env_int("EA_AUDIOBOOK_UNMIXR_RETRY_COUNT", 3, minimum=1, maximum=8)
     base_sleep = _env_int("EA_AUDIOBOOK_UNMIXR_RETRY_BACKOFF_SECONDS", 4, minimum=0, maximum=120)
+    source_text_sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    voice_id_sha256 = hashlib.sha256(voice_id.encode("utf-8")).hexdigest()
+    idempotency_key = hashlib.sha256(
+        json.dumps(
+            {
+                "contract_name": "ea.audiobook_tts_segment_identity.v2",
+                "provider": "unmixr",
+                "model": "short-tts",
+                "source_text_sha256": source_text_sha256,
+                "voice_id_sha256": voice_id_sha256,
+                "language": lang,
+                "speaking_rate": speaking_rate or "",
+                "speaking_pitch": speaking_pitch or "",
+                "speaking_volume": speaking_volume or "",
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    provider_request = SpeechSynthesisRequest(
+        # This Phase-1 compatibility helper predates job/chapter context in its
+        # signature.  Keep unknown authority fields empty instead of inventing
+        # identity or rights truth; the existing narration plan remains owner.
+        job_id="",
+        chapter_id="",
+        segment_id=source_text_sha256,
+        source_text=text,
+        source_text_sha256=source_text_sha256,
+        language=lang,
+        speaker_id="",
+        speaker_role="",
+        voice=ProviderVoiceRef(
+            provider="unmixr",
+            provider_voice_id=voice_id,
+            voice_id_sha256=voice_id_sha256,
+            safe_label="Unmixr audiobook voice",
+            language=lang,
+            supported_languages=(lang,) if lang else (),
+            rights_class="legacy_unclassified",
+            rights_receipt_id="",
+        ),
+        model="short-tts",
+        speed=1.0,
+        temperature=0.0,
+        output_format="mp3",
+        sample_rate=44100,
+        performance_direction="",
+        external_processing_authorization_id="",
+        idempotency_key=idempotency_key,
+    )
     errors: list[str] = []
     for attempt in range(1, attempts + 1):
         try:
-            audio_bytes, content_type = unmixr_synthesize_request(
-                text=text,
-                voice_id=voice_id,
-                lang=lang,
+            provider = UnmixrProvider(
+                # Preserve the long-standing module monkeypatch seam used by
+                # the EPUB regression suite while memorial callers remain
+                # entirely on memorial_openvoice.
+                synthesize_request=unmixr_synthesize_request,
                 speaking_rate=speaking_rate,
                 speaking_pitch=speaking_pitch,
                 speaking_volume=speaking_volume,
                 pronunciation_dict=unmixr_pronunciation_dict(),
+                legacy_error_compatibility=True,
             )
-            return audio_bytes, content_type, errors
+            result = AudiobookProviderRouter((provider,)).synthesize(provider_request)
+            return result.audio_bytes, result.content_type, errors
         except Exception as exc:
             errors.append(f"attempt_{attempt}:{_public_unmixr_error_reason(exc)}")
             if attempt >= attempts or not _unmixr_retryable_error(exc):

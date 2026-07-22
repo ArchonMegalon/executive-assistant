@@ -87,7 +87,19 @@
       "version": "2.13.0"
     },
     {
-      "bom-ref": "pkg:jinja2@3.1.6#1-8",
+      "bom-ref": "pkg:cryptography@>=48.0.1,<49.0.0#1-8",
+      "name": "cryptography",
+      "properties": [
+        {
+          "name": "ea.requirements_source",
+          "value": "ea/requirements.txt"
+        }
+      ],
+      "type": "library",
+      "version": ">=48.0.1,<49.0.0"
+    },
+    {
+      "bom-ref": "pkg:jinja2@3.1.6#1-9",
       "name": "jinja2",
       "properties": [
         {
@@ -99,7 +111,7 @@
       "version": "3.1.6"
     },
     {
-      "bom-ref": "pkg:playwright@1.60.0#1-9",
+      "bom-ref": "pkg:playwright@1.60.0#1-10",
       "name": "playwright",
       "properties": [
         {
@@ -111,7 +123,7 @@
       "version": "1.60.0"
     },
     {
-      "bom-ref": "pkg:Pillow@12.3.0#1-10",
+      "bom-ref": "pkg:Pillow@12.3.0#1-11",
       "name": "Pillow",
       "properties": [
         {
@@ -123,7 +135,7 @@
       "version": "12.3.0"
     },
     {
-      "bom-ref": "pkg:numpy@2.4.3#1-11",
+      "bom-ref": "pkg:numpy@2.4.3#1-12",
       "name": "numpy",
       "properties": [
         {
@@ -135,7 +147,7 @@
       "version": "2.4.3"
     },
     {
-      "bom-ref": "pkg:opencv-python-headless@4.13.0.92#1-12",
+      "bom-ref": "pkg:opencv-python-headless@4.13.0.92#1-13",
       "name": "opencv-python-headless",
       "properties": [
         {
@@ -147,7 +159,7 @@
       "version": "4.13.0.92"
     },
     {
-      "bom-ref": "pkg:PyYAML@6.0.3#1-13",
+      "bom-ref": "pkg:PyYAML@6.0.3#1-14",
       "name": "PyYAML",
       "properties": [
         {
@@ -159,7 +171,7 @@
       "version": "6.0.3"
     },
     {
-      "bom-ref": "pkg:requests@2.34.2#1-14",
+      "bom-ref": "pkg:requests@2.34.2#1-15",
       "name": "requests",
       "properties": [
         {
@@ -171,7 +183,7 @@
       "version": "2.34.2"
     },
     {
-      "bom-ref": "pkg:redis@5.2.1#1-15",
+      "bom-ref": "pkg:redis@5.2.1#1-16",
       "name": "redis",
       "properties": [
         {
@@ -183,7 +195,7 @@
       "version": "5.2.1"
     },
     {
-      "bom-ref": "pkg:yt-dlp@2026.6.9#1-16",
+      "bom-ref": "pkg:yt-dlp@2026.6.9#1-17",
       "name": "yt-dlp",
       "properties": [
         {
@@ -195,7 +207,7 @@
       "version": "2026.6.9"
     },
     {
-      "bom-ref": "pkg:python-multipart@0.0.32#1-17",
+      "bom-ref": "pkg:python-multipart@0.0.32#1-18",
       "name": "python-multipart",
       "properties": [
         {
@@ -207,7 +219,7 @@
       "version": "0.0.32"
     },
     {
-      "bom-ref": "pkg:httpx2@2.4.0#1-18",
+      "bom-ref": "pkg:httpx2@2.4.0#1-19",
       "name": "httpx2",
       "properties": [
         {
@@ -242,43 +254,46 @@
       "ref": "pkg:PyJWT[crypto]@2.13.0#1-7"
     },
     {
-      "ref": "pkg:jinja2@3.1.6#1-8"
+      "ref": "pkg:cryptography@>=48.0.1,<49.0.0#1-8"
     },
     {
-      "ref": "pkg:playwright@1.60.0#1-9"
+      "ref": "pkg:jinja2@3.1.6#1-9"
     },
     {
-      "ref": "pkg:Pillow@12.3.0#1-10"
+      "ref": "pkg:playwright@1.60.0#1-10"
     },
     {
-      "ref": "pkg:numpy@2.4.3#1-11"
+      "ref": "pkg:Pillow@12.3.0#1-11"
     },
     {
-      "ref": "pkg:opencv-python-headless@4.13.0.92#1-12"
+      "ref": "pkg:numpy@2.4.3#1-12"
     },
     {
-      "ref": "pkg:PyYAML@6.0.3#1-13"
+      "ref": "pkg:opencv-python-headless@4.13.0.92#1-13"
     },
     {
-      "ref": "pkg:requests@2.34.2#1-14"
+      "ref": "pkg:PyYAML@6.0.3#1-14"
     },
     {
-      "ref": "pkg:redis@5.2.1#1-15"
+      "ref": "pkg:requests@2.34.2#1-15"
     },
     {
-      "ref": "pkg:yt-dlp@2026.6.9#1-16"
+      "ref": "pkg:redis@5.2.1#1-16"
     },
     {
-      "ref": "pkg:python-multipart@0.0.32#1-17"
+      "ref": "pkg:yt-dlp@2026.6.9#1-17"
     },
     {
-      "ref": "pkg:httpx2@2.4.0#1-18"
+      "ref": "pkg:python-multipart@0.0.32#1-18"
+    },
+    {
+      "ref": "pkg:httpx2@2.4.0#1-19"
     }
   ],
   "metadata": {
-    "timestamp": "2026-07-17T16:29:01.451562Z"
+    "timestamp": "2026-07-22T14:31:06.649113Z"
   },
-  "serialNumber": "urn:uuid:aa68993e-9dc5-4f1b-9df0-b58d500049f1",
+  "serialNumber": "urn:uuid:21a26339-6b6c-4638-8890-bbe2a50caf00",
   "specVersion": "1.6",
   "version": 1
 }

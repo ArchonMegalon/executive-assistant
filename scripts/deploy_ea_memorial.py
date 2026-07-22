@@ -26,6 +26,7 @@ import urllib.request
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping, Protocol, Sequence
 
@@ -37,13 +38,17 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
 try:
     from scripts.ea_memorial_recovery_interlock import (
         MemorialRecoveryInterlockError,
+        default_joint_recovery_journal_path,
         default_normalization_recovery_journal_path,
+        require_joint_recovery_absent,
         require_normalization_recovery_absent,
     )
 except ModuleNotFoundError:  # pragma: no cover - direct script execution
     from ea_memorial_recovery_interlock import (  # type: ignore[no-redef]
         MemorialRecoveryInterlockError,
+        default_joint_recovery_journal_path,
         default_normalization_recovery_journal_path,
+        require_joint_recovery_absent,
         require_normalization_recovery_absent,
     )
 
@@ -215,6 +220,225 @@ ROLLBACK_MEMORIAL_RENDER_ENV_KEYS = frozenset(
         "EA_MEMORIAL_DATA_HOST_PATH",
         "EA_MEMORIAL_RUNTIME_HOST_PATH",
     }
+)
+ROLLBACK_CAPSULE_CONTRACT_NAME = "ea.memorial_api_rollback_capsule.v1"
+ROLLBACK_CAPSULE_VERSION = 1
+ROLLBACK_RECOVERY_CONTRACT_NAME = "ea.memorial_api_active_recovery.v1"
+ROLLBACK_RECOVERY_VERSION = 1
+ROLLBACK_CAPSULE_ALLOWED_EXTERNAL_LAYERS = frozenset(
+    {"docker-compose.yml", "docker-compose.prod.yml", MEMORIAL_COMPOSE_FILE}
+)
+ROLLBACK_CAPSULE_COMPOSE_LABEL_PREFIX = "com.docker.compose."
+ROLLBACK_CAPSULE_CONFIG_MAPPED_KEYS = frozenset(
+    {
+        "Cmd",
+        "Entrypoint",
+        "Env",
+        "ExposedPorts",
+        "Healthcheck",
+        "Hostname",
+        "Image",
+        "Labels",
+        "StopSignal",
+        "StopTimeout",
+        "User",
+        "WorkingDir",
+    }
+)
+ROLLBACK_CAPSULE_CONFIG_ENGINE_DEFAULTS = {
+    "AttachStderr": True,
+    "AttachStdout": True,
+}
+ROLLBACK_CAPSULE_HOST_MAPPED_KEYS = frozenset(
+    {
+        "Binds",
+        "CapDrop",
+        "CgroupnsMode",
+        "CpuShares",
+        "ExtraHosts",
+        "IpcMode",
+        "LogConfig",
+        "Memory",
+        "MemoryReservation",
+        "MemorySwap",
+        "NanoCpus",
+        "NetworkMode",
+        "PidsLimit",
+        "PortBindings",
+        "ReadonlyRootfs",
+        "RestartPolicy",
+        "Runtime",
+        "SecurityOpt",
+        "ShmSize",
+        "Tmpfs",
+    }
+)
+ROLLBACK_CAPSULE_ENGINE_SECURITY_KEYS = frozenset(
+    {"MaskedPaths", "ReadonlyPaths"}
+)
+ROLLBACK_CAPSULE_ENGINE_SECURITY_DEFAULTS = {
+    "MaskedPaths": [
+        "/proc/acpi",
+        "/proc/asound",
+        "/proc/interrupts",
+        "/proc/kcore",
+        "/proc/keys",
+        "/proc/latency_stats",
+        "/proc/sched_debug",
+        "/proc/scsi",
+        "/proc/timer_list",
+        "/proc/timer_stats",
+        "/sys/devices/virtual/powercap",
+        "/sys/firmware",
+    ],
+    "ReadonlyPaths": [
+        "/proc/bus",
+        "/proc/fs",
+        "/proc/irq",
+        "/proc/sys",
+        "/proc/sysrq-trigger",
+    ],
+}
+ROLLBACK_CAPSULE_NETWORK_DYNAMIC_KEYS = frozenset(
+    {
+        "DNSNames",
+        "EndpointID",
+        "Gateway",
+        "GlobalIPv6Address",
+        "GlobalIPv6PrefixLen",
+        "IPAddress",
+        "IPPrefixLen",
+        "IPv6Gateway",
+        "MacAddress",
+    }
+)
+ROLLBACK_CAPSULE_NETWORK_SETTINGS_KEYS = frozenset(
+    {
+        "Bridge",
+        "EndpointID",
+        "Gateway",
+        "GlobalIPv6Address",
+        "GlobalIPv6PrefixLen",
+        "HairpinMode",
+        "IPAddress",
+        "IPPrefixLen",
+        "IPv6Gateway",
+        "LinkLocalIPv6Address",
+        "LinkLocalIPv6PrefixLen",
+        "MacAddress",
+        "Networks",
+        "Ports",
+        "SandboxID",
+        "SandboxKey",
+        "SecondaryIPAddresses",
+        "SecondaryIPv6Addresses",
+    }
+)
+ROLLBACK_CAPSULE_MOUNT_KEYS = frozenset(
+    {
+        "Destination",
+        "Driver",
+        "Mode",
+        "Name",
+        "Propagation",
+        "RW",
+        "Source",
+        "Type",
+    }
+)
+ROLLBACK_CAPSULE_RENDER_TOP_LEVEL_KEYS = frozenset(
+    {
+        "name",
+        "networks",
+        "services",
+        "version",
+        "volumes",
+        "x-ea-rollback-capsule",
+    }
+)
+ROLLBACK_CAPSULE_RENDER_SERVICE_KEYS = frozenset(
+    {
+        "build",
+        "cap_drop",
+        "cgroup",
+        "command",
+        "container_name",
+        "cpu_shares",
+        "cpus",
+        "entrypoint",
+        "environment",
+        "expose",
+        "extra_hosts",
+        "healthcheck",
+        "hostname",
+        "image",
+        "ipc",
+        "labels",
+        "logging",
+        "mem_limit",
+        "mem_reservation",
+        "memswap_limit",
+        "networks",
+        "pids_limit",
+        "ports",
+        "pull_policy",
+        "read_only",
+        "restart",
+        "runtime",
+        "security_opt",
+        "shm_size",
+        "stop_grace_period",
+        "stop_signal",
+        "tmpfs",
+        "user",
+        "volumes",
+        "working_dir",
+    }
+)
+ROLLBACK_CAPSULE_RENDER_NETWORK_KEYS = frozenset(
+    {
+        "attachable",
+        "driver",
+        "driver_opts",
+        "enable_ipv4",
+        "enable_ipv6",
+        "external",
+        "internal",
+        "ipam",
+        "labels",
+        "name",
+    }
+)
+ROLLBACK_CAPSULE_RENDER_VOLUME_KEYS = frozenset(
+    {"driver", "driver_opts", "external", "labels", "name"}
+)
+ROLLBACK_CAPSULE_RENDER_SERVICE_NETWORK_KEYS = frozenset(
+    {
+        "aliases",
+        "driver_opts",
+        "gw_priority",
+        "interface_name",
+        "ipv4_address",
+        "ipv6_address",
+        "link_local_ips",
+        "mac_address",
+        "priority",
+    }
+)
+ROLLBACK_CAPSULE_RENDER_MOUNT_KEYS = frozenset(
+    {"bind", "consistency", "read_only", "source", "target", "tmpfs", "type", "volume"}
+)
+ROLLBACK_CAPSULE_RENDER_BIND_KEYS = frozenset(
+    {"create_host_path", "propagation", "selinux"}
+)
+ROLLBACK_CAPSULE_RENDER_VOLUME_OPTION_KEYS = frozenset({"nocopy", "subpath"})
+ROLLBACK_CAPSULE_RENDER_PORT_KEYS = frozenset(
+    {"app_protocol", "host_ip", "mode", "name", "protocol", "published", "target"}
+)
+ROLLBACK_RECOVERY_ARMED_STATUS = "armed"
+ROLLBACK_RECOVERY_CLEANUP_STATUS = "cleanup_capsule_pending"
+ROLLBACK_RECOVERY_ALLOWED_STATUSES = frozenset(
+    {ROLLBACK_RECOVERY_ARMED_STATUS, ROLLBACK_RECOVERY_CLEANUP_STATUS}
 )
 MAX_HTTP_BODY_BYTES = 2 * 1024 * 1024
 MAX_INTERNAL_OPENAPI_BYTES = 8 * 1024 * 1024
@@ -1010,6 +1234,659 @@ def _container_runtime_config_digests(
     }
 
 
+def _docker_value_is_neutral(value: object) -> bool:
+    if value is None or value is False or value == 0 or value == "":
+        return True
+    if isinstance(value, (list, tuple)):
+        return all(_docker_value_is_neutral(item) for item in value)
+    if isinstance(value, dict):
+        return all(_docker_value_is_neutral(item) for item in value.values())
+    return False
+
+
+def _rollback_capsule_compose_literal(value: str) -> str:
+    if "\x00" in value:
+        raise DeployError("rollback_capsule_string_invalid")
+    return value.replace("$", "$$")
+
+
+def _rollback_capsule_decode_rendered_literals(value: object) -> object:
+    if isinstance(value, str):
+        result: list[str] = []
+        position = 0
+        while position < len(value):
+            if value[position] != "$":
+                result.append(value[position])
+                position += 1
+                continue
+            end = position
+            while end < len(value) and value[end] == "$":
+                end += 1
+            count = end - position
+            if count % 2:
+                raise DeployError("rollback_capsule_render_unescaped_interpolation")
+            result.append("$" * (count // 2))
+            position = end
+        return "".join(result)
+    if isinstance(value, list):
+        return [
+            _rollback_capsule_decode_rendered_literals(item) for item in value
+        ]
+    if isinstance(value, dict):
+        return {
+            str(name): _rollback_capsule_decode_rendered_literals(item)
+            for name, item in value.items()
+        }
+    return value
+
+
+def _rollback_capsule_unknown_non_neutral(
+    value: Mapping[str, Any],
+    allowed: frozenset[str],
+    *,
+    reason_prefix: str,
+) -> None:
+    for raw_key, raw_value in value.items():
+        key = str(raw_key)
+        if key not in allowed and not _docker_value_is_neutral(raw_value):
+            raise DeployError(f"{reason_prefix}:{key}")
+
+
+def _rollback_capsule_duration_ns(value: object, *, reason: str) -> int:
+    if type(value) is int:
+        if value < 0:
+            raise DeployError(reason)
+        return value
+    if not isinstance(value, str) or not value or "\x00" in value:
+        raise DeployError(reason)
+    if value == "0":
+        return 0
+    units = {
+        "ns": Decimal(1),
+        "us": Decimal(1_000),
+        "µs": Decimal(1_000),
+        "ms": Decimal(1_000_000),
+        "s": Decimal(1_000_000_000),
+        "m": Decimal(60_000_000_000),
+        "h": Decimal(3_600_000_000_000),
+    }
+    position = 0
+    total = Decimal(0)
+    pattern = re.compile(r"([0-9]+(?:\.[0-9]+)?)(ns|us|µs|ms|s|m|h)")
+    while position < len(value):
+        match = pattern.match(value, position)
+        if match is None:
+            raise DeployError(reason)
+        try:
+            total += Decimal(match.group(1)) * units[match.group(2)]
+        except InvalidOperation as exc:
+            raise DeployError(reason) from exc
+        position = match.end()
+    integral = total.to_integral_value()
+    if total != integral or integral < 0:
+        raise DeployError(reason)
+    return int(integral)
+
+
+def _rollback_capsule_byte_quantity(value: object, *, reason: str) -> int:
+    if type(value) is int:
+        return value
+    if not isinstance(value, str) or not value or "\x00" in value:
+        raise DeployError(reason)
+    match = re.fullmatch(
+        r"([+-]?[0-9]+(?:\.[0-9]+)?)\s*([kmgtpe]?i?b?|bytes?)?",
+        value.strip().casefold(),
+    )
+    if match is None:
+        raise DeployError(reason)
+    unit = (match.group(2) or "b").casefold()
+    aliases = {
+        "byte": "b",
+        "bytes": "b",
+        "k": "kb",
+        "ki": "kib",
+        "m": "mb",
+        "mi": "mib",
+        "g": "gb",
+        "gi": "gib",
+        "t": "tb",
+        "ti": "tib",
+        "p": "pb",
+        "pi": "pib",
+        "e": "eb",
+        "ei": "eib",
+    }
+    unit = aliases.get(unit, unit)
+    powers = {
+        "b": 0,
+        "kb": 1,
+        "kib": 1,
+        "mb": 2,
+        "mib": 2,
+        "gb": 3,
+        "gib": 3,
+        "tb": 4,
+        "tib": 4,
+        "pb": 5,
+        "pib": 5,
+        "eb": 6,
+        "eib": 6,
+    }
+    if unit not in powers:
+        raise DeployError(reason)
+    try:
+        total = Decimal(match.group(1)) * (Decimal(1024) ** powers[unit])
+    except InvalidOperation as exc:
+        raise DeployError(reason) from exc
+    integral = total.to_integral_value()
+    if total != integral:
+        raise DeployError(reason)
+    return int(integral)
+
+
+def _rollback_capsule_nano_cpus(value: object, *, reason: str) -> int:
+    if type(value) not in {int, float, str} or isinstance(value, bool):
+        raise DeployError(reason)
+    try:
+        cpu_value = Decimal(str(value))
+    except InvalidOperation as exc:
+        raise DeployError(reason) from exc
+    nano_cpus = cpu_value * Decimal(1_000_000_000)
+    integral = nano_cpus.to_integral_value()
+    if nano_cpus != integral or integral < 0:
+        raise DeployError(reason)
+    return int(integral)
+
+
+def _rollback_capsule_extra_hosts(value: object) -> list[str]:
+    items: list[str]
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        items = [f"{key}={item}" for key, item in value.items()]
+    elif isinstance(value, list) and all(isinstance(item, str) for item in value):
+        items = list(value)
+    else:
+        raise DeployError("rollback_capsule_extra_hosts_invalid")
+    normalized: set[str] = set()
+    for item in items:
+        delimiter = "=" if "=" in item else ":"
+        host, found, address = item.partition(delimiter)
+        if (
+            not found
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,254}", host) is None
+            or not address
+            or "\x00" in address
+            or "\n" in address
+            or "\r" in address
+        ):
+            raise DeployError("rollback_capsule_extra_hosts_invalid")
+        normalized.add(f"{host}:{address}")
+    return sorted(normalized)
+
+
+def _rollback_capsule_healthcheck_identity(value: object) -> dict[str, object]:
+    if value in (None, {}):
+        return {}
+    if not isinstance(value, dict):
+        raise DeployError("rollback_capsule_healthcheck_invalid")
+    allowed = {
+        "Interval",
+        "Retries",
+        "StartInterval",
+        "StartPeriod",
+        "Test",
+        "Timeout",
+    }
+    _rollback_capsule_unknown_non_neutral(
+        value,
+        frozenset(allowed),
+        reason_prefix="rollback_capsule_healthcheck_field_unsupported",
+    )
+    result: dict[str, object] = {}
+    test = value.get("Test")
+    if not _docker_value_is_neutral(test):
+        if not isinstance(test, list) or not all(
+            isinstance(item, str) and "\x00" not in item for item in test
+        ):
+            raise DeployError("rollback_capsule_healthcheck_invalid")
+        result["Test"] = list(test)
+    for key in ("Interval", "StartInterval", "StartPeriod", "Timeout"):
+        duration = value.get(key)
+        if not _docker_value_is_neutral(duration):
+            if type(duration) is not int or duration < 0:
+                raise DeployError("rollback_capsule_healthcheck_invalid")
+            result[key] = duration
+    retries = value.get("Retries")
+    if not _docker_value_is_neutral(retries):
+        if type(retries) is not int or retries < 0:
+            raise DeployError("rollback_capsule_healthcheck_invalid")
+        result["Retries"] = retries
+    return result
+
+
+def _rollback_capsule_port_identity(
+    config: Mapping[str, Any], host: Mapping[str, Any]
+) -> list[dict[str, object]]:
+    exposed = config.get("ExposedPorts") or {}
+    bindings = host.get("PortBindings") or {}
+    if not isinstance(exposed, dict) or not isinstance(bindings, dict):
+        raise DeployError("rollback_capsule_ports_invalid")
+    pattern = re.compile(r"^([1-9][0-9]{0,4})/(tcp|udp|sctp)$")
+    rows: list[dict[str, object]] = []
+    for raw_port in sorted({*exposed, *bindings}):
+        port = str(raw_port)
+        match = pattern.fullmatch(port)
+        if match is None or not 1 <= int(match.group(1)) <= 65535:
+            raise DeployError("rollback_capsule_ports_invalid")
+        if raw_port in exposed and exposed[raw_port] not in ({}, None):
+            raise DeployError("rollback_capsule_ports_invalid")
+        raw_bindings = bindings.get(raw_port) or []
+        if not isinstance(raw_bindings, list):
+            raise DeployError("rollback_capsule_ports_invalid")
+        normalized_bindings: list[dict[str, str]] = []
+        for raw_binding in raw_bindings:
+            if not isinstance(raw_binding, dict):
+                raise DeployError("rollback_capsule_ports_invalid")
+            _rollback_capsule_unknown_non_neutral(
+                raw_binding,
+                frozenset({"HostIp", "HostPort"}),
+                reason_prefix="rollback_capsule_port_binding_field_unsupported",
+            )
+            host_ip = str(raw_binding.get("HostIp") or "")
+            host_port = str(raw_binding.get("HostPort") or "")
+            if (
+                not host_port.isdigit()
+                or not 1 <= int(host_port) <= 65535
+                or "\x00" in host_ip
+            ):
+                raise DeployError("rollback_capsule_ports_invalid")
+            normalized_bindings.append(
+                {"host_ip": host_ip, "host_port": str(int(host_port))}
+            )
+        rows.append(
+            {
+                "container_port": int(match.group(1)),
+                "protocol": match.group(2),
+                "exposed": raw_port in exposed,
+                "bindings": sorted(
+                    normalized_bindings,
+                    key=lambda item: (item["host_ip"], item["host_port"]),
+                ),
+            }
+        )
+    return rows
+
+
+def _rollback_capsule_host_identity(host: Mapping[str, Any]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key in sorted(
+        {*ROLLBACK_CAPSULE_HOST_MAPPED_KEYS, *ROLLBACK_CAPSULE_ENGINE_SECURITY_KEYS}
+    ):
+        if key in {"Binds", "PortBindings"}:
+            continue
+        value = host.get(key)
+        if _docker_value_is_neutral(value):
+            continue
+        if key in {"CapDrop", "SecurityOpt"}:
+            if not isinstance(value, list) or not all(
+                isinstance(item, str) and item and "\x00" not in item
+                for item in value
+            ):
+                raise DeployError("rollback_capsule_security_config_invalid")
+            result[key] = sorted(set(value))
+        elif key == "ExtraHosts":
+            result[key] = _rollback_capsule_extra_hosts(value)
+        elif key == "Tmpfs":
+            if not isinstance(value, dict) or not all(
+                isinstance(path, str)
+                and path.startswith("/")
+                and os.path.normpath(path) == path
+                and isinstance(options, str)
+                and "\x00" not in path
+                and "\x00" not in options
+                for path, options in value.items()
+            ):
+                raise DeployError("rollback_capsule_tmpfs_invalid")
+            result[key] = {path: value[path] for path in sorted(value)}
+        elif key == "LogConfig":
+            if not isinstance(value, dict):
+                raise DeployError("rollback_capsule_logging_invalid")
+            _rollback_capsule_unknown_non_neutral(
+                value,
+                frozenset({"Config", "Type"}),
+                reason_prefix="rollback_capsule_logging_field_unsupported",
+            )
+            options = value.get("Config") or {}
+            if not isinstance(options, dict) or not all(
+                isinstance(name, str) and isinstance(item, str)
+                for name, item in options.items()
+            ):
+                raise DeployError("rollback_capsule_logging_invalid")
+            result[key] = {
+                "Type": str(value.get("Type") or ""),
+                "Config": {name: options[name] for name in sorted(options)},
+            }
+        elif key == "RestartPolicy":
+            if not isinstance(value, dict):
+                raise DeployError("rollback_capsule_restart_policy_invalid")
+            _rollback_capsule_unknown_non_neutral(
+                value,
+                frozenset({"MaximumRetryCount", "Name"}),
+                reason_prefix="rollback_capsule_restart_policy_field_unsupported",
+            )
+            result[key] = {
+                "Name": str(value.get("Name") or ""),
+                "MaximumRetryCount": int(value.get("MaximumRetryCount") or 0),
+            }
+        else:
+            result[key] = value
+    return result
+
+
+def _rollback_capsule_noncompose_labels(
+    config: Mapping[str, Any],
+) -> dict[str, str]:
+    raw_labels = config.get("Labels") or {}
+    if not isinstance(raw_labels, dict):
+        raise DeployError("rollback_capsule_labels_invalid")
+    labels: dict[str, str] = {}
+    for raw_name, raw_value in raw_labels.items():
+        if not isinstance(raw_name, str) or not isinstance(raw_value, str):
+            raise DeployError("rollback_capsule_labels_invalid")
+        if (
+            not raw_name
+            or "\x00" in raw_name
+            or "\x00" in raw_value
+            or "\n" in raw_name
+            or "\r" in raw_name
+        ):
+            raise DeployError("rollback_capsule_labels_invalid")
+        if not raw_name.startswith(ROLLBACK_CAPSULE_COMPOSE_LABEL_PREFIX):
+            labels[raw_name] = raw_value
+    return {name: labels[name] for name in sorted(labels)}
+
+
+def _rollback_capsule_mount_identities(
+    inspection: Mapping[str, Any],
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    destinations: set[str] = set()
+    for raw_mount in list(inspection.get("Mounts") or []):
+        if not isinstance(raw_mount, dict):
+            raise DeployError("rollback_capsule_mount_invalid")
+        _rollback_capsule_unknown_non_neutral(
+            raw_mount,
+            ROLLBACK_CAPSULE_MOUNT_KEYS,
+            reason_prefix="rollback_capsule_mount_field_unsupported",
+        )
+        mount_type = str(raw_mount.get("Type") or "")
+        destination = str(raw_mount.get("Destination") or "")
+        propagation = str(raw_mount.get("Propagation") or "")
+        if (
+            mount_type not in {"bind", "volume"}
+            or not destination.startswith("/")
+            or os.path.normpath(destination) != destination
+            or "\x00" in destination
+            or destination in destinations
+        ):
+            raise DeployError("rollback_capsule_mount_invalid")
+        destinations.add(destination)
+        read_write = bool(raw_mount.get("RW"))
+        mode = str(raw_mount.get("Mode") or ("rw" if read_write else "ro"))
+        if mode not in {"ro", "rw"} or (mode == "rw") is not read_write:
+            raise DeployError("rollback_capsule_mount_mode_unsupported")
+        if mount_type == "bind":
+            raw_source = str(raw_mount.get("Source") or "")
+            source_path = Path(raw_source)
+            if (
+                not source_path.is_absolute()
+                or ".." in source_path.parts
+                or "\x00" in raw_source
+                or os.path.normpath(raw_source) != raw_source
+            ):
+                raise DeployError("rollback_capsule_bind_mount_invalid")
+            source = raw_source
+            driver = ""
+            if not _docker_value_is_neutral(raw_mount.get("Driver")) or not (
+                _docker_value_is_neutral(raw_mount.get("Name"))
+            ):
+                raise DeployError("rollback_capsule_bind_mount_invalid")
+            if propagation not in {"", "private", "rprivate"}:
+                raise DeployError("rollback_capsule_bind_propagation_unsupported")
+        else:
+            source = str(raw_mount.get("Name") or "")
+            driver = str(raw_mount.get("Driver") or "local")
+            if (
+                not source
+                or len(source) > 255
+                or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", source) is None
+                or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", driver) is None
+                or propagation
+            ):
+                raise DeployError("rollback_capsule_volume_mount_invalid")
+        rows.append(
+            {
+                "type": mount_type,
+                "source": source,
+                "destination": destination,
+                "read_write": read_write,
+                "propagation": propagation,
+                "mode": mode,
+                "driver": driver,
+            }
+        )
+    return sorted(
+        rows,
+        key=lambda item: (
+            str(item["destination"]),
+            str(item["type"]),
+            str(item["source"]),
+            bool(item["read_write"]),
+            str(item["propagation"]),
+            str(item["mode"]),
+            str(item["driver"]),
+        ),
+    )
+
+
+def _rollback_capsule_network_identities(
+    inspection: Mapping[str, Any],
+) -> list[dict[str, object]]:
+    network_settings = inspection.get("NetworkSettings") or {}
+    if not isinstance(network_settings, dict):
+        raise DeployError("rollback_capsule_networks_invalid")
+    _rollback_capsule_unknown_non_neutral(
+        network_settings,
+        ROLLBACK_CAPSULE_NETWORK_SETTINGS_KEYS,
+        reason_prefix="rollback_capsule_network_settings_field_unsupported",
+    )
+    raw_networks = network_settings.get("Networks") or {}
+    if not isinstance(raw_networks, dict):
+        raise DeployError("rollback_capsule_networks_invalid")
+    container_id = str(inspection.get("Id") or "")
+    rows: list[dict[str, object]] = []
+    for raw_name, raw_endpoint in sorted(raw_networks.items()):
+        name = str(raw_name or "")
+        if (
+            re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,254}", name) is None
+            or not isinstance(raw_endpoint, dict)
+        ):
+            raise DeployError("rollback_capsule_networks_invalid")
+        network_id = str(raw_endpoint.get("NetworkID") or "")
+        if re.fullmatch(r"[0-9a-f]{64}", network_id) is None:
+            raise DeployError("rollback_capsule_network_id_invalid")
+        if not _docker_value_is_neutral(raw_endpoint.get("IPAMConfig")):
+            raise DeployError("rollback_capsule_static_ip_unsupported")
+        for key, value in raw_endpoint.items():
+            if key in {
+                "Aliases",
+                "DriverOpts",
+                "GwPriority",
+                "IPAMConfig",
+                "Links",
+                "NetworkID",
+                *ROLLBACK_CAPSULE_NETWORK_DYNAMIC_KEYS,
+            }:
+                if key in {"DriverOpts", "GwPriority", "Links"} and not (
+                    _docker_value_is_neutral(value)
+                ):
+                    raise DeployError(
+                        f"rollback_capsule_network_field_unsupported:{key}"
+                    )
+                continue
+            if not _docker_value_is_neutral(value):
+                raise DeployError(
+                    f"rollback_capsule_network_field_unsupported:{key}"
+                )
+        raw_aliases = raw_endpoint.get("Aliases") or []
+        if not isinstance(raw_aliases, list) or not all(
+            isinstance(item, str) and item and "\x00" not in item
+            for item in raw_aliases
+        ):
+            raise DeployError("rollback_capsule_network_alias_invalid")
+        aliases = sorted(
+            {
+                item
+                for item in raw_aliases
+                if item not in {container_id, container_id[:12]}
+            }
+        )
+        if any(
+            re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,254}", item) is None
+            for item in aliases
+        ):
+            raise DeployError("rollback_capsule_network_alias_invalid")
+        rows.append(
+            {
+                "name": name,
+                "network_id": network_id,
+                "aliases": aliases,
+            }
+        )
+    return rows
+
+
+def _require_rollback_capsule_supported_inspection(
+    inspection: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    config_value = inspection.get("Config")
+    host_value = inspection.get("HostConfig")
+    config = dict(config_value) if isinstance(config_value, dict) else {}
+    host = dict(host_value) if isinstance(host_value, dict) else {}
+    if not config:
+        raise DeployError("rollback_capsule_container_config_missing")
+    apparmor_profile = str(inspection.get("AppArmorProfile") or "")
+    if apparmor_profile not in {"", "docker-default"}:
+        raise DeployError("rollback_capsule_apparmor_profile_unsupported")
+    for key, value in config.items():
+        if key in ROLLBACK_CAPSULE_CONFIG_MAPPED_KEYS:
+            continue
+        expected_default = ROLLBACK_CAPSULE_CONFIG_ENGINE_DEFAULTS.get(key)
+        if expected_default is not None and value == expected_default:
+            continue
+        if not _docker_value_is_neutral(value):
+            raise DeployError(f"rollback_capsule_config_field_unsupported:{key}")
+    for key, value in host.items():
+        if key in ROLLBACK_CAPSULE_HOST_MAPPED_KEYS:
+            continue
+        if key in ROLLBACK_CAPSULE_ENGINE_SECURITY_KEYS:
+            if value != ROLLBACK_CAPSULE_ENGINE_SECURITY_DEFAULTS[key]:
+                raise DeployError(
+                    f"rollback_capsule_host_field_unsupported:{key}"
+                )
+            continue
+        if not _docker_value_is_neutral(value):
+            raise DeployError(f"rollback_capsule_host_field_unsupported:{key}")
+    _normalized_environment(list(config.get("Env") or []))
+    _normalized_command(config.get("Cmd"))
+    _normalized_command(config.get("Entrypoint"))
+    _rollback_capsule_noncompose_labels(config)
+    _rollback_capsule_mount_identities(inspection)
+    _rollback_capsule_network_identities(inspection)
+    return config, host
+
+
+def _container_functional_identity(
+    inspection: Mapping[str, Any],
+) -> dict[str, object]:
+    config, host = _require_rollback_capsule_supported_inspection(inspection)
+    environment = _normalized_environment(list(config.get("Env") or []))
+    mounts = _rollback_capsule_mount_identities(inspection)
+    networks = _rollback_capsule_network_identities(inspection)
+    noncompose_labels = _rollback_capsule_noncompose_labels(config)
+    runtime_path = str(inspection.get("Path") or "")
+    runtime_args = inspection.get("Args") or []
+    if "\x00" in runtime_path or not isinstance(runtime_args, list) or not all(
+        isinstance(item, str) and "\x00" not in item for item in runtime_args
+    ):
+        raise DeployError("rollback_capsule_runtime_process_invalid")
+    host_mapped = _rollback_capsule_host_identity(host)
+    port_identity = _rollback_capsule_port_identity(config, host)
+    domains: dict[str, object] = {
+        "image": {
+            "image_id": str(inspection.get("Image") or ""),
+            "image_reference": str(config.get("Image") or ""),
+        },
+        "environment": {
+            "sha256": _canonical_json_sha256(environment),
+            "count": len(environment),
+        },
+        "process": {
+            "sha256": _canonical_json_sha256(
+                {
+                    "command": _normalized_command(config.get("Cmd")),
+                    "entrypoint": _normalized_command(config.get("Entrypoint")),
+                    "hostname": str(config.get("Hostname") or ""),
+                    "runtime_args": list(runtime_args),
+                    "runtime_path": runtime_path,
+                    "user": str(config.get("User") or ""),
+                    "working_dir": str(config.get("WorkingDir") or ""),
+                }
+            )
+        },
+        "healthcheck": {
+            "sha256": _canonical_json_sha256(
+                _rollback_capsule_healthcheck_identity(config.get("Healthcheck"))
+            )
+        },
+        "host_config": {"sha256": _canonical_json_sha256(host_mapped)},
+        "ports": {
+            "sha256": _canonical_json_sha256(port_identity),
+            "count": len(port_identity),
+        },
+        "mounts": {
+            "sha256": _canonical_json_sha256(mounts),
+            "count": len(mounts),
+        },
+        "networks": {
+            "sha256": _canonical_json_sha256(networks),
+            "count": len(networks),
+        },
+        "noncompose_labels": {
+            "sha256": _canonical_json_sha256(noncompose_labels),
+            "count": len(noncompose_labels),
+        },
+        "stop_config": {
+            "sha256": _canonical_json_sha256(
+                {
+                    "apparmor_profile": str(
+                        inspection.get("AppArmorProfile") or ""
+                    ),
+                    "stop_signal": str(config.get("StopSignal") or ""),
+                    "stop_timeout": config.get("StopTimeout"),
+                }
+            )
+        },
+    }
+    return {
+        "contract_name": "ea.memorial_api_functional_identity.v1",
+        "version": 1,
+        "domains": domains,
+        "functional_identity_sha256": _canonical_json_sha256(domains),
+    }
+
+
 def _memorial_rollback_environment(
     *,
     config: Mapping[str, Any],
@@ -1687,6 +2564,10 @@ class MemorialDeployLane:
         self.receipt_dir = self.receipt_dir.resolve()
         self.receipt_path = self.receipt_dir / f"{self.deployment_id}.json"
         self.lock_path = self.receipt_dir / f"{self.deployment_id}.lock"
+        self.rollback_capsule_path = (
+            self.receipt_dir
+            / f"{self.deployment_id}.rollback-capsule.compose.json"
+        )
         self.global_lock_path = (
             global_lock_path.resolve()
             if global_lock_path is not None
@@ -1700,6 +2581,9 @@ class MemorialDeployLane:
                     operator_anchor=self.root
                 )
             )
+            self.joint_recovery_journal_path = default_joint_recovery_journal_path(
+                operator_anchor=self.root
+            )
         except MemorialRecoveryInterlockError as exc:
             raise DeployError(str(exc)) from exc
         self._vexp_mutation_authority = VexpMemorialMutationAuthority()
@@ -1710,6 +2594,10 @@ class MemorialDeployLane:
         self.compose_bin: tuple[str, ...] = ()
         self.target_compose_files: tuple[str, ...] = ()
         self.bind_source_snapshot_sha256 = ""
+        self._rollback_capsule_seal: dict[str, object] | None = None
+        self._rollback_recovery_seal: dict[str, object] | None = None
+        self._rollback_capsule_document: dict[str, Any] | None = None
+        self._rollback_recovery_document: dict[str, Any] | None = None
         self.release_env = self._release_env()
         self.receipt: dict[str, Any] = {
             "contract_name": "ea.memorial_scoped_deploy_receipt.v1",
@@ -1881,6 +2769,434 @@ class MemorialDeployLane:
             if directory_descriptor >= 0:
                 os.close(directory_descriptor)
 
+    @staticmethod
+    def _open_private_parent_descriptor(
+        path: Path, *, create_final: bool, reason_prefix: str
+    ) -> int:
+        selected = path.expanduser()
+        if (
+            not selected.is_absolute()
+            or ".." in selected.parts
+            or os.path.normpath(str(selected)) != str(selected)
+            or selected.parent == Path("/")
+        ):
+            raise DeployError(f"{reason_prefix}_path_invalid")
+        required = ("O_CLOEXEC", "O_DIRECTORY", "O_NOFOLLOW")
+        if any(not hasattr(os, name) for name in required):
+            raise DeployError(f"{reason_prefix}_nofollow_unavailable")
+        flags = os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | os.O_NOFOLLOW
+        try:
+            current = os.open("/", flags)
+        except OSError as exc:
+            raise DeployError(f"{reason_prefix}_directory_unavailable") from exc
+        try:
+            parts = selected.parent.parts[1:]
+            for index, component in enumerate(parts):
+                final = index == len(parts) - 1
+                try:
+                    path_metadata = os.stat(
+                        component,
+                        dir_fd=current,
+                        follow_symlinks=False,
+                    )
+                    child = os.open(component, flags, dir_fd=current)
+                except FileNotFoundError as exc:
+                    if not final or not create_final:
+                        raise DeployError(
+                            f"{reason_prefix}_directory_unavailable"
+                        ) from exc
+                    try:
+                        os.mkdir(component, 0o700, dir_fd=current)
+                        child = os.open(component, flags, dir_fd=current)
+                        path_metadata = os.stat(
+                            component,
+                            dir_fd=current,
+                            follow_symlinks=False,
+                        )
+                    except OSError as create_exc:
+                        raise DeployError(
+                            f"{reason_prefix}_directory_unavailable"
+                        ) from create_exc
+                except OSError as exc:
+                    raise DeployError(
+                        f"{reason_prefix}_directory_unavailable"
+                    ) from exc
+                child_metadata = os.fstat(child)
+                if (
+                    not stat.S_ISDIR(path_metadata.st_mode)
+                    or stat.S_ISLNK(path_metadata.st_mode)
+                    or not stat.S_ISDIR(child_metadata.st_mode)
+                    or _trusted_file_identity(path_metadata)
+                    != _trusted_file_identity(child_metadata)
+                ):
+                    os.close(child)
+                    raise DeployError(f"{reason_prefix}_directory_invalid")
+                os.close(current)
+                current = child
+            final_metadata = os.fstat(current)
+            if final_metadata.st_uid != os.geteuid():
+                raise DeployError(f"{reason_prefix}_directory_invalid")
+            try:
+                os.fchmod(current, 0o700)
+                os.fsync(current)
+            except OSError as exc:
+                raise DeployError(f"{reason_prefix}_directory_invalid") from exc
+            final_metadata = os.fstat(current)
+            if stat.S_IMODE(final_metadata.st_mode) != 0o700:
+                raise DeployError(f"{reason_prefix}_directory_invalid")
+            descriptor = current
+            current = -1
+            return descriptor
+        finally:
+            if current >= 0:
+                os.close(current)
+
+    @staticmethod
+    def _write_private_artifact_once(
+        path: Path, payload: bytes, *, reason_prefix: str
+    ) -> dict[str, object]:
+        selected = path.expanduser()
+        if (
+            not selected.is_absolute()
+            or ".." in selected.parts
+            or not selected.name
+            or len(payload) > MAX_DEPLOYMENT_INPUT_BYTES
+        ):
+            raise DeployError(f"{reason_prefix}_path_invalid")
+        file_flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | os.O_CLOEXEC
+            | os.O_NOFOLLOW
+        )
+        directory_descriptor = -1
+        descriptor = -1
+        created = False
+        completed = False
+        try:
+            directory_descriptor = MemorialDeployLane._open_private_parent_descriptor(
+                selected,
+                create_final=True,
+                reason_prefix=reason_prefix,
+            )
+            parent_metadata = os.fstat(directory_descriptor)
+            if (
+                not stat.S_ISDIR(parent_metadata.st_mode)
+                or parent_metadata.st_uid != os.geteuid()
+                or stat.S_IMODE(parent_metadata.st_mode) != 0o700
+            ):
+                raise DeployError(f"{reason_prefix}_directory_invalid")
+            descriptor = os.open(
+                selected.name,
+                file_flags,
+                0o600,
+                dir_fd=directory_descriptor,
+            )
+            created = True
+            os.fchmod(descriptor, 0o600)
+            remaining = memoryview(payload)
+            while remaining:
+                written = os.write(descriptor, remaining)
+                if written <= 0:
+                    raise DeployError(f"{reason_prefix}_write_failed")
+                remaining = remaining[written:]
+            os.fsync(descriptor)
+            metadata = os.fstat(descriptor)
+            path_metadata = os.stat(
+                selected.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_nlink != 1
+                or metadata.st_uid != os.geteuid()
+                or stat.S_IMODE(metadata.st_mode) != 0o600
+                or metadata.st_size != len(payload)
+                or _trusted_file_identity(metadata)
+                != _trusted_file_identity(path_metadata)
+            ):
+                raise DeployError(f"{reason_prefix}_file_invalid")
+            os.fsync(directory_descriptor)
+            completed = True
+        except FileExistsError as exc:
+            raise DeployError(f"{reason_prefix}_already_exists") from exc
+        except DeployError:
+            raise
+        except OSError as exc:
+            raise DeployError(f"{reason_prefix}_write_unavailable") from exc
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            if directory_descriptor >= 0:
+                if created and not completed:
+                    try:
+                        os.unlink(selected.name, dir_fd=directory_descriptor)
+                    except OSError:
+                        pass
+                os.close(directory_descriptor)
+        seal = MemorialDeployLane._deployment_input_file_seal(selected)
+        if seal.get("mode") != "0600":
+            raise DeployError(f"{reason_prefix}_mode_invalid")
+        return seal
+
+    @staticmethod
+    def _remove_private_artifact(
+        path: Path,
+        expected_seal: Mapping[str, object],
+        *,
+        reason_prefix: str,
+        allow_absent: bool = False,
+    ) -> None:
+        try:
+            current = MemorialDeployLane._deployment_input_file_seal(path)
+        except DeployError as exc:
+            if allow_absent and str(exc) == (
+                f"deployment_input_file_unavailable:{path.name}"
+            ):
+                return
+            raise
+        if current != dict(expected_seal) or current.get("mode") != "0600":
+            raise DeployError(f"{reason_prefix}_changed")
+        directory_descriptor = -1
+        try:
+            directory_descriptor = MemorialDeployLane._open_private_parent_descriptor(
+                path,
+                create_final=False,
+                reason_prefix=reason_prefix,
+            )
+            path_metadata = os.stat(
+                path.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            if (
+                int(path_metadata.st_dev) != int(current["device"])
+                or int(path_metadata.st_ino) != int(current["inode"])
+            ):
+                raise DeployError(f"{reason_prefix}_changed")
+            os.unlink(path.name, dir_fd=directory_descriptor)
+            os.fsync(directory_descriptor)
+        except DeployError:
+            raise
+        except OSError as exc:
+            raise DeployError(f"{reason_prefix}_cleanup_failed") from exc
+        finally:
+            if directory_descriptor >= 0:
+                os.close(directory_descriptor)
+
+    @staticmethod
+    def _read_private_artifact(
+        path: Path,
+        *,
+        reason_prefix: str,
+        allow_absent: bool = False,
+    ) -> tuple[bytes, dict[str, object]] | None:
+        selected = path.expanduser()
+        directory_descriptor = -1
+        descriptor = -1
+        try:
+            directory_descriptor = MemorialDeployLane._open_private_parent_descriptor(
+                selected,
+                create_final=False,
+                reason_prefix=reason_prefix,
+            )
+            try:
+                path_metadata = os.stat(
+                    selected.name,
+                    dir_fd=directory_descriptor,
+                    follow_symlinks=False,
+                )
+                descriptor = os.open(
+                    selected.name,
+                    os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK,
+                    dir_fd=directory_descriptor,
+                )
+            except FileNotFoundError:
+                if allow_absent:
+                    return None
+                raise DeployError(f"{reason_prefix}_unavailable")
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or stat.S_ISLNK(path_metadata.st_mode)
+                or metadata.st_nlink != 1
+                or metadata.st_uid != os.geteuid()
+                or stat.S_IMODE(metadata.st_mode) != 0o600
+                or _trusted_file_identity(metadata)
+                != _trusted_file_identity(path_metadata)
+                or not 0 < metadata.st_size <= MAX_DEPLOYMENT_INPUT_BYTES
+            ):
+                raise DeployError(f"{reason_prefix}_untrusted")
+            identity = (
+                metadata.st_dev,
+                metadata.st_ino,
+                metadata.st_mode,
+                metadata.st_uid,
+                metadata.st_gid,
+                metadata.st_nlink,
+                metadata.st_size,
+                metadata.st_mtime_ns,
+                metadata.st_ctime_ns,
+            )
+            raw = bytearray()
+            digest = hashlib.sha256()
+            while True:
+                chunk = os.read(descriptor, 1024 * 1024)
+                if not chunk:
+                    break
+                raw.extend(chunk)
+                digest.update(chunk)
+                if len(raw) > MAX_DEPLOYMENT_INPUT_BYTES:
+                    raise DeployError(f"{reason_prefix}_too_large")
+                current = os.fstat(descriptor)
+                if (
+                    current.st_dev,
+                    current.st_ino,
+                    current.st_mode,
+                    current.st_uid,
+                    current.st_gid,
+                    current.st_nlink,
+                    current.st_size,
+                    current.st_mtime_ns,
+                    current.st_ctime_ns,
+                ) != identity:
+                    raise DeployError(f"{reason_prefix}_changed_during_read")
+            final = os.fstat(descriptor)
+            final_path = os.stat(
+                selected.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            if (
+                len(raw) != final.st_size
+                or _trusted_file_identity(final)
+                != _trusted_file_identity(metadata)
+                or _trusted_file_identity(final_path)
+                != _trusted_file_identity(metadata)
+            ):
+                raise DeployError(f"{reason_prefix}_changed_during_read")
+            return bytes(raw), {
+                "path": selected.as_posix(),
+                "sha256": digest.hexdigest(),
+                "size_bytes": len(raw),
+                "mode": "0600",
+                "device": int(final.st_dev),
+                "inode": int(final.st_ino),
+                "uid": int(final.st_uid),
+                "gid": int(final.st_gid),
+                "link_count": int(final.st_nlink),
+                "mtime_ns": int(final.st_mtime_ns),
+                "ctime_ns": int(final.st_ctime_ns),
+            }
+        except DeployError:
+            raise
+        except OSError as exc:
+            raise DeployError(f"{reason_prefix}_unavailable") from exc
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            if directory_descriptor >= 0:
+                os.close(directory_descriptor)
+
+    @staticmethod
+    def _replace_private_artifact(
+        path: Path,
+        payload: bytes,
+        expected_seal: Mapping[str, object],
+        *,
+        reason_prefix: str,
+    ) -> dict[str, object]:
+        selected = path.expanduser()
+        current = MemorialDeployLane._read_private_artifact(
+            selected, reason_prefix=reason_prefix
+        )
+        if current is None or current[1] != dict(expected_seal):
+            raise DeployError(f"{reason_prefix}_changed")
+        if not payload or len(payload) > MAX_DEPLOYMENT_INPUT_BYTES:
+            raise DeployError(f"{reason_prefix}_size_invalid")
+        directory_descriptor = -1
+        descriptor = -1
+        temporary_created = False
+        temporary_name = (
+            f".{selected.name}.tmp.{os.getpid()}.{time.monotonic_ns()}"
+        )
+        try:
+            directory_descriptor = MemorialDeployLane._open_private_parent_descriptor(
+                selected,
+                create_final=False,
+                reason_prefix=reason_prefix,
+            )
+            path_metadata = os.stat(
+                selected.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            if (
+                int(path_metadata.st_dev) != int(expected_seal["device"])
+                or int(path_metadata.st_ino) != int(expected_seal["inode"])
+            ):
+                raise DeployError(f"{reason_prefix}_changed")
+            descriptor = os.open(
+                temporary_name,
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | os.O_CLOEXEC
+                | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=directory_descriptor,
+            )
+            temporary_created = True
+            os.fchmod(descriptor, 0o600)
+            remaining = memoryview(payload)
+            while remaining:
+                written = os.write(descriptor, remaining)
+                if written <= 0:
+                    raise DeployError(f"{reason_prefix}_write_failed")
+                remaining = remaining[written:]
+            os.fsync(descriptor)
+            created_metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(created_metadata.st_mode)
+                or created_metadata.st_nlink != 1
+                or created_metadata.st_uid != os.geteuid()
+                or stat.S_IMODE(created_metadata.st_mode) != 0o600
+                or created_metadata.st_size != len(payload)
+            ):
+                raise DeployError(f"{reason_prefix}_replacement_invalid")
+            os.close(descriptor)
+            descriptor = -1
+            os.replace(
+                temporary_name,
+                selected.name,
+                src_dir_fd=directory_descriptor,
+                dst_dir_fd=directory_descriptor,
+            )
+            temporary_created = False
+            os.fsync(directory_descriptor)
+        except DeployError:
+            raise
+        except OSError as exc:
+            raise DeployError(f"{reason_prefix}_replace_failed") from exc
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            if temporary_created and directory_descriptor >= 0:
+                try:
+                    os.unlink(temporary_name, dir_fd=directory_descriptor)
+                except OSError:
+                    pass
+            if directory_descriptor >= 0:
+                os.close(directory_descriptor)
+        seal = MemorialDeployLane._deployment_input_file_seal(selected)
+        if seal.get("mode") != "0600" or seal.get("sha256") != hashlib.sha256(
+            payload
+        ).hexdigest():
+            raise DeployError(f"{reason_prefix}_replacement_invalid")
+        return seal
+
     def _open_lock(self, path: Path, *, busy_reason: str) -> Any:
         selected_path = path.expanduser()
         if not selected_path.is_absolute() or ".." in selected_path.parts:
@@ -1988,6 +3304,12 @@ class MemorialDeployLane:
             require_normalization_recovery_absent(
                 self.normalization_recovery_journal_path
             )
+        except MemorialRecoveryInterlockError as exc:
+            raise DeployError(str(exc)) from exc
+
+    def _require_joint_recovery_absent(self) -> None:
+        try:
+            require_joint_recovery_absent(self.joint_recovery_journal_path)
         except MemorialRecoveryInterlockError as exc:
             raise DeployError(str(exc)) from exc
 
@@ -2608,23 +3930,27 @@ class MemorialDeployLane:
         release_files: list[str] = []
         seen: set[str] = set()
         prior_memorial_layer_replaced = False
+        external_layer_names: list[str] = []
         for prior_file in prior_files:
             try:
                 relative = prior_file.relative_to(prior_root)
-            except ValueError as exc:
-                raise DeployError(
-                    f"forward_baseline_compose_file_unmappable:{prior_file}"
-                ) from exc
-            relative_name = relative.as_posix()
+                relative_name = relative.as_posix()
+            except ValueError:
+                relative_name = prior_file.name
+                if relative_name not in ROLLBACK_CAPSULE_ALLOWED_EXTERNAL_LAYERS:
+                    raise DeployError(
+                        f"forward_baseline_compose_file_unmappable:{prior_file.name}"
+                    )
+                external_layer_names.append(relative_name)
             if relative_name in seen:
                 raise DeployError("forward_baseline_compose_file_duplicate")
             seen.add(relative_name)
-            if relative.name == MEMORIAL_COMPOSE_FILE:
+            if Path(relative_name).name == MEMORIAL_COMPOSE_FILE:
                 if relative_name != MEMORIAL_COMPOSE_FILE:
                     raise DeployError("forward_baseline_memorial_path_invalid")
                 prior_memorial_layer_replaced = True
                 continue
-            release_file = self.root / relative
+            release_file = self.root / Path(relative_name)
             try:
                 release_file.relative_to(self.root)
             except ValueError as exc:
@@ -2654,10 +3980,11 @@ class MemorialDeployLane:
             "working_dir": str(prior_root),
             "compose_config_files": [str(path) for path in prior_files],
             "mapping": (
-                "baseline_relative_paths_rebased_to_release_root_"
-                "with_current_memorial_layer"
+                "recognized_layers_rebased_to_release_root_"
+                "with_current_memorial_layer_without_external_byte_reads"
             ),
             "prior_memorial_layer_replaced": prior_memorial_layer_replaced,
+            "external_layer_basenames": external_layer_names,
         }
         self._write_receipt()
 
@@ -2665,6 +3992,449 @@ class MemorialDeployLane:
         self, root: Path, files: Sequence[str], *args: str
     ) -> list[str]:
         return [*self._compose_args(root=root, files=files), *args]
+
+    def _rollback_capsule_compose(self, capsule_path: Path, *args: str) -> list[str]:
+        if not self.compose_bin:
+            raise DeployError("docker_compose_unavailable")
+        capsule = capsule_path.expanduser()
+        if (
+            not capsule.is_absolute()
+            or ".." in capsule.parts
+            or capsule.parent != self.receipt_dir
+        ):
+            raise DeployError("rollback_capsule_path_invalid")
+        self._deployment_input_file_seal(capsule)
+        return [
+            *self.compose_bin,
+            "--project-name",
+            PROJECT_NAME,
+            "--project-directory",
+            str(self.receipt_dir),
+            "-f",
+            str(capsule),
+            *args,
+        ]
+
+    def _build_rollback_capsule(
+        self, inspection: Mapping[str, Any]
+    ) -> tuple[dict[str, Any], dict[str, object]]:
+        config, host = _require_rollback_capsule_supported_inspection(inspection)
+        image_id = str(inspection.get("Image") or "")
+        if IMAGE_ID_PATTERN.fullmatch(image_id) is None:
+            raise DeployError("rollback_capsule_image_id_invalid")
+        image_reference = _safe_tagged_image_reference(
+            str(config.get("Image") or ""),
+            reason="rollback_capsule_image_reference_invalid",
+        )
+        identity = _container_functional_identity(inspection)
+        service: dict[str, Any] = {
+            "container_name": API_SERVICE,
+            "image": image_reference,
+            "pull_policy": "never",
+        }
+
+        normalized_environment = _normalized_environment(
+            list(config.get("Env") or [])
+        )
+        raw_environment_names = [
+            str(item).split("=", 1)[0] for item in list(config.get("Env") or [])
+        ]
+        if (
+            len(raw_environment_names) != len(set(raw_environment_names))
+            or any(
+                re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) is None
+                for name in raw_environment_names
+            )
+        ):
+            raise DeployError("rollback_capsule_environment_name_invalid_or_duplicate")
+        service["environment"] = {
+            item.split("=", 1)[0]: item.split("=", 1)[1].replace("$", "$$")
+            for item in normalized_environment
+        }
+
+        for source_key, compose_key in (
+            ("Cmd", "command"),
+            ("Entrypoint", "entrypoint"),
+        ):
+            value = _normalized_command(config.get(source_key))
+            if value:
+                service[compose_key] = [
+                    _rollback_capsule_compose_literal(item) for item in value
+                ]
+        for source_key, compose_key in (
+            ("User", "user"),
+            ("WorkingDir", "working_dir"),
+            ("Hostname", "hostname"),
+            ("StopSignal", "stop_signal"),
+        ):
+            value = str(config.get(source_key) or "")
+            if value:
+                if "\x00" in value or "\n" in value or "\r" in value:
+                    raise DeployError("rollback_capsule_process_config_invalid")
+                service[compose_key] = _rollback_capsule_compose_literal(value)
+        stop_timeout = config.get("StopTimeout")
+        if not _docker_value_is_neutral(stop_timeout):
+            if type(stop_timeout) is not int or int(stop_timeout) < 0:
+                raise DeployError("rollback_capsule_stop_timeout_invalid")
+            service["stop_grace_period"] = f"{int(stop_timeout)}s"
+
+        raw_healthcheck = config.get("Healthcheck") or {}
+        if not isinstance(raw_healthcheck, dict):
+            raise DeployError("rollback_capsule_healthcheck_invalid")
+        allowed_healthcheck = {
+            "Interval",
+            "Retries",
+            "StartInterval",
+            "StartPeriod",
+            "Test",
+            "Timeout",
+        }
+        if any(
+            key not in allowed_healthcheck and not _docker_value_is_neutral(value)
+            for key, value in raw_healthcheck.items()
+        ):
+            raise DeployError("rollback_capsule_healthcheck_field_unsupported")
+        if raw_healthcheck:
+            test = raw_healthcheck.get("Test") or []
+            if not isinstance(test, list) or not all(
+                isinstance(item, str) and "\x00" not in item for item in test
+            ):
+                raise DeployError("rollback_capsule_healthcheck_invalid")
+            healthcheck: dict[str, object] = {
+                "test": [
+                    _rollback_capsule_compose_literal(item) for item in test
+                ]
+            }
+            for source_key, compose_key in (
+                ("Interval", "interval"),
+                ("Timeout", "timeout"),
+                ("StartPeriod", "start_period"),
+                ("StartInterval", "start_interval"),
+            ):
+                value = raw_healthcheck.get(source_key)
+                if not _docker_value_is_neutral(value):
+                    if type(value) is not int or int(value) < 0:
+                        raise DeployError("rollback_capsule_healthcheck_invalid")
+                    healthcheck[compose_key] = f"{int(value)}ns"
+            retries = raw_healthcheck.get("Retries")
+            if not _docker_value_is_neutral(retries):
+                if type(retries) is not int or int(retries) < 0:
+                    raise DeployError("rollback_capsule_healthcheck_invalid")
+                healthcheck["retries"] = int(retries)
+            service["healthcheck"] = healthcheck
+
+        labels = _rollback_capsule_noncompose_labels(config)
+        if labels:
+            service["labels"] = {
+                name: _rollback_capsule_compose_literal(value)
+                for name, value in labels.items()
+            }
+
+        raw_exposed = config.get("ExposedPorts") or {}
+        raw_bindings = host.get("PortBindings") or {}
+        if not isinstance(raw_exposed, dict) or not isinstance(raw_bindings, dict):
+            raise DeployError("rollback_capsule_ports_invalid")
+        port_pattern = re.compile(r"^([1-9][0-9]{0,4})/(tcp|udp|sctp)$")
+        ports: list[dict[str, object]] = []
+        expose: list[str] = []
+        for raw_port in sorted({*raw_exposed, *raw_bindings}):
+            match = port_pattern.fullmatch(str(raw_port))
+            if match is None or not 1 <= int(match.group(1)) <= 65535:
+                raise DeployError("rollback_capsule_ports_invalid")
+            if raw_port in raw_exposed and raw_exposed[raw_port] not in ({}, None):
+                raise DeployError("rollback_capsule_ports_invalid")
+            bindings = raw_bindings.get(raw_port) or []
+            if not isinstance(bindings, list):
+                raise DeployError("rollback_capsule_ports_invalid")
+            if not bindings:
+                expose.append(str(raw_port))
+                continue
+            for raw_binding in bindings:
+                if not isinstance(raw_binding, dict):
+                    raise DeployError("rollback_capsule_ports_invalid")
+                if any(
+                    key not in {"HostIp", "HostPort"}
+                    and not _docker_value_is_neutral(value)
+                    for key, value in raw_binding.items()
+                ):
+                    raise DeployError("rollback_capsule_ports_invalid")
+                host_ip = str(raw_binding.get("HostIp") or "")
+                host_port = str(raw_binding.get("HostPort") or "")
+                if (
+                    not host_port.isdigit()
+                    or not 1 <= int(host_port) <= 65535
+                    or "\x00" in host_ip
+                ):
+                    raise DeployError("rollback_capsule_ports_invalid")
+                row: dict[str, object] = {
+                    "target": int(match.group(1)),
+                    "published": host_port,
+                    "protocol": match.group(2),
+                }
+                if host_ip:
+                    row["host_ip"] = host_ip
+                ports.append(row)
+        if ports:
+            service["ports"] = ports
+        if expose:
+            service["expose"] = expose
+
+        restart_policy = host.get("RestartPolicy") or {}
+        if not isinstance(restart_policy, dict) or any(
+            key not in {"MaximumRetryCount", "Name"}
+            and not _docker_value_is_neutral(value)
+            for key, value in restart_policy.items()
+        ):
+            raise DeployError("rollback_capsule_restart_policy_invalid")
+        restart_name = str(restart_policy.get("Name") or "")
+        retry_count = restart_policy.get("MaximumRetryCount") or 0
+        if restart_name:
+            if restart_name not in {"always", "no", "on-failure", "unless-stopped"}:
+                raise DeployError("rollback_capsule_restart_policy_invalid")
+            restart = restart_name
+            if restart_name == "on-failure" and retry_count:
+                if type(retry_count) is not int or int(retry_count) < 0:
+                    raise DeployError("rollback_capsule_restart_policy_invalid")
+                restart = f"on-failure:{int(retry_count)}"
+            elif retry_count:
+                raise DeployError("rollback_capsule_restart_policy_invalid")
+            service["restart"] = restart
+
+        for host_key, compose_key in (
+            ("Memory", "mem_limit"),
+            ("MemoryReservation", "mem_reservation"),
+            ("MemorySwap", "memswap_limit"),
+            ("CpuShares", "cpu_shares"),
+            ("PidsLimit", "pids_limit"),
+            ("ShmSize", "shm_size"),
+        ):
+            value = host.get(host_key)
+            if not _docker_value_is_neutral(value):
+                if type(value) is not int:
+                    raise DeployError("rollback_capsule_resource_invalid")
+                if host_key == "MemorySwap":
+                    if int(value) < -1 or int(value) == 0:
+                        raise DeployError("rollback_capsule_resource_invalid")
+                elif int(value) <= 0:
+                    raise DeployError("rollback_capsule_resource_invalid")
+                service[compose_key] = int(value)
+        nano_cpus = host.get("NanoCpus")
+        if not _docker_value_is_neutral(nano_cpus):
+            if type(nano_cpus) is not int or int(nano_cpus) <= 0:
+                raise DeployError("rollback_capsule_resource_invalid")
+            whole, remainder = divmod(int(nano_cpus), 1_000_000_000)
+            service["cpus"] = (
+                f"{whole}.{remainder:09d}".rstrip("0").rstrip(".")
+            )
+
+        service["read_only"] = bool(host.get("ReadonlyRootfs"))
+        for host_key, compose_key in (
+            ("CapDrop", "cap_drop"),
+            ("ExtraHosts", "extra_hosts"),
+            ("SecurityOpt", "security_opt"),
+        ):
+            raw_items = host.get(host_key) or []
+            if not isinstance(raw_items, list) or not all(
+                isinstance(item, str) and item and "\x00" not in item
+                for item in raw_items
+            ):
+                raise DeployError("rollback_capsule_security_config_invalid")
+            if raw_items:
+                service[compose_key] = [
+                    _rollback_capsule_compose_literal(item) for item in raw_items
+                ]
+        for host_key, compose_key, supported in (
+            ("CgroupnsMode", "cgroup", {"private"}),
+            ("IpcMode", "ipc", {"private"}),
+            ("Runtime", "runtime", {"runc"}),
+        ):
+            value = str(host.get(host_key) or "")
+            if value:
+                if value not in supported:
+                    raise DeployError(
+                        f"rollback_capsule_host_field_unsupported:{host_key}"
+                    )
+                service[compose_key] = value
+
+        raw_tmpfs = host.get("Tmpfs") or {}
+        if not isinstance(raw_tmpfs, dict) or not all(
+            isinstance(path, str)
+            and path.startswith("/")
+            and isinstance(options, str)
+            and "\x00" not in path
+            and "\x00" not in options
+            for path, options in raw_tmpfs.items()
+        ):
+            raise DeployError("rollback_capsule_tmpfs_invalid")
+        if raw_tmpfs:
+            service["tmpfs"] = [
+                _rollback_capsule_compose_literal(
+                    f"{path}:{options}" if options else path
+                )
+                for path, options in sorted(raw_tmpfs.items())
+            ]
+
+        raw_logging = host.get("LogConfig") or {}
+        if not isinstance(raw_logging, dict) or any(
+            key not in {"Config", "Type"} and not _docker_value_is_neutral(value)
+            for key, value in raw_logging.items()
+        ):
+            raise DeployError("rollback_capsule_logging_invalid")
+        log_driver = str(raw_logging.get("Type") or "")
+        log_options = raw_logging.get("Config") or {}
+        if not isinstance(log_options, dict) or not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in log_options.items()
+        ):
+            raise DeployError("rollback_capsule_logging_invalid")
+        if log_driver:
+            service["logging"] = {
+                "driver": log_driver,
+                **(
+                    {
+                        "options": {
+                            name: _rollback_capsule_compose_literal(value)
+                            for name, value in log_options.items()
+                        }
+                    }
+                    if log_options
+                    else {}
+                ),
+            }
+
+        mounts = _rollback_capsule_mount_identities(inspection)
+        raw_binds = host.get("Binds") or []
+        if not isinstance(raw_binds, list) or not all(
+            isinstance(item, str) and item for item in raw_binds
+        ):
+            raise DeployError("rollback_capsule_binds_invalid")
+        if raw_binds:
+            bind_identities: list[tuple[str, str, str, bool]] = []
+            for raw_bind in raw_binds:
+                parts = raw_bind.split(":")
+                if len(parts) not in {2, 3}:
+                    raise DeployError("rollback_capsule_binds_invalid")
+                source, destination = parts[:2]
+                options = set(parts[2].split(",")) if len(parts) == 3 else set()
+                if (
+                    not source
+                    or not destination.startswith("/")
+                    or "\x00" in source
+                    or "\x00" in destination
+                    or any(
+                        option not in {"", "ro", "rw", "private", "rprivate"}
+                        for option in options
+                    )
+                ):
+                    raise DeployError("rollback_capsule_binds_invalid")
+                mount_type = "bind" if source.startswith("/") else "volume"
+                if mount_type == "bind" and os.path.normpath(source) != source:
+                    raise DeployError("rollback_capsule_binds_invalid")
+                normalized_source = source
+                bind_identities.append(
+                    (
+                        mount_type,
+                        normalized_source,
+                        destination,
+                        "ro" not in options,
+                    )
+                )
+            expected_bind_identities = [
+                (
+                    str(item["type"]),
+                    str(item["source"]),
+                    str(item["destination"]),
+                    bool(item["read_write"]),
+                )
+                for item in mounts
+            ]
+            if sorted(bind_identities) != sorted(expected_bind_identities):
+                raise DeployError("rollback_capsule_binds_mismatch")
+        volumes: dict[str, object] = {}
+        service_volumes: list[dict[str, object]] = []
+        for index, mount in enumerate(mounts):
+            source = str(mount["source"])
+            source_key = source
+            if mount["type"] == "volume":
+                source_key = f"rollback_volume_{index}"
+                volumes[source_key] = {"external": True, "name": source}
+            row: dict[str, object] = {
+                "type": mount["type"],
+                "source": _rollback_capsule_compose_literal(source_key),
+                "target": _rollback_capsule_compose_literal(
+                    str(mount["destination"])
+                ),
+                "read_only": not bool(mount["read_write"]),
+            }
+            propagation = str(mount.get("propagation") or "")
+            if mount["type"] == "bind" and propagation not in {"", "rprivate"}:
+                row["bind"] = {"propagation": propagation}
+            service_volumes.append(row)
+        if service_volumes:
+            service["volumes"] = service_volumes
+
+        network_rows = _rollback_capsule_network_identities(inspection)
+        raw_network_mode = str(host.get("NetworkMode") or "")
+        network_names = {str(row["name"]) for row in network_rows}
+        if raw_network_mode and raw_network_mode not in network_names:
+            raise DeployError("rollback_capsule_network_mode_unsupported")
+        networks: dict[str, object] = {}
+        service_networks: dict[str, object] = {}
+        for index, network in enumerate(network_rows):
+            key = f"rollback_network_{index}"
+            networks[key] = {"external": True, "name": network["name"]}
+            aliases = list(network.get("aliases") or [])
+            service_networks[key] = {"aliases": aliases} if aliases else {}
+        if service_networks:
+            service["networks"] = service_networks
+
+        extension = {
+            "contract_name": ROLLBACK_CAPSULE_CONTRACT_NAME,
+            "version": ROLLBACK_CAPSULE_VERSION,
+            "deployment_id": self.deployment_id,
+            "service": API_SERVICE,
+            "captured_at": _utc_now(),
+            "source_container_id_sha256": hashlib.sha256(
+                str(inspection.get("Id") or "").encode("utf-8")
+            ).hexdigest(),
+            "source_image_id": image_id,
+            "source_image_reference": image_reference,
+            "functional_identity": identity,
+            "apparmor_profile": str(inspection.get("AppArmorProfile") or ""),
+            "external_resources": {
+                "networks": [
+                    {
+                        "name": str(item["name"]),
+                        "network_id": str(item["network_id"]),
+                    }
+                    for item in network_rows
+                ],
+                "volumes": [
+                    {
+                        "name": str(item["source"]),
+                        "driver": str(item["driver"]),
+                    }
+                    for item in mounts
+                    if item["type"] == "volume"
+                ],
+            },
+            "allowed_runtime_differences": [
+                "compose_managed_labels",
+                "container_and_start_timestamps",
+                "container_id",
+                "dynamic_network_endpoint_identity",
+            ],
+        }
+        document: dict[str, Any] = {
+            "name": PROJECT_NAME,
+            "x-ea-rollback-capsule": extension,
+            "services": {API_SERVICE: service},
+        }
+        if networks:
+            document["networks"] = networks
+        if volumes:
+            document["volumes"] = volumes
+        return document, identity
 
     def _rollback_environment(
         self, previous: Mapping[str, Any]
@@ -2886,18 +4656,12 @@ class MemorialDeployLane:
     def _capture_deployment_input_seal(
         self, previous: Mapping[str, Any]
     ) -> dict[str, list[dict[str, object]]]:
-        rollback_root = Path(str(previous.get("working_dir") or ""))
+        del previous
         forward_required_paths = [
             self.root / ".env",
             *(self.root / item for item in self.target_compose_files),
         ]
-        rollback_required_paths = [
-            rollback_root / ".env",
-            *(
-                Path(str(item))
-                for item in list(previous.get("compose_config_files") or [])
-            ),
-        ]
+        rollback_required_paths = [self.rollback_capsule_path]
 
         def capture(paths: Sequence[Path]) -> list[dict[str, object]]:
             return [self._deployment_input_file_seal(path) for path in paths]
@@ -2912,7 +4676,6 @@ class MemorialDeployLane:
             ],
             "rollback": [
                 *capture(rollback_required_paths),
-                *capture_optional([rollback_root / ".env.local"]),
             ],
         }
         second = {
@@ -2922,7 +4685,6 @@ class MemorialDeployLane:
             ],
             "rollback": [
                 *capture(rollback_required_paths),
-                *capture_optional([rollback_root / ".env.local"]),
             ],
         }
         if first != second:
@@ -3750,7 +5512,7 @@ class MemorialDeployLane:
 
     @staticmethod
     def _compose_topology(
-        inspection: Mapping[str, Any], *, reason_prefix: str
+        inspection: Mapping[str, Any], *, reason_prefix: str, trust_inputs: bool = True
     ) -> dict[str, Any]:
         labels = dict(dict(inspection.get("Config") or {}).get("Labels") or {})
         raw_working_dir = str(
@@ -3776,10 +5538,13 @@ class MemorialDeployLane:
                 candidate = working_dir / candidate
             if not candidate.is_absolute() or ".." in candidate.parts:
                 raise DeployError(f"{reason_prefix}_rollback_input_invalid")
-            try:
-                MemorialDeployLane._deployment_input_file_seal(candidate)
-            except DeployError as exc:
-                raise DeployError(f"{reason_prefix}_rollback_input_invalid") from exc
+            if trust_inputs:
+                try:
+                    MemorialDeployLane._deployment_input_file_seal(candidate)
+                except DeployError as exc:
+                    raise DeployError(
+                        f"{reason_prefix}_rollback_input_invalid"
+                    ) from exc
             compose_files.append(str(candidate))
         if not compose_files:
             raise DeployError(f"{reason_prefix}_compose_config_files_missing")
@@ -3938,82 +5703,1564 @@ class MemorialDeployLane:
             ),
         )
 
+    @staticmethod
+    def _validated_functional_identity(
+        value: object, *, reason_prefix: str
+    ) -> dict[str, Any]:
+        identity = dict(value) if isinstance(value, dict) else {}
+        domains_value = identity.get("domains")
+        domains = dict(domains_value) if isinstance(domains_value, dict) else {}
+        expected_domains = {
+            "environment",
+            "healthcheck",
+            "host_config",
+            "image",
+            "mounts",
+            "networks",
+            "noncompose_labels",
+            "ports",
+            "process",
+            "stop_config",
+        }
+        if (
+            set(identity)
+            != {
+                "contract_name",
+                "version",
+                "domains",
+                "functional_identity_sha256",
+            }
+            or identity.get("contract_name")
+            != "ea.memorial_api_functional_identity.v1"
+            or identity.get("version") != 1
+            or set(domains) != expected_domains
+            or SHA256_HEX_PATTERN.fullmatch(
+                str(identity.get("functional_identity_sha256") or "")
+            )
+            is None
+            or identity.get("functional_identity_sha256")
+            != _canonical_json_sha256(domains)
+        ):
+            raise DeployError(f"{reason_prefix}_functional_identity_invalid")
+        for name, raw_domain in domains.items():
+            if not isinstance(raw_domain, dict):
+                raise DeployError(f"{reason_prefix}_functional_identity_invalid")
+            domain = dict(raw_domain)
+            if name == "image":
+                if (
+                    set(domain) != {"image_id", "image_reference"}
+                    or IMAGE_ID_PATTERN.fullmatch(str(domain.get("image_id") or ""))
+                    is None
+                ):
+                    raise DeployError(
+                        f"{reason_prefix}_functional_identity_invalid"
+                    )
+                _safe_tagged_image_reference(
+                    str(domain.get("image_reference") or ""),
+                    reason=f"{reason_prefix}_functional_identity_invalid",
+                )
+                continue
+            allowed = {"sha256"}
+            if name in {
+                "environment",
+                "mounts",
+                "networks",
+                "noncompose_labels",
+                "ports",
+            }:
+                allowed.add("count")
+            if (
+                set(domain) != allowed
+                or SHA256_HEX_PATTERN.fullmatch(str(domain.get("sha256") or ""))
+                is None
+                or (
+                    "count" in allowed
+                    and (
+                        type(domain.get("count")) is not int
+                        or int(domain["count"]) < 0
+                    )
+                )
+            ):
+                raise DeployError(f"{reason_prefix}_functional_identity_invalid")
+        return identity
+
+    @staticmethod
+    def _rollback_capsule_external_bindings(
+        document: Mapping[str, Any], *, reason_prefix: str
+    ) -> dict[str, list[dict[str, str]]]:
+        extension_value = document.get("x-ea-rollback-capsule")
+        extension = (
+            dict(extension_value) if isinstance(extension_value, dict) else {}
+        )
+        expected_extension_keys = {
+            "allowed_runtime_differences",
+            "apparmor_profile",
+            "captured_at",
+            "contract_name",
+            "deployment_id",
+            "external_resources",
+            "functional_identity",
+            "service",
+            "source_container_id_sha256",
+            "source_image_id",
+            "source_image_reference",
+            "version",
+        }
+        if (
+            set(extension) != expected_extension_keys
+            or extension.get("contract_name") != ROLLBACK_CAPSULE_CONTRACT_NAME
+            or extension.get("version") != ROLLBACK_CAPSULE_VERSION
+            or extension.get("service") != API_SERVICE
+            or DEPLOYMENT_ID_PATTERN.fullmatch(
+                str(extension.get("deployment_id") or "")
+            )
+            is None
+            or SHA256_HEX_PATTERN.fullmatch(
+                str(extension.get("source_container_id_sha256") or "")
+            )
+            is None
+            or IMAGE_ID_PATTERN.fullmatch(
+                str(extension.get("source_image_id") or "")
+            )
+            is None
+            or str(extension.get("apparmor_profile") or "")
+            not in {"", "docker-default"}
+        ):
+            raise DeployError(f"{reason_prefix}_extension_invalid")
+        _safe_tagged_image_reference(
+            str(extension.get("source_image_reference") or ""),
+            reason=f"{reason_prefix}_extension_invalid",
+        )
+        MemorialDeployLane._validated_functional_identity(
+            extension.get("functional_identity"), reason_prefix=reason_prefix
+        )
+        resources_value = extension.get("external_resources")
+        resources = (
+            dict(resources_value) if isinstance(resources_value, dict) else {}
+        )
+        if set(resources) != {"networks", "volumes"}:
+            raise DeployError(f"{reason_prefix}_external_resources_invalid")
+        networks: list[dict[str, str]] = []
+        seen_networks: set[str] = set()
+        for raw in list(resources.get("networks") or []):
+            if not isinstance(raw, dict) or set(raw) != {"name", "network_id"}:
+                raise DeployError(f"{reason_prefix}_external_network_invalid")
+            name = str(raw.get("name") or "")
+            network_id = str(raw.get("network_id") or "")
+            if (
+                re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,254}", name)
+                is None
+                or SHA256_HEX_PATTERN.fullmatch(network_id) is None
+                or name in seen_networks
+            ):
+                raise DeployError(f"{reason_prefix}_external_network_invalid")
+            seen_networks.add(name)
+            networks.append({"name": name, "network_id": network_id})
+        volumes: list[dict[str, str]] = []
+        seen_volumes: set[str] = set()
+        for raw in list(resources.get("volumes") or []):
+            if not isinstance(raw, dict) or set(raw) != {"driver", "name"}:
+                raise DeployError(f"{reason_prefix}_external_volume_invalid")
+            name = str(raw.get("name") or "")
+            driver = str(raw.get("driver") or "")
+            if (
+                re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,254}", name)
+                is None
+                or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,254}", driver)
+                is None
+                or name in seen_volumes
+            ):
+                raise DeployError(f"{reason_prefix}_external_volume_invalid")
+            seen_volumes.add(name)
+            volumes.append({"name": name, "driver": driver})
+        return {
+            "networks": sorted(networks, key=lambda item: item["name"]),
+            "volumes": sorted(volumes, key=lambda item: item["name"]),
+        }
+
+    def _revalidate_rollback_external_resources(
+        self, document: Mapping[str, Any], *, boundary: str
+    ) -> dict[str, object]:
+        if not SAFE_SCRIPT_ORIGIN_PATTERN.fullmatch(boundary):
+            raise DeployError("rollback_external_resource_boundary_invalid")
+        bindings = self._rollback_capsule_external_bindings(
+            document, reason_prefix="rollback_capsule"
+        )
+        for expected in bindings["networks"]:
+            completed = self._run(
+                ["docker", "network", "inspect", expected["name"]]
+            )
+            try:
+                payload = json.loads(completed.stdout)
+            except Exception as exc:
+                raise DeployError("rollback_external_network_inspect_invalid") from exc
+            if (
+                not isinstance(payload, list)
+                or len(payload) != 1
+                or not isinstance(payload[0], dict)
+                or str(payload[0].get("Name") or "") != expected["name"]
+                or str(payload[0].get("Id") or "") != expected["network_id"]
+            ):
+                raise DeployError("rollback_external_network_identity_changed")
+        for expected in bindings["volumes"]:
+            completed = self._run(
+                ["docker", "volume", "inspect", expected["name"]]
+            )
+            try:
+                payload = json.loads(completed.stdout)
+            except Exception as exc:
+                raise DeployError("rollback_external_volume_inspect_invalid") from exc
+            if (
+                not isinstance(payload, list)
+                or len(payload) != 1
+                or not isinstance(payload[0], dict)
+                or str(payload[0].get("Name") or "") != expected["name"]
+                or str(payload[0].get("Driver") or "") != expected["driver"]
+            ):
+                raise DeployError("rollback_external_volume_identity_changed")
+        evidence = {
+            "boundary": boundary,
+            "network_count": len(bindings["networks"]),
+            "volume_count": len(bindings["volumes"]),
+            "binding_sha256": _canonical_json_sha256(bindings),
+        }
+        return evidence
+
+    @staticmethod
+    def _rollback_render_healthcheck(value: object) -> dict[str, object]:
+        if value in (None, {}):
+            return {}
+        if not isinstance(value, dict):
+            raise DeployError("rollback_capsule_render_healthcheck_invalid")
+        allowed = frozenset(
+            {
+                "disable",
+                "interval",
+                "retries",
+                "start_interval",
+                "start_period",
+                "test",
+                "timeout",
+            }
+        )
+        _rollback_capsule_unknown_non_neutral(
+            value,
+            allowed,
+            reason_prefix="rollback_capsule_render_healthcheck_field_unsupported",
+        )
+        if value.get("disable") not in (None, False):
+            if value.get("disable") is not True:
+                raise DeployError("rollback_capsule_render_healthcheck_invalid")
+            return {"Test": ["NONE"]}
+        result: dict[str, object] = {}
+        test = value.get("test")
+        if not _docker_value_is_neutral(test):
+            if not isinstance(test, list) or not all(
+                isinstance(item, str) and "\x00" not in item for item in test
+            ):
+                raise DeployError("rollback_capsule_render_healthcheck_invalid")
+            result["Test"] = list(test)
+        for compose_key, runtime_key in (
+            ("interval", "Interval"),
+            ("start_interval", "StartInterval"),
+            ("start_period", "StartPeriod"),
+            ("timeout", "Timeout"),
+        ):
+            raw = value.get(compose_key)
+            if not _docker_value_is_neutral(raw):
+                result[runtime_key] = _rollback_capsule_duration_ns(
+                    raw, reason="rollback_capsule_render_healthcheck_invalid"
+                )
+        retries = value.get("retries")
+        if not _docker_value_is_neutral(retries):
+            if type(retries) is not int or retries < 0:
+                raise DeployError("rollback_capsule_render_healthcheck_invalid")
+            result["Retries"] = retries
+        return result
+
+    @staticmethod
+    def _rollback_render_tmpfs(value: object) -> dict[str, str]:
+        if value is None:
+            return {}
+        rows: list[str]
+        if isinstance(value, list) and all(isinstance(item, str) for item in value):
+            rows = list(value)
+        elif isinstance(value, dict):
+            rows = [
+                f"{path}:{options}" if str(options) else str(path)
+                for path, options in value.items()
+            ]
+        else:
+            raise DeployError("rollback_capsule_render_tmpfs_invalid")
+        result: dict[str, str] = {}
+        for row in rows:
+            path, separator, options = row.partition(":")
+            if (
+                not path.startswith("/")
+                or os.path.normpath(path) != path
+                or "\x00" in row
+                or path in result
+            ):
+                raise DeployError("rollback_capsule_render_tmpfs_invalid")
+            result[path] = options if separator else ""
+        return {path: result[path] for path in sorted(result)}
+
+    def _rollback_render_mounts(
+        self,
+        rendered: Mapping[str, Any],
+        service: Mapping[str, Any],
+        bindings: Mapping[str, list[dict[str, str]]],
+    ) -> tuple[list[dict[str, object]], list[str]]:
+        top_value = rendered.get("volumes")
+        top = dict(top_value) if isinstance(top_value, dict) else {}
+        bound_volumes = {item["name"]: item for item in bindings["volumes"]}
+        resolved_top: dict[str, dict[str, str]] = {}
+        for raw_key, raw_value in top.items():
+            key = str(raw_key)
+            value = dict(raw_value) if isinstance(raw_value, dict) else {}
+            _rollback_capsule_unknown_non_neutral(
+                value,
+                ROLLBACK_CAPSULE_RENDER_VOLUME_KEYS,
+                reason_prefix="rollback_capsule_render_volume_field_unsupported",
+            )
+            name = str(value.get("name") or f"{PROJECT_NAME}_{key}")
+            if value.get("external") is not True or name not in bound_volumes:
+                raise DeployError("rollback_capsule_render_external_volume_invalid")
+            for field in ("driver", "driver_opts", "labels"):
+                if not _docker_value_is_neutral(value.get(field)):
+                    raise DeployError(
+                        f"rollback_capsule_render_external_volume_field_unsupported:{field}"
+                    )
+            resolved_top[key] = bound_volumes[name]
+        if set(item["name"] for item in resolved_top.values()) != set(bound_volumes):
+            raise DeployError("rollback_capsule_render_external_volume_scope_invalid")
+
+        raw_mounts = service.get("volumes") or []
+        if not isinstance(raw_mounts, list):
+            raise DeployError("rollback_capsule_render_mounts_invalid")
+        mounts: list[dict[str, object]] = []
+        binds: list[str] = []
+        destinations: set[str] = set()
+        for raw_mount in raw_mounts:
+            if not isinstance(raw_mount, dict):
+                raise DeployError("rollback_capsule_render_mounts_invalid")
+            _rollback_capsule_unknown_non_neutral(
+                raw_mount,
+                ROLLBACK_CAPSULE_RENDER_MOUNT_KEYS,
+                reason_prefix="rollback_capsule_render_mount_field_unsupported",
+            )
+            mount_type = str(raw_mount.get("type") or "")
+            source_key = str(raw_mount.get("source") or "")
+            destination = str(raw_mount.get("target") or "")
+            read_write = not bool(raw_mount.get("read_only"))
+            if (
+                mount_type not in {"bind", "volume"}
+                or not destination.startswith("/")
+                or os.path.normpath(destination) != destination
+                or destination in destinations
+                or "\x00" in destination
+            ):
+                raise DeployError("rollback_capsule_render_mounts_invalid")
+            destinations.add(destination)
+            if mount_type == "bind":
+                source = source_key
+                source_path = Path(source)
+                if (
+                    not source_path.is_absolute()
+                    or ".." in source_path.parts
+                    or os.path.normpath(source) != source
+                    or "\x00" in source
+                ):
+                    raise DeployError("rollback_capsule_render_bind_invalid")
+                bind_value = raw_mount.get("bind") or {}
+                bind = dict(bind_value) if isinstance(bind_value, dict) else {}
+                _rollback_capsule_unknown_non_neutral(
+                    bind,
+                    ROLLBACK_CAPSULE_RENDER_BIND_KEYS,
+                    reason_prefix="rollback_capsule_render_bind_field_unsupported",
+                )
+                if bind.get("create_host_path") not in (None, True):
+                    raise DeployError("rollback_capsule_render_bind_invalid")
+                if not _docker_value_is_neutral(bind.get("selinux")):
+                    raise DeployError("rollback_capsule_render_bind_selinux_unsupported")
+                propagation = str(bind.get("propagation") or "rprivate")
+                if propagation not in {"private", "rprivate"}:
+                    raise DeployError(
+                        "rollback_capsule_render_bind_propagation_unsupported"
+                    )
+                driver = ""
+            else:
+                if source_key not in resolved_top:
+                    raise DeployError("rollback_capsule_render_volume_unbound")
+                binding = resolved_top[source_key]
+                source = binding["name"]
+                driver = binding["driver"]
+                propagation = ""
+                volume_value = raw_mount.get("volume") or {}
+                volume = (
+                    dict(volume_value) if isinstance(volume_value, dict) else {}
+                )
+                _rollback_capsule_unknown_non_neutral(
+                    volume,
+                    ROLLBACK_CAPSULE_RENDER_VOLUME_OPTION_KEYS,
+                    reason_prefix="rollback_capsule_render_volume_option_unsupported",
+                )
+                if volume.get("nocopy") not in (None, False) or not (
+                    _docker_value_is_neutral(volume.get("subpath"))
+                ):
+                    raise DeployError(
+                        "rollback_capsule_render_volume_option_unsupported"
+                    )
+            for field in ("consistency", "tmpfs"):
+                if not _docker_value_is_neutral(raw_mount.get(field)):
+                    raise DeployError(
+                        f"rollback_capsule_render_mount_field_unsupported:{field}"
+                    )
+            mode = "rw" if read_write else "ro"
+            mounts.append(
+                {
+                    "Type": mount_type,
+                    "Source": source if mount_type == "bind" else "",
+                    "Name": source if mount_type == "volume" else "",
+                    "Driver": driver,
+                    "Destination": destination,
+                    "Mode": mode,
+                    "RW": read_write,
+                    "Propagation": propagation,
+                }
+            )
+            options = [mode]
+            if mount_type == "bind" and propagation not in {"", "rprivate"}:
+                options.append(propagation)
+            binds.append(f"{source}:{destination}:{','.join(options)}")
+        return mounts, sorted(binds)
+
+    def _rollback_render_networks(
+        self,
+        rendered: Mapping[str, Any],
+        service: Mapping[str, Any],
+        bindings: Mapping[str, list[dict[str, str]]],
+    ) -> tuple[dict[str, dict[str, object]], str]:
+        top_value = rendered.get("networks")
+        top = dict(top_value) if isinstance(top_value, dict) else {}
+        bound = {item["name"]: item for item in bindings["networks"]}
+        resolved: dict[str, dict[str, str]] = {}
+        for raw_key, raw_value in top.items():
+            key = str(raw_key)
+            value = dict(raw_value) if isinstance(raw_value, dict) else {}
+            _rollback_capsule_unknown_non_neutral(
+                value,
+                ROLLBACK_CAPSULE_RENDER_NETWORK_KEYS,
+                reason_prefix="rollback_capsule_render_network_field_unsupported",
+            )
+            name = str(value.get("name") or f"{PROJECT_NAME}_{key}")
+            if value.get("external") is not True or name not in bound:
+                raise DeployError("rollback_capsule_render_external_network_invalid")
+            for field in (
+                "attachable",
+                "driver",
+                "driver_opts",
+                "enable_ipv6",
+                "internal",
+                "ipam",
+                "labels",
+            ):
+                if not _docker_value_is_neutral(value.get(field)):
+                    raise DeployError(
+                        f"rollback_capsule_render_external_network_field_unsupported:{field}"
+                    )
+            if value.get("enable_ipv4") not in (None, True):
+                raise DeployError(
+                    "rollback_capsule_render_external_network_field_unsupported:enable_ipv4"
+                )
+            resolved[key] = bound[name]
+        if set(item["name"] for item in resolved.values()) != set(bound):
+            raise DeployError("rollback_capsule_render_external_network_scope_invalid")
+
+        service_value = service.get("networks") or {}
+        if isinstance(service_value, list):
+            service_networks = {str(item): {} for item in service_value}
+        elif isinstance(service_value, dict):
+            service_networks = dict(service_value)
+        else:
+            raise DeployError("rollback_capsule_render_service_networks_invalid")
+        if set(service_networks) != set(resolved):
+            raise DeployError("rollback_capsule_render_service_network_scope_invalid")
+        endpoints: dict[str, dict[str, object]] = {}
+        ordered_names: list[str] = []
+        for raw_key, raw_options in service_networks.items():
+            key = str(raw_key)
+            options = dict(raw_options) if isinstance(raw_options, dict) else {}
+            _rollback_capsule_unknown_non_neutral(
+                options,
+                ROLLBACK_CAPSULE_RENDER_SERVICE_NETWORK_KEYS,
+                reason_prefix="rollback_capsule_render_service_network_field_unsupported",
+            )
+            aliases_value = options.get("aliases") or []
+            if not isinstance(aliases_value, list) or not all(
+                isinstance(item, str)
+                and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,254}", item)
+                is not None
+                for item in aliases_value
+            ):
+                raise DeployError("rollback_capsule_render_network_alias_invalid")
+            for field in (
+                "driver_opts",
+                "gw_priority",
+                "interface_name",
+                "ipv4_address",
+                "ipv6_address",
+                "link_local_ips",
+                "mac_address",
+                "priority",
+            ):
+                if not _docker_value_is_neutral(options.get(field)):
+                    raise DeployError(
+                        f"rollback_capsule_render_service_network_field_unsupported:{field}"
+                    )
+            binding = resolved[key]
+            ordered_names.append(binding["name"])
+            endpoints[binding["name"]] = {
+                "NetworkID": binding["network_id"],
+                "Aliases": sorted(set(aliases_value)),
+            }
+        return endpoints, ordered_names[0] if ordered_names else ""
+
+    def _rollback_render_runtime_projection(
+        self,
+        rendered: Mapping[str, Any],
+        document: Mapping[str, Any],
+        *,
+        image_id: str,
+        image_config: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        decoded_rendered = _rollback_capsule_decode_rendered_literals(
+            dict(rendered)
+        )
+        if not isinstance(decoded_rendered, dict):  # pragma: no cover - mapping input
+            raise DeployError("rollback_capsule_render_json_invalid")
+        rendered = decoded_rendered
+        _rollback_capsule_unknown_non_neutral(
+            rendered,
+            ROLLBACK_CAPSULE_RENDER_TOP_LEVEL_KEYS,
+            reason_prefix="rollback_capsule_render_top_level_field_unsupported",
+        )
+        if rendered.get("name") not in (None, PROJECT_NAME):
+            raise DeployError("rollback_capsule_render_project_mismatch")
+        if rendered.get("version") not in (None, "", "3", "3.0", "3.8", "3.9"):
+            raise DeployError("rollback_capsule_render_version_unsupported")
+        expected_extension = document.get("x-ea-rollback-capsule")
+        if rendered.get("x-ea-rollback-capsule") != expected_extension:
+            raise DeployError("rollback_capsule_render_extension_mismatch")
+        bindings = self._rollback_capsule_external_bindings(
+            document, reason_prefix="rollback_capsule"
+        )
+        services_value = rendered.get("services")
+        services = dict(services_value) if isinstance(services_value, dict) else {}
+        if set(services) != {API_SERVICE} or not isinstance(
+            services.get(API_SERVICE), dict
+        ):
+            raise DeployError("rollback_capsule_render_service_scope_invalid")
+        service = dict(services[API_SERVICE])
+        _rollback_capsule_unknown_non_neutral(
+            service,
+            ROLLBACK_CAPSULE_RENDER_SERVICE_KEYS,
+            reason_prefix="rollback_capsule_render_service_field_unsupported",
+        )
+        if not _docker_value_is_neutral(service.get("build")):
+            raise DeployError("rollback_capsule_render_build_forbidden")
+        extension = dict(expected_extension) if isinstance(expected_extension, dict) else {}
+        image_reference = str(extension.get("source_image_reference") or "")
+        if (
+            str(service.get("image") or "") != image_reference
+            or str(service.get("pull_policy") or "").casefold() != "never"
+            or str(service.get("container_name") or "") != API_SERVICE
+            or image_id != str(extension.get("source_image_id") or "")
+        ):
+            raise DeployError("rollback_capsule_render_image_mismatch")
+
+        environment = self._rendered_environment_entries(service, image_config)
+        process = self._rendered_process_config(service, image_config)
+        command = list(process["Cmd"])
+        entrypoint = list(process["Entrypoint"])
+        runtime_vector = [*entrypoint, *command] if entrypoint else command
+        runtime_path = runtime_vector[0] if runtime_vector else ""
+        runtime_args = runtime_vector[1:] if runtime_vector else []
+        config: dict[str, Any] = {
+            "Image": image_reference,
+            "Env": environment,
+            "Cmd": command,
+            "Entrypoint": entrypoint,
+            "User": str(process["User"]),
+            "WorkingDir": str(service.get("working_dir") or ""),
+            "Hostname": str(service.get("hostname") or ""),
+            "StopSignal": str(service.get("stop_signal") or ""),
+            "Healthcheck": self._rollback_render_healthcheck(
+                service.get("healthcheck")
+            ),
+        }
+        stop_grace = service.get("stop_grace_period")
+        if not _docker_value_is_neutral(stop_grace):
+            stop_ns = _rollback_capsule_duration_ns(
+                stop_grace, reason="rollback_capsule_render_stop_grace_invalid"
+            )
+            if stop_ns % 1_000_000_000:
+                raise DeployError("rollback_capsule_render_stop_grace_invalid")
+            config["StopTimeout"] = stop_ns // 1_000_000_000
+        labels = service.get("labels") or {}
+        if not isinstance(labels, dict) or not all(
+            isinstance(name, str) and isinstance(value, str)
+            for name, value in labels.items()
+        ):
+            raise DeployError("rollback_capsule_render_labels_invalid")
+        config["Labels"] = dict(labels)
+
+        exposed: dict[str, dict[str, object]] = {}
+        port_bindings: dict[str, list[dict[str, str]]] = {}
+        expose_value = service.get("expose") or []
+        if not isinstance(expose_value, list):
+            raise DeployError("rollback_capsule_render_ports_invalid")
+        for raw in expose_value:
+            text = str(raw)
+            if "/" not in text:
+                text = f"{text}/tcp"
+            if re.fullmatch(r"[1-9][0-9]{0,4}/(?:tcp|udp|sctp)", text) is None:
+                raise DeployError("rollback_capsule_render_ports_invalid")
+            exposed[text] = {}
+        ports_value = service.get("ports") or []
+        if not isinstance(ports_value, list):
+            raise DeployError("rollback_capsule_render_ports_invalid")
+        for raw_port in ports_value:
+            if not isinstance(raw_port, dict):
+                raise DeployError("rollback_capsule_render_ports_invalid")
+            _rollback_capsule_unknown_non_neutral(
+                raw_port,
+                ROLLBACK_CAPSULE_RENDER_PORT_KEYS,
+                reason_prefix="rollback_capsule_render_port_field_unsupported",
+            )
+            target = raw_port.get("target")
+            protocol = str(raw_port.get("protocol") or "tcp").casefold()
+            published = raw_port.get("published")
+            host_ip = str(raw_port.get("host_ip") or "")
+            mode = str(raw_port.get("mode") or "ingress").casefold()
+            if (
+                type(target) is not int
+                or not 1 <= target <= 65535
+                or protocol not in {"tcp", "udp", "sctp"}
+                or mode != "ingress"
+                or not _docker_value_is_neutral(raw_port.get("name"))
+                or not _docker_value_is_neutral(raw_port.get("app_protocol"))
+            ):
+                raise DeployError("rollback_capsule_render_ports_invalid")
+            port_key = f"{target}/{protocol}"
+            exposed[port_key] = {}
+            if published is not None:
+                published_text = str(published)
+                if (
+                    not published_text.isdigit()
+                    or not 1 <= int(published_text) <= 65535
+                    or "\x00" in host_ip
+                ):
+                    raise DeployError("rollback_capsule_render_ports_invalid")
+                port_bindings.setdefault(port_key, []).append(
+                    {"HostIp": host_ip, "HostPort": str(int(published_text))}
+                )
+        config["ExposedPorts"] = exposed
+
+        host: dict[str, Any] = {
+            "PortBindings": port_bindings,
+            "ReadonlyRootfs": bool(service.get("read_only")),
+            **ROLLBACK_CAPSULE_ENGINE_SECURITY_DEFAULTS,
+        }
+        for compose_key, runtime_key in (
+            ("mem_limit", "Memory"),
+            ("mem_reservation", "MemoryReservation"),
+            ("memswap_limit", "MemorySwap"),
+            ("shm_size", "ShmSize"),
+        ):
+            raw = service.get(compose_key)
+            if not _docker_value_is_neutral(raw):
+                host[runtime_key] = _rollback_capsule_byte_quantity(
+                    raw, reason="rollback_capsule_render_resource_invalid"
+                )
+        for compose_key, runtime_key in (
+            ("cpu_shares", "CpuShares"),
+            ("pids_limit", "PidsLimit"),
+        ):
+            raw = service.get(compose_key)
+            if not _docker_value_is_neutral(raw):
+                if type(raw) is not int:
+                    raise DeployError("rollback_capsule_render_resource_invalid")
+                host[runtime_key] = raw
+        cpus = service.get("cpus")
+        if not _docker_value_is_neutral(cpus):
+            host["NanoCpus"] = _rollback_capsule_nano_cpus(
+                cpus, reason="rollback_capsule_render_resource_invalid"
+            )
+        for compose_key, runtime_key in (
+            ("cap_drop", "CapDrop"),
+            ("security_opt", "SecurityOpt"),
+        ):
+            raw = service.get(compose_key) or []
+            if not isinstance(raw, list) or not all(
+                isinstance(item, str) and item and "\x00" not in item for item in raw
+            ):
+                raise DeployError("rollback_capsule_render_security_invalid")
+            if raw:
+                host[runtime_key] = list(raw)
+        extra_hosts = _rollback_capsule_extra_hosts(service.get("extra_hosts"))
+        if extra_hosts:
+            host["ExtraHosts"] = extra_hosts
+        for compose_key, runtime_key, allowed in (
+            ("cgroup", "CgroupnsMode", {"private"}),
+            ("ipc", "IpcMode", {"private"}),
+            ("runtime", "Runtime", {"runc"}),
+        ):
+            raw = str(service.get(compose_key) or "")
+            if raw:
+                if raw not in allowed:
+                    raise DeployError(
+                        f"rollback_capsule_render_posture_unsupported:{compose_key}"
+                    )
+                host[runtime_key] = raw
+        restart = str(service.get("restart") or "")
+        if restart:
+            name, separator, count_text = restart.partition(":")
+            if name not in {"always", "no", "on-failure", "unless-stopped"}:
+                raise DeployError("rollback_capsule_render_restart_invalid")
+            count = 0
+            if separator:
+                if name != "on-failure" or not count_text.isdigit():
+                    raise DeployError("rollback_capsule_render_restart_invalid")
+                count = int(count_text)
+            host["RestartPolicy"] = {"Name": name, "MaximumRetryCount": count}
+        logging_value = service.get("logging") or {}
+        if not isinstance(logging_value, dict):
+            raise DeployError("rollback_capsule_render_logging_invalid")
+        _rollback_capsule_unknown_non_neutral(
+            logging_value,
+            frozenset({"driver", "options"}),
+            reason_prefix="rollback_capsule_render_logging_field_unsupported",
+        )
+        if logging_value:
+            options = logging_value.get("options") or {}
+            if not isinstance(options, dict) or not all(
+                isinstance(name, str)
+                and isinstance(item, (str, int, float, bool))
+                and not isinstance(item, (dict, list))
+                for name, item in options.items()
+            ):
+                raise DeployError("rollback_capsule_render_logging_invalid")
+            host["LogConfig"] = {
+                "Type": str(logging_value.get("driver") or ""),
+                "Config": {name: str(options[name]) for name in sorted(options)},
+            }
+        tmpfs = self._rollback_render_tmpfs(service.get("tmpfs"))
+        if tmpfs:
+            host["Tmpfs"] = tmpfs
+
+        mounts, binds = self._rollback_render_mounts(rendered, service, bindings)
+        host["Binds"] = binds
+        networks, network_mode = self._rollback_render_networks(
+            rendered, service, bindings
+        )
+        if network_mode:
+            host["NetworkMode"] = network_mode
+        return {
+            "Id": "",
+            "Image": image_id,
+            "Path": runtime_path,
+            "Args": runtime_args,
+            "AppArmorProfile": str(extension.get("apparmor_profile") or ""),
+            "Config": config,
+            "HostConfig": host,
+            "Mounts": mounts,
+            "NetworkSettings": {
+                "Networks": networks,
+                "Ports": port_bindings,
+                "SandboxID": "",
+                "SandboxKey": "",
+            },
+        }
+
     def _verify_rollback_renderability(
         self, previous: Mapping[str, Any]
     ) -> dict[str, Any]:
-        rollback_root = Path(
-            str(previous.get("working_dir") or "")
-        ).expanduser()
-        if not rollback_root.is_absolute() or ".." in rollback_root.parts:
-            raise DeployError("rollback_render_working_dir_invalid")
-        rollback_files = [
-            str(item)
-            for item in list(previous.get("compose_config_files") or [])
-            if str(item).strip()
-        ]
-        rollback_env = self._rollback_environment(previous)
+        return self._verify_rollback_capsule_renderability(previous)
+
+    def _materialize_rollback_capsule(
+        self,
+        document: Mapping[str, Any],
+        identity: Mapping[str, object],
+    ) -> dict[str, object]:
+        payload = (
+            json.dumps(
+                dict(document),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
+        seal = self._write_private_artifact_once(
+            self.rollback_capsule_path,
+            payload,
+            reason_prefix="rollback_capsule",
+        )
+        self._rollback_capsule_seal = dict(seal)
+        self._rollback_capsule_document = dict(document)
+        self.receipt["rollback_capsule"] = {
+            "contract_name": ROLLBACK_CAPSULE_CONTRACT_NAME,
+            "version": ROLLBACK_CAPSULE_VERSION,
+            "path_basename": self.rollback_capsule_path.name,
+            "sha256": str(seal["sha256"]),
+            "size_bytes": int(seal["size_bytes"]),
+            "mode": str(seal["mode"]),
+            "functional_identity_sha256": str(
+                identity.get("functional_identity_sha256") or ""
+            ),
+            "status": "sealed",
+        }
+        self._write_receipt()
+        return seal
+
+    def _verify_rollback_capsule_renderability(
+        self, previous: Mapping[str, Any], *, record: bool = True
+    ) -> dict[str, Any]:
+        seal = self._rollback_capsule_seal
+        document = self._rollback_capsule_document
+        if seal is None or document is None:
+            raise DeployError("rollback_capsule_missing")
+        if self._deployment_input_file_seal(self.rollback_capsule_path) != seal:
+            raise DeployError("rollback_capsule_changed")
+        completed = self._run(
+            self._rollback_capsule_compose(
+                self.rollback_capsule_path,
+                "config",
+                "--format",
+                "json",
+            ),
+            cwd=self.receipt_dir,
+            env=self._rollback_environment(previous),
+        )
         rendered = _json_object(
-            self._run(
-                self._rollback_compose(
-                    rollback_root,
-                    rollback_files,
-                    "config",
-                    "--format",
-                    "json",
-                ),
-                cwd=rollback_root,
-                env=rollback_env,
-            ).stdout,
-            reason="rollback_render_json_invalid",
+            completed.stdout,
+            reason="rollback_capsule_render_json_invalid",
         )
-        if rendered.get("name") not in {None, PROJECT_NAME}:
-            raise DeployError("rollback_render_project_mismatch")
-        services_value = rendered.get("services")
-        services = dict(services_value) if isinstance(services_value, dict) else {}
-        service_value = services.get(API_SERVICE)
-        service = dict(service_value) if isinstance(service_value, dict) else {}
-        if not service:
-            raise DeployError("rollback_render_api_missing")
-        if str(service.get("image") or "") != str(
-            previous.get("image_reference") or ""
-        ):
-            raise DeployError("rollback_render_image_reference_mismatch")
-        image = self._inspect_image_config(str(previous.get("image_reference") or ""))
+        image = self._inspect_image_config(
+            str(previous.get("image_lookup_reference") or previous.get("image_reference") or "")
+        )
         if image["image_id"] != str(previous.get("image_id") or ""):
-            raise DeployError("rollback_render_image_id_mismatch")
-        image_config = dict(image["config"])
-        expected_environment = _environment_identity(
-            self._rendered_environment_entries(service, image_config)
+            raise DeployError("rollback_capsule_render_image_identity_mismatch")
+        external_resources = self._revalidate_rollback_external_resources(
+            document, boundary="rollback_render_preflight"
         )
-        if expected_environment["environment_sha256"] != previous.get(
-            "environment_sha256"
-        ) or expected_environment["environment_count"] != previous.get(
-            "environment_count"
-        ):
-            raise DeployError("rollback_render_environment_identity_mismatch")
-        process_digest = _process_config_identity(
-            self._rendered_process_config(service, image_config)
+        projected_inspection = self._rollback_render_runtime_projection(
+            rendered,
+            document,
+            image_id=str(image["image_id"]),
+            image_config=dict(image["config"]),
         )
-        if process_digest != previous.get("process_config_sha256"):
-            raise DeployError("rollback_render_process_config_identity_mismatch")
-        mounts = self._rendered_mount_identities(rendered, service, root=rollback_root)
-        mount_digest = _identity_digest(mounts)
-        if mount_digest != previous.get("mount_identity_sha256"):
-            raise DeployError("rollback_render_mount_identity_mismatch")
+        rendered_identity = _container_functional_identity(projected_inspection)
+        expected_identity = self._validated_functional_identity(
+            previous.get("functional_identity"), reason_prefix="rollback_capsule"
+        )
+        if rendered_identity != expected_identity:
+            expected_domains = dict(expected_identity.get("domains") or {})
+            rendered_domains = dict(rendered_identity.get("domains") or {})
+            differing = sorted(
+                name
+                for name in {*expected_domains, *rendered_domains}
+                if expected_domains.get(name) != rendered_domains.get(name)
+            )
+            raise DeployError(
+                "rollback_capsule_render_functional_identity_mismatch:"
+                + (differing[0] if differing else "overall")
+            )
+        runtime_environment = list(
+            dict(projected_inspection["Config"]).get("Env") or []
+        )
+        environment_identity = _environment_identity(runtime_environment)
+        rendered_process = {
+            key: dict(projected_inspection["Config"]).get(key)
+            for key in ("Cmd", "Entrypoint", "User")
+        }
+        process_digest = _process_config_identity(rendered_process)
+        rendered_mounts = _rollback_capsule_mount_identities(projected_inspection)
+        mount_digest = _identity_digest(
+            [
+                {
+                    "type": item["type"],
+                    "source": item["source"],
+                    "destination": item["destination"],
+                    "read_write": item["read_write"],
+                }
+                for item in rendered_mounts
+            ]
+        )
         evidence = {
             "status": "pass",
-            "working_dir": str(rollback_root),
-            "compose_config_files": rollback_files,
+            "contract_name": ROLLBACK_CAPSULE_CONTRACT_NAME,
+            "capsule_sha256": str(seal["sha256"]),
             "image_id": str(previous.get("image_id") or ""),
             "image_reference": str(previous.get("image_reference") or ""),
-            **expected_environment,
+            **environment_identity,
             "process_config_sha256": process_digest,
             "mount_identity_sha256": mount_digest,
-            "mount_identity_count": len(mounts),
+            "mount_identity_count": len(rendered_mounts),
+            "functional_identity_sha256": str(
+                rendered_identity.get("functional_identity_sha256") or ""
+            ),
+            "network_count": int(
+                dict(rendered_identity["domains"])["networks"]["count"]
+            ),
+            "external_resources": external_resources,
         }
-        self.receipt["rollback_render_preflight"] = evidence
-        self._record_check("rollback_render_preflight", "pass")
+        if record:
+            self.receipt["rollback_render_preflight"] = evidence
+            self._record_check("rollback_capsule_render_preflight", "pass")
         return evidence
+
+    def _arm_rollback_recovery(
+        self,
+        *,
+        previous: Mapping[str, Any],
+        rollback_tag: str,
+        non_memorial_controls: Mapping[str, Any],
+        public_origin: str,
+    ) -> None:
+        capsule_seal = self._rollback_capsule_seal
+        capsule_document = self._rollback_capsule_document
+        if capsule_seal is None or capsule_document is None:
+            raise DeployError("rollback_capsule_missing")
+        self._require_joint_recovery_absent()
+        functional_identity = self._validated_functional_identity(
+            previous.get("functional_identity"), reason_prefix="rollback_recovery"
+        )
+        openapi = dict(non_memorial_controls.get("openapi") or {})
+        contract_sha256 = str(openapi.get("contract_sha256") or "")
+        source_revision = str(previous.get("source_revision") or "")
+        validated_origin = _validate_public_origin(
+            public_origin, allowed_hosts=self.allowed_public_hosts
+        )
+        if (
+            SHA256_HEX_PATTERN.fullmatch(contract_sha256) is None
+            or SOURCE_REVISION_PATTERN.fullmatch(source_revision) is None
+        ):
+            raise DeployError("rollback_recovery_baseline_invalid")
+        journal = {
+            "contract_name": ROLLBACK_RECOVERY_CONTRACT_NAME,
+            "version": ROLLBACK_RECOVERY_VERSION,
+            "status": ROLLBACK_RECOVERY_ARMED_STATUS,
+            "deployment_id": self.deployment_id,
+            "service": API_SERVICE,
+            "armed_at": _utc_now(),
+            "capsule_seal": dict(capsule_seal),
+            "source_image_id": str(previous.get("image_id") or ""),
+            "source_image_reference": str(previous.get("image_reference") or ""),
+            "source_container_id_sha256": str(
+                dict(capsule_document.get("x-ea-rollback-capsule") or {}).get(
+                    "source_container_id_sha256"
+                )
+                or ""
+            ),
+            "protected_image_tag": rollback_tag,
+            "baseline": {
+                "functional_identity": functional_identity,
+                "internal_openapi_contract_sha256": contract_sha256,
+                "public_origin": validated_origin,
+                "source_revision": source_revision,
+            },
+            "external_resources": self._rollback_capsule_external_bindings(
+                capsule_document, reason_prefix="rollback_recovery"
+            ),
+            "recovery_policy": "permit_free_emergency_rollback",
+        }
+        payload = self._rollback_recovery_payload(journal)
+        self._rollback_recovery_seal = self._write_private_artifact_once(
+            self.joint_recovery_journal_path,
+            payload,
+            reason_prefix="rollback_recovery_journal",
+        )
+        self._rollback_recovery_document = journal
+        self.receipt["rollback_recovery"] = {
+            "contract_name": ROLLBACK_RECOVERY_CONTRACT_NAME,
+            "version": ROLLBACK_RECOVERY_VERSION,
+            "status": "armed",
+            "journal_sha256": str(self._rollback_recovery_seal["sha256"]),
+        }
+        self._write_receipt()
+
+    @staticmethod
+    def _rollback_recovery_payload(document: Mapping[str, Any]) -> bytes:
+        payload = (
+            json.dumps(
+                dict(document),
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
+        if not payload or len(payload) > MAX_DEPLOYMENT_INPUT_BYTES:
+            raise DeployError("rollback_recovery_journal_size_invalid")
+        return payload
+
+    def _validate_recovery_capsule_seal(
+        self, value: object, *, deployment_id: str
+    ) -> dict[str, object]:
+        seal = dict(value) if isinstance(value, dict) else {}
+        expected_keys = {
+            "ctime_ns",
+            "device",
+            "gid",
+            "inode",
+            "link_count",
+            "mode",
+            "mtime_ns",
+            "path",
+            "sha256",
+            "size_bytes",
+            "uid",
+        }
+        expected_path = (
+            self.receipt_dir
+            / f"{deployment_id}.rollback-capsule.compose.json"
+        )
+        if (
+            set(seal) != expected_keys
+            or seal.get("path") != str(expected_path)
+            or SHA256_HEX_PATTERN.fullmatch(str(seal.get("sha256") or ""))
+            is None
+            or type(seal.get("size_bytes")) is not int
+            or not 0 < int(seal["size_bytes"]) <= MAX_DEPLOYMENT_INPUT_BYTES
+            or seal.get("mode") != "0600"
+            or seal.get("uid") != os.geteuid()
+            or seal.get("link_count") != 1
+            or any(
+                type(seal.get(key)) is not int or int(seal[key]) < 0
+                for key in (
+                    "ctime_ns",
+                    "device",
+                    "gid",
+                    "inode",
+                    "mtime_ns",
+                )
+            )
+        ):
+            raise DeployError("rollback_recovery_capsule_seal_invalid")
+        return seal
+
+    def _validated_rollback_recovery_document(
+        self, value: object
+    ) -> dict[str, Any]:
+        journal = dict(value) if isinstance(value, dict) else {}
+        common = {
+            "armed_at",
+            "capsule_seal",
+            "contract_name",
+            "deployment_id",
+            "recovery_policy",
+            "service",
+            "status",
+            "version",
+        }
+        armed_only = {
+            "baseline",
+            "external_resources",
+            "protected_image_tag",
+            "source_container_id_sha256",
+            "source_image_id",
+            "source_image_reference",
+        }
+        cleanup = {"cleanup_started_at", "terminal_status"}
+        status = str(journal.get("status") or "")
+        if (
+            journal.get("contract_name") != ROLLBACK_RECOVERY_CONTRACT_NAME
+            or journal.get("version") != ROLLBACK_RECOVERY_VERSION
+            or status not in ROLLBACK_RECOVERY_ALLOWED_STATUSES
+            or journal.get("service") != API_SERVICE
+            or DEPLOYMENT_ID_PATTERN.fullmatch(
+                str(journal.get("deployment_id") or "")
+            )
+            is None
+            or not isinstance(journal.get("armed_at"), str)
+            or not str(journal["armed_at"]).strip()
+            or len(str(journal["armed_at"])) > 128
+        ):
+            raise DeployError("rollback_recovery_journal_contract_invalid")
+        deployment_id = str(journal["deployment_id"])
+        journal["capsule_seal"] = self._validate_recovery_capsule_seal(
+            journal.get("capsule_seal"), deployment_id=deployment_id
+        )
+        if status == ROLLBACK_RECOVERY_ARMED_STATUS:
+            if (
+                set(journal) != common | armed_only
+                or journal.get("recovery_policy")
+                != "permit_free_emergency_rollback"
+            ):
+                raise DeployError("rollback_recovery_journal_schema_invalid")
+        else:
+            full_cleanup = common | armed_only | cleanup
+            cleanup_only = common | cleanup
+            if frozenset(journal) not in {
+                frozenset(full_cleanup),
+                frozenset(cleanup_only),
+            }:
+                raise DeployError("rollback_recovery_journal_schema_invalid")
+            if journal.get("recovery_policy") not in {
+                "permit_free_emergency_rollback",
+                "cleanup_only",
+            }:
+                raise DeployError("rollback_recovery_policy_invalid")
+            if (
+                not isinstance(journal.get("cleanup_started_at"), str)
+                or not str(journal["cleanup_started_at"]).strip()
+                or re.fullmatch(
+                    r"[A-Za-z0-9][A-Za-z0-9._-]{2,127}",
+                    str(journal.get("terminal_status") or ""),
+                )
+                is None
+            ):
+                raise DeployError("rollback_recovery_cleanup_state_invalid")
+        if armed_only <= set(journal):
+            source_image_id = str(journal.get("source_image_id") or "")
+            source_image_reference = str(
+                journal.get("source_image_reference") or ""
+            )
+            if (
+                IMAGE_ID_PATTERN.fullmatch(source_image_id) is None
+                or SHA256_HEX_PATTERN.fullmatch(
+                    str(journal.get("source_container_id_sha256") or "")
+                )
+                is None
+            ):
+                raise DeployError("rollback_recovery_source_identity_invalid")
+            _safe_tagged_image_reference(
+                source_image_reference,
+                reason="rollback_recovery_source_identity_invalid",
+            )
+            _safe_tagged_image_reference(
+                str(journal.get("protected_image_tag") or ""),
+                reason="rollback_recovery_protected_image_tag_invalid",
+            )
+            baseline_value = journal.get("baseline")
+            baseline = (
+                dict(baseline_value) if isinstance(baseline_value, dict) else {}
+            )
+            if set(baseline) != {
+                "functional_identity",
+                "internal_openapi_contract_sha256",
+                "public_origin",
+                "source_revision",
+            }:
+                raise DeployError("rollback_recovery_baseline_invalid")
+            functional_identity = self._validated_functional_identity(
+                baseline.get("functional_identity"),
+                reason_prefix="rollback_recovery",
+            )
+            image_domain = dict(
+                dict(functional_identity.get("domains") or {}).get("image") or {}
+            )
+            if (
+                image_domain.get("image_id") != source_image_id
+                or image_domain.get("image_reference") != source_image_reference
+                or SHA256_HEX_PATTERN.fullmatch(
+                    str(baseline.get("internal_openapi_contract_sha256") or "")
+                )
+                is None
+                or SOURCE_REVISION_PATTERN.fullmatch(
+                    str(baseline.get("source_revision") or "")
+                )
+                is None
+            ):
+                raise DeployError("rollback_recovery_baseline_invalid")
+            baseline["public_origin"] = _validate_public_origin(
+                str(baseline.get("public_origin") or ""),
+                allowed_hosts=self.allowed_public_hosts,
+            )
+            baseline["functional_identity"] = functional_identity
+            journal["baseline"] = baseline
+            resources = journal.get("external_resources")
+            resource_wrapper = {
+                "x-ea-rollback-capsule": {
+                    "allowed_runtime_differences": [
+                        "compose_managed_labels",
+                        "container_and_start_timestamps",
+                        "container_id",
+                        "dynamic_network_endpoint_identity",
+                    ],
+                    "apparmor_profile": "",
+                    "captured_at": str(journal["armed_at"]),
+                    "contract_name": ROLLBACK_CAPSULE_CONTRACT_NAME,
+                    "deployment_id": deployment_id,
+                    "external_resources": resources,
+                    "functional_identity": functional_identity,
+                    "service": API_SERVICE,
+                    "source_container_id_sha256": str(
+                        journal["source_container_id_sha256"]
+                    ),
+                    "source_image_id": source_image_id,
+                    "source_image_reference": source_image_reference,
+                    "version": ROLLBACK_CAPSULE_VERSION,
+                }
+            }
+            self._rollback_capsule_external_bindings(
+                resource_wrapper, reason_prefix="rollback_recovery"
+            )
+        return journal
+
+    def _load_active_rollback_recovery(
+        self,
+    ) -> tuple[dict[str, Any], dict[str, object], bool] | None:
+        try:
+            self._require_joint_recovery_absent()
+        except DeployError:
+            pass
+        else:
+            return None
+        loaded = self._read_private_artifact(
+            self.joint_recovery_journal_path,
+            reason_prefix="rollback_recovery_journal",
+        )
+        if loaded is None:  # pragma: no cover - non-optional read
+            raise DeployError("rollback_recovery_journal_unavailable")
+        raw, seal = loaded
+        try:
+            decoded = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise DeployError("rollback_recovery_journal_json_invalid") from exc
+        journal = self._validated_rollback_recovery_document(decoded)
+        capsule_seal = dict(journal["capsule_seal"])
+        capsule_path = Path(str(capsule_seal["path"]))
+        capsule_loaded = self._read_private_artifact(
+            capsule_path,
+            reason_prefix="rollback_capsule",
+            allow_absent=(journal["status"] == ROLLBACK_RECOVERY_CLEANUP_STATUS),
+        )
+        capsule_present = capsule_loaded is not None
+        capsule_document: dict[str, Any] | None = None
+        if capsule_loaded is not None:
+            capsule_raw, observed_capsule_seal = capsule_loaded
+            if observed_capsule_seal != capsule_seal:
+                raise DeployError("rollback_recovery_capsule_seal_mismatch")
+            try:
+                decoded_capsule = json.loads(capsule_raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise DeployError("rollback_recovery_capsule_json_invalid") from exc
+            if not isinstance(decoded_capsule, dict):
+                raise DeployError("rollback_recovery_capsule_json_invalid")
+            capsule_document = dict(decoded_capsule)
+            extension = dict(
+                capsule_document.get("x-ea-rollback-capsule") or {}
+            )
+            if extension.get("deployment_id") != journal["deployment_id"]:
+                raise DeployError("rollback_recovery_capsule_deployment_mismatch")
+            capsule_bindings = self._rollback_capsule_external_bindings(
+                capsule_document, reason_prefix="rollback_recovery"
+            )
+            if "external_resources" in journal and capsule_bindings != journal.get(
+                "external_resources"
+            ):
+                raise DeployError("rollback_recovery_resource_binding_mismatch")
+            if "baseline" in journal and extension.get(
+                "functional_identity"
+            ) != dict(journal["baseline"])["functional_identity"]:
+                raise DeployError("rollback_recovery_functional_identity_mismatch")
+        elif journal["status"] == ROLLBACK_RECOVERY_ARMED_STATUS:
+            raise DeployError("rollback_recovery_capsule_missing")
+        self._rollback_recovery_seal = dict(seal)
+        self._rollback_recovery_document = journal
+        self._rollback_capsule_seal = capsule_seal
+        self._rollback_capsule_document = capsule_document
+        self.rollback_capsule_path = capsule_path
+        return journal, seal, capsule_present
+
+    def _require_loaded_active_recovery(
+        self, *, previous: Mapping[str, Any], rollback_tag: str
+    ) -> None:
+        loaded = self._load_active_rollback_recovery()
+        if loaded is None:
+            raise DeployError("rollback_recovery_journal_missing")
+        journal = loaded[0]
+        baseline = dict(journal.get("baseline") or {})
+        if (
+            journal.get("status") != ROLLBACK_RECOVERY_ARMED_STATUS
+            or journal.get("protected_image_tag") != rollback_tag
+            or journal.get("source_image_id") != previous.get("image_id")
+            or journal.get("source_image_reference")
+            != previous.get("image_reference")
+            or baseline.get("functional_identity")
+            != previous.get("functional_identity")
+        ):
+            raise DeployError("rollback_recovery_binding_mismatch")
+
+    def _arm_cleanup_only_recovery(self, *, terminal_status: str) -> None:
+        capsule_seal = self._rollback_capsule_seal
+        if capsule_seal is None:
+            return
+        self._require_joint_recovery_absent()
+        document = {
+            "contract_name": ROLLBACK_RECOVERY_CONTRACT_NAME,
+            "version": ROLLBACK_RECOVERY_VERSION,
+            "status": ROLLBACK_RECOVERY_CLEANUP_STATUS,
+            "deployment_id": self.deployment_id,
+            "service": API_SERVICE,
+            "armed_at": _utc_now(),
+            "capsule_seal": dict(capsule_seal),
+            "recovery_policy": "cleanup_only",
+            "terminal_status": terminal_status,
+            "cleanup_started_at": _utc_now(),
+        }
+        self._rollback_recovery_seal = self._write_private_artifact_once(
+            self.joint_recovery_journal_path,
+            self._rollback_recovery_payload(document),
+            reason_prefix="rollback_recovery_journal",
+        )
+        self._rollback_recovery_document = document
+
+    def _clear_rollback_artifacts(self, *, terminal_status: str) -> None:
+        if self._rollback_capsule_seal is not None and (
+            self._rollback_recovery_seal is None
+        ):
+            self._arm_cleanup_only_recovery(terminal_status=terminal_status)
+        if self._rollback_recovery_seal is not None:
+            journal = dict(self._rollback_recovery_document or {})
+            if journal.get("status") != ROLLBACK_RECOVERY_CLEANUP_STATUS:
+                journal["status"] = ROLLBACK_RECOVERY_CLEANUP_STATUS
+                journal["terminal_status"] = terminal_status
+                journal["cleanup_started_at"] = _utc_now()
+                self._rollback_recovery_seal = self._replace_private_artifact(
+                    self.joint_recovery_journal_path,
+                    self._rollback_recovery_payload(journal),
+                    self._rollback_recovery_seal,
+                    reason_prefix="rollback_recovery_journal",
+                )
+                self._rollback_recovery_document = journal
+        if self._rollback_capsule_seal is not None:
+            self._remove_private_artifact(
+                self.rollback_capsule_path,
+                self._rollback_capsule_seal,
+                reason_prefix="rollback_capsule",
+                allow_absent=(
+                    dict(self._rollback_recovery_document or {}).get("status")
+                    == ROLLBACK_RECOVERY_CLEANUP_STATUS
+                ),
+            )
+            self._rollback_capsule_seal = None
+            self._rollback_capsule_document = None
+            capsule = dict(self.receipt.get("rollback_capsule") or {})
+            capsule["status"] = terminal_status
+            self.receipt["rollback_capsule"] = capsule
+        if self._rollback_recovery_seal is not None:
+            self._remove_private_artifact(
+                self.joint_recovery_journal_path,
+                self._rollback_recovery_seal,
+                reason_prefix="rollback_recovery_journal",
+            )
+            self._rollback_recovery_seal = None
+            self._rollback_recovery_document = None
+            self.receipt["rollback_recovery"] = {"status": terminal_status}
+        rollback = dict(self.receipt.get("rollback") or {})
+        rollback["availability"] = "retired"
+        rollback["capsule_available"] = False
+        if rollback.get("status") == "available":
+            rollback["status"] = terminal_status
+        self.receipt["rollback"] = rollback
+
+    def _verify_active_recovery_baseline(
+        self,
+        journal: Mapping[str, Any],
+        *,
+        mismatch_returns_none: bool,
+    ) -> dict[str, Any] | None:
+        baseline = dict(journal.get("baseline") or {})
+        expected_identity = self._validated_functional_identity(
+            baseline.get("functional_identity"),
+            reason_prefix="rollback_recovery",
+        )
+        current = self._inspect_container_optional(API_SERVICE)
+        if current is None:
+            return None
+        try:
+            current_identity = _container_functional_identity(current)
+        except DeployError:
+            return None
+        if current_identity != expected_identity:
+            return None
+        state = dict(current.get("State") or {})
+        health = str(dict(state.get("Health") or {}).get("Status") or "")
+        if (
+            state.get("Running") is not True
+            or state.get("Restarting") is True
+            or health != "healthy"
+        ):
+            return None
+        try:
+            health_probe = self._wait_http(
+                f"{self._local_origin()}/health", kind="recovery_health"
+            )
+            openapi = self._capture_internal_openapi_control()
+            if openapi.get("contract_sha256") != baseline.get(
+                "internal_openapi_contract_sha256"
+            ):
+                raise DeployError("rollback_recovery_openapi_contract_mismatch")
+            public_endpoint = self._capture_public_openapi_retirement(
+                str(baseline.get("public_origin") or ""),
+                expected_source_revision=str(
+                    baseline.get("source_revision") or ""
+                ),
+            )
+        except DeployError:
+            if mismatch_returns_none:
+                return None
+            raise
+        container_id = str(current.get("Id") or "")
+        return {
+            "status": "verified",
+            "functional_identity_sha256": str(
+                current_identity["functional_identity_sha256"]
+            ),
+            "container_id_sha256": hashlib.sha256(
+                container_id.encode("utf-8")
+            ).hexdigest(),
+            "health": health_probe,
+            "internal_openapi_contract_sha256": str(
+                openapi["contract_sha256"]
+            ),
+            "public_openapi": public_endpoint,
+        }
+
+    def _execute_active_recovery_rollback(
+        self, journal: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        capsule_document = self._rollback_capsule_document
+        capsule_seal = self._rollback_capsule_seal
+        if capsule_document is None or capsule_seal is None:
+            raise DeployError("rollback_recovery_capsule_missing")
+        source_image_id = str(journal.get("source_image_id") or "")
+        source_reference = _safe_tagged_image_reference(
+            str(journal.get("source_image_reference") or ""),
+            reason="rollback_recovery_source_image_reference_invalid",
+        )
+        protected_tag = str(journal.get("protected_image_tag") or "")
+        protected = self._inspect_image(protected_tag)
+        if protected["image_id"] != source_image_id:
+            raise DeployError("rollback_recovery_protected_image_mismatch")
+        previous = {
+            "image_id": source_image_id,
+            "image_reference": source_reference,
+            "image_lookup_reference": protected_tag,
+            "functional_identity": dict(journal["baseline"])[
+                "functional_identity"
+            ],
+        }
+        self._verify_rollback_capsule_renderability(previous, record=False)
+        self._revalidate_rollback_external_resources(
+            capsule_document,
+            boundary="before_recover_active_rollback",
+        )
+        rollback_env = self._rollback_environment(previous)
+        self._run(
+            ["docker", "image", "tag", source_image_id, source_reference],
+            env=rollback_env,
+        )
+        self._run(
+            self._rollback_capsule_compose(
+                self.rollback_capsule_path,
+                "up",
+                "-d",
+                "--no-build",
+                "--no-deps",
+                "--force-recreate",
+                API_SERVICE,
+            ),
+            cwd=self.receipt_dir,
+            env=rollback_env,
+        )
+        current = self._inspect_container(API_SERVICE)
+        self._require_compose_identity(
+            current, service=API_SERVICE, reason_prefix="rollback_recovery_api"
+        )
+        labels = dict(dict(current.get("Config") or {}).get("Labels") or {})
+        if (
+            labels.get("com.docker.compose.container-number") != "1"
+            or labels.get("com.docker.compose.oneoff") != "False"
+            or labels.get("com.docker.compose.image") != source_image_id
+        ):
+            raise DeployError("rollback_recovery_compose_identity_mismatch")
+        topology = self._compose_topology(
+            current, reason_prefix="rollback_recovery_api"
+        )
+        if (
+            topology.get("working_dir") != str(self.receipt_dir)
+            or topology.get("compose_config_files")
+            != [str(self.rollback_capsule_path)]
+        ):
+            raise DeployError("rollback_recovery_compose_topology_mismatch")
+        verified = self._verify_active_recovery_baseline(
+            journal, mismatch_returns_none=False
+        )
+        if verified is None:
+            raise DeployError("rollback_recovery_baseline_not_restored")
+        return verified
+
+    def recover_active(self) -> dict[str, Any]:
+        if self._global_lock_handle is not None or self._lock_handle is not None:
+            raise DeployError("rollback_recovery_lock_state_invalid")
+        self._global_lock_handle = self._open_lock(
+            self.global_lock_path,
+            busy_reason="memorial_api_deployment_already_running",
+        )
+        try:
+            self._require_normalization_recovery_absent()
+            loaded = self._load_active_rollback_recovery()
+            if loaded is None:
+                return {
+                    "contract_name": "ea.memorial_api_recovery_result.v1",
+                    "status": "no_active_recovery",
+                    "api_mutation_count": 0,
+                }
+            journal, _journal_seal, capsule_present = loaded
+            if journal["status"] == ROLLBACK_RECOVERY_CLEANUP_STATUS:
+                terminal_status = str(
+                    journal.get("terminal_status") or "cleanup_replayed"
+                )
+                self._clear_rollback_artifacts(
+                    terminal_status=terminal_status
+                )
+                return {
+                    "contract_name": "ea.memorial_api_recovery_result.v1",
+                    "status": "cleanup_replayed",
+                    "terminal_status": terminal_status,
+                    "capsule_was_present": capsule_present,
+                    "api_mutation_count": 0,
+                }
+            self._detect_compose()
+            protected = self._inspect_image(str(journal["protected_image_tag"]))
+            if protected["image_id"] != journal["source_image_id"]:
+                raise DeployError("rollback_recovery_protected_image_mismatch")
+            existing = self._verify_active_recovery_baseline(
+                journal, mismatch_returns_none=True
+            )
+            mutation_count = 0
+            if existing is None:
+                existing = self._execute_active_recovery_rollback(journal)
+                mutation_count = 1
+                result_status = "rollback_verified"
+            else:
+                result_status = "baseline_already_exact"
+            self._clear_rollback_artifacts(
+                terminal_status=f"retired_after_{result_status}"
+            )
+            return {
+                "contract_name": "ea.memorial_api_recovery_result.v1",
+                "status": result_status,
+                "api_mutation_count": mutation_count,
+                "verification": existing,
+            }
+        finally:
+            self._release_lock()
 
     def _resolve_candidate_image(self, source_revision: str) -> dict[str, Any]:
         if not self.memorial_image_reference:
@@ -5444,7 +8691,13 @@ class MemorialDeployLane:
         return {
             key: value
             for key, value in previous.items()
-            if key not in {"mount_identities", "rollback_environment"}
+            if key
+            not in {
+                "mount_identities",
+                "noncompose_labels",
+                "rollback_capsule_document",
+                "rollback_environment",
+            }
         }
 
     def _verify_forward_api(
@@ -5598,6 +8851,24 @@ class MemorialDeployLane:
             str(config.get("Image") or ""),
             reason="prior_api_image_reference_unrestorable",
         )
+        image = self._inspect_image_config(image_reference)
+        if image["image_id"] != image_id:
+            raise DeployError("prior_api_image_reference_identity_mismatch")
+        image_noncompose_labels = _rollback_capsule_noncompose_labels(
+            dict(image["config"])
+        )
+        if image_noncompose_labels != _rollback_capsule_noncompose_labels(config):
+            raise DeployError("prior_api_image_label_identity_mismatch")
+        source_revision_values = [
+            str(item).split("=", 1)[1]
+            for item in list(config.get("Env") or [])
+            if str(item).startswith("EA_SOURCE_REVISION=")
+        ]
+        if len(source_revision_values) != 1:
+            raise DeployError("prior_api_source_revision_missing_or_ambiguous")
+        source_revision = source_revision_values[0]
+        if SOURCE_REVISION_PATTERN.fullmatch(source_revision) is None:
+            raise DeployError("prior_api_source_revision_invalid")
         state = dict(inspection.get("State") or {})
         health = str(dict(state.get("Health") or {}).get("Status") or "")
         if (
@@ -5606,13 +8877,12 @@ class MemorialDeployLane:
             or health != "healthy"
         ):
             raise DeployError("prior_api_not_healthy")
-        topology = self._compose_topology(inspection, reason_prefix="prior_api")
+        topology = self._compose_topology(
+            inspection,
+            reason_prefix="prior_api",
+            trust_inputs=False,
+        )
         working_dir = Path(str(topology["working_dir"]))
-        env_path = working_dir / ".env"
-        try:
-            self._deployment_input_file_seal(env_path)
-        except DeployError as exc:
-            raise DeployError(f"prior_api_rollback_input_invalid:{env_path.name}") from exc
         mount_identities = _mount_identities(inspection)
         runtime_config = _container_runtime_config_digests(inspection)
         memorial_layers = [
@@ -5622,26 +8892,23 @@ class MemorialDeployLane:
         ]
         if len(memorial_layers) > 1:
             raise DeployError("prior_api_memorial_compose_duplicate")
-        rollback_environment = (
-            _memorial_rollback_environment(
-                config=config,
-                mount_identities=mount_identities,
-                image_reference=image_reference,
-            )
-            if memorial_layers
-            else {}
+        capsule_document, functional_identity = self._build_rollback_capsule(
+            inspection
         )
         return {
             "container_id": str(inspection.get("Id") or ""),
             "created_at": str(inspection.get("Created") or ""),
             "image_id": image_id,
             "image_reference": image_reference,
+            "source_revision": source_revision,
             "working_dir": str(working_dir),
             "compose_config_files": topology["compose_config_files"],
             "mount_identities": mount_identities,
             "mount_identity_sha256": _identity_digest(mount_identities),
             "mount_identity_count": len(mount_identities),
-            "rollback_environment": rollback_environment,
+            "noncompose_labels": _rollback_capsule_noncompose_labels(config),
+            "functional_identity": functional_identity,
+            "rollback_capsule_document": capsule_document,
             **runtime_config,
             "state": {
                 "running": bool(state.get("Running")),
@@ -6009,6 +9276,85 @@ class MemorialDeployLane:
             "_contract": contract,
         }
 
+    def _capture_public_openapi_retirement(
+        self,
+        public_origin: str,
+        *,
+        expected_source_revision: str,
+    ) -> dict[str, Any]:
+        if SOURCE_REVISION_PATTERN.fullmatch(expected_source_revision) is None:
+            raise DeployError("public_openapi_expected_source_revision_invalid")
+        validated_origin = _validate_public_origin(
+            public_origin,
+            allowed_hosts=self.allowed_public_hosts,
+        )
+        url = f"{validated_origin}/openapi.json"
+        deadline = self.monotonic() + self.wait_seconds
+        last_error = ""
+        while True:
+            try:
+                response = self.http_no_redirect(
+                    url,
+                    self.request_timeout_seconds,
+                    "GET",
+                    "",
+                )
+                if response.status != 404:
+                    raise DeployError("public_openapi_retirement_status_invalid")
+                headers = {
+                    str(name).strip().casefold(): str(value).strip()
+                    for name, value in dict(response.headers or {}).items()
+                }
+                if headers.get("location"):
+                    raise DeployError("public_openapi_retirement_redirect_invalid")
+                if response.source_revision != expected_source_revision:
+                    raise DeployError("public_openapi_retirement_revision_mismatch")
+                content_type = str(response.content_type or "").strip()
+                if (
+                    not content_type
+                    or len(content_type) > MAX_RECEIPT_CONTENT_TYPE_CHARS
+                    or any(
+                        ord(character) < 32 or ord(character) == 127
+                        for character in content_type
+                    )
+                ):
+                    raise DeployError("public_openapi_retirement_content_type_invalid")
+                media_type = content_type.partition(";")[0].strip().casefold()
+                if media_type != "application/json":
+                    raise DeployError("public_openapi_retirement_content_type_invalid")
+                if not response.body or len(response.body) > MAX_HTTP_BODY_BYTES:
+                    raise DeployError("public_openapi_retirement_body_size_invalid")
+                try:
+                    payload = _json_object(
+                        response.body.decode("utf-8"),
+                        reason="public_openapi_retirement_json_invalid",
+                    )
+                except UnicodeDecodeError as exc:
+                    raise DeployError("public_openapi_retirement_json_invalid") from exc
+                error = payload.get("error")
+                if not isinstance(error, dict) or error.get("code") != "not_found":
+                    raise DeployError("public_openapi_retirement_error_code_invalid")
+                return {
+                    "path": "/openapi.json",
+                    "method": "GET",
+                    "status_code": 404,
+                    "redirect_count": 0,
+                    "content_type": content_type,
+                    "media_type": media_type,
+                    "error_code": "not_found",
+                    "source_revision": expected_source_revision,
+                    "body_bytes": len(response.body),
+                    "body_sha256": hashlib.sha256(response.body).hexdigest(),
+                    "canonical_json_sha256": _canonical_json_sha256(payload),
+                }
+            except DeployError as exc:
+                last_error = str(exc)
+            if self.monotonic() >= deadline:
+                raise DeployError(
+                    f"public_openapi_retirement_probe_exhausted:{last_error}"
+                )
+            self.sleep(self.poll_seconds)
+
     @staticmethod
     def _sanitized_openapi_control(control: Mapping[str, Any]) -> dict[str, Any]:
         return {key: value for key, value in control.items() if key != "_contract"}
@@ -6017,8 +9363,21 @@ class MemorialDeployLane:
     def _sanitized_tour_control(control: Mapping[str, Any]) -> dict[str, Any]:
         return {key: value for key, value in control.items() if key != "_json_payload"}
 
-    def _capture_non_memorial_controls(self) -> dict[str, Any]:
-        controls: dict[str, Any] = {"openapi": self._capture_openapi_control()}
+    def _capture_non_memorial_controls(
+        self,
+        *,
+        public_origin: str,
+        expected_source_revision: str,
+    ) -> dict[str, Any]:
+        controls: dict[str, Any] = {
+            "openapi": self._capture_internal_openapi_control()
+        }
+        controls["openapi"]["public_endpoint"] = (
+            self._capture_public_openapi_retirement(
+                public_origin,
+                expected_source_revision=expected_source_revision,
+            )
+        )
         predeploy_operations = dict(
             dict(controls["openapi"].get("_contract") or {}).get("operations") or {}
         )
@@ -6075,7 +9434,8 @@ class MemorialDeployLane:
         self,
         baseline: Mapping[str, Any],
         *,
-        internal_openapi: bool = False,
+        public_origin: str,
+        expected_source_revision: str,
     ) -> None:
         prior_openapi = dict(baseline.get("openapi") or {})
         prior_contract_value = prior_openapi.get("_contract")
@@ -6087,10 +9447,12 @@ class MemorialDeployLane:
         prior_security = dict(prior_contract.get("security_schemes") or {})
         if not prior_operations:
             raise DeployError("predeploy_openapi_contract_invalid")
-        current_openapi = (
-            self._capture_internal_openapi_control()
-            if internal_openapi
-            else self._capture_openapi_control()
+        current_openapi = self._capture_internal_openapi_control()
+        current_openapi["public_endpoint"] = (
+            self._capture_public_openapi_retirement(
+                public_origin,
+                expected_source_revision=expected_source_revision,
+            )
         )
         current_contract = dict(current_openapi.get("_contract") or {})
         current_operations = dict(current_contract.get("operations") or {})
@@ -6643,6 +10005,7 @@ class MemorialDeployLane:
         rollback_tag: str,
         baseline: Mapping[str, Any],
         deployment_input_seal: Mapping[str, Sequence[Mapping[str, object]]],
+        public_origin: str,
     ) -> dict[str, Any]:
         self._require_deployment_input_seal(deployment_input_seal, scope="rollback")
         prior_openapi_value = baseline.get("openapi")
@@ -6664,17 +10027,22 @@ class MemorialDeployLane:
             list(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS),
         ):
             raise DeployError("rollback_openapi_baseline_invalid")
-        rollback_root = Path(str(previous["working_dir"])).resolve()
-        rollback_files = [
-            str(item).strip()
-            for item in list(previous.get("compose_config_files") or [])
-            if str(item).strip()
-        ]
-        if not rollback_files:
-            raise DeployError("rollback_compose_config_files_missing")
+        capsule_seal = self._rollback_capsule_seal
+        if capsule_seal is None:
+            raise DeployError("rollback_capsule_missing")
+        if self._deployment_input_file_seal(self.rollback_capsule_path) != capsule_seal:
+            raise DeployError("rollback_capsule_changed")
         protected = self._inspect_image(rollback_tag)
         if protected["image_id"] != str(previous["image_id"]):
             raise DeployError("rollback_protected_image_mismatch")
+        self._require_loaded_active_recovery(
+            previous=previous,
+            rollback_tag=rollback_tag,
+        )
+        self._revalidate_rollback_external_resources(
+            dict(previous["rollback_capsule_document"]),
+            boundary="before_rollback",
+        )
         prior_reference = _safe_tagged_image_reference(
             str(previous.get("image_reference") or ""),
             reason="rollback_image_reference_unrestorable",
@@ -6686,9 +10054,8 @@ class MemorialDeployLane:
         )
         self._require_deployment_input_seal(deployment_input_seal, scope="rollback")
         self._run(
-            self._rollback_compose(
-                rollback_root,
-                rollback_files,
+            self._rollback_capsule_compose(
+                self.rollback_capsule_path,
                 "up",
                 "-d",
                 "--no-build",
@@ -6696,7 +10063,7 @@ class MemorialDeployLane:
                 "--force-recreate",
                 API_SERVICE,
             ),
-            cwd=rollback_root,
+            cwd=self.receipt_dir,
             env=rollback_env,
         )
         ready = self._wait_container(API_SERVICE, require_health=True)
@@ -6704,6 +10071,14 @@ class MemorialDeployLane:
         self._require_compose_identity(
             current, service=API_SERVICE, reason_prefix="rollback_api"
         )
+        rollback_labels = dict(dict(current.get("Config") or {}).get("Labels") or {})
+        if (
+            rollback_labels.get("com.docker.compose.container-number") != "1"
+            or rollback_labels.get("com.docker.compose.oneoff") != "False"
+            or rollback_labels.get("com.docker.compose.image")
+            != str(previous.get("image_id") or "")
+        ):
+            raise DeployError("rollback_compose_managed_identity_mismatch")
         topology = self._compose_topology(current, reason_prefix="rollback_api")
         restored_image_id = str(current.get("Image") or "")
         if restored_image_id != str(previous["image_id"]):
@@ -6713,8 +10088,9 @@ class MemorialDeployLane:
         ).strip()
         if restored_reference != prior_reference:
             raise DeployError("rollback_image_reference_mismatch")
-        if topology["working_dir"] != str(rollback_root):
+        if topology["working_dir"] != str(self.receipt_dir):
             raise DeployError("rollback_working_dir_mismatch")
+        rollback_files = [str(self.rollback_capsule_path)]
         if topology["compose_config_files"] != rollback_files:
             raise DeployError("rollback_compose_topology_mismatch")
         restored_mounts = _mount_identities(current)
@@ -6734,8 +10110,31 @@ class MemorialDeployLane:
             "process_config_sha256"
         ):
             raise DeployError("rollback_process_config_identity_mismatch")
+        restored_functional_identity = _container_functional_identity(current)
+        if restored_functional_identity != previous.get("functional_identity"):
+            expected_domains = dict(
+                dict(previous.get("functional_identity") or {}).get("domains") or {}
+            )
+            restored_domains = dict(
+                restored_functional_identity.get("domains") or {}
+            )
+            differing_domains = sorted(
+                key
+                for key in {*expected_domains, *restored_domains}
+                if expected_domains.get(key) != restored_domains.get(key)
+            )
+            safe_domain = differing_domains[0] if differing_domains else "overall"
+            raise DeployError(
+                f"rollback_functional_identity_mismatch:{safe_domain}"
+            )
         health_probe = self._wait_http(f"{self._local_origin()}/health", kind="health")
-        restored_openapi = self._capture_openapi_control()
+        restored_openapi = self._capture_internal_openapi_control()
+        restored_openapi["public_endpoint"] = (
+            self._capture_public_openapi_retirement(
+                public_origin,
+                expected_source_revision=str(previous.get("source_revision") or ""),
+            )
+        )
         restored_contract = dict(restored_openapi.get("_contract") or {})
         if restored_contract != prior_contract:
             raise DeployError("rollback_openapi_contract_mismatch")
@@ -6749,18 +10148,22 @@ class MemorialDeployLane:
                 "path_set_sha256",
                 "contract_sha256",
                 "probe",
+                "public_endpoint",
             )
         }
         return {
             "status": "pass",
             "completed_at": _utc_now(),
             "restored_image_id": restored_image_id,
-            "working_dir": str(rollback_root),
+            "working_dir": str(self.receipt_dir),
             "compose_config_files": rollback_files,
             "image_reference": restored_reference,
             "mount_identity_sha256": restored_mount_digest,
             "mount_identity_count": len(restored_mounts),
             **restored_runtime_config,
+            "functional_identity_sha256": str(
+                restored_functional_identity["functional_identity_sha256"]
+            ),
             "container": ready,
             "health_probe": health_probe,
             "openapi": {
@@ -6788,8 +10191,12 @@ class MemorialDeployLane:
         self._detect_compose()
         previous = self._previous_api()
         self._configure_forward_topology(previous)
+        self._materialize_rollback_capsule(
+            dict(previous["rollback_capsule_document"]),
+            dict(previous["functional_identity"]),
+        )
         deployment_input_seal = self._capture_deployment_input_seal(previous)
-        rollback_render = self._verify_rollback_renderability(previous)
+        rollback_render = self._verify_rollback_capsule_renderability(previous)
         self._require_deployment_input_seal(deployment_input_seal)
         source_revision = self._bind_source_revision(
             str(release_source["source_revision"])
@@ -6809,17 +10216,22 @@ class MemorialDeployLane:
             str(authority.get("public_origin") or ""),
             allowed_hosts=self.allowed_public_hosts,
         )
-        non_memorial_controls = self._capture_non_memorial_controls()
+        non_memorial_controls = self._capture_non_memorial_controls(
+            public_origin=public_origin,
+            expected_source_revision=str(previous["source_revision"]),
+        )
         self.receipt.update(
             {
                 "status": "preflight_pass",
                 "source_revision": source_revision,
                 "public_origin": public_origin,
                 "previous_api": self._sanitized_previous_api(previous),
-                "rollback_compose_files": previous["compose_config_files"],
+                "rollback_compose_files": [self.rollback_capsule_path.name],
                 "rollback": {
                     "status": "available",
-                    "working_dir": previous["working_dir"],
+                    "capsule_sha256": str(
+                        dict(self._rollback_capsule_seal or {}).get("sha256") or ""
+                    ),
                     "image_id": previous["image_id"],
                 },
             }
@@ -6873,12 +10285,16 @@ class MemorialDeployLane:
         self._acquire_lock()
         try:
             self._require_normalization_recovery_absent()
+            self._require_joint_recovery_absent()
             context = self.preflight()
             previous = dict(context["previous"])
             non_memorial_controls = dict(context["non_memorial_controls"])
             if preflight_only:
                 self.receipt["status"] = "preflight_only_pass"
                 self.receipt["completed_at"] = _utc_now()
+                self._clear_rollback_artifacts(
+                    terminal_status="discarded_preflight_only"
+                )
                 self._write_receipt()
                 return self.receipt
 
@@ -6906,7 +10322,9 @@ class MemorialDeployLane:
             active_action = None
             self.receipt["rollback"] = {
                 "status": "available",
-                "working_dir": previous["working_dir"],
+                "capsule_sha256": str(
+                    dict(self._rollback_capsule_seal or {}).get("sha256") or ""
+                ),
                 "image_id": previous["image_id"],
                 "image_tag": rollback_tag,
             }
@@ -6920,11 +10338,24 @@ class MemorialDeployLane:
                 self._revalidate_bind_source_access(
                     boundary="before_recreate_api"
                 )
+                self._require_deployment_input_seal(
+                    context["deployment_input_seal"], scope="rollback"
+                )
+                self._arm_rollback_recovery(
+                    previous=previous,
+                    rollback_tag=rollback_tag,
+                    non_memorial_controls=non_memorial_controls,
+                    public_origin=str(context["public_origin"]),
+                )
                 pending_action = None
                 persist_preparation(
                     "complete",
                     api_mutation_started=True,
                     api_runtime_state="mutation_possible",
+                )
+                self._revalidate_rollback_external_resources(
+                    dict(previous["rollback_capsule_document"]),
+                    boundary="before_recreate_api",
                 )
                 mutation_started = True
                 self._recreate_api()
@@ -6955,7 +10386,8 @@ class MemorialDeployLane:
             self._verify_candidate_origins(str(context["public_origin"]))
             self._verify_non_memorial_controls(
                 non_memorial_controls,
-                internal_openapi=True,
+                public_origin=str(context["public_origin"]),
+                expected_source_revision=str(context["source_revision"]),
             )
 
             # Rebuild the public-access projection in private release evidence only
@@ -6979,6 +10411,7 @@ class MemorialDeployLane:
                     "api_runtime_state": "changed_verified",
                 }
             )
+            self._clear_rollback_artifacts(terminal_status="retired_after_pass")
             self._write_receipt()
             return self.receipt
         except (Exception, KeyboardInterrupt) as exc:
@@ -6995,6 +10428,7 @@ class MemorialDeployLane:
                         rollback_tag,
                         non_memorial_controls,
                         context["deployment_input_seal"],
+                        str(context["public_origin"]),
                     )
                     self.receipt["status"] = "failed_rolled_back"
                     self.receipt["rollback"] = rollback
@@ -7006,6 +10440,9 @@ class MemorialDeployLane:
                         }
                     )
                     self.receipt["completed_at"] = _utc_now()
+                    self._clear_rollback_artifacts(
+                        terminal_status="retired_after_verified_rollback"
+                    )
                     self._write_receipt()
                     raise DeployError(
                         f"deployment_failed_rolled_back:{original_error}"
@@ -7076,6 +10513,20 @@ class MemorialDeployLane:
                     }
                 if self.receipt.get("status") != "blocked_vexp_soak":
                     self.receipt["status"] = "preflight_failed"
+            if not mutation_started and self._rollback_capsule_seal is not None:
+                safe_to_clear = self._rollback_recovery_seal is None
+                if self._rollback_recovery_seal is not None and previous:
+                    try:
+                        current = self._inspect_container(API_SERVICE)
+                        safe_to_clear = _container_functional_identity(
+                            current
+                        ) == previous.get("functional_identity")
+                    except DeployError:
+                        safe_to_clear = False
+                if safe_to_clear:
+                    self._clear_rollback_artifacts(
+                        terminal_status="retired_before_api_mutation"
+                    )
             self.receipt["completed_at"] = _utc_now()
             self._write_receipt()
             if isinstance(exc, DeployError):
@@ -7091,10 +10542,16 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Deploy only ea-api for the governed public Manfred memorial lane."
     )
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--preflight-only",
         action="store_true",
         help="Run evidence, Compose, rollback-input, and origin checks without Docker mutations.",
+    )
+    mode.add_argument(
+        "--recover-active",
+        action="store_true",
+        help="Recover or retire the single validated active API rollback transaction.",
     )
     parser.add_argument("--wait-seconds", type=float, default=90.0)
     parser.add_argument("--poll-seconds", type=float, default=2.0)
@@ -7112,7 +10569,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             request_timeout_seconds=args.request_timeout_seconds,
             receipt_dir=args.receipt_dir,
         )
-        receipt = lane.deploy(preflight_only=bool(args.preflight_only))
+        receipt = (
+            lane.recover_active()
+            if bool(args.recover_active)
+            else lane.deploy(preflight_only=bool(args.preflight_only))
+        )
     except KeyboardInterrupt:
         print("memorial deploy interrupted", file=sys.stderr)
         return 130

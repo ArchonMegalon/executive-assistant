@@ -10883,6 +10883,16 @@ def _public_memorial_story_html(payload: dict[str, object], *, slug: str) -> str
     return "\n".join(sections)
 
 
+def _without_public_memorial_html_region(document: str, *, region: str) -> str:
+    start_marker = f"<!-- memorial-{region}:start -->"
+    end_marker = f"<!-- memorial-{region}:end -->"
+    before, start_found, remainder = document.partition(start_marker)
+    _, end_found, after = remainder.partition(end_marker)
+    if not start_found or not end_found:
+        raise RuntimeError(f"memorial_conversation_only_region_missing:{region}")
+    return before + after
+
+
 def _minimal_public_memorial_html(
     *,
     slug: str,
@@ -10894,6 +10904,8 @@ def _minimal_public_memorial_html(
     clickrank_html: str,
     story_html: str,
     video_call_avatar_fallback_html: str = "",
+    conversation_only: bool = False,
+    operator_preview_allowed: bool = False,
 ) -> str:
     safe_person_name = html.escape(person_name)
     memory_room_nav_html = (
@@ -10910,39 +10922,65 @@ def _minimal_public_memorial_html(
     safe_person_first_name = html.escape(person_first_name)
     safe_subtitle = html.escape(subtitle)
     voice_release_enforced = _memorial_voice_release_enforced()
-    voice_release_allowed = True
+    public_voice_release_allowed = True
     if voice_release_enforced:
-        voice_release_allowed = bool(_memorial_voice_release_decision(slug).get("allowed"))
-    voice_release_blocked = voice_release_enforced and not voice_release_allowed
-    hero_actions_class = "" if voice_release_blocked else " is-readying"
-    conversation_button_class = "" if voice_release_blocked else " is-readying"
-    conversation_button_label = (
-        "Schriftliche Frage stellen" if voice_release_blocked else "Sprachgespräch beginnen"
+        public_voice_release_allowed = bool(
+            _memorial_voice_release_decision(slug).get("allowed")
+        )
+    operator_preview_allowed = bool(
+        operator_preview_allowed
+        and slug == "manfred"
+        and voice_release_enforced
+        and not public_voice_release_allowed
     )
-    conversation_button_state = (
-        'aria-disabled="false"'
-        if voice_release_blocked
-        else 'aria-disabled="true" disabled'
-    )
+    voice_access_allowed = public_voice_release_allowed or operator_preview_allowed
+    # This compatibility alias controls only this rendered document. Server
+    # routes that synthesize speech or accept production conversation audio
+    # independently enforce consent and the voice-release receipt.
+    voice_release_allowed = voice_access_allowed
+    voice_release_blocked = voice_release_enforced and not public_voice_release_allowed
+    voice_access_blocked = voice_release_enforced and not voice_access_allowed
+    hero_actions_class = "" if voice_access_blocked else " is-readying"
+    conversation_button_class = "" if voice_access_blocked else " is-readying"
+    conversation_button_label = "Frage schreiben" if voice_access_blocked else "Gespräch starten"
+    text_turn_label = "Frage schreiben" if voice_access_blocked else "Oder schreiben"
+    # The server-rendered control always fails closed. JavaScript enables it only
+    # after the release decision and runtime readiness are known in this document.
+    conversation_button_state = 'aria-disabled="true" disabled'
     voice_guidance = (
-        "Der quellengebundene Gedenkbegleiter ist nicht Manfred und spricht nicht für ihn. "
-        "Die Sprachfunktion bleibt bis zu einer getrennten Freigabe deaktiviert; schriftliche Fragen sind verfügbar."
-        if voice_release_blocked
+        "Operator-Vorschau: Die öffentliche Sprachfreigabe bleibt blockiert. "
+        "Dieser kurzlebige Zugang dient nur der geprüften Gesprächsabnahme. "
+        "Die KI antwortet anhand freigegebener Erinnerungen und Quellen, ist nicht Manfred "
+        "und spricht nicht für ihn. Die Stimme ist künstlich erzeugt."
+        if operator_preview_allowed
         else
-        "Du sprichst mit einem KI-gestützten, quellengebundenen Gedenkbegleiter. "
-        "Er ist nicht Manfred und spricht nicht für ihn. Das Mikrofon wird erst nach deinem Start verwendet; "
-        "eingesetzte Sprachdienste verarbeiten das Audio. Antworten bleiben als Text sichtbar."
+        "Hier antwortet eine KI anhand freigegebener Erinnerungen und Quellen. "
+        "Sie ist nicht Manfred und spricht nicht für ihn. "
+        "Sprechen ist derzeit nicht verfügbar; du kannst deine Frage schreiben."
+        if voice_access_blocked
+        else
+        "Hier antwortet eine KI anhand freigegebener Erinnerungen und Quellen. "
+        "Sie ist nicht Manfred und spricht nicht für ihn. Die Stimme ist künstlich erzeugt. "
+        "Dein Mikrofon wird erst nach deinem Start verwendet; für Spracherkennung und Wiedergabe "
+        "wird dein Audio verarbeitet. Du kannst jederzeit schreiben."
     )
     conversation_processing_guidance = (
         "Im schriftlichen Modus wird kein Mikrofon verwendet. Die Sprachfunktion bleibt bis zu ihrer getrennten Freigabe ausgeschaltet."
-        if voice_release_blocked
+        if voice_access_blocked
         else
         f"Bei Gesprächen mit der KI-gestützten, synthetischen {safe_person_first_name}-Stimme gilt: "
         "eingesetzte Sprachdienste verarbeiten das Audio erst nach deinem ausdrücklichen Start."
     )
     voice_autostart_attributes = (
-        ' hidden aria-hidden="true"' if voice_release_blocked else ""
+        ' hidden aria-hidden="true"' if voice_access_blocked else ""
     )
+    operator_preview_body_attribute = (
+        ' data-operator-voice-preview="allowed"'
+        if operator_preview_allowed
+        else ""
+    )
+    if conversation_only:
+        video_call_avatar_fallback_html = ""
     memorial_autostart_storage_key = _json_for_html_script(
         f"memorial_autostart_enabled_{slug}_v2"
     )
@@ -10952,8 +10990,8 @@ def _minimal_public_memorial_html(
     memorial_contribution_storage_key = _json_for_html_script(
         f"memorial_contribution_receipt_{slug}_v1"
     )
-    return f"""<!doctype html>
-<html lang="de">
+    document = f"""<!doctype html>
+<html lang="de-AT">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -11729,6 +11767,8 @@ def _minimal_public_memorial_html(
         display: inline-flex;
         align-items: center;
         gap: 8px;
+        min-height: 44px;
+        padding: 4px 0;
         flex-shrink: 0;
         color: var(--muted);
         font: 700 12px/1.2 ui-sans-serif, system-ui, sans-serif;
@@ -11750,7 +11790,7 @@ def _minimal_public_memorial_html(
         appearance: none;
         border: 1px solid rgba(72,103,126,.18);
         border-radius: 999px;
-        min-height: 36px;
+        min-height: 44px;
         padding: 8px 12px;
         background: rgba(255,255,255,.88);
         color: var(--blue);
@@ -12104,8 +12144,147 @@ def _minimal_public_memorial_html(
           padding: 38px 0 calc(24px + env(safe-area-inset-bottom, 0px));
         }}
       }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] header {{
+        min-height: auto;
+        padding: clamp(42px, 6vw, 64px) 0 clamp(28px, 4vw, 40px);
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-shell {{
+        width: min(100%, 620px);
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-avatar {{
+        width: clamp(64px, 8vw, 76px);
+        height: clamp(64px, 8vw, 76px);
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-copy h1 {{
+        max-width: 15ch;
+        font-size: clamp(2.35rem, 5.4vw, 3.4rem);
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .conversation-dock {{
+        padding: 0 0 max(56px, env(safe-area-inset-bottom, 0px));
+        border-top: 0;
+        background: transparent;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .conversation-dock > .wrap {{
+        width: min(100vw - 40px, 720px);
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .chat {{
+        padding: clamp(24px, 4vw, 34px);
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        background: rgba(251, 250, 247, .94);
+        box-shadow: 0 24px 64px rgba(43, 41, 37, .09);
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-actions,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta {{
+        width: 100%;
+        min-width: 0;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta {{
+        min-height: 56px;
+        border-radius: 16px;
+        font-size: 15px;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-guidance {{
+        max-width: 52ch;
+        margin: 14px auto 0;
+        color: var(--muted);
+        text-align: center;
+        font: 500 14px/1.6 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .text-turn-form {{
+        margin-top: 24px;
+        gap: 9px;
+        padding-top: 22px;
+        border-top: 1px solid var(--line);
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .text-turn-form label {{
+        font-size: 14px;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .text-turn-controls input,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .text-turn-controls button {{
+        min-height: 52px;
+        border-radius: 14px;
+        font-size: 16px;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-status-bar {{
+        margin-top: 22px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-note strong {{
+        font: 700 14px/1.4 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] #memorial-voice-recovery-note {{
+        max-width: 58ch;
+        margin: 8px auto 0;
+        text-align: center;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-live-monitor {{
+        display: none;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-live-monitor.is-listening,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-live-monitor.is-working,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-live-monitor.is-speaking,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-live-monitor.is-error {{
+        display: grid;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-status-bar.is-pristine .speech-status-meta {{
+        display: none;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-transcript-shell:has(.speech-transcript:empty) {{
+        margin-top: 0;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .chat-tool,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-primary {{
+        min-height: 44px;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta:focus-visible,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-primary:focus-visible,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .chat-tool:focus-visible,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .text-turn-controls input:focus-visible,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .text-turn-controls button:focus-visible {{
+        outline: 3px solid var(--blue);
+        outline-offset: 3px;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] [data-voice-access="text-only"] .hero-actions,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] [data-voice-access="text-only"] #memorial-voice-recovery-note {{
+        display: none;
+      }}
+      @media (max-width: 760px) {{
+        .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] header {{
+          padding: 28px 0 24px;
+        }}
+        .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-shell {{
+          gap: 13px;
+        }}
+        .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-copy h1 {{
+          font-size: clamp(2rem, 9vw, 2.45rem);
+        }}
+        .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .conversation-dock {{
+          padding: 0 0 calc(24px + env(safe-area-inset-bottom, 0px));
+        }}
+        .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .conversation-dock > .wrap {{
+          width: min(100vw - 24px, 720px);
+        }}
+        .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .chat {{
+          padding: 20px 18px;
+          border-radius: 22px;
+        }}
+        .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-guidance {{
+          margin-top: 12px;
+          font-size: 13px;
+          line-height: 1.55;
+        }}
+      }}
+      @media (forced-colors: active) {{
+        .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .chat,
+        .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .text-turn-controls input,
+        .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .text-turn-controls button {{
+          border: 1px solid CanvasText;
+        }}
+      }}
       @media (prefers-reduced-motion: reduce) {{
-        * {{
+        *, *::before, *::after {{
           animation-duration: 0.001ms !important;
           animation-iteration-count: 1 !important;
           transition-duration: 0.001ms !important;
@@ -12113,9 +12292,11 @@ def _minimal_public_memorial_html(
       }}
     </style>
   </head>
-  <body{body_theme_attributes}>
+  <body{body_theme_attributes} data-public-memorial-surface="{'conversation-only' if conversation_only else 'legacy'}"{operator_preview_body_attribute}>
+    <!-- memorial-story-skip:start -->
     <a class="skip-link" href="#memorial-story">Zum Inhalt springen</a>
-    <a class="skip-link" href="#memorial-conversation-region">Zum quellengebundenen Gedenkbegleiter</a>
+    <!-- memorial-story-skip:end -->
+    <a class="skip-link" href="#memorial-conversation-region">Zum Gespräch</a>
     <header>
       <div class="wrap hero">
         <div class="hero-shell">
@@ -12123,15 +12304,18 @@ def _minimal_public_memorial_html(
           <div class="hero-copy">
             <h1>{page_title}</h1>
             <p class="hero-subtitle">{safe_subtitle}</p>
+            <!-- memorial-public-navigation:start -->
             <nav class="hero-nav" aria-label="Bereiche der Erinnerungsseite">
               <a class="hero-story-link" href="#memorial-story">Erinnerungen ansehen</a>
               {memory_room_nav_html}
               <a class="hero-story-link" href="#memorial-conversation-region">Gedenkbegleiter</a>
             </nav>
+            <!-- memorial-public-navigation:end -->
           </div>
         </div>
       </div>
     </header>
+    <!-- memorial-public-story:start -->
     <main id="memorial-story" tabindex="-1">
       <noscript>
         <section class="wrap memorial-noscript-notice" aria-labelledby="memorial-noscript-title">
@@ -12205,27 +12389,33 @@ def _minimal_public_memorial_html(
         </details>
       </div>
     </main>
-    <aside class="conversation-dock" aria-label="Quellengebundener Gedenkbegleiter für {safe_person_name}" id="memorial-conversation-region" tabindex="-1" data-voice-release="{'blocked' if voice_release_blocked else 'available'}">
+    <!-- memorial-public-story:end -->
+    <main class="conversation-dock" aria-label="KI-Gespräch über {safe_person_name}" id="memorial-conversation-region" tabindex="-1" data-voice-release="{'blocked' if voice_release_blocked else 'available'}" data-voice-access="{'operator-preview' if operator_preview_allowed else ('public-release' if public_voice_release_allowed else 'text-only')}">
       <div class="wrap">
       <section class="chat quiet-shell">
+        <noscript>
+          <p class="hero-guidance" role="status">Für das Sprachgespräch und die schriftliche Alternative muss JavaScript aktiviert sein. Ohne JavaScript wird nichts aufgenommen oder gesendet.</p>
+        </noscript>
         <div class="hero-actions{hero_actions_class}" id="memorial-hero-actions">
-          <button type="button" id="memorial-conversation" class="hero-cta{conversation_button_class}" data-hero-action="conversation" title="{conversation_button_label}" aria-label="{conversation_button_label}" {conversation_button_state}>{conversation_button_label}</button>
+          <button type="button" id="memorial-conversation" class="hero-cta{conversation_button_class}" data-hero-action="conversation" title="{conversation_button_label}" aria-label="{conversation_button_label}" aria-describedby="memorial-conversation-disclosure" aria-controls="memorial-speech-note memorial-speech-transcript-shell" {conversation_button_state}>{conversation_button_label}</button>
         </div>
-        <p class="hero-guidance">{html.escape(voice_guidance)}</p>
+        <p class="hero-guidance" id="memorial-conversation-disclosure">{html.escape(voice_guidance)}</p>
         <form class="text-turn-form memorial-js-required-form" id="memorial-text-turn-form" method="post" action="/memorials/{html.escape(slug)}/chat" hidden inert aria-hidden="true" aria-disabled="true" data-js-ready="false">
-          <label for="memorial-text-turn-input">Oder ohne Mikrofon schreiben</label>
+          <label for="memorial-text-turn-input">{text_turn_label}</label>
           <div class="text-turn-controls">
-            <input id="memorial-text-turn-input" name="question" type="text" maxlength="2000" autocomplete="off" enterkeyhint="send" placeholder="Welche belegte Erinnerung möchtest du einordnen?">
+            <input id="memorial-text-turn-input" name="question" type="text" maxlength="2000" autocomplete="off" enterkeyhint="send" placeholder="Was möchtest du fragen?" aria-describedby="memorial-text-guidance" required>
             <button type="submit" id="memorial-text-turn-submit">Senden</button>
           </div>
-          <p class="status-note">Die Antwort wird synthetisch aus freigegebenen Quellen formuliert und nie als neue Aussage Manfreds ausgegeben.</p>
+          <p class="status-note" id="memorial-text-guidance">Die KI formuliert die Antwort aus freigegebenen Erinnerungen und Quellen. Sie ist keine Aussage von Manfred.</p>
         </form>
+        <!-- memorial-install-upsell:start -->
         <p class="install-hint" id="memorial-install-hint" hidden>
           Optional: Am Handy/Desktop installieren.
           <button type="button" id="memorial-install-button" hidden>Installieren</button>
         </p>
-        <div class="speech-status-bar speech-note is-pristine" id="memorial-speech-note">
-          <strong id="memorial-speech-message" role="status" aria-live="polite" aria-atomic="true">Bereit.</strong>
+        <!-- memorial-install-upsell:end -->
+        <div class="speech-status-bar speech-note is-pristine" id="memorial-speech-note" hidden>
+          <strong id="memorial-speech-message" role="status" aria-live="polite" aria-atomic="true">Bereit für deine Frage.</strong>
           <div class="speech-live-monitor is-idle" id="memorial-speech-monitor" aria-hidden="true">
             <div class="speech-meter"><span class="speech-meter-fill" id="memorial-speech-meter-fill"></span></div>
             <div class="speech-wave" id="memorial-speech-wave">
@@ -12243,8 +12433,9 @@ def _minimal_public_memorial_html(
           </div>
         </div>
         {video_call_avatar_fallback_html}
+        <!-- memorial-conversation-settings:start -->
         <details class="conversation-settings">
-          <summary>Gesprächseinstellungen</summary>
+          <summary>Datenschutz und Gespräch</summary>
           <div class="conversation-settings-copy">
             <p>Mit deiner Zustimmung werden kurze Dialogerinnerungen pseudonym auf unserem Server gespeichert und mit diesem Browser verknüpft. Du kannst sie jederzeit wieder löschen.</p>
             <p>{conversation_processing_guidance}</p>
@@ -12266,39 +12457,46 @@ def _minimal_public_memorial_html(
                 <span>Damit merkt sich der Dienst pseudonym, welche Gesprächslinie und welche Stimme für dich gut funktioniert haben.</span>
               </div>
               <label class="conversation-toggle-control" for="memorial-personal-memory-optin">
-                <input type="checkbox" id="memorial-personal-memory-optin">
+                <input type="checkbox" id="memorial-personal-memory-optin" disabled aria-disabled="true">
                 <span>Mit diesem Browser verknüpfen</span>
               </label>
             </div>
           </div>
           <div class="conversation-settings-status">
             <span class="status-note" id="memorial-personal-memory-status">Gastmodus · Gedächtnis aus.</span>
-            <button type="button" id="memorial-personal-memory-forget" disabled aria-disabled="true">Gesprächsgedächtnis löschen</button>
+            <button type="button" id="memorial-personal-memory-forget" disabled aria-disabled="true">Gesprächsgedächtnis löschen und ausschalten</button>
           </div>
-          <p class="status-note">Die Browser-Kennung ist pseudonym; die gespeicherten Gesprächserinnerungen liegen auf unserem Server. Mit „Gesprächsgedächtnis löschen“ entfernst du sie für diesen Browser. Private Einreichungen und ihre Rücknahmebelege verwaltest du unter <a href="#memorial-contribution-management">Meine Einreichungen</a>.</p>
+          <p class="status-note">Die Browser-Kennung ist pseudonym; die gespeicherten Gesprächserinnerungen liegen auf unserem Server. Mit „Gesprächsgedächtnis löschen und ausschalten“ entfernst du sie für diesen Browser und beendest die Verknüpfung.</p>
         </details>
-        <p class="status-note" id="memorial-voice-recovery-note">Wenn die Stimme stockt, bleibt die Antwort als Text sichtbar. Du kannst ruhig unterbrechen oder noch einmal sprechen.</p>
-        <button type="button" class="speech-primary" id="memorial-retry-button" hidden>Bitte noch einmal sprechen</button>
-        <div class="chat-answer" id="memorial-chat-answer" aria-live="polite" hidden></div>
+        <!-- memorial-conversation-settings:end -->
+        <p class="status-note" id="memorial-voice-recovery-note">Wenn die Sprachausgabe stockt, bleibt die Antwort als Text sichtbar. Du kannst jederzeit noch einmal sprechen oder schreiben.</p>
+        <button type="button" class="speech-primary" id="memorial-retry-button" hidden>Sprachfunktion erneut versuchen</button>
+        <div class="chat-answer" id="memorial-chat-answer" tabindex="-1" aria-label="Aktuelle KI-Antwort" hidden></div>
         <section class="speech-transcript-shell" id="memorial-speech-transcript-shell">
           <div class="speech-transcript-live" id="memorial-speech-transcript-live" hidden>
-            <strong id="memorial-speech-transcript-label">Transkript</strong>
+            <strong id="memorial-speech-transcript-label">Du hast gesagt</strong>
             <p id="memorial-speech-transcript-live-text"></p>
             <p class="status-note" id="memorial-speech-transcript-effective" hidden></p>
           </div>
-        <div class="speech-transcript" id="memorial-speech-transcript" role="log" aria-label="Gesprächsverlauf"></div>
+        <div class="speech-transcript" id="memorial-speech-transcript" role="log" aria-label="Gesprächsverlauf" aria-live="polite" aria-relevant="additions text"></div>
         </section>
         <div class="chat-tools" id="memorial-chat-tools" hidden>
-          <button type="button" class="chat-tool" id="memorial-read-answer">Antwort lesen</button>
+          <button type="button" class="chat-tool" id="memorial-read-answer">Zur letzten Antwort</button>
           <button type="button" class="chat-tool" id="memorial-replay-answer" hidden>Noch einmal anhören</button>
-          <button type="button" class="chat-tool" id="memorial-toggle-status" aria-controls="memorial-chat-status" aria-expanded="false" hidden>Quellen / Status</button>
+          <button type="button" class="chat-tool" id="memorial-toggle-status" aria-controls="memorial-chat-status" aria-expanded="false" hidden>Quellen anzeigen</button>
         </div>
         <div class="chat-status" id="memorial-chat-status" hidden></div>
         <audio id="memorial-speech-audio" preload="none" aria-hidden="true"></audio>
       </section>
       </div>
-    </aside>
+    </main>
     <script>
+      const memorialConversationOnly = {_json_for_html_script(conversation_only)};
+      const memorialPublicVoiceReleaseAllowed = {_json_for_html_script(public_voice_release_allowed)};
+      const memorialOperatorPreviewAllowed = {_json_for_html_script(operator_preview_allowed)};
+      const memorialVoiceAccessAllowed = {_json_for_html_script(voice_access_allowed)};
+      // Compatibility alias for the existing client guards; this is never a
+      // release receipt and server endpoints independently reverify access.
       const memorialVoiceReleaseAllowed = {_json_for_html_script(voice_release_allowed)};
       const memorialPagePrewarmEnabled = {_json_for_html_script(_memorial_page_prewarm_enabled() and voice_release_allowed)};
       const installHint = document.getElementById("memorial-install-hint");
@@ -12324,6 +12522,7 @@ def _minimal_public_memorial_html(
       const personalMemoryOptin = document.getElementById("memorial-personal-memory-optin");
       const personalMemoryStatus = document.getElementById("memorial-personal-memory-status");
       const personalMemoryForgetButton = document.getElementById("memorial-personal-memory-forget");
+      const conversationSettings = document.querySelector("details.conversation-settings");
       const heroActions = document.getElementById("memorial-hero-actions");
       const conversationButton = document.getElementById("memorial-conversation");
       const textTurnForm = document.getElementById("memorial-text-turn-form");
@@ -12422,7 +12621,7 @@ def _minimal_public_memorial_html(
       let contactAcknowledgementAudioPromise = null;
       let contactAcknowledgementInFlight = false;
       let contactAcknowledgementReady = false;
-      const contactAcknowledgementText = "Worum geht es?";
+      const contactAcknowledgementText = "Worüber möchtest du sprechen?";
       const browserPreferredLanguage = "de-AT";
       const memorialReducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
       let speechMeterLive = false;
@@ -13664,15 +13863,25 @@ def _minimal_public_memorial_html(
         try {{
           const response = await fetch("/memorials/{html.escape(slug)}/personal-memory", {{
             headers: personalMemoryHeaders(),
+            cache: "no-store",
           }});
-          if (!response.ok) return;
+          if (!response.ok) throw new Error("personal_memory_status_failed");
           personalMemoryStatusPayload = await response.json();
           updatePersonalMemoryStatusUi();
-        }} catch (error) {{}}
+        }} catch (error) {{
+          if (memorialConversationOnly && personalMemoryForgetButton) {{
+            personalMemoryForgetButton.disabled = false;
+            personalMemoryForgetButton.setAttribute("aria-disabled", "false");
+            personalMemoryForgetButton.title = "Gesprächsgedächtnis vorsorglich löschen und ausschalten";
+          }}
+        }}
       }}
 
       async function forgetPersonalMemory() {{
-        if (Number((personalMemoryStatusPayload && personalMemoryStatusPayload.item_count) || 0) <= 0) {{
+        if (
+          !memorialConversationOnly &&
+          Number((personalMemoryStatusPayload && personalMemoryStatusPayload.item_count) || 0) <= 0
+        ) {{
           updatePersonalMemoryStatusUi();
           return;
         }}
@@ -13683,8 +13892,10 @@ def _minimal_public_memorial_html(
           }});
           if (!response.ok) throw new Error("forget_failed");
           personalMemoryStatusPayload = await response.json();
+          if (personalMemoryOptin) personalMemoryOptin.checked = false;
+          try {{ window.localStorage.setItem(memorialPersonalMemoryStorageKey, "0"); }} catch (error) {{}}
           updatePersonalMemoryStatusUi();
-          setSpeechStatus("Das Gesprächsgedächtnis ist jetzt gelöscht.", "idle", "Die Verknüpfung dieses Browsers wurde zurückgesetzt");
+          setSpeechStatus("Das Gesprächsgedächtnis ist jetzt gelöscht und ausgeschaltet.", "idle", "Die Verknüpfung dieses Browsers wurde zurückgesetzt");
         }} catch (error) {{
           setSpeechStatus("Das Browser-Gedächtnis konnte ich gerade nicht löschen.", "error", "Bitte versuche es noch einmal");
         }}
@@ -13698,8 +13909,16 @@ def _minimal_public_memorial_html(
       }}
 
       function setSpeechStatus(message, state = "idle", detail = "") {{
-        if (retryButton) retryButton.hidden = state !== "error";
-        if (speechMessage) speechMessage.textContent = String(message || "").trim() || "Bereit.";
+        if (retryButton) {{
+          retryButton.hidden = state !== "error";
+          if (state !== "error") {{
+            delete retryButton.dataset.action;
+            retryButton.textContent = "Sprachfunktion erneut versuchen";
+          }} else if (!retryButton.dataset.action) {{
+            retryButton.textContent = "Sprachfunktion erneut versuchen";
+          }}
+        }}
+        if (speechMessage) speechMessage.textContent = String(message || "").trim() || "Bereit für deine Frage.";
         if (speechNote) {{
           speechNote.classList.remove("is-pristine", "is-listening", "is-working", "is-error");
           if (state === "idle") speechNote.classList.add("is-pristine");
@@ -13709,10 +13928,10 @@ def _minimal_public_memorial_html(
         }}
         if (speechPhase) speechPhase.textContent = ({{
           idle: "Bereit",
-          listening: "Aufnahme läuft",
-          working: "Einen Moment",
-          playing: "Manfred",
-          error: "Bitte noch einmal"
+          listening: "Mikrofon aktiv",
+          working: "Antwort wird vorbereitet",
+          playing: "Antwort",
+          error: "Erneut versuchen"
         }})[state] || "Bereit";
         if (speechDetail) speechDetail.textContent = String(detail || "").trim();
         setSpeechMonitorState(state);
@@ -13805,7 +14024,11 @@ def _minimal_public_memorial_html(
         const text = String(value || "").trim();
         if (!answer || !text) return;
         answer.textContent = text;
-        answer.hidden = false;
+        const latestTurn = speechTranscript && speechTranscript.lastElementChild;
+        const latestTurnText = latestTurn && latestTurn.matches(".speech-turn.assistant")
+          ? normalizeTranscriptText((latestTurn.querySelector("p") && latestTurn.querySelector("p").textContent) || "")
+          : "";
+        answer.hidden = latestTurnText === normalizeTranscriptText(text);
         if (answerTools) answerTools.hidden = false;
       }}
 
@@ -13813,23 +14036,58 @@ def _minimal_public_memorial_html(
         if (!speechTranscript) return;
         const normalized = normalizeTranscriptText(text || "");
         if (!normalized) return;
+        const normalizedRole = role === "assistant" ? "assistant" : "user";
+        const latestTurn = speechTranscript.lastElementChild;
+        const latestTurnText = latestTurn
+          ? normalizeTranscriptText((latestTurn.querySelector("p") && latestTurn.querySelector("p").textContent) || "")
+          : "";
+        if (
+          latestTurn &&
+          latestTurn.matches(".speech-turn." + normalizedRole) &&
+          latestTurnText === normalized
+        ) return;
         const turn = document.createElement("div");
-        turn.className = "speech-turn " + (role === "assistant" ? "assistant" : "user");
+        turn.className = "speech-turn " + normalizedRole;
         const label = document.createElement("strong");
-        label.textContent = role === "assistant" ? "Gedenkbegleiter" : "Du";
+        label.textContent = role === "assistant" ? "KI-Begleiter" : "Du";
         const body = document.createElement("p");
         body.textContent = normalized;
         turn.append(label, body);
-        speechTranscript.prepend(turn);
+        turn.tabIndex = -1;
+        speechTranscript.append(turn);
         while (speechTranscript.childElementCount > 8) {{
-          speechTranscript.removeChild(speechTranscript.lastElementChild);
+          speechTranscript.removeChild(speechTranscript.firstElementChild);
         }}
+        turn.scrollIntoView({{ block: "nearest", behavior: memorialReducedMotionQuery.matches ? "auto" : "smooth" }});
+      }}
+
+      function renderCompletedConversationTurn(payload) {{
+        const originalTranscript = normalizeTranscriptText(
+          (payload && payload.transcript_original_text) ||
+          (payload && payload.transcript_text) ||
+          ""
+        );
+        const effectiveTranscript = normalizeTranscriptText(
+          (payload && payload.transcript_effective_text) ||
+          (payload && payload.transcript_text) ||
+          ""
+        );
+        const visibleTranscript = originalTranscript || effectiveTranscript;
+        if (visibleTranscript) appendSpeechTurn("user", visibleTranscript);
+        const statusBits = [];
+        if (payload && Array.isArray(payload.sources) && payload.sources.length) {{
+          statusBits.push("Quellen: " + payload.sources.join(", "));
+        }}
+        setAnswerStatus(statusBits.join("\\n"));
+        const answerText = String((payload && payload.answer) || "").trim();
+        if (answerText) appendSpeechTurn("assistant", answerText);
+        showAnswerText(answerText);
       }}
 
       function setSpeechTranscriptPreview(text = "", options = {{}}) {{
         if (!speechTranscriptLive || !speechTranscriptLiveText) return;
         const normalized = normalizeTranscriptText(text || "");
-        const label = String(options.label || "Transkript").trim() || "Transkript";
+        const label = String(options.label || "Du hast gesagt").trim() || "Du hast gesagt";
         const effectiveText = normalizeTranscriptText(options.effectiveText || "");
         const placeholder = String(options.placeholder || "").trim();
         if (speechTranscriptLabel) speechTranscriptLabel.textContent = label;
@@ -13846,7 +14104,7 @@ def _minimal_public_memorial_html(
         if (speechTranscriptEffective) {{
           if (effectiveText && effectiveText !== normalized) {{
             speechTranscriptEffective.hidden = false;
-            speechTranscriptEffective.textContent = "Verstanden als: " + effectiveText;
+            speechTranscriptEffective.textContent = "So habe ich dich verstanden: " + effectiveText;
           }} else {{
             speechTranscriptEffective.hidden = true;
             speechTranscriptEffective.textContent = "";
@@ -13857,7 +14115,11 @@ def _minimal_public_memorial_html(
       function setAnswerStatus(value) {{
         lastAnswerStatusText = String(value || "").trim();
         if (toggleStatusButton) toggleStatusButton.hidden = !lastAnswerStatusText;
-        if (!lastAnswerStatusText && answerStatus) answerStatus.hidden = true;
+        if (toggleStatusButton) toggleStatusButton.setAttribute("aria-expanded", "false");
+        if (answerStatus) {{
+          answerStatus.textContent = "";
+          answerStatus.hidden = true;
+        }}
       }}
 
       function setLastAnswerAudioBlob(blob) {{
@@ -13899,8 +14161,8 @@ def _minimal_public_memorial_html(
         if (generation !== activeGeneration || completedConversationTurns > 0 || contactAcknowledgementInFlight) return;
         contactAcknowledgementInFlight = true;
         showAnswerText(contactAcknowledgementText);
-        setAnswerStatus("Direkte Kontaktantwort aus der Phrase-Bank.");
-        setSpeechStatus("Ich spreche.", "playing", contactAcknowledgementText);
+        setAnswerStatus("");
+        setSpeechStatus("Antwort wird abgespielt.", "playing", contactAcknowledgementText);
         try {{
           const blob = await ensureContactAcknowledgementAudio();
           if (generation !== activeGeneration || !blob) return;
@@ -13915,7 +14177,7 @@ def _minimal_public_memorial_html(
       function syncConversationButton() {{
         if (!conversationButton) return;
         if (!memorialVoiceReleaseAllowed) {{
-          const label = "Schriftliche Frage stellen";
+          const label = "Frage schreiben";
           conversationButton.textContent = label;
           conversationButton.setAttribute("aria-label", label);
           conversationButton.setAttribute("title", label);
@@ -13929,16 +14191,16 @@ def _minimal_public_memorial_html(
         let label = "Gespräch wird vorbereitet …";
         let disabled = true;
         if (recordingActive) {{
-          label = "Gespräch stoppen";
+          label = "Gespräch beenden";
           disabled = false;
         }} else if (conversationSessionActive) {{
-          label = "Gespräch stoppen";
+          label = "Gespräch beenden";
           disabled = false;
         }} else if (requestInFlight) {{
           label = "Einen Moment …";
           disabled = true;
         }} else if (memorialLandingReady) {{
-          label = "Gespräch beginnen";
+          label = "Gespräch starten";
           disabled = false;
         }}
         conversationButton.textContent = label;
@@ -13955,14 +14217,14 @@ def _minimal_public_memorial_html(
         memorialLandingReady = memorialVoiceReleaseAllowed ? Boolean(ready) : true;
         if (memorialLandingReady && retryButton && retryButton.dataset.action === "voice-readiness") {{
           delete retryButton.dataset.action;
-          retryButton.textContent = "Bitte noch einmal sprechen";
+          retryButton.textContent = "Sprachfunktion erneut versuchen";
         }}
         syncConversationButton();
         if (!recordingActive && !requestInFlight) {{
           if (!memorialVoiceReleaseAllowed) {{
-            setSpeechStatus("Schriftlicher Gedenkbegleiter bereit.", "idle", "Sprachfunktion nicht freigegeben");
-          }} else if (memorialLandingReady) setSpeechStatus("Bereit.", "idle", detail || "");
-          else setSpeechStatus("Der Gedenkbegleiter wird vorbereitet.", "working", detail || "");
+            setSpeechStatus("Schreiben ist bereit.", "idle", "Sprechen ist derzeit nicht verfügbar.");
+          }} else if (memorialLandingReady) setSpeechStatus("Bereit für deine Frage.", "idle", detail || "");
+          else setSpeechStatus("Gespräch wird vorbereitet …", "working", detail || "");
         }}
       }}
 
@@ -14088,12 +14350,12 @@ def _minimal_public_memorial_html(
 
       async function ensureMemorialReady(reason = "page_load") {{
         if (!memorialVoiceReleaseAllowed) {{
-          setMemorialLandingReady(true, "Sprachfunktion nicht freigegeben");
+          setMemorialLandingReady(true, "Sprechen ist derzeit nicht verfügbar.");
           return {{ status: "blocked_release", warm: false, voice_ready: false }};
         }}
         if (memorialLandingReady && memorialReadySnapshot) return memorialReadySnapshot;
         if (memorialReadyPromise) return memorialReadyPromise;
-        setMemorialLandingReady(false, "Gleich kannst du mit dem Gedenkbegleiter sprechen.");
+        setMemorialLandingReady(false, "Gleich kannst du das Gespräch starten.");
         memorialReadyPromise = (async () => {{
           try {{
             await requestMemorialWarmup(reason);
@@ -14106,18 +14368,18 @@ def _minimal_public_memorial_html(
               setMemorialLandingReady(true, "");
             }} catch (error) {{
               contactAcknowledgementReady = false;
-              setMemorialLandingReady(true, "Die kurze Begrüßung ist nicht vorgeladen; das Gespräch bleibt verfügbar.");
+              setMemorialLandingReady(true, "Das Gespräch ist bereit.");
             }}
           }} else {{
             setMemorialLandingReady(false, "");
             if (retryButton) {{
               retryButton.dataset.action = "voice-readiness";
-              retryButton.textContent = "Stimme erneut prüfen";
+              retryButton.textContent = "Sprachfunktion erneut versuchen";
             }}
             setSpeechStatus(
-              "Die Stimme ist gerade nicht verfügbar.",
+              "Sprechen ist gerade nicht möglich.",
               "error",
-              "Du kannst die Frage eintippen oder die Stimme später erneut prüfen."
+              "Du kannst schreiben oder es später noch einmal versuchen."
             );
           }}
           return memorialReadySnapshot;
@@ -15118,6 +15380,23 @@ def _minimal_public_memorial_html(
               showAnswerText(payload.answer);
               return;
             }}
+            if (
+              type === "response.output_audio_transcript.delta" ||
+              type === "response.audio_transcript.delta" ||
+              type === "response.output_text.delta"
+            ) {{
+              payload.answer += String(message.delta || "");
+              showAnswerText(payload.answer);
+              return;
+            }}
+            if (
+              type === "response.output_audio_transcript.done" ||
+              type === "response.output_text.done"
+            ) {{
+              payload.answer = String(message.transcript || message.text || payload.answer || "").trim();
+              showAnswerText(payload.answer);
+              return;
+            }}
             if (type === "audio") {{
               payload.audio_base64 = String(message.audio_base64 || "").trim();
               payload.audio_content_type = String(message.content_type || "audio/wav");
@@ -15358,7 +15637,7 @@ def _minimal_public_memorial_html(
         if (!memorialVoiceReleaseAllowed) {{
           if (textTurnForm) textTurnForm.scrollIntoView({{ block: "nearest", behavior: memorialReducedMotionQuery.matches ? "auto" : "smooth" }});
           if (textTurnInput) textTurnInput.focus();
-          setSpeechStatus("Schriftlicher Gedenkbegleiter bereit.", "idle", "Sprachfunktion nicht freigegeben");
+          setSpeechStatus("Schreiben ist bereit.", "idle", "Sprechen ist derzeit nicht verfügbar.");
           return;
         }}
         if (conversationSessionActive || recordingActive || requestInFlight) return;
@@ -15415,7 +15694,8 @@ def _minimal_public_memorial_html(
             ? await realtimeTurnOverride.finish()
             : await sendConversationTurn(blob, generation);
           if (generation !== activeGeneration) return;
-          showAnswerText(payload && payload.answer);
+          renderCompletedConversationTurn(payload);
+          setSpeechTranscriptPreview();
           const audioBlob = decodeAudioPayload(payload);
           if (audioBlob) {{
             await playMemorialAudio(audioBlob, generation, String((payload && payload.answer) || ""));
@@ -15468,24 +15748,31 @@ def _minimal_public_memorial_html(
         if (textTurnInput) textTurnInput.disabled = true;
         if (textTurnSubmit) textTurnSubmit.disabled = true;
         syncConversationButton();
-        setSpeechStatus("Der Gedenkbegleiter antwortet gleich.", "working", "Getippte Frage");
+        setSpeechStatus("Antwort wird vorbereitet …", "working", "");
         try {{
           const payload = await sendTextConversationHttp(question, generation);
           if (generation !== activeGeneration) return;
-          showAnswerText(payload && payload.answer);
+          renderCompletedConversationTurn(Object.assign({{}}, payload, {{
+            transcript_original_text: question,
+            transcript_effective_text: question,
+          }}));
           const audioBlob = decodeAudioPayload(payload);
           if (audioBlob) await playMemorialAudio(audioBlob, generation, String((payload && payload.answer) || ""));
           if (generation !== activeGeneration) return;
           completedConversationTurns += 1;
           if (textTurnInput) textTurnInput.value = "";
           setSpeechStatus(
-            "Bereit.",
+            "Bereit für deine Frage.",
             "idle",
-            memorialVoiceReleaseAllowed ? "Du kannst weiter schreiben oder sprechen" : "Du kannst eine weitere schriftliche Frage stellen"
+            memorialVoiceReleaseAllowed ? "Du kannst weiter schreiben oder sprechen." : "Du kannst eine weitere Frage schreiben."
           );
         }} catch (error) {{
           if (generation === activeGeneration) {{
-            setSpeechStatus("Die Textfrage konnte gerade nicht beantwortet werden.", "error", "Bitte versuche es noch einmal");
+            setSpeechStatus("Deine Frage konnte gerade nicht beantwortet werden.", "error", "Versuche es bitte noch einmal.");
+            if (retryButton) {{
+              retryButton.dataset.action = "text-retry";
+              retryButton.textContent = "Textfrage erneut senden";
+            }}
           }}
         }} finally {{
           if (generation === activeGeneration) {{
@@ -15500,7 +15787,7 @@ def _minimal_public_memorial_html(
       function toggleConversation() {{
         if (conversationSessionActive) {{
           abortActiveTurn();
-          setSpeechStatus("Bereit.", "idle", "");
+          setSpeechStatus("Bereit für deine Frage.", "idle", "");
           return;
         }}
         if (requestInFlight) return;
@@ -15515,8 +15802,14 @@ def _minimal_public_memorial_html(
           retryButton.hidden = true;
           if (retryButton.dataset.action === "voice-readiness") {{
             delete retryButton.dataset.action;
-            retryButton.textContent = "Bitte noch einmal sprechen";
+            retryButton.textContent = "Sprachfunktion erneut versuchen";
             void ensureMemorialReady("manual_retry");
+            return;
+          }}
+          if (retryButton.dataset.action === "text-retry") {{
+            delete retryButton.dataset.action;
+            if (textTurnForm && typeof textTurnForm.requestSubmit === "function") textTurnForm.requestSubmit();
+            else if (textTurnInput) textTurnInput.focus();
             return;
           }}
           void startConversationSession();
@@ -15524,8 +15817,11 @@ def _minimal_public_memorial_html(
       }}
       if (readAnswerButton) {{
         readAnswerButton.addEventListener("click", () => {{
-          if (!answer || answer.hidden) return;
-          answer.scrollIntoView({{ block: "nearest", behavior: memorialReducedMotionQuery.matches ? "auto" : "smooth" }});
+          const latestAssistantTurn = speechTranscript && speechTranscript.querySelector(".speech-turn.assistant:last-child");
+          const target = latestAssistantTurn || (answer && !answer.hidden ? answer : null);
+          if (!target) return;
+          target.scrollIntoView({{ block: "nearest", behavior: memorialReducedMotionQuery.matches ? "auto" : "smooth" }});
+          target.focus({{ preventScroll: true }});
         }});
       }}
       if (replayAnswerButton) {{
@@ -15562,6 +15858,7 @@ def _minimal_public_memorial_html(
         }});
         activateProtectedForm(textTurnForm);
       }}
+      if (speechNote) speechNote.hidden = false;
       if (contributionForm) {{
         contributionForm.addEventListener("submit", (event) => {{
           void submitFamilyContribution(event);
@@ -15658,6 +15955,8 @@ def _minimal_public_memorial_html(
       }}
 
       if (personalMemoryOptin) {{
+        personalMemoryOptin.disabled = false;
+        personalMemoryOptin.setAttribute("aria-disabled", "false");
         try {{
           const stored = String(window.localStorage.getItem(memorialPersonalMemoryStorageKey) || "").trim().toLowerCase();
           personalMemoryOptin.checked = stored === "1" || stored === "true" || stored === "yes" || stored === "on";
@@ -15676,6 +15975,12 @@ def _minimal_public_memorial_html(
       if (personalMemoryForgetButton) {{
         personalMemoryForgetButton.addEventListener("click", () => {{
           void forgetPersonalMemory();
+        }});
+      }}
+
+      if (conversationSettings) {{
+        conversationSettings.addEventListener("toggle", () => {{
+          if (conversationSettings.open) void loadPersonalMemoryStatus();
         }});
       }}
 
@@ -15709,17 +16014,19 @@ def _minimal_public_memorial_html(
 
       if (!window.__memorialMinimalBooted) {{
         window.__memorialMinimalBooted = true;
-        syncContributionManagement();
-        void refreshContributionManagement();
+        if (!memorialConversationOnly) {{
+          syncContributionManagement();
+          void refreshContributionManagement();
+        }}
         syncConversationButton();
         setMemorialLandingReady(
           !memorialPagePrewarmEnabled,
           memorialPagePrewarmEnabled
-            ? "Gleich kannst du mit dem Gedenkbegleiter sprechen."
+            ? "Gleich kannst du das Gespräch starten."
             : "Das Mikrofon wird erst nach deinem Start verwendet."
         );
         updatePersonalMemoryStatusUi();
-        void loadPersonalMemoryStatus();
+        if (!memorialConversationOnly) void loadPersonalMemoryStatus();
         window.setTimeout(() => {{
           void retireLegacyMemorialServiceWorkers();
           if (memorialPagePrewarmEnabled) void ensureMemorialReady("page_load");
@@ -15729,7 +16036,7 @@ def _minimal_public_memorial_html(
         if (memorialVoiceReleaseAllowed && isPwaLaunch && memorialAutostartEnabled()) {{
           window.setTimeout(() => {{
             if (conversationSessionActive || recordingActive || requestInFlight) return;
-            setSpeechStatus("Mikrofon wird vorbereitet ...", "working", "Mikrofon freigeben, falls der Browser fragt");
+            setSpeechStatus("Mikrofon wird vorbereitet …", "working", "Gib das Mikrofon frei, falls der Browser fragt.");
             void startConversationSession();
           }}, 420);
         }}
@@ -15737,6 +16044,16 @@ def _minimal_public_memorial_html(
     </script>
   </body>
 </html>"""
+    if not conversation_only:
+        return document
+    for region in (
+        "story-skip",
+        "public-navigation",
+        "public-story",
+        "install-upsell",
+    ):
+        document = _without_public_memorial_html_region(document, region=region)
+    return document
 
 
 def _memorial_html(
@@ -20738,14 +21055,12 @@ def _public_memorial_page_html(
     *,
     hostname: str = "",
     private_profile: dict[str, object] | None = None,
+    operator_preview_allowed: bool = False,
 ) -> str:
     slug = _safe_slug(_public_memorial_story_text(payload.get("slug"), max_chars=80))
     person_name = _public_memorial_story_text(payload.get("person_name"), max_chars=160) or "Manfred"
     title_text = _public_memorial_story_text(payload.get("title"), max_chars=220) or f"Erinnerungen an {person_name}"
-    subtitle = _public_memorial_story_text(payload.get("subtitle"), max_chars=420) or (
-        "Eine ruhige Seite fuer Erinnerungen, belegte Gedanken und oeffentliche Quellen."
-    )
-    video_call_avatar = _memorial_video_call_avatar(payload, slug)
+    subtitle = f"Ein ruhiger Ort für ein Gespräch über {person_name}."
     return _minimal_public_memorial_html(
         slug=slug,
         person_name=person_name,
@@ -20756,8 +21071,12 @@ def _public_memorial_page_html(
         # Keep the public memorial document free of third-party scripts because
         # contribution-management tokens live in this origin's localStorage.
         clickrank_html="",
-        story_html=_public_memorial_story_html(payload, slug=slug),
-        video_call_avatar_fallback_html=_memorial_video_call_avatar_fallback_html(video_call_avatar),
+        # Public memorials are conversation-only. Story/archive and contribution
+        # content stays on its dedicated gated routes and is never projected here.
+        story_html="",
+        video_call_avatar_fallback_html="",
+        conversation_only=True,
+        operator_preview_allowed=operator_preview_allowed,
     )
 
 

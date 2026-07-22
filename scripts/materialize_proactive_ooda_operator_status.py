@@ -3777,7 +3777,7 @@ def build_proactive_ooda_operator_status(
         approval_capture_surface = {}
         approval_capture = {}
     approval_callback_hygiene_blocks = not bool(approval_capture_surface.get("callback_hygiene_ready", True))
-    if approval_callback_hygiene_blocks:
+    if approval_callback_hygiene_blocks and not provider_cost_pressure_recovery_active:
         status = "blocked_local_runtime"
         reason = str(
             approval_capture_surface.get("callback_hygiene_blocking_reason")
@@ -3820,6 +3820,8 @@ def build_proactive_ooda_operator_status(
         next_action = "stage_fresh_assistant_grade_proactive_packet"
     elif browser_handoff_recovery_active:
         next_action = _browser_handoff_recovery_next_action(browser_handoff)
+    elif provider_cost_pressure_recovery_active:
+        next_action = "repair_provider_cost_routing"
     elif approval_callback_hygiene_blocks:
         next_action = str(
             approval_capture_surface.get("callback_hygiene_next_action")
@@ -3829,8 +3831,6 @@ def build_proactive_ooda_operator_status(
         next_action = _runtime_source_health_recovery_next_action(runtime_source_health)
     elif runtime_artifact_drift_recovery_active:
         next_action = _runtime_artifact_drift_recovery_next_action(runtime_artifact_drift)
-    elif provider_cost_pressure_recovery_active:
-        next_action = "repair_provider_cost_routing"
     elif source_coverage_recovery_active:
         next_action = _source_coverage_recovery_next_action(source_coverage)
     else:
@@ -3866,6 +3866,8 @@ def build_proactive_ooda_operator_status(
         )
     elif browser_handoff_recovery_active:
         summary = _browser_handoff_recovery_summary(browser_handoff)
+    elif provider_cost_pressure_recovery_active:
+        summary = _provider_cost_pressure_recovery_summary(provider_cost_pressure)
     elif approval_callback_hygiene_blocks:
         summary = (
             "Proactive OODA approval-callback hygiene needs cleanup before operator follow-through can resume."
@@ -3874,8 +3876,6 @@ def build_proactive_ooda_operator_status(
         summary = _runtime_source_health_recovery_summary(runtime_source_health)
     elif runtime_artifact_drift_recovery_active:
         summary = _runtime_artifact_drift_recovery_summary(runtime_artifact_drift)
-    elif provider_cost_pressure_recovery_active:
-        summary = _provider_cost_pressure_recovery_summary(provider_cost_pressure)
     elif source_coverage_recovery_active:
         summary = _source_coverage_recovery_summary(source_coverage)
     else:

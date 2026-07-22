@@ -1,13 +1,13 @@
 {
   "contract_name": "ea.memorial_stt_provider_benchmark",
-  "generated_at": "2026-07-17T16:29:01Z",
+  "generated_at": "2026-07-22T14:31:06Z",
   "generated_by": "scripts/benchmark_memorial_stt_providers.py",
-  "source_git_head": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
+  "source_git_head": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
   "head_semantics": "source_state",
-  "source_state_fingerprint": "e7c5e24e9c2a6e72fa7820b585b437b4cd0837660f8b14890de49eb4c5c9d7ec",
+  "source_state_fingerprint": "362cc24a424ad0f930637202232846f2d3bf4186fadffe6820be3b41133ae663",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "captured_candidate_binding": {},
-  "status": "pass",
+  "status": "blocked",
   "scoring": {
     "pass_rule": "usable transcript + required tokens present + token_f1 >= sample min + WER <= sample max",
     "raw_provider_transcript_scored": true,
@@ -25,8 +25,8 @@
   "availability": {
     "providers": {
       "full_runtime": {
-        "configured": true,
-        "credential_source": "default_credential_file"
+        "configured": false,
+        "credential_source": "none"
       },
       "shadow": {
         "configured": true,
@@ -40,9 +40,9 @@
     },
     "credential_environment": {
       "file_count": 2,
-      "loaded_count": 434,
+      "loaded_count": 443,
       "provider_families": {
-        "cartesia": true,
+        "cartesia": false,
         "onemin": true,
         "blipai_shadow": true
       }
@@ -57,25 +57,25 @@
   },
   "provider_ranking": [
     {
-      "provider": "full_runtime",
-      "passed_samples": 4,
-      "sample_count": 4,
-      "scored_samples": 4,
-      "intent_correct_samples": 4,
-      "avg_token_f1": 1.0,
-      "avg_wer": 0.0,
-      "avg_latency_ms": 321.6,
-      "production_eligible": true
-    },
-    {
       "provider": "onemin_sample",
-      "passed_samples": 0,
+      "passed_samples": 2,
       "sample_count": 4,
       "scored_samples": 4,
       "intent_correct_samples": 2,
-      "avg_token_f1": 0.215,
-      "avg_wer": 6.8333,
-      "avg_latency_ms": 3689.2,
+      "avg_token_f1": 0.9445,
+      "avg_wer": 0.0556,
+      "avg_latency_ms": 2642.2,
+      "production_eligible": false
+    },
+    {
+      "provider": "full_runtime",
+      "passed_samples": 2,
+      "sample_count": 4,
+      "scored_samples": 4,
+      "intent_correct_samples": 2,
+      "avg_token_f1": 0.9445,
+      "avg_wer": 0.0556,
+      "avg_latency_ms": 2830.5,
       "production_eligible": false
     },
     {
@@ -86,7 +86,7 @@
       "intent_correct_samples": 0,
       "avg_token_f1": 0.0,
       "avg_wer": 1.0,
-      "avg_latency_ms": 804.6,
+      "avg_latency_ms": 828.4,
       "production_eligible": false
     }
   ],
@@ -160,7 +160,7 @@
       },
       "full_runtime": {
         "status": "transcribed",
-        "ms": 0.1,
+        "ms": 0.2,
         "wer": 0.0,
         "token_f1": 1.0,
         "min_token_f1": 0.65,
@@ -196,7 +196,7 @@
           "code": "provider_http_error",
           "detail_sha256": "3dd56c119406f43e14cf9ad117fa7e288547b0b13b6d4ea2aee17a5d45916993"
         },
-        "ms": 804.6,
+        "ms": 828.4,
         "wer": 1.0,
         "token_f1": 0.0,
         "min_token_f1": 0.65,
@@ -223,20 +223,20 @@
       },
       "onemin_sample": {
         "status": "ok",
-        "ms": 5043.1,
-        "wer": 7.0,
-        "token_f1": 0.2222,
+        "ms": 2802.4,
+        "wer": 0.0,
+        "token_f1": 1.0,
         "min_token_f1": 0.65,
         "max_wer": 0.45,
         "expected_text_chars": 48,
-        "actual_text_chars": 459,
+        "actual_text_chars": 48,
         "required_token_count": 3,
         "intent_correct": true,
         "usable": true,
-        "passed": false,
+        "passed": true,
         "text_redacted": true,
         "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
-        "actual_text_sha256": "aff11b41840f843895f27999919c9954937bcd0b6235b191dc2ed9f9bfff2747",
+        "actual_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
         "required_token_sha256": [
           "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
           "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
@@ -327,7 +327,7 @@
       },
       "full_runtime": {
         "status": "transcribed",
-        "ms": 623.5,
+        "ms": 6724.9,
         "wer": 0.0,
         "token_f1": 1.0,
         "min_token_f1": 0.65,
@@ -350,8 +350,8 @@
         "provider_evidence_failed_codes": [],
         "scored_text_source": "primary_transcript_text",
         "transcriber": {
-          "family": "cartesia",
-          "identifier_sha256": "6e40259d3b564bc9230f166b59a7d60c97d9c5cc58e5b0685c74ba07b7f10d0d"
+          "family": "unknown",
+          "identifier_sha256": "c3987baec6689fb560d28b210e435b46d73ccb9ba829d04055623be407790041"
         },
         "text_mode": "redacted"
       },
@@ -390,20 +390,20 @@
       },
       "onemin_sample": {
         "status": "ok",
-        "ms": 3689.7,
-        "wer": 7.0,
-        "token_f1": 0.2222,
+        "ms": 2286.0,
+        "wer": 0.0,
+        "token_f1": 1.0,
         "min_token_f1": 0.65,
         "max_wer": 0.45,
         "expected_text_chars": 48,
-        "actual_text_chars": 458,
+        "actual_text_chars": 48,
         "required_token_count": 3,
         "intent_correct": true,
         "usable": true,
-        "passed": false,
+        "passed": true,
         "text_redacted": true,
         "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
-        "actual_text_sha256": "9be8dd37c4601d7f02a07f87959611439f6c1430020939baa5834662a62f0424",
+        "actual_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
         "required_token_sha256": [
           "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
           "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
@@ -483,20 +483,20 @@
       },
       "full_runtime": {
         "status": "transcribed",
-        "ms": 350.3,
-        "wer": 0.0,
-        "token_f1": 1.0,
+        "ms": 2382.4,
+        "wer": 0.1111,
+        "token_f1": 0.8889,
         "min_token_f1": 0.55,
         "max_wer": 0.55,
         "expected_text_chars": 43,
         "actual_text_chars": 43,
         "required_token_count": 2,
-        "intent_correct": true,
+        "intent_correct": false,
         "usable": true,
-        "passed": true,
+        "passed": false,
         "text_redacted": true,
         "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
-        "actual_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_sha256": "fa84ea621e8902472b29c592ce20469d3b3d31743c2bbd5a234e3dba145b969a",
         "required_token_sha256": [
           "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
           "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
@@ -505,8 +505,8 @@
         "provider_evidence_failed_codes": [],
         "scored_text_source": "primary_transcript_text",
         "transcriber": {
-          "family": "cartesia",
-          "identifier_sha256": "6e40259d3b564bc9230f166b59a7d60c97d9c5cc58e5b0685c74ba07b7f10d0d"
+          "family": "unknown",
+          "identifier_sha256": "c3987baec6689fb560d28b210e435b46d73ccb9ba829d04055623be407790041"
         },
         "text_mode": "redacted"
       },
@@ -544,20 +544,20 @@
       },
       "onemin_sample": {
         "status": "ok",
-        "ms": 2341.6,
-        "wer": 6.6667,
-        "token_f1": 0.2078,
+        "ms": 3210.6,
+        "wer": 0.1111,
+        "token_f1": 0.8889,
         "min_token_f1": 0.55,
         "max_wer": 0.55,
         "expected_text_chars": 43,
-        "actual_text_chars": 452,
+        "actual_text_chars": 43,
         "required_token_count": 2,
         "intent_correct": false,
         "usable": true,
         "passed": false,
         "text_redacted": true,
         "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
-        "actual_text_sha256": "fbf9f355a0a587e1f2804d4870a694b2b0451518b5c08551a43934c18487cfe1",
+        "actual_text_sha256": "fa84ea621e8902472b29c592ce20469d3b3d31743c2bbd5a234e3dba145b969a",
         "required_token_sha256": [
           "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
           "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
@@ -647,20 +647,20 @@
       },
       "full_runtime": {
         "status": "transcribed",
-        "ms": 312.5,
-        "wer": 0.0,
-        "token_f1": 1.0,
+        "ms": 2214.4,
+        "wer": 0.1111,
+        "token_f1": 0.8889,
         "min_token_f1": 0.55,
         "max_wer": 0.55,
         "expected_text_chars": 43,
         "actual_text_chars": 43,
         "required_token_count": 2,
-        "intent_correct": true,
+        "intent_correct": false,
         "usable": true,
-        "passed": true,
+        "passed": false,
         "text_redacted": true,
         "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
-        "actual_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_sha256": "fa84ea621e8902472b29c592ce20469d3b3d31743c2bbd5a234e3dba145b969a",
         "required_token_sha256": [
           "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
           "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
@@ -669,8 +669,8 @@
         "provider_evidence_failed_codes": [],
         "scored_text_source": "primary_transcript_text",
         "transcriber": {
-          "family": "cartesia",
-          "identifier_sha256": "6e40259d3b564bc9230f166b59a7d60c97d9c5cc58e5b0685c74ba07b7f10d0d"
+          "family": "unknown",
+          "identifier_sha256": "c3987baec6689fb560d28b210e435b46d73ccb9ba829d04055623be407790041"
         },
         "text_mode": "redacted"
       },
@@ -708,20 +708,20 @@
       },
       "onemin_sample": {
         "status": "ok",
-        "ms": 3682.4,
-        "wer": 6.6667,
-        "token_f1": 0.2078,
+        "ms": 2269.9,
+        "wer": 0.1111,
+        "token_f1": 0.8889,
         "min_token_f1": 0.55,
         "max_wer": 0.55,
         "expected_text_chars": 43,
-        "actual_text_chars": 454,
+        "actual_text_chars": 43,
         "required_token_count": 2,
         "intent_correct": false,
         "usable": true,
         "passed": false,
         "text_redacted": true,
         "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
-        "actual_text_sha256": "0854f65c41f23409830d66dc6c90f9608272c5acbb1bb2d009f4468c8ddc767a",
+        "actual_text_sha256": "fa84ea621e8902472b29c592ce20469d3b3d31743c2bbd5a234e3dba145b969a",
         "required_token_sha256": [
           "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
           "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"

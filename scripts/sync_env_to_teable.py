@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import tempfile
 import uuid
 from datetime import datetime, timezone
@@ -40,6 +41,14 @@ LOCAL_SECRET_FILE_AUDIT_GLOBS = (
     "config/*credential*.json",
     "config/*secret*.json",
 )
+TEABLE_DENIED_SECRET_FILE_PATHS = frozenset(
+    {
+        "config/vocallab_credential_rotation_authority.local.json",
+        "config/vocallab_verification_hmac_key",
+        "config/vocallab_voice_catalog.local.json",
+    }
+)
+MAX_TEABLE_SECRET_FILE_BYTES = 16 * 1024 * 1024
 COMPOSE_REQUIRED_ENV_IGNORE = {"HOME", "code", "port"}
 SECRET_MARKERS = (
     "API_KEY",
@@ -155,12 +164,14 @@ def _secret_kind(name: str) -> str:
 def _provider_guess(name: str) -> str:
     upper = name.upper()
     prefixes = (
+        "EA_AUDIOBOOK_VOCALLAB",
         "EA_AUDIOBOOKSHELF",
         "EA_GOOGLE",
         "EA_TELEGRAM",
         "EA_WHATSAPP",
         "ONEMIN",
         "UNMIXR",
+        "VOCALLAB",
         "BROWSERACT",
         "TEABLE",
         "EMAILIT",
@@ -310,8 +321,96 @@ def _is_recovery_backup_file(path: Path) -> bool:
     return path.name.lower().endswith(".bak")
 
 
+def _is_teable_denied_secret_file(path: Path) -> bool:
+    try:
+        relative = path.absolute().relative_to(ROOT.absolute()).as_posix()
+    except ValueError:
+        return False
+    return relative in TEABLE_DENIED_SECRET_FILE_PATHS
+
+
+def _teable_denied_secret_file_identities() -> frozenset[tuple[int, int]]:
+    identities: set[tuple[int, int]] = set()
+    for relative in TEABLE_DENIED_SECRET_FILE_PATHS:
+        try:
+            metadata = (ROOT / relative).lstat()
+        except OSError:
+            continue
+        if stat.S_ISREG(metadata.st_mode) and not stat.S_ISLNK(metadata.st_mode):
+            identities.add((metadata.st_dev, metadata.st_ino))
+    return frozenset(identities)
+
+
+def _read_teable_recovery_secret_file(path: Path) -> str | None:
+    if _is_teable_denied_secret_file(path) or not hasattr(os, "O_NOFOLLOW"):
+        return None
+    descriptor = -1
+    try:
+        descriptor = os.open(
+            path,
+            os.O_RDONLY
+            | os.O_NOFOLLOW
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NONBLOCK", 0),
+        )
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_nlink != 1
+            or before.st_size < 0
+            or before.st_size > MAX_TEABLE_SECRET_FILE_BYTES
+            or (before.st_dev, before.st_ino)
+            in _teable_denied_secret_file_identities()
+        ):
+            return None
+        chunks: list[bytes] = []
+        remaining = MAX_TEABLE_SECRET_FILE_BYTES + 1
+        while remaining > 0:
+            chunk = os.read(descriptor, min(65536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+        after = os.fstat(descriptor)
+        path_after = path.lstat()
+        identity_fields = (
+            "st_dev",
+            "st_ino",
+            "st_mode",
+            "st_uid",
+            "st_gid",
+            "st_nlink",
+            "st_size",
+            "st_mtime_ns",
+            "st_ctime_ns",
+        )
+        if (
+            len(raw) != before.st_size
+            or len(raw) > MAX_TEABLE_SECRET_FILE_BYTES
+            or any(
+                getattr(before, field) != getattr(after, field)
+                or getattr(before, field) != getattr(path_after, field)
+                for field in identity_fields
+            )
+            or (after.st_dev, after.st_ino)
+            in _teable_denied_secret_file_identities()
+        ):
+            return None
+        return raw.decode("utf-8", errors="ignore")
+    except OSError:
+        return None
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
 def _is_ignored_secret_file(path: Path) -> bool:
-    return _is_example_secret_file(path) or _is_recovery_backup_file(path)
+    return (
+        _is_example_secret_file(path)
+        or _is_recovery_backup_file(path)
+        or _is_teable_denied_secret_file(path)
+    )
 
 
 def audit_local_secret_file_coverage(
@@ -395,10 +494,12 @@ def build_referenced_secret_file_rows(
                     continue
                 candidates.append((f"LOCAL_SECRET_FILE:{path.relative_to(ROOT).as_posix()}", path))
     for key, path in candidates:
-        if path in seen or not path.is_file():
+        if path in seen:
+            continue
+        content = _read_teable_recovery_secret_file(path)
+        if content is None:
             continue
         seen.add(path)
-        content = path.read_text(encoding="utf-8", errors="ignore")
         encoded = content.encode("utf-8")
         rows.append(
             {

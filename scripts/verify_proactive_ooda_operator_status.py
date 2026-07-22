@@ -974,7 +974,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
                 issues.append("approval_capture_surface callback_hygiene_ready=false requires callback_hygiene_blocking_reason")
             if not callback_hygiene_next_action:
                 issues.append("approval_capture_surface callback_hygiene_ready=false requires callback_hygiene_next_action")
-            if status != "blocked_local_runtime":
+            if status != "blocked_local_runtime" and not _provider_cost_pressure_requires_recovery(receipt):
                 issues.append("approval_capture_surface callback_hygiene_ready=false requires status=blocked_local_runtime")
         approval_capture_ready = bool(approval_capture.get("ready"))
         live_pending_count = int(approval_capture_surface.get("current_packet_live_pending_count") or 0)

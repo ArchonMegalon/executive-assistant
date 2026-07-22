@@ -422,6 +422,11 @@ def test_verify_candidate_wires_archive_publication_gate(
         "_verify_memorial_transport_security",
         lambda *_args, **_kwargs: {},
     )
+    monkeypatch.setattr(
+        candidate_verify,
+        "verify_conversation_only_page_html",
+        lambda _body: {"status": "pass"},
+    )
 
     def singular_alias(
         base_url: str,
@@ -452,6 +457,10 @@ def test_verify_candidate_wires_archive_publication_gate(
                 b'{"slug":"manfred"}',
                 {"x-content-type-options": "nosniff"},
             )
+        if path == "/memorials/manfred":
+            return 200, b"<!doctype html><html></html>", {
+                "x-content-type-options": "nosniff"
+            }
         return 200, b"", {}
 
     def archive_gate(base_url: str) -> dict[str, object]:
@@ -1645,7 +1654,7 @@ def test_page_render_prewarm_can_be_disabled_without_changing_default(
     assert calls == ["manfred"]
 
 
-def test_manfred_public_page_uses_scoped_editorial_minimal_theme() -> None:
+def test_manfred_public_page_uses_scoped_talk_only_minimal_theme() -> None:
     from app.api.routes import public_memorials
 
     common = {
@@ -1661,6 +1670,11 @@ def test_manfred_public_page_uses_scoped_editorial_minimal_theme() -> None:
         slug="manfred",
         **common,
     )
+    conversation_only_html = public_memorials._minimal_public_memorial_html(
+        slug="manfred",
+        conversation_only=True,
+        **common,
+    )
     other_html = public_memorials._minimal_public_memorial_html(
         slug="another-memorial",
         **common,
@@ -1668,13 +1682,361 @@ def test_manfred_public_page_uses_scoped_editorial_minimal_theme() -> None:
 
     assert (
         '<body class="memorial-theme-minimal" '
-        'data-memorial-theme="editorial-minimal-v2">'
+        'data-memorial-theme="editorial-minimal-v2" '
+        'data-public-memorial-surface="legacy">'
     ) in manfred_html
+    assert (
+        '<body class="memorial-theme-minimal" '
+        'data-memorial-theme="editorial-minimal-v2" '
+        'data-public-memorial-surface="conversation-only">'
+    ) in conversation_only_html
+    assert "<section>Story</section>" in manfred_html
+    assert "<section>Story</section>" not in conversation_only_html
+    assert conversation_only_html.count("<main ") == 1
+    assert 'id="memorial-story"' not in conversation_only_html
+    assert 'id="memorial-contribution"' not in conversation_only_html
+    assert 'id="memorial-install-hint"' not in conversation_only_html
+    assert conversation_only_html.count('<details class="conversation-settings">') == 1
+    assert "<summary>Datenschutz und Gespräch</summary>" in conversation_only_html
+    assert (
+        '<input type="checkbox" id="memorial-personal-memory-optin" '
+        'disabled aria-disabled="true">'
+        in conversation_only_html
+    )
+    assert 'id="memorial-conversation"' in conversation_only_html
+    assert 'id="memorial-text-turn-form"' in conversation_only_html
+    assert '<html lang="de-AT">' in conversation_only_html
+    assert 'placeholder="Was möchtest du fragen?"' in conversation_only_html
+    assert 'id="memorial-speech-note" hidden' in conversation_only_html
+    assert 'id="memorial-retry-button"' in conversation_only_html
+    assert 'id="memorial-speech-transcript" role="log"' in conversation_only_html
+    rendered_contract = candidate_verify.verify_conversation_only_page_html(
+        conversation_only_html.encode("utf-8")
+    )
+    assert rendered_contract == {
+        "status": "pass",
+        "public_surface": "conversation-only",
+        "main_count": 1,
+        "nav_count": 0,
+        "aside_count": 0,
+        "iframe_count": 0,
+        "video_count": 0,
+        "article_count": 0,
+        "form_count": 1,
+        "details_count": 1,
+        "section_count": 2,
+        "conversation_settings_count": 1,
+        "personal_memory_optin_count": 1,
+        "personal_memory_optin_default_checked": False,
+        "personal_memory_optin_default_disabled": True,
+        "personal_memory_forget_count": 1,
+        "memory_room_link_count": 0,
+        "tour_link_count": 0,
+        "voice_release": "available",
+        "voice_access": "public-release",
+        "operator_preview": "",
+        "missing_required_ids": [],
+        "duplicate_ids": [],
+        "present_forbidden_ids": [],
+        "forbidden_dom_semantics": [],
+    }
     assert ".memorial-theme-minimal::before" in manfred_html
     assert ".memorial-theme-minimal .story-card" in manfred_html
     assert ".memorial-theme-minimal .skip-link:focus-visible" in manfred_html
     assert '<body class="memorial-theme-minimal"' not in other_html
     assert "data-memorial-theme=" not in other_html
+
+
+def test_candidate_conversation_surface_rejects_disguised_or_duplicate_dom() -> None:
+    from app.api.routes import public_memorials
+
+    page_html = public_memorials._minimal_public_memorial_html(
+        slug="manfred",
+        person_name="Manfred Hoza",
+        page_title="Erinnerungen an Manfred Hoza",
+        subtitle="Ein ruhiger Ort für ein Gespräch über Manfred.",
+        memorial_avatar_url="/memorials/manfred/icon-180.png",
+        pwa_short_name="Manfred",
+        clickrank_html="",
+        story_html="",
+        conversation_only=True,
+    )
+    hostile_fragments = (
+        '<section id="memorial-story">Unzulässige Story</section>',
+        '<section id="renamed-history" class="story-section">Verdeckte Story</section>',
+        '<article id="renamed-biography">Verdeckte Biografie</article>',
+        '<form id="renamed-private-upload" class="contribution-form"></form>',
+        '<button id="renamed-offline-cta" data-install-surface="pwa">Installieren</button>',
+        '<div id="renamed-visual" data-region="video-call">Video</div>',
+        '<div id="neutral-region-one" role="region" aria-label="Story">Inhalt</div>',
+        '<button id="neutral-action-one" aria-label="Install application">Öffnen</button>',
+        '<div id="neutral-region-two" role="region" aria-label="Archive">Inhalt</div>',
+        '<div id="neutral-region-three" role="img" aria-label="Video call">Bild</div>',
+        '<span id="neutral-label-one">Story</span>'
+        '<div id="neutral-region-four" role="region" '
+        'aria-labelledby="neutral-label-one">Inhalt</div>',
+        '<div id="neutral-region-five" title="Archive">Inhalt</div>',
+        '<button id="neutral-action-two" name="offline-action" '
+        'value="install">Öffnen</button>',
+        '<a id="neutral-link-one" href="/memorials/manfred" '
+        'download="archive.zip">Weiter</a>',
+        '<div id="memorial-chat-status">Doppelte ID</div>',
+    )
+    for fragment in hostile_fragments:
+        hostile_html = page_html.replace("</body>", f"{fragment}</body>")
+        with pytest.raises(
+            RuntimeError,
+            match="candidate_conversation_surface_invalid",
+        ) as caught:
+            candidate_verify.verify_conversation_only_page_html(
+                hostile_html.encode("utf-8")
+            )
+        if 'id="memorial-chat-status"' in fragment:
+            assert '"duplicate_ids":["memorial-chat-status"]' in str(caught.value)
+        else:
+            assert '"forbidden_dom_semantics":[' in str(caught.value)
+
+    dead_markup = page_html.replace(
+        "</body>",
+        "<style>.story-card::after { content: "
+        "'<a href=\"/memory%252Droom\" aria-label=\"Archive\">'; }</style>"
+        "<script>const deadMarkup = "
+        "'<article class=\"story-card\" aria-label=\"Video call\"></article>';"
+        "</script></body>",
+    )
+    assert (
+        candidate_verify.verify_conversation_only_page_html(
+            dead_markup.encode("utf-8")
+        )["status"]
+        == "pass"
+    )
+
+
+def test_candidate_conversation_surface_rejects_generic_visible_features() -> None:
+    from app.api.routes import public_memorials
+
+    page_html = public_memorials._minimal_public_memorial_html(
+        slug="manfred",
+        person_name="Manfred Hoza",
+        page_title="Erinnerungen an Manfred Hoza",
+        subtitle="Ein ruhiger Ort für ein Gespräch über Manfred.",
+        memorial_avatar_url="/memorials/manfred/icon-180.png",
+        pwa_short_name="Manfred",
+        clickrank_html="",
+        story_html="",
+        conversation_only=True,
+    )
+    hostile_fragments = (
+        "<div><h2>Geschichte</h2><p>Eine vollständige Biografie.</p></div>",
+        '<div id="neutral-panel"><h2>Archiv</h2><p>Alle Erinnerungen.</p></div>',
+        '<div id="neutral-copy">Eine weitere Geschichte über Manfred.</div>',
+        '<div id="neutral-split-copy">Sto<span>ry</span></div>',
+        '<label>Ar<span>chiv</span></label>',
+        '<input id="neutral-control" type="button" value="Installieren">',
+        '<label for="neutral-control">Archiv öffnen</label>'
+        '<input id="neutral-control" type="button" value="Öffnen">',
+        '<input id="neutral-control" type="image" alt="Video" src="/safe.png">',
+    )
+    for fragment in hostile_fragments:
+        hostile_html = page_html.replace("</body>", f"{fragment}</body>")
+        with pytest.raises(
+            RuntimeError,
+            match="candidate_conversation_surface_invalid",
+        ) as caught:
+            candidate_verify.verify_conversation_only_page_html(
+                hostile_html.encode("utf-8")
+            )
+        assert '"forbidden_dom_semantics":[' in str(caught.value)
+
+
+def test_candidate_conversation_surface_rejects_duplicate_attributes() -> None:
+    from app.api.routes import public_memorials
+
+    page_html = public_memorials._minimal_public_memorial_html(
+        slug="manfred",
+        person_name="Manfred Hoza",
+        page_title="Erinnerungen an Manfred Hoza",
+        subtitle="Ein ruhiger Ort für ein Gespräch über Manfred.",
+        memorial_avatar_url="/memorials/manfred/icon-180.png",
+        pwa_short_name="Manfred",
+        clickrank_html="",
+        story_html="",
+        conversation_only=True,
+    )
+    hostile_fragments = (
+        '<a href="/memory%2Droom" href="/">Weiter</a>',
+        '<a HREF="/archive" href="/">Weiter</a>',
+        '<svg><a xlink:href="/archive" XLINK:HREF="/">Weiter</a></svg>',
+        '<div title="Archive" TITLE="Neutral">Inhalt</div>',
+    )
+    for fragment in hostile_fragments:
+        hostile_html = page_html.replace("</body>", f"{fragment}</body>")
+        with pytest.raises(
+            RuntimeError,
+            match="candidate_conversation_surface_invalid",
+        ) as caught:
+            candidate_verify.verify_conversation_only_page_html(
+                hostile_html.encode("utf-8")
+            )
+        assert "duplicate-attribute" in str(caught.value)
+
+
+def test_candidate_conversation_surface_rejects_active_navigation_bypasses() -> None:
+    from app.api.routes import public_memorials
+
+    page_html = public_memorials._minimal_public_memorial_html(
+        slug="manfred",
+        person_name="Manfred Hoza",
+        page_title="Erinnerungen an Manfred Hoza",
+        subtitle="Ein ruhiger Ort für ein Gespräch über Manfred.",
+        memorial_avatar_url="/memorials/manfred/icon-180.png",
+        pwa_short_name="Manfred",
+        clickrank_html="",
+        story_html="",
+        conversation_only=True,
+    )
+    assert 'action="/memorials/manfred/chat"' in page_html
+    hostile_documents = (
+        page_html.replace(
+            "</body>",
+            '<svg><a xlink:href="/memory%2Droom">Weiter</a></svg></body>',
+        ),
+        page_html.replace(
+            "</body>",
+            '<svg><use href="/story"></use></svg></body>',
+        ),
+        page_html.replace(
+            "</body>",
+            '<button onclick="location.href=\'/memory-room\'">Weiter</button></body>',
+        ),
+        page_html.replace(
+            "</body>",
+            '<button onpointerdown="window.open(\'/archive\')">Weiter</button></body>',
+        ),
+        page_html.replace("</head>", '<base href="/memory-room/"></head>'),
+        page_html.replace(
+            "</head>",
+            '<meta http-equiv="refresh" content="0;url=/memory-room"></head>',
+        ),
+        page_html.replace(
+            'action="/memorials/manfred/chat"',
+            'action="/memory-room"',
+            1,
+        ),
+        page_html.replace(
+            "</body>",
+            '<button formaction="/archive">Weiter</button></body>',
+        ),
+        page_html.replace(
+            "</body>",
+            '<a href="https://archive.example/">Weiter</a></body>',
+        ),
+        page_html.replace(
+            "</body>",
+            '<a href="https://%61rchive.example/">Weiter</a></body>',
+        ),
+        page_html.replace(
+            "</body>",
+            '<a href="javascript:location.href=\'/memory-room\'">Weiter</a></body>',
+        ),
+        page_html.replace("</body>", '<a href="/install">Weiter</a></body>'),
+        page_html.replace("</body>", '<a href="/video">Weiter</a></body>'),
+    )
+    for hostile_html in hostile_documents:
+        with pytest.raises(
+            RuntimeError,
+            match="candidate_conversation_surface_invalid",
+        ):
+            candidate_verify.verify_conversation_only_page_html(
+                hostile_html.encode("utf-8")
+            )
+
+
+def test_candidate_conversation_surface_accepts_benign_semantics_and_navigation() -> None:
+    from app.api.routes import public_memorials
+
+    page_html = public_memorials._minimal_public_memorial_html(
+        slug="manfred",
+        person_name="Manfred Hoza",
+        page_title="Erinnerungen an Manfred Hoza",
+        subtitle="Ein ruhiger Ort für ein Gespräch über Manfred.",
+        memorial_avatar_url="/memorials/manfred/icon-180.png",
+        pwa_short_name="Manfred",
+        clickrank_html="",
+        story_html="",
+        conversation_only=True,
+    )
+    benign_fragment = (
+        "<div><h2>Gesprächshinweis</h2>"
+        "<p>Text und Stimme bleiben verfügbar.</p></div>"
+        '<label for="neutral-control">Antwortmodus</label>'
+        '<input id="neutral-control" type="button" value="Öffnen">'
+        '<svg aria-hidden="true"><use href="#safe-icon"></use></svg>'
+        '<a href="https://example.com/help" title="Weitere Hilfe">Hilfe</a>'
+    )
+    benign_html = page_html.replace("</body>", f"{benign_fragment}</body>")
+
+    assert (
+        candidate_verify.verify_conversation_only_page_html(
+            benign_html.encode("utf-8")
+        )["status"]
+        == "pass"
+    )
+
+
+def test_candidate_conversation_surface_rejects_public_operator_preview() -> None:
+    from app.api.routes import public_memorials
+
+    page_html = public_memorials._minimal_public_memorial_html(
+        slug="manfred",
+        person_name="Manfred Hoza",
+        page_title="Erinnerungen an Manfred Hoza",
+        subtitle="Ein ruhiger Ort für ein Gespräch über Manfred.",
+        memorial_avatar_url="/memorials/manfred/icon-180.png",
+        pwa_short_name="Manfred",
+        clickrank_html="",
+        story_html="",
+        conversation_only=True,
+    )
+    page_html = page_html.replace(
+        '<body class="memorial-theme-minimal" '
+        'data-memorial-theme="editorial-minimal-v2" '
+        'data-public-memorial-surface="conversation-only">',
+        '<body class="memorial-theme-minimal" '
+        'data-memorial-theme="editorial-minimal-v2" '
+        'data-public-memorial-surface="conversation-only" '
+        'data-operator-voice-preview="allowed">',
+        1,
+    )
+    assert 'data-operator-voice-preview="allowed"' in page_html
+
+    with pytest.raises(RuntimeError, match="candidate_conversation_surface_invalid"):
+        candidate_verify.verify_conversation_only_page_html(page_html.encode("utf-8"))
+
+
+def test_candidate_conversation_surface_rejects_inconsistent_voice_access() -> None:
+    from app.api.routes import public_memorials
+
+    page_html = public_memorials._minimal_public_memorial_html(
+        slug="manfred",
+        person_name="Manfred Hoza",
+        page_title="Erinnerungen an Manfred Hoza",
+        subtitle="Ein ruhiger Ort für ein Gespräch über Manfred.",
+        memorial_avatar_url="/memorials/manfred/icon-180.png",
+        pwa_short_name="Manfred",
+        clickrank_html="",
+        story_html="",
+        conversation_only=True,
+    )
+    assert 'data-voice-access="public-release"' in page_html
+    page_html = page_html.replace(
+        'data-voice-access="public-release"',
+        'data-voice-access="text-only"',
+        1,
+    )
+
+    with pytest.raises(RuntimeError, match="candidate_conversation_surface_invalid"):
+        candidate_verify.verify_conversation_only_page_html(page_html.encode("utf-8"))
 
 
 def test_manfred_story_progressively_discloses_secondary_memories() -> None:

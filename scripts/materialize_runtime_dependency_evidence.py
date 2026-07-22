@@ -4,7 +4,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 import hashlib
 import json
+import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 from typing import Any
@@ -17,6 +19,7 @@ REQUIREMENTS_PATHS = (
 )
 SBOM_OUTPUT = ROOT / ".codex-studio" / "published" / "runtime_dependency_sbom.cdx.json"
 AUDIT_OUTPUT = ROOT / ".codex-studio" / "published" / "runtime_dependency_audit.generated.json"
+PIP_AUDIT_PYTHON_ENV = "EA_PIP_AUDIT_PYTHON"
 
 
 def _utc_now() -> str:
@@ -46,9 +49,34 @@ def _requirements(path: Path) -> list[tuple[str, str]]:
         line = raw.strip()
         if not line or line.startswith("#") or line.startswith("--"):
             continue
-        name, version = line.split("==", 1)
-        rows.append((name.strip(), version.strip()))
+        operator_positions = [
+            (line.find(operator), operator)
+            for operator in ("===", "==", "~=", "!=", "<=", ">=", "<", ">")
+            if line.find(operator) >= 0
+        ]
+        if not operator_positions:
+            raise ValueError(f"unsupported requirement without version constraint: {line!r}")
+        position, operator = min(operator_positions, key=lambda item: item[0])
+        name = line[:position].strip()
+        constraint = line[position:].strip()
+        if not name or not constraint[len(operator) :].strip():
+            raise ValueError(f"invalid requirement constraint: {line!r}")
+        version = constraint[len(operator) :].strip() if operator == "==" else constraint
+        rows.append((name, version))
     return rows
+
+
+def _normalized_package_name(value: str) -> str:
+    base_name = value.split("[", 1)[0].strip().lower()
+    return re.sub(r"[-_.]+", "-", base_name)
+
+
+def _pip_audit_python() -> str:
+    configured = os.environ.get(PIP_AUDIT_PYTHON_ENV, "").strip()
+    candidate = Path(configured or sys.executable).expanduser()
+    if not candidate.is_absolute() or not candidate.is_file() or not os.access(candidate, os.X_OK):
+        raise RuntimeError("pip_audit_python_invalid")
+    return str(candidate)
 
 
 def _build_sbom(requirement_sets: list[tuple[Path, list[tuple[str, str]]]]) -> dict[str, Any]:
@@ -86,9 +114,10 @@ def _build_sbom(requirement_sets: list[tuple[Path, list[tuple[str, str]]]]) -> d
 
 
 def _pip_audit_json(requirements_path: Path) -> dict[str, Any]:
+    audit_python = _pip_audit_python()
     completed = subprocess.run(  # nosec B603
         [
-            sys.executable,
+            audit_python,
             "-m",
             "pip_audit",
             "-r",
@@ -110,9 +139,33 @@ def _pip_audit_json(requirements_path: Path) -> dict[str, Any]:
         if stripped.startswith("{") and stripped.endswith("}"):
             json_line = stripped
             break
-    payload = json.loads(json_line or "{}")
+    if not json_line:
+        raise RuntimeError("pip_audit_json_missing")
+    try:
+        payload = json.loads(json_line)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("pip_audit_json_invalid") from exc
     if not isinstance(payload, dict):
         raise RuntimeError("pip_audit_json_invalid")
+    raw_dependencies = payload.get("dependencies")
+    raw_fixes = payload.get("fixes")
+    if not isinstance(raw_dependencies, list) or not all(isinstance(item, dict) for item in raw_dependencies):
+        raise RuntimeError("pip_audit_dependencies_invalid")
+    if not isinstance(raw_fixes, list):
+        raise RuntimeError("pip_audit_fixes_invalid")
+    required_names = {_normalized_package_name(name) for name, _version in _requirements(requirements_path)}
+    audited_names = {
+        _normalized_package_name(str(item.get("name") or ""))
+        for item in raw_dependencies
+        if str(item.get("name") or "").strip()
+    }
+    if required_names - audited_names:
+        raise RuntimeError("pip_audit_direct_requirements_incomplete")
+    vulnerable = any(list(item.get("vulns") or []) for item in raw_dependencies)
+    if completed.returncode not in {0, 1}:
+        raise RuntimeError("pip_audit_execution_failed")
+    if completed.returncode == 1 and not vulnerable:
+        raise RuntimeError("pip_audit_nonzero_without_vulnerabilities")
     return payload
 
 
@@ -138,6 +191,8 @@ def materialize() -> dict[str, Any]:
             {
                 "requirements_path": source_ref,
                 "requirements_sha256": _sha256(requirements_path),
+                "audit_complete": True,
+                "direct_requirement_count": len(_requirements_rows),
                 "dependency_count": len(source_dependencies),
                 "vulnerable_dependency_count": len(source_vulnerable),
                 "fix_count": len(list(audit_payload.get("fixes") or [])),
@@ -151,6 +206,8 @@ def materialize() -> dict[str, Any]:
         "requirements_path": (ROOT / "ea" / "requirements.txt").relative_to(ROOT).as_posix(),
         "requirements_sha256": _sha256(ROOT / "ea" / "requirements.txt"),
         "requirements_sources": source_receipts,
+        "audit_complete": True,
+        "direct_requirement_count": sum(len(rows) for _path, rows in requirement_sets),
         "sbom_path": SBOM_OUTPUT.relative_to(ROOT).as_posix(),
         "sbom_sha256": "",
         "dependency_count": len(dependencies),

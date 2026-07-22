@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
+import stat
 import subprocess
 import urllib.parse
 from datetime import UTC, datetime
@@ -353,6 +355,7 @@ class FakeRunner:
         baseline_files: tuple[str, ...] = ("docker-compose.yml",),
         include_working_dir_label: bool = True,
         baseline_root: Path | None = None,
+        baseline_config_root: Path | None = None,
         redis_present: bool = True,
         redis_running: bool = True,
         redis_health: str = "healthy",
@@ -371,6 +374,7 @@ class FakeRunner:
     ) -> None:
         self.root = root
         self.baseline_root = baseline_root or root
+        self.baseline_config_root = baseline_config_root or self.baseline_root
         self.authority_status = authority_status
         self.readiness_status = readiness_status
         self.baseline_files = baseline_files
@@ -400,6 +404,7 @@ class FakeRunner:
             self.candidate_reference: self.candidate_image,
         }
         self.api_mode = "prior"
+        self.api_present = True
         self.forward_files: list[str] = []
         self.forward_working_root = self.root
         self.forward_image_id = self.candidate_image
@@ -410,6 +415,21 @@ class FakeRunner:
         self.rollback_mount_mismatch = False
         self.rollback_env_mismatch = False
         self.rollback_mode = False
+        self.rollback_capsule_file = ""
+        self.prior_extra_environment: list[str] = []
+        self.prior_config_overrides: dict[str, object] = {}
+        self.prior_host_config: dict[str, object] = {}
+        self.rollback_host_config_overrides: dict[str, object] = {}
+        self.prior_networks: dict[str, object] = {}
+        self.prior_network_settings_overrides: dict[str, object] = {}
+        self.network_resource_id_overrides: dict[str, str] = {}
+        self.network_resource_id_after_first_inspect: dict[str, str] = {}
+        self.network_resource_inspect_counts: dict[str, int] = {}
+        self.volume_resource_driver_overrides: dict[str, str] = {}
+        self.prior_apparmor_profile = "docker-default"
+        self.prior_mounts_override: list[dict[str, object]] | None = None
+        self.prior_noncompose_labels: dict[str, str] = {}
+        self.tamper_capsule_on_forward = False
         retirement_paths = [
             operation.split(" ", 1)[1]
             for operation in deploy.OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
@@ -447,7 +467,21 @@ class FakeRunner:
         )
         self.rendered_memorial_data_read_only = True
         self.mounted_projection_sha256 = ""
-        self.rollback_render_environment: dict[str, str] = {}
+        self.prior_source_revision = "a" * 40
+        self.prior_source_revision_env = [
+            f"EA_SOURCE_REVISION={self.prior_source_revision}"
+        ]
+        self.public_openapi_methods: list[str] = []
+        self.public_openapi_overrides: dict[str, dict[str, object]] = {}
+        self.rollback_render_environment: dict[str, str] = {
+            "EA_SOURCE_REVISION": self.prior_source_revision
+        }
+        self.rollback_capsule_render_environment_override: dict[str, str] | None = (
+            None
+        )
+        self.rollback_capsule_render_mutator: (
+            Callable[[dict[str, object]], None] | None
+        ) = None
         self.materializer_seen = False
         self.materializer_call_count = 0
         self.materializer_mutated = False
@@ -473,29 +507,37 @@ class FakeRunner:
                     "Type": "bind",
                     "Source": str(root / "ea" / "app"),
                     "Destination": "/app/app",
+                    "Mode": "ro",
                     "RW": False,
+                    "Propagation": "rprivate",
                 },
                 {
                     "Type": "bind",
                     "Source": str(root / "scripts"),
                     "Destination": "/app/scripts",
+                    "Mode": "ro",
                     "RW": False,
+                    "Propagation": "rprivate",
                 },
             ]
         runtime_root = root / ".runtime" / "candidate-data"
         return [
             {
                 "Type": "bind",
-                "Source": str(root / "memorial_data"),
-                "Destination": "/data/memorial_data",
-                "RW": False,
+                    "Source": str(root / "memorial_data"),
+                    "Destination": "/data/memorial_data",
+                    "Mode": "ro",
+                    "RW": False,
+                    "Propagation": "rprivate",
             },
             *[
                 {
                     "Type": "bind",
                     "Source": str(runtime_root / basename),
                     "Destination": destination,
+                    "Mode": "rw",
                     "RW": True,
+                    "Propagation": "rprivate",
                 }
                 for destination, basename in (
                     (
@@ -512,8 +554,11 @@ class FakeRunner:
             {
                 "Type": "volume",
                 "Name": "ea_ea_artifacts",
+                "Driver": "local",
                 "Destination": "/data/artifacts",
+                "Mode": "rw",
                 "RW": True,
+                "Propagation": "",
             },
         ]
 
@@ -533,6 +578,45 @@ class FakeRunner:
             output = Path(argv[argv.index("--output") + 1])
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_text('{"status":"pass"}\n', encoding="utf-8")
+
+    def _normalized_capsule_render(
+        self, capsule_document: Mapping[str, object]
+    ) -> dict[str, object]:
+        rendered = json.loads(json.dumps(capsule_document))
+        service = rendered["services"]["ea-api"]
+        extra_hosts = service.get("extra_hosts")
+        if isinstance(extra_hosts, list):
+            normalized_hosts = []
+            for item in extra_hosts:
+                host, separator, address = str(item).partition(":")
+                normalized_hosts.append(
+                    f"{host}={address}" if separator else str(item)
+                )
+            service["extra_hosts"] = normalized_hosts
+        ports = service.get("ports")
+        if isinstance(ports, list):
+            for port in ports:
+                if isinstance(port, dict) and str(
+                    port.get("published") or ""
+                ).isdigit():
+                    port["published"] = int(str(port["published"]))
+                    port.setdefault("mode", "ingress")
+        volumes = service.get("volumes")
+        if isinstance(volumes, list):
+            for mount in volumes:
+                if not isinstance(mount, dict):
+                    continue
+                if mount.get("type") == "bind":
+                    bind = dict(mount.get("bind") or {})
+                    bind.setdefault("create_host_path", True)
+                    mount["bind"] = bind
+                elif mount.get("type") == "volume":
+                    volume = dict(mount.get("volume") or {})
+                    volume.setdefault("nocopy", False)
+                    mount["volume"] = volume
+        if self.rollback_capsule_render_mutator is not None:
+            self.rollback_capsule_render_mutator(rendered)
+        return rendered
 
     def run(
         self,
@@ -630,6 +714,11 @@ class FakeRunner:
                             "Cmd": ["uvicorn", "app.main:app"],
                             "Entrypoint": ["/usr/bin/tini", "--"],
                             "User": "10001:10001",
+                            "Labels": (
+                                dict(self.prior_noncompose_labels)
+                                if image_id == self.old_image
+                                else {}
+                            ),
                         },
                     }
                 ]
@@ -637,6 +726,56 @@ class FakeRunner:
         elif argv[:3] == ["docker", "image", "tag"]:
             source, destination = argv[-2:]
             self.image_refs[destination] = self.image_refs.get(source, source)
+        elif argv[:3] == ["docker", "network", "inspect"]:
+            name = argv[-1]
+            self.network_resource_inspect_counts[name] = (
+                self.network_resource_inspect_counts.get(name, 0) + 1
+            )
+            endpoint = self.prior_networks.get(name)
+            if not isinstance(endpoint, dict):
+                returncode = 1
+                stderr = f"Error: No such network: {name}"
+            else:
+                stdout = json.dumps(
+                    [
+                        {
+                            "Name": name,
+                            "Id": (
+                                self.network_resource_id_after_first_inspect[name]
+                                if self.network_resource_inspect_counts[name] > 1
+                                and name
+                                in self.network_resource_id_after_first_inspect
+                                else self.network_resource_id_overrides.get(
+                                    name, str(endpoint.get("NetworkID") or "")
+                                )
+                            ),
+                        }
+                    ]
+                )
+        elif argv[:3] == ["docker", "volume", "inspect"]:
+            name = argv[-1]
+            known_volumes = {
+                str(item.get("Name") or ""): str(item.get("Driver") or "local")
+                for item in (
+                    self.prior_mounts_override
+                    or self._api_mounts(self.baseline_root, memorial=False)
+                )
+                if item.get("Type") == "volume"
+            }
+            if name not in known_volumes:
+                returncode = 1
+                stderr = f"Error: No such volume: {name}"
+            else:
+                stdout = json.dumps(
+                    [
+                        {
+                            "Name": name,
+                            "Driver": self.volume_resource_driver_overrides.get(
+                                name, known_volumes[name]
+                            ),
+                        }
+                    ]
+                )
         elif argv[:3] == ["docker", "exec", "ea-api"] or argv[:6] == [
             "/usr/bin/timeout",
             "--signal=KILL",
@@ -660,6 +799,12 @@ class FakeRunner:
             )
         elif argv[:2] == ["docker", "inspect"]:
             name = argv[-1]
+            if name == "ea-api" and not self.api_present:
+                returncode = 1
+                stderr = "Error: No such object: ea-api"
+                return _completed(
+                    argv, stdout=stdout, stderr=stderr, returncode=returncode
+                )
             if name == "ea-redis" and not self.redis_present:
                 returncode = 1
                 stderr = "Error: No such object: ea-redis"
@@ -668,11 +813,22 @@ class FakeRunner:
                 )
                 return result
             forward = name == "ea-api" and self.api_mode == "forward"
-            working_root = self.forward_working_root if forward else self.baseline_root
+            working_root = (
+                self.forward_working_root
+                if forward
+                else Path(self.rollback_capsule_file).parent
+                if self.rollback_mode and self.rollback_capsule_file
+                else self.baseline_root
+            )
             config_files = (
                 self.forward_files
                 if forward
-                else [str(self.baseline_root / item) for item in self.baseline_files]
+                else [self.rollback_capsule_file]
+                if self.rollback_mode and self.rollback_capsule_file
+                else [
+                    str(self.baseline_config_root / item)
+                    for item in self.baseline_files
+                ]
             )
             project = (
                 self.forward_project
@@ -693,6 +849,8 @@ class FakeRunner:
                 "com.docker.compose.service": service,
                 "com.docker.compose.project.config_files": ",".join(config_files),
             }
+            if name == "ea-api":
+                labels.update(self.prior_noncompose_labels)
             if self.include_working_dir_label:
                 labels["com.docker.compose.project.working_dir"] = str(working_root)
             running = self.redis_running if name == "ea-redis" else True
@@ -701,11 +859,26 @@ class FakeRunner:
             image_reference = (
                 self.candidate_reference if forward else self.prior_image_reference
             )
+            if name == "ea-api":
+                labels.update(
+                    {
+                        "com.docker.compose.container-number": "1",
+                        "com.docker.compose.image": image_id,
+                        "com.docker.compose.oneoff": "False",
+                    }
+                )
+            mount_root = self.baseline_root if self.rollback_mode else working_root
             mounts = (
-                self._api_mounts(working_root, memorial=forward)
+                self._api_mounts(mount_root, memorial=forward)
                 if name == "ea-api"
                 else []
             )
+            if (
+                name == "ea-api"
+                and not forward
+                and self.prior_mounts_override is not None
+            ):
+                mounts = [dict(item) for item in self.prior_mounts_override]
             if forward and not self.forward_source_mounts:
                 mounts = []
             if forward and self.forward_extra_mount:
@@ -726,24 +899,81 @@ class FakeRunner:
                         "RW": False,
                     }
                 )
+            for mount in mounts:
+                read_write = bool(mount.get("RW"))
+                mount.setdefault("Mode", "rw" if read_write else "ro")
+                mount.setdefault(
+                    "Propagation",
+                    "rprivate" if mount.get("Type") == "bind" else "",
+                )
+                if mount.get("Type") == "volume":
+                    mount.setdefault("Driver", "local")
             payload = {
                 "Id": "container-" + name,
                 "Created": "2026-07-13T00:00:00Z",
                 "Image": image_id,
+                "Path": "/usr/bin/tini" if name == "ea-api" else "",
+                "Args": (
+                    ["--", "uvicorn", "app.main:app"]
+                    if name == "ea-api"
+                    else []
+                ),
                 "Config": {
                     "Image": image_reference,
                     "Labels": labels,
                     "Env": (
                         [f"EA_SOURCE_REVISION={'b' * 40}"]
                         if forward
-                        else ["ROLLBACK_DRIFT=1"]
+                        else [
+                            *self.prior_source_revision_env,
+                            *self.prior_extra_environment,
+                            "ROLLBACK_DRIFT=1",
+                        ]
                         if self.rollback_mode and self.rollback_env_mismatch
-                        else []
+                        else [
+                            *self.prior_source_revision_env,
+                            *self.prior_extra_environment,
+                        ]
                     ),
                     "Cmd": ["uvicorn", "app.main:app"],
                     "Entrypoint": ["/usr/bin/tini", "--"],
                     "User": "10001:10001",
+                    **(
+                        dict(self.prior_config_overrides)
+                        if name == "ea-api" and not forward
+                        else {}
+                    ),
                 },
+                "HostConfig": (
+                    {
+                        **deploy.ROLLBACK_CAPSULE_ENGINE_SECURITY_DEFAULTS,
+                        **self.prior_host_config,
+                        **(
+                            self.rollback_host_config_overrides
+                            if self.rollback_mode
+                            else {}
+                        ),
+                    }
+                    if name == "ea-api" and not forward
+                    else {}
+                ),
+                "NetworkSettings": {
+                    "Networks": (
+                        dict(self.prior_networks)
+                        if name == "ea-api" and not forward
+                        else {}
+                    ),
+                    **(
+                        dict(self.prior_network_settings_overrides)
+                        if name == "ea-api" and not forward
+                        else {}
+                    ),
+                },
+                "AppArmorProfile": (
+                    self.prior_apparmor_profile
+                    if name == "ea-api" and not forward
+                    else ""
+                ),
                 "State": {
                     "Running": running,
                     "Restarting": False,
@@ -758,11 +988,29 @@ class FakeRunner:
         elif argv[-2:] == ["config", "--quiet"]:
             stdout = ""
         elif argv[-3:] == ["config", "--format", "json"]:
+            capsule_files = [
+                Path(argv[index + 1])
+                for index, item in enumerate(argv[:-1])
+                if item == "-f"
+                and argv[index + 1].endswith(".rollback-capsule.compose.json")
+            ]
             memorial = (
                 any(item.endswith("docker-compose.memorial.yml") for item in argv)
                 and "EA_MEMORIAL_IMAGE" in env
             )
-            if memorial:
+            if capsule_files:
+                self.rollback_capsule_file = str(capsule_files[-1])
+                capsule_document = json.loads(
+                    capsule_files[-1].read_text(encoding="utf-8")
+                )
+                if self.rollback_capsule_render_environment_override is not None:
+                    capsule_document["services"]["ea-api"]["environment"] = dict(
+                        self.rollback_capsule_render_environment_override
+                    )
+                stdout = json.dumps(
+                    self._normalized_capsule_render(capsule_document)
+                )
+            elif memorial:
                 stdout = json.dumps(
                     {
                         "name": "ea",
@@ -856,14 +1104,26 @@ class FakeRunner:
             memorial = any(
                 item.endswith("docker-compose.memorial.yml") for item in argv
             )
+            capsule_files = [
+                argv[index + 1]
+                for index, item in enumerate(argv[:-1])
+                if item == "-f"
+                and argv[index + 1].endswith(".rollback-capsule.compose.json")
+            ]
             self.api_mode = "forward" if memorial else "prior"
+            self.api_present = True
             self.rollback_mode = not memorial
+            if capsule_files:
+                self.rollback_capsule_file = capsule_files[-1]
             if memorial:
                 self.forward_files = [
                     argv[index + 1]
                     for index, item in enumerate(argv[:-1])
                     if item == "-f"
                 ]
+                if self.tamper_capsule_on_forward:
+                    capsule_path = Path(self.rollback_capsule_file)
+                    capsule_path.write_text("{}\n", encoding="utf-8")
         elif any(item.endswith("verify_release_authority.py") for item in argv):
             stdout = json.dumps(
                 {
@@ -2171,7 +2431,33 @@ def _lane(
         method: str,
     ) -> deploy.HttpResponse:
         del timeout
-        if urllib.parse.urlsplit(url).path != "/memorial/manfred":
+        path = urllib.parse.urlsplit(url).path
+        if path == "/openapi.json":
+            runner.public_openapi_methods.append(method)
+            phase = (
+                "rollback"
+                if runner.rollback_mode
+                else "forward"
+                if runner.api_mode == "forward"
+                else "prior"
+            )
+            expected_revision = (
+                "b" * 40 if phase == "forward" else runner.prior_source_revision
+            )
+            override = dict(runner.public_openapi_overrides.get(phase) or {})
+            return deploy.HttpResponse(
+                int(override.get("status", 404)),
+                str(override.get("content_type", "application/json; charset=utf-8")),
+                bytes(
+                    override.get(
+                        "body",
+                        b'{"error":{"code":"not_found"}}',
+                    )
+                ),
+                str(override.get("source_revision", expected_revision)),
+                headers=dict(override.get("headers") or {}),
+            )
+        if path != "/memorial/manfred":
             return _public_spatial_response(url, method)
         return _singular_alias_response(method)
 
@@ -2182,6 +2468,8 @@ def _lane(
         public_authority: str = "",
     ) -> deploy.HttpResponse:
         del public_authority
+        if urllib.parse.urlsplit(url).path == "/openapi.json":
+            return safe_no_redirect(url, timeout, method)
         return (http_no_redirect or safe_no_redirect)(url, timeout, method)
 
     def internal_openapi_snapshot() -> dict[str, object]:
@@ -2212,6 +2500,15 @@ def _lane(
         permit_path=vexp_permit_path,
         lock_path=vexp_lock_path,
         utc_now=lambda: datetime(2026, 7, 20, 10, 0, tzinfo=UTC),
+    )
+    recovery_root = root.parent / ".ea-memorial-deploy-state"
+    recovery_root.mkdir(exist_ok=True, mode=0o700)
+    recovery_root.chmod(0o700)
+    lane.normalization_recovery_journal_path = (
+        recovery_root / "api-baseline-normalization-active-recovery.json"
+    )
+    lane.joint_recovery_journal_path = (
+        recovery_root / "joint-active-recovery.json"
     )
     return lane
 
@@ -2760,7 +3057,9 @@ def test_rollback_render_environment_drift_fails_before_mutation(
     release_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runner = FakeRunner(release_root)
-    runner.rollback_render_environment = {"DRIFTED_VALUE": "changed"}
+    runner.rollback_capsule_render_environment_override = {
+        "DRIFTED_VALUE": "changed"
+    }
     monkeypatch.setattr(
         deploy,
         "source_worktree_metadata",
@@ -2769,7 +3068,7 @@ def test_rollback_render_environment_drift_fails_before_mutation(
 
     with pytest.raises(
         deploy.DeployError,
-        match="rollback_render_environment_identity_mismatch",
+        match="rollback_capsule_render_functional_identity_mismatch:environment",
     ):
         _lane(release_root, runner).deploy(preflight_only=True)
 
@@ -3266,6 +3565,10 @@ def test_happy_path_mutates_only_redis_and_api(
     receipt = lane.deploy()
 
     assert receipt["status"] == "pass"
+    assert receipt["rollback_capsule"]["status"] == "retired_after_pass"
+    assert receipt["rollback_recovery"]["status"] == "retired_after_pass"
+    assert not lane.rollback_capsule_path.exists()
+    assert not lane.joint_recovery_journal_path.exists()
     up_calls = [call for call in runner.calls if "up" in call]
     assert len(up_calls) == 1
     assert up_calls[0][-1] == "ea-api"
@@ -3340,6 +3643,7 @@ def test_happy_path_mutates_only_redis_and_api(
     previous = receipt["previous_api"]
     assert "mount_identities" not in previous
     assert "mounts" not in previous
+    assert previous["source_revision"] == runner.prior_source_revision
     assert len(previous["mount_identity_sha256"]) == 64
     rollback_render = receipt["rollback_render_preflight"]
     assert rollback_render["status"] == "pass"
@@ -3419,6 +3723,40 @@ def test_happy_path_mutates_only_redis_and_api(
     assert postdeploy_openapi["changed_operation_count"] == 0
     assert postdeploy_openapi["missing_or_changed_schema_count"] == 0
     assert postdeploy_openapi["missing_or_changed_security_scheme_count"] == 0
+    bounded_public_endpoint_fields = {
+        "path",
+        "method",
+        "status_code",
+        "redirect_count",
+        "content_type",
+        "media_type",
+        "error_code",
+        "source_revision",
+        "body_bytes",
+        "body_sha256",
+        "canonical_json_sha256",
+    }
+    predeploy_public_endpoint = predeploy_openapi["public_endpoint"]
+    postdeploy_public_endpoint = postdeploy_openapi["public_endpoint"]
+    assert set(predeploy_public_endpoint) == bounded_public_endpoint_fields
+    assert set(postdeploy_public_endpoint) == bounded_public_endpoint_fields
+    assert predeploy_public_endpoint["source_revision"] == (
+        runner.prior_source_revision
+    )
+    assert postdeploy_public_endpoint["source_revision"] == "b" * 40
+    assert predeploy_public_endpoint["method"] == "GET"
+    assert postdeploy_public_endpoint["method"] == "GET"
+    assert predeploy_public_endpoint["status_code"] == 404
+    assert postdeploy_public_endpoint["status_code"] == 404
+    assert predeploy_public_endpoint["redirect_count"] == 0
+    assert postdeploy_public_endpoint["redirect_count"] == 0
+    assert predeploy_openapi["probe"]["source"] == (
+        "deployed_api_container_app.openapi"
+    )
+    assert postdeploy_openapi["probe"]["source"] == (
+        "deployed_api_container_app.openapi"
+    )
+    assert runner.public_openapi_methods == ["GET", "GET"]
     assert "_contract" not in predeploy_openapi
     assert "_contract" not in postdeploy_openapi
 
@@ -3713,6 +4051,149 @@ def test_candidate_openapi_evidence_rejects_extra_unbounded_fields(
         lane.deploy(preflight_only=True)
 
     assert not any("up" in call for call in runner.calls)
+
+
+@pytest.mark.parametrize(
+    ("source_revision_env", "reason"),
+    [
+        ([], "prior_api_source_revision_missing_or_ambiguous"),
+        (
+            [
+                f"EA_SOURCE_REVISION={'a' * 40}",
+                f"EA_SOURCE_REVISION={'b' * 40}",
+            ],
+            "prior_api_source_revision_missing_or_ambiguous",
+        ),
+        (["EA_SOURCE_REVISION=not-a-revision"], "prior_api_source_revision_invalid"),
+    ],
+)
+def test_prior_api_source_revision_fails_closed_before_mutation(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    source_revision_env: list[str],
+    reason: str,
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.prior_source_revision_env = source_revision_env
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(deploy.DeployError, match=reason):
+        lane.deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+    assert runner.public_openapi_methods == []
+    assert lane.receipt["status"] == "preflight_failed"
+
+
+@pytest.mark.parametrize(
+    ("override", "reason"),
+    [
+        ({"status": 200}, "public_openapi_retirement_status_invalid"),
+        (
+            {"headers": {"Location": "/docs"}},
+            "public_openapi_retirement_redirect_invalid",
+        ),
+        (
+            {"content_type": "text/html"},
+            "public_openapi_retirement_content_type_invalid",
+        ),
+        (
+            {"content_type": "application/json; charset=utf-8\nX-Leak: value"},
+            "public_openapi_retirement_content_type_invalid",
+        ),
+        (
+            {"body": b'{"error":{"code":"still_public"}}'},
+            "public_openapi_retirement_error_code_invalid",
+        ),
+        (
+            {"body": b"not-json"},
+            "public_openapi_retirement_json_invalid",
+        ),
+        (
+            {"source_revision": "c" * 40},
+            "public_openapi_retirement_revision_mismatch",
+        ),
+        (
+            {"body": b"x" * (deploy.MAX_HTTP_BODY_BYTES + 1)},
+            "public_openapi_retirement_body_size_invalid",
+        ),
+    ],
+)
+def test_public_openapi_retirement_fails_preflight_before_mutation(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    override: dict[str, object],
+    reason: str,
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.public_openapi_overrides["prior"] = override
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(deploy.DeployError, match=reason):
+        lane.deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+    assert runner.public_openapi_methods == ["GET"]
+    assert lane.receipt["status"] == "preflight_failed"
+
+
+def test_postdeploy_public_openapi_exposure_rolls_back(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.public_openapi_overrides["forward"] = {"status": 200}
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(deploy.DeployError, match="deployment_failed_rolled_back"):
+        lane.deploy()
+
+    receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
+    assert "public_openapi_retirement_status_invalid" in receipt["failure"]["reason"]
+    assert receipt["rollback"]["status"] == "pass"
+    assert receipt["rollback"]["openapi"]["public_endpoint"]["status_code"] == 404
+    assert runner.public_openapi_methods == ["GET", "GET", "GET"]
+
+
+def test_rollback_fails_closed_when_public_openapi_retirement_is_not_restored(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.forward_openapi_changed_operation = True
+    runner.public_openapi_overrides["rollback"] = {"source_revision": "c" * 40}
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(deploy.DeployError, match="deployment_and_rollback_failed"):
+        lane.deploy()
+
+    receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "rollback_failed"
+    assert "postdeploy_openapi_operation_changed" in receipt["failure"]["reason"]
+    assert "public_openapi_retirement_revision_mismatch" in receipt["rollback"][
+        "reason"
+    ]
+    assert runner.public_openapi_methods == ["GET", "GET", "GET"]
 
 
 def test_postdeploy_openapi_uses_retired_internal_container_snapshot(
@@ -4363,8 +4844,7 @@ def test_forward_topology_rebases_ordered_baseline_layers_into_release_root(
     assert str(release_root / "docker-compose.prod.yml") in config_call
     assert str(prior_root / "docker-compose.yml") not in config_call
     assert receipt["rollback_compose_files"] == [
-        str(prior_root / "docker-compose.yml"),
-        str(prior_root / "docker-compose.prod.yml"),
+        "memorial-release-001.rollback-capsule.compose.json"
     ]
 
 
@@ -4400,8 +4880,7 @@ def test_existing_memorial_baseline_is_replaced_for_governed_update(
     ]
     assert receipt["forward_topology_source"]["prior_memorial_layer_replaced"] is True
     assert receipt["rollback_compose_files"] == [
-        str(prior_root / "docker-compose.yml"),
-        str(prior_root / "docker-compose.memorial.yml"),
+        "memorial-release-001.rollback-capsule.compose.json"
     ]
     config_call = [call for call in runner.calls if call[-2:] == ["config", "--quiet"]][
         0
@@ -4496,10 +4975,19 @@ def test_public_failure_rolls_back_once_with_base_and_prod_only(
     forward, rollback = api_up_calls
     assert "docker-compose.memorial.yml" in " ".join(forward)
     assert "docker-compose.memorial.yml" not in " ".join(rollback)
-    assert "docker-compose.yml" in " ".join(rollback)
-    assert "docker-compose.prod.yml" in " ".join(rollback)
+    assert "rollback-capsule.compose.json" in " ".join(rollback)
+    assert "docker-compose.yml" not in " ".join(rollback)
+    assert "docker-compose.prod.yml" not in " ".join(rollback)
     payload = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
     assert payload["status"] == "failed_rolled_back"
+    assert payload["rollback_capsule"]["status"] == (
+        "retired_after_verified_rollback"
+    )
+    assert payload["rollback_recovery"]["status"] == (
+        "retired_after_verified_rollback"
+    )
+    assert not lane.rollback_capsule_path.exists()
+    assert not lane.joint_recovery_journal_path.exists()
     assert payload["rollback"]["status"] == "pass"
     rollback_openapi = payload["rollback"]["openapi"]
     assert rollback_openapi["matches_predeploy_contract"] is True
@@ -4510,6 +4998,15 @@ def test_public_failure_rolls_back_once_with_base_and_prod_only(
         rollback_openapi["contract_sha256"]
         == payload["predeploy_non_memorial_controls"]["openapi"]["contract_sha256"]
     )
+    assert rollback_openapi["probe"]["source"] == (
+        "deployed_api_container_app.openapi"
+    )
+    assert rollback_openapi["public_endpoint"]["source_revision"] == (
+        runner.prior_source_revision
+    )
+    assert rollback_openapi["public_endpoint"]["method"] == "GET"
+    assert rollback_openapi["public_endpoint"]["status_code"] == 404
+    assert rollback_openapi["public_endpoint"]["redirect_count"] == 0
     assert "_contract" not in rollback_openapi
     assert "paths" not in rollback_openapi
     rollback_index = runner.calls.index(rollback)
@@ -4641,7 +5138,7 @@ def test_rollback_environment_drift_preserves_primary_and_rollback_failures(
     assert receipt["rollback"]["reason"] == "rollback_environment_identity_mismatch"
 
 
-def test_rollback_replays_exact_captured_baseline_compose_files(
+def test_rollback_replays_only_the_sealed_capsule(
     release_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runner = FakeRunner(release_root, baseline_files=("docker-compose.yml",))
@@ -4671,11 +5168,12 @@ def test_rollback_replays_exact_captured_baseline_compose_files(
         and call[-1] == "ea-api"
         and "docker-compose.memorial.yml" not in " ".join(call)
     ][0]
-    assert str(release_root / "docker-compose.yml") in rollback
+    assert str(release_root / "docker-compose.yml") not in rollback
     assert str(release_root / "docker-compose.prod.yml") not in rollback
+    assert any(item.endswith(".rollback-capsule.compose.json") for item in rollback)
     receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
     assert receipt["rollback"]["compose_config_files"] == [
-        str(release_root / "docker-compose.yml")
+        str(lane.rollback_capsule_path)
     ]
 
 
@@ -5450,3 +5948,757 @@ def test_bind_source_snapshot_drift_stops_before_api_recreation(
     )
     receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
     assert receipt["preparation"]["api_mutation_started"] is False
+
+
+def _configure_observed_live_rollback_posture(
+    runner: FakeRunner, root: Path
+) -> None:
+    mounts = FakeRunner._api_mounts(root, memorial=True)
+    runner.prior_mounts_override = mounts
+    runner.prior_extra_environment = [
+        "CAPSULE_SECRET=private$value\nsecond-line",
+        "EMPTY_VALUE=",
+    ]
+    runner.prior_noncompose_labels = {
+        "org.opencontainers.image.revision": "a" * 40,
+        "org.opencontainers.image.source": "EA",
+        "org.opencontainers.image.title": "EA Runtime",
+    }
+    runner.prior_config_overrides = {
+        "ExposedPorts": {"8090/tcp": {}},
+        "Healthcheck": {
+            "Test": ["CMD-SHELL", "curl -fsS http://127.0.0.1:8090/health"],
+            "Interval": 120_000_000_000,
+            "Timeout": 10_000_000_000,
+            "Retries": 5,
+        },
+        "Hostname": "bfa3c4263428",
+        "WorkingDir": "/app",
+    }
+    binds = [
+        (
+            f"{mount.get('Name') if mount.get('Type') == 'volume' else mount['Source']}:"
+            f"{mount['Destination']}:{'rw' if mount['RW'] else 'ro'}"
+        )
+        for mount in mounts
+    ]
+    runner.prior_host_config = {
+        "Binds": binds,
+        "CapDrop": ["ALL"],
+        "CgroupnsMode": "private",
+        "CpuShares": 512,
+        "ExtraHosts": ["host.docker.internal:host-gateway"],
+        "IpcMode": "private",
+        "LogConfig": {
+            "Type": "json-file",
+            "Config": {"max-file": "3", "max-size": "10m"},
+        },
+        "MaskedPaths": list(
+            deploy.ROLLBACK_CAPSULE_ENGINE_SECURITY_DEFAULTS["MaskedPaths"]
+        ),
+        "Memory": 4 * 1024**3,
+        "MemoryReservation": 1024**3,
+        "MemorySwap": 8 * 1024**3,
+        "NanoCpus": 2_000_000_000,
+        "NetworkMode": "ea_default",
+        "PidsLimit": 512,
+        "PortBindings": {
+            "8090/tcp": [{"HostIp": "127.0.0.1", "HostPort": "8090"}]
+        },
+        "ReadonlyPaths": list(
+            deploy.ROLLBACK_CAPSULE_ENGINE_SECURITY_DEFAULTS["ReadonlyPaths"]
+        ),
+        "ReadonlyRootfs": True,
+        "RestartPolicy": {"Name": "unless-stopped", "MaximumRetryCount": 0},
+        "Runtime": "runc",
+        "SecurityOpt": ["no-new-privileges:true"],
+        "ShmSize": 64 * 1024**2,
+        "Tmpfs": {"/run": "", "/tmp": ""},
+    }
+    runner.prior_networks = {
+        "ea_default": {
+            "Aliases": ["ea-api", "ea-api"],
+            "DNSNames": ["ea-api", "container-ea-api"],
+            "EndpointID": "3" * 64,
+            "Gateway": "172.20.0.1",
+            "IPAddress": "172.20.0.2",
+            "IPPrefixLen": 16,
+            "MacAddress": "02:42:ac:14:00:02",
+            "NetworkID": "1" * 64,
+        },
+        "ea_public_ingress": {
+            "Aliases": ["ea-api", "ea-api"],
+            "DNSNames": ["ea-api", "container-ea-api"],
+            "EndpointID": "4" * 64,
+            "Gateway": "172.21.0.1",
+            "IPAddress": "172.21.0.2",
+            "IPPrefixLen": 16,
+            "MacAddress": "02:42:ac:15:00:02",
+            "NetworkID": "2" * 64,
+        },
+    }
+    runner.prior_apparmor_profile = "docker-default"
+
+
+def test_split_topology_never_opens_external_compose_or_environment_bytes(
+    release_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    missing_working_root = tmp_path / "missing-old-release"
+    missing_config_root = tmp_path / "missing-external-config"
+    runner = FakeRunner(
+        release_root,
+        baseline_root=missing_working_root,
+        baseline_config_root=missing_config_root,
+        baseline_files=("docker-compose.yml", "docker-compose.memorial.yml"),
+    )
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    receipt = _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert receipt["status"] == "preflight_only_pass"
+    assert receipt["forward_topology_source"]["external_layer_basenames"] == [
+        "docker-compose.yml",
+        "docker-compose.memorial.yml",
+    ]
+    assert all(
+        str(missing_working_root) not in " ".join(call)
+        and str(missing_config_root) not in " ".join(call)
+        for call in runner.calls
+        if "config" in call
+    )
+
+
+def test_unknown_split_topology_layer_fails_before_mutation(
+    release_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(
+        release_root,
+        baseline_root=tmp_path / "old-release",
+        baseline_config_root=tmp_path / "external-config",
+        baseline_files=("untrusted-compose.yml",),
+    )
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="forward_baseline_compose_file_unmappable:untrusted-compose.yml",
+    ):
+        _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+    assert not any(call[:3] == ["docker", "image", "tag"] for call in runner.calls)
+
+
+def test_capsule_is_private_rendered_and_receipt_redacts_environment_values(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    secret = "private$value\nsecond-line"
+    runner.prior_extra_environment = [f"CAPSULE_SECRET={secret}", "EMPTY_VALUE="]
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+
+    context = lane.preflight()
+
+    capsule_metadata = lane.rollback_capsule_path.stat()
+    assert stat.S_IMODE(capsule_metadata.st_mode) == 0o600
+    assert capsule_metadata.st_nlink == 1
+    capsule_text = lane.rollback_capsule_path.read_text(encoding="utf-8")
+    assert "private$$value\\nsecond-line" in capsule_text
+    receipt_text = lane.receipt_path.read_text(encoding="utf-8")
+    assert secret not in receipt_text
+    assert "CAPSULE_SECRET" not in receipt_text
+    assert context["rollback_render"]["status"] == "pass"
+    assert context["rollback_render"]["environment_count"] == 3
+    lane._clear_rollback_artifacts(terminal_status="discarded_test")
+    assert not lane.rollback_capsule_path.exists()
+
+
+@pytest.mark.parametrize(
+    ("surface", "field", "value", "reason"),
+    [
+        ("config", "Tty", True, "rollback_capsule_config_field_unsupported:Tty"),
+        (
+            "host",
+            "Privileged",
+            True,
+            "rollback_capsule_host_field_unsupported:Privileged",
+        ),
+        (
+            "host",
+            "Devices",
+            [{"PathOnHost": "/dev/null"}],
+            "rollback_capsule_host_field_unsupported:Devices",
+        ),
+    ],
+)
+def test_unsupported_non_neutral_inspect_field_fails_before_mutation(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    surface: str,
+    field: str,
+    value: object,
+    reason: str,
+) -> None:
+    runner = FakeRunner(release_root)
+    if surface == "config":
+        runner.prior_config_overrides[field] = value
+    else:
+        runner.prior_host_config[field] = value
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(deploy.DeployError, match=reason):
+        _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+    assert not any(call[:3] == ["docker", "image", "tag"] for call in runner.calls)
+
+
+def test_observed_live_posture_maps_to_a_single_render_verified_capsule(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    _configure_observed_live_rollback_posture(runner, release_root)
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    receipt = _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert receipt["status"] == "preflight_only_pass"
+    capsule = receipt["rollback_capsule"]
+    assert capsule["contract_name"] == deploy.ROLLBACK_CAPSULE_CONTRACT_NAME
+    assert capsule["mode"] == "0600"
+    assert capsule["status"] == "discarded_preflight_only"
+    assert len(capsule["functional_identity_sha256"]) == 64
+    assert receipt["rollback_render_preflight"]["network_count"] == 2
+    assert receipt["previous_api"]["functional_identity"]["domains"][
+        "noncompose_labels"
+    ]["count"] == 3
+
+
+def test_postrollback_host_config_drift_retains_crash_recovery_artifacts(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.rollback_host_config_overrides = {"ReadonlyRootfs": True}
+    secret = "must-not-enter-receipt"
+    runner.prior_extra_environment = [f"CAPSULE_SECRET={secret}"]
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    def failing_public_http(url: str, timeout: float) -> deploy.HttpResponse:
+        if url.startswith("https://") and not url.endswith(".json"):
+            raise deploy.DeployError("http_status_invalid:404")
+        if url.endswith(".json"):
+            return deploy.HttpResponse(200, "application/json", SAFE_MANIFEST, "b" * 40)
+        if url.endswith("/health"):
+            return deploy.HttpResponse(200, "application/json", b'{"status":"ok"}')
+        return deploy.HttpResponse(200, "text/html", SAFE_HTML, "b" * 40)
+
+    lane = _lane(release_root, runner, http_get=failing_public_http)
+    with pytest.raises(
+        deploy.DeployError,
+        match="deployment_and_rollback_failed:.*rollback_functional_identity_mismatch",
+    ):
+        lane.deploy()
+
+    receipt_text = lane.receipt_path.read_text(encoding="utf-8")
+    assert secret not in receipt_text
+    assert lane.rollback_capsule_path.exists()
+    assert lane.joint_recovery_journal_path.exists()
+    receipt = json.loads(receipt_text)
+    assert receipt["status"] == "rollback_failed"
+    assert receipt["rollback_capsule"]["status"] == "sealed"
+    assert receipt["rollback_recovery"]["status"] == "armed"
+
+
+def test_capsule_drift_after_forward_mutation_fails_closed_and_is_retained(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.tamper_capsule_on_forward = True
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="deployment_and_rollback_failed:.*deployment_input_seal_changed:rollback",
+    ):
+        lane.deploy()
+
+    assert lane.rollback_capsule_path.exists()
+    assert lane.joint_recovery_journal_path.exists()
+    assert json.loads(lane.receipt_path.read_text(encoding="utf-8"))[
+        "status"
+    ] == "rollback_failed"
+
+
+def test_existing_joint_recovery_journal_blocks_before_capsule_or_mutation(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+    lane.joint_recovery_journal_path.write_text("{}\n", encoding="utf-8")
+    lane.joint_recovery_journal_path.chmod(0o600)
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="api_baseline_normalization_recovery_active_or_indeterminate",
+    ):
+        lane.deploy()
+
+    assert not lane.rollback_capsule_path.exists()
+    assert not any("up" in call for call in runner.calls)
+    assert not any(call[:3] == ["docker", "image", "tag"] for call in runner.calls)
+
+
+@pytest.mark.parametrize(
+    ("domain", "reason"),
+    [
+        ("environment", "functional_identity_mismatch:environment"),
+        ("healthcheck", "functional_identity_mismatch:healthcheck"),
+        ("host_config", "functional_identity_mismatch:host_config"),
+        ("image", "render_image_mismatch"),
+        ("mounts", "functional_identity_mismatch:mounts"),
+        ("networks", "functional_identity_mismatch:networks"),
+        ("noncompose_labels", "functional_identity_mismatch:noncompose_labels"),
+        ("ports", "functional_identity_mismatch:ports"),
+        ("process", "functional_identity_mismatch:process"),
+        ("stop_config", "functional_identity_mismatch:stop_config"),
+    ],
+)
+def test_rendered_capsule_perturbation_fails_closed_for_every_runtime_domain(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    domain: str,
+    reason: str,
+) -> None:
+    runner = FakeRunner(release_root)
+    _configure_observed_live_rollback_posture(runner, release_root)
+
+    def perturb(rendered: dict[str, object]) -> None:
+        service = dict(rendered["services"])["ea-api"]
+        if domain == "environment":
+            service["environment"]["DOMAIN_DRIFT"] = "1"
+        elif domain == "healthcheck":
+            service["healthcheck"]["retries"] += 1
+        elif domain == "host_config":
+            service["read_only"] = False
+        elif domain == "image":
+            service["image"] = "ea-runtime:unexpected"
+        elif domain == "mounts":
+            service["volumes"][0]["read_only"] = not bool(
+                service["volumes"][0].get("read_only")
+            )
+        elif domain == "networks":
+            first = next(iter(service["networks"].values()))
+            first.setdefault("aliases", []).append("domain-drift")
+        elif domain == "noncompose_labels":
+            service["labels"]["org.opencontainers.image.title"] = "drift"
+        elif domain == "ports":
+            service["ports"][0]["published"] = 18090
+        elif domain == "process":
+            service["command"] = [*service["command"], "--domain-drift"]
+        elif domain == "stop_config":
+            service["stop_signal"] = "SIGUSR1"
+        else:  # pragma: no cover - parameter exhaustiveness
+            raise AssertionError(domain)
+
+    runner.rollback_capsule_render_mutator = perturb
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(deploy.DeployError, match=reason):
+        _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+    assert not any(call[:3] == ["docker", "image", "tag"] for call in runner.calls)
+
+
+@pytest.mark.parametrize("surface", ["service", "top_level"])
+def test_unknown_rendered_non_neutral_field_fails_before_mutation(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    surface: str,
+) -> None:
+    runner = FakeRunner(release_root)
+
+    def perturb(rendered: dict[str, object]) -> None:
+        if surface == "service":
+            dict(rendered["services"])["ea-api"]["privileged"] = True
+        else:
+            rendered["secrets"] = {"unexpected": {"external": True}}
+
+    runner.rollback_capsule_render_mutator = perturb
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(deploy.DeployError, match="field_unsupported"):
+        _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+
+
+@pytest.mark.parametrize("surface", ["network_settings", "mount"])
+def test_unknown_live_inspect_surface_field_fails_before_mutation(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    surface: str,
+) -> None:
+    runner = FakeRunner(release_root)
+    if surface == "network_settings":
+        runner.prior_network_settings_overrides["UnexpectedRouteState"] = {
+            "gateway": "192.0.2.1"
+        }
+        reason = "rollback_capsule_network_settings_field_unsupported"
+    else:
+        mounts = FakeRunner._api_mounts(release_root, memorial=False)
+        mounts[0]["UnexpectedMountState"] = "non-neutral"
+        runner.prior_mounts_override = mounts
+        reason = "rollback_capsule_mount_field_unsupported"
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(deploy.DeployError, match=reason):
+        _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+
+
+def test_external_network_identity_is_rechecked_immediately_before_forward_recreate(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    _configure_observed_live_rollback_posture(runner, release_root)
+    runner.network_resource_id_after_first_inspect["ea_default"] = "9" * 64
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(
+        deploy.DeployError, match="rollback_external_network_identity_changed"
+    ):
+        _lane(release_root, runner).deploy()
+
+    assert not any(
+        "up" in call and call[-1] == "ea-api" for call in runner.calls
+    )
+
+
+def test_real_compose_config_normalization_round_trips_every_runtime_domain(
+    release_root: Path,
+) -> None:
+    if shutil.which("docker") is None:
+        pytest.skip("docker CLI unavailable")
+    version = subprocess.run(  # nosec B603 - read-only fixed Docker command
+        ["docker", "compose", "version"],
+        cwd=release_root,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if version.returncode != 0:
+        pytest.skip("Docker Compose plugin unavailable")
+
+    runner = FakeRunner(release_root)
+    _configure_observed_live_rollback_posture(runner, release_root)
+    lane = _lane(release_root, runner)
+    inspection = json.loads(
+        runner.run(
+            ["docker", "inspect", "ea-api"],
+            cwd=release_root,
+            env={},
+        ).stdout
+    )[0]
+    document, expected_identity = lane._build_rollback_capsule(inspection)
+    capsule = lane.receipt_dir / "actual-config-only.compose.json"
+    capsule.parent.mkdir(parents=True, exist_ok=True)
+    capsule.parent.chmod(0o700)
+    capsule.write_text(
+        json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    capsule.chmod(0o600)
+    completed = subprocess.run(  # nosec B603 - config-only; no daemon mutation
+        [
+            "docker",
+            "compose",
+            "--project-name",
+            "ea",
+            "--project-directory",
+            str(lane.receipt_dir),
+            "-f",
+            str(capsule),
+            "config",
+            "--format",
+            "json",
+        ],
+        cwd=lane.receipt_dir,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    if completed.returncode != 0:
+        pytest.fail(f"Docker Compose config-only probe failed:{completed.returncode}")
+    rendered = json.loads(completed.stdout)
+    projected = lane._rollback_render_runtime_projection(
+        rendered,
+        document,
+        image_id=runner.old_image,
+        image_config={
+            "Env": [],
+            "Cmd": ["uvicorn", "app.main:app"],
+            "Entrypoint": ["/usr/bin/tini", "--"],
+            "User": "10001:10001",
+        },
+    )
+
+    assert deploy._container_functional_identity(projected) == expected_identity
+    rendered_service = dict(rendered["services"])["ea-api"]
+    assert rendered_service["extra_hosts"] == [
+        "host.docker.internal=host-gateway"
+    ]
+    assert not any(
+        token in completed.args for token in ("up", "start", "create", "run")
+    )
+
+
+def _arm_test_active_recovery(
+    lane: deploy.MemorialDeployLane,
+) -> tuple[dict[str, object], str]:
+    context = lane.preflight()
+    previous = dict(context["previous"])
+    rollback_tag = lane._protect_previous_image(previous)
+    lane._arm_rollback_recovery(
+        previous=previous,
+        rollback_tag=rollback_tag,
+        non_memorial_controls=dict(context["non_memorial_controls"]),
+        public_origin=str(context["public_origin"]),
+    )
+    return context, rollback_tag
+
+
+@pytest.mark.parametrize(
+    ("persisted_state", "expected_status", "expected_mutations"),
+    [
+        ("before_recreate", "baseline_already_exact", 0),
+        ("during_recreate", "rollback_verified", 1),
+        ("after_recreate", "rollback_verified", 1),
+    ],
+)
+def test_recover_active_reconciles_sigkill_equivalent_persisted_states(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    persisted_state: str,
+    expected_status: str,
+    expected_mutations: int,
+) -> None:
+    runner = FakeRunner(release_root)
+    _configure_observed_live_rollback_posture(runner, release_root)
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+    _context, _rollback_tag = _arm_test_active_recovery(lane)
+    if persisted_state == "during_recreate":
+        runner.api_present = False
+    elif persisted_state == "after_recreate":
+        runner.api_mode = "forward"
+        runner.rollback_mode = False
+    before_up = sum(
+        "up" in call and call[-1] == "ea-api" for call in runner.calls
+    )
+    recovery = _lane(
+        release_root,
+        runner,
+        receipt_dir=lane.receipt_dir,
+        global_lock_path=lane.global_lock_path,
+    )
+
+    result = recovery.recover_active()
+
+    after_up = sum(
+        "up" in call and call[-1] == "ea-api" for call in runner.calls
+    )
+    assert result["status"] == expected_status
+    assert result["api_mutation_count"] == expected_mutations
+    assert after_up - before_up == expected_mutations
+    assert "container-ea-api" not in json.dumps(result, sort_keys=True)
+    assert "container_id" not in dict(result["verification"])
+    assert len(str(dict(result["verification"])["container_id_sha256"])) == 64
+    assert not lane.rollback_capsule_path.exists()
+    assert not lane.joint_recovery_journal_path.exists()
+
+
+@pytest.mark.parametrize("capsule_present", [True, False])
+def test_recover_active_replays_cleanup_capsule_first_and_is_idempotent(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsule_present: bool,
+) -> None:
+    runner = FakeRunner(release_root)
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+    _arm_test_active_recovery(lane)
+    journal = dict(lane._rollback_recovery_document or {})
+    journal["status"] = deploy.ROLLBACK_RECOVERY_CLEANUP_STATUS
+    journal["terminal_status"] = "retired_after_test_commit"
+    journal["cleanup_started_at"] = "2026-07-22T00:00:00Z"
+    lane._rollback_recovery_seal = lane._replace_private_artifact(
+        lane.joint_recovery_journal_path,
+        lane._rollback_recovery_payload(journal),
+        dict(lane._rollback_recovery_seal or {}),
+        reason_prefix="rollback_recovery_journal",
+    )
+    lane._rollback_recovery_document = journal
+    if not capsule_present:
+        lane._remove_private_artifact(
+            lane.rollback_capsule_path,
+            dict(lane._rollback_capsule_seal or {}),
+            reason_prefix="rollback_capsule",
+        )
+    recovery = _lane(
+        release_root,
+        runner,
+        receipt_dir=lane.receipt_dir,
+        global_lock_path=lane.global_lock_path,
+    )
+    before_up = sum("up" in call for call in runner.calls)
+
+    first = recovery.recover_active()
+    second = recovery.recover_active()
+
+    assert first["status"] == "cleanup_replayed"
+    assert first["capsule_was_present"] is capsule_present
+    assert first["api_mutation_count"] == 0
+    assert second == {
+        "contract_name": "ea.memorial_api_recovery_result.v1",
+        "status": "no_active_recovery",
+        "api_mutation_count": 0,
+    }
+    assert sum("up" in call for call in runner.calls) == before_up
+    assert not lane.rollback_capsule_path.exists()
+    assert not lane.joint_recovery_journal_path.exists()
+
+
+def test_active_recovery_journal_is_redacted_and_protected_image_bound(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    secret = "journal-must-not-contain-$-secret"
+    runner.prior_extra_environment = [f"PRIVATE_RECOVERY_VALUE={secret}"]
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+    _context, rollback_tag = _arm_test_active_recovery(lane)
+    journal_text = lane.joint_recovery_journal_path.read_text(encoding="utf-8")
+
+    assert secret not in journal_text
+    assert "PRIVATE_RECOVERY_VALUE" not in journal_text
+    assert "container-ea-api" not in journal_text
+    assert "source_container_id_sha256" in journal_text
+
+    runner.image_refs[rollback_tag] = runner.candidate_image
+    recovery = _lane(
+        release_root,
+        runner,
+        receipt_dir=lane.receipt_dir,
+        global_lock_path=lane.global_lock_path,
+    )
+    with pytest.raises(
+        deploy.DeployError, match="rollback_recovery_protected_image_mismatch"
+    ):
+        recovery.recover_active()
+    assert lane.rollback_capsule_path.exists()
+    assert lane.joint_recovery_journal_path.exists()
+    assert not any(
+        "up" in call and call[-1] == "ea-api" for call in runner.calls
+    )
+
+
+def test_private_artifact_parent_walk_rejects_symlink_and_fchmods_final_dir(
+    tmp_path: Path,
+) -> None:
+    real = tmp_path / "real"
+    real.mkdir(mode=0o755)
+    linked = tmp_path / "linked"
+    linked.symlink_to(real, target_is_directory=True)
+
+    with pytest.raises(deploy.DeployError, match="directory_unavailable"):
+        deploy.MemorialDeployLane._write_private_artifact_once(
+            linked / "secret.json",
+            b"{}\n",
+            reason_prefix="private_test",
+        )
+
+    seal = deploy.MemorialDeployLane._write_private_artifact_once(
+        real / "secret.json",
+        b"{}\n",
+        reason_prefix="private_test",
+    )
+    assert stat.S_IMODE(real.stat().st_mode) == 0o700
+    assert seal["mode"] == "0600"

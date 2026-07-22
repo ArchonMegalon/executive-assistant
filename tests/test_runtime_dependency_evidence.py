@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 import sys
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -19,15 +21,66 @@ def _load_script(name: str):
     return module
 
 
-def test_runtime_dependency_materializer_writes_pass_receipts() -> None:
+def _offline_audit_payload(materializer, requirements_path: Path) -> dict[str, object]:
+    return {
+        "dependencies": [
+            {
+                "name": name.split("[", 1)[0],
+                "version": version,
+                "vulns": [],
+            }
+            for name, version in materializer._requirements(requirements_path)
+        ],
+        "fixes": [],
+    }
+
+
+def _isolated_materializer(monkeypatch, tmp_path: Path):
     materializer = _load_script("materialize_runtime_dependency_evidence")
+    requirements_path = tmp_path / "ea" / "requirements.txt"
+    requirements_path.parent.mkdir(parents=True, exist_ok=True)
+    requirements_path.write_text(
+        (ROOT / "ea" / "requirements.txt").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(materializer, "ROOT", tmp_path)
+    monkeypatch.setattr(materializer, "REQUIREMENTS_PATHS", (requirements_path,))
+    monkeypatch.setattr(
+        materializer,
+        "SBOM_OUTPUT",
+        tmp_path / ".codex-studio" / "published" / "runtime_dependency_sbom.cdx.json",
+    )
+    monkeypatch.setattr(
+        materializer,
+        "AUDIT_OUTPUT",
+        tmp_path
+        / ".codex-studio"
+        / "published"
+        / "runtime_dependency_audit.generated.json",
+    )
+    return materializer
+
+
+def test_runtime_dependency_materializer_writes_pass_receipts(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    materializer = _isolated_materializer(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        materializer,
+        "_pip_audit_json",
+        lambda path: _offline_audit_payload(materializer, path),
+    )
 
     receipt = materializer.materialize()
 
     assert receipt["contract_name"] == "ea.runtime_dependency_audit.v1"
     assert receipt["status"] == "pass"
+    assert receipt["audit_complete"] is True
+    assert receipt["direct_requirement_count"] == 19
+    assert receipt["dependency_count"] >= receipt["direct_requirement_count"]
     assert receipt["vulnerable_dependency_count"] == 0
-    sbom_path = ROOT / str(receipt["sbom_path"])
+    sbom_path = tmp_path / str(receipt["sbom_path"])
     assert sbom_path.is_file()
     sbom = json.loads(sbom_path.read_text(encoding="utf-8"))
     assert sbom["bomFormat"] == "CycloneDX"
@@ -51,6 +104,7 @@ def test_runtime_dependency_audit_uses_invoking_python(
     tmp_path: Path,
 ) -> None:
     materializer = _load_script("materialize_runtime_dependency_evidence")
+    monkeypatch.delenv(materializer.PIP_AUDIT_PYTHON_ENV, raising=False)
     requirements_path = tmp_path / "requirements.txt"
     requirements_path.write_text("example==1.0\n", encoding="utf-8")
     captured: list[str] = []
@@ -60,7 +114,7 @@ def test_runtime_dependency_audit_uses_invoking_python(
         return materializer.subprocess.CompletedProcess(
             command,
             0,
-            stdout='{"dependencies": [], "fixes": []}',
+            stdout='{"dependencies": [{"name": "example", "version": "1.0", "vulns": []}], "fixes": []}',
             stderr="",
         )
 
@@ -68,13 +122,66 @@ def test_runtime_dependency_audit_uses_invoking_python(
 
     payload = materializer._pip_audit_json(requirements_path)
 
-    assert payload == {"dependencies": [], "fixes": []}
+    assert payload == {
+        "dependencies": [{"name": "example", "version": "1.0", "vulns": []}],
+        "fixes": [],
+    }
     assert captured[:3] == [sys.executable, "-m", "pip_audit"]
 
 
-def test_runtime_dependency_verifier_passes_for_current_tree() -> None:
+def test_runtime_dependency_audit_fails_closed_when_tool_execution_fails(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
     materializer = _load_script("materialize_runtime_dependency_evidence")
+    requirements_path = tmp_path / "requirements.txt"
+    requirements_path.write_text("example==1.0\n", encoding="utf-8")
+
+    def fake_run(command: list[str], **_kwargs):
+        return materializer.subprocess.CompletedProcess(
+            command,
+            2,
+            stdout="",
+            stderr="pip-audit unavailable",
+        )
+
+    monkeypatch.setattr(materializer.subprocess, "run", fake_run)
+
+    with pytest.raises(RuntimeError, match="pip_audit_json_missing"):
+        materializer._pip_audit_json(requirements_path)
+
+
+def test_runtime_dependency_materializer_accepts_exact_and_bounded_constraints(
+    tmp_path: Path,
+) -> None:
+    materializer = _load_script("materialize_runtime_dependency_evidence")
+    requirements_path = tmp_path / "requirements.txt"
+    requirements_path.write_text(
+        "exact-package==1.2.3\n"
+        "bounded-package>=48.0.1,<49.0.0\n",
+        encoding="utf-8",
+    )
+
+    assert materializer._requirements(requirements_path) == [
+        ("exact-package", "1.2.3"),
+        ("bounded-package", ">=48.0.1,<49.0.0"),
+    ]
+
+
+def test_runtime_dependency_verifier_passes_for_current_tree(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    materializer = _isolated_materializer(monkeypatch, tmp_path)
     verifier = _load_script("verify_runtime_dependency_evidence")
+    monkeypatch.setattr(verifier, "ROOT", tmp_path)
+    monkeypatch.setattr(verifier, "SBOM_PATH", materializer.SBOM_OUTPUT)
+    monkeypatch.setattr(verifier, "AUDIT_PATH", materializer.AUDIT_OUTPUT)
+    monkeypatch.setattr(
+        materializer,
+        "_pip_audit_json",
+        lambda path: _offline_audit_payload(materializer, path),
+    )
     _ = materializer.materialize()
 
     result = verifier.verify()
@@ -84,10 +191,70 @@ def test_runtime_dependency_verifier_passes_for_current_tree() -> None:
     assert result["issues"] == []
 
 
+def test_runtime_dependency_verifier_rejects_empty_audit_coverage(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    verifier = _load_script("verify_runtime_dependency_evidence")
+    monkeypatch.setattr(verifier, "ROOT", tmp_path)
+    monkeypatch.setattr(verifier, "SBOM_PATH", tmp_path / "runtime-sbom.json")
+    monkeypatch.setattr(verifier, "AUDIT_PATH", tmp_path / "runtime-audit.json")
+    requirements_path = tmp_path / "ea" / "requirements.txt"
+    requirements_path.parent.mkdir(parents=True)
+    requirements_path.write_text("example==1.0\n", encoding="utf-8")
+    verifier.SBOM_PATH.write_text(
+        json.dumps(
+            {
+                "bomFormat": "CycloneDX",
+                "specVersion": "1.6",
+                "components": [
+                    {
+                        "name": "example",
+                        "properties": [
+                            {"name": "ea.requirements_source", "value": "ea/requirements.txt"}
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    verifier.AUDIT_PATH.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.runtime_dependency_audit.v1",
+                "status": "pass",
+                "audit_complete": True,
+                "vulnerable_dependency_count": 0,
+                "sbom_path": "runtime-sbom.json",
+                "direct_requirement_count": 1,
+                "dependency_count": 0,
+                "requirements_sources": [
+                    {
+                        "requirements_path": "ea/requirements.txt",
+                        "requirements_sha256": "present",
+                        "audit_complete": True,
+                        "direct_requirement_count": 1,
+                        "dependency_count": 0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = verifier.verify()
+
+    assert result["status"] == "fail"
+    assert "audit_dependency_coverage_incomplete" in result["issues"]
+
+
 def test_makefile_wires_runtime_dependency_evidence_gate() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
+    assert "PIP_AUDIT_PYTHON ?= $(PYTHON_BIN)" in makefile
     assert "materialize-runtime-dependency-evidence:" in makefile
     assert "verify-runtime-dependency-evidence:" in makefile
+    assert 'EA_PIP_AUDIT_PYTHON="$(PIP_AUDIT_PYTHON)"' in makefile
     ci_gates_body = makefile.split("ci-gates:\n", 1)[1].split("\n\n", 1)[0]
     assert "$(MAKE) verify-runtime-dependency-evidence" in ci_gates_body

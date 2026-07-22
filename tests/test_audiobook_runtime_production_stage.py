@@ -28,6 +28,49 @@ MEMORIAL_RECEIPT_SHA256 = "7" * 64
 NOW = datetime(2026, 7, 26, 3, 0, tzinfo=UTC)
 
 
+def test_vocallab_stage_defaults_are_complete_and_fail_closed() -> None:
+    assert production.VOCALLAB_STAGE_ENVIRONMENT == {
+        "VOCALLAB_API_KEY": "",
+        "VOCALLAB_API_KEY_FILE": "config/vocallab_api_key",
+        "EA_AUDIOBOOK_VOCALLAB_ENABLED": "0",
+        "EA_AUDIOBOOK_VOCALLAB_AUTO_RENDER": "0",
+        "EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_ROTATION_REQUIRED": "1",
+        "EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_PRODUCTION_ELIGIBLE": "0",
+        "EA_AUDIOBOOK_VOCALLAB_BASE_URL": "https://api.vocallab.ai",
+        "EA_AUDIOBOOK_VOCALLAB_MODEL": "v-pro",
+        "EA_AUDIOBOOK_VOCALLAB_EXPRESSIVE_MODEL": "v-studio",
+        "EA_AUDIOBOOK_VOCALLAB_DRAFT_MODEL": "v-lite",
+        "EA_AUDIOBOOK_VOCALLAB_MAX_CHARS_PER_REQUEST": "1800",
+        "EA_AUDIOBOOK_VOCALLAB_REQUESTS_PER_MINUTE": "30",
+        "EA_AUDIOBOOK_VOCALLAB_MAX_IN_FLIGHT": "1",
+        "EA_AUDIOBOOK_VOCALLAB_MAX_SEGMENTS_PER_RUN": "10",
+        "EA_AUDIOBOOK_VOCALLAB_TIMEOUT_SECONDS": "120",
+        "EA_AUDIOBOOK_VOCALLAB_POLL_INTERVAL_SECONDS": "2",
+        "EA_AUDIOBOOK_VOCALLAB_POLL_TIMEOUT_SECONDS": "180",
+        "EA_AUDIOBOOK_VOCALLAB_OUTPUT_FORMAT": "WAV",
+        "EA_AUDIOBOOK_VOCALLAB_SAMPLE_RATE": "44100",
+        "EA_AUDIOBOOK_VOCALLAB_MAX_AUDIO_BYTES": "33554432",
+        "EA_AUDIOBOOK_VOCALLAB_MIN_REMAINING_POINTS": "3000",
+        "EA_AUDIOBOOK_VOCALLAB_MAX_POINTS_PER_JOB": "6000",
+        "EA_AUDIOBOOK_VOCALLAB_ALLOW_TOPUP_POINTS": "0",
+        "EA_AUDIOBOOK_VOCALLAB_ALLOWED_VOICE_CLASSES": (
+            "professional,consented_clone"
+        ),
+        "EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES": "0",
+        "EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES": "0",
+        "EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL": "0",
+        "EA_AUDIOBOOK_VOCALLAB_VOICE_CATALOG_FILE": (
+            "config/vocallab_voice_catalog.local.json"
+        ),
+        "EA_AUDIOBOOK_TTS_PROVIDER_ORDER": "unmixr,vocallab,piper_local",
+        "EA_AUDIOBOOK_TTS_ALLOW_CROSS_PROVIDER_FALLBACK": "0",
+    }
+    for service in production.STAGE_MUTATION_SERVICES:
+        expected = production.EXPECTED_STAGE_ENVIRONMENT[service]
+        for key, value in production.VOCALLAB_STAGE_ENVIRONMENT.items():
+            assert expected[key] == value
+
+
 def _canonical_sha256(value: object) -> str:
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")

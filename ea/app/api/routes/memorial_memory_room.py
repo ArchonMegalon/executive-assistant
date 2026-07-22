@@ -87,7 +87,7 @@ def render_memorial_memory_room(
         )
 
     safe_person = html.escape(person_name)
-    back_url = f"/memorials/{safe_slug}#memorial-story"
+    back_url = f"/memorials/{safe_slug}#memorial-conversation-region"
     return f"""<!doctype html>
 <html lang="de">
   <head>
@@ -168,7 +168,7 @@ def render_memorial_memory_room(
     <a class="skip-link" href="#memory-list">Zu den Erinnerungen springen</a>
     <header class="room-shell room-header">
       <div class="room-header-row">
-        <a class="back-link" href="{back_url}" data-room-back>← Zur Erinnerungsseite</a>
+        <a class="back-link" href="{back_url}" data-room-back>← Zurück zum Gespräch</a>
         <span class="room-mark" aria-hidden="true">M</span>
       </div>
       <div class="room-intro">
@@ -201,7 +201,7 @@ def render_memorial_memory_room(
         <div class="memory-list">{''.join(list_cards)}</div>
       </section>
     </main>
-    <footer class="room-shell room-footer"><a href="{back_url}" data-room-back>Zurück zu Erinnerungen, Quellen und Gedenkbegleiter</a></footer>
+    <footer class="room-shell room-footer"><a href="{back_url}" data-room-back>Zurück zum Gedenkgespräch</a></footer>
     <script>
       (() => {{
         const status = document.querySelector("[data-room-status]");

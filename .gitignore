@@ -45,6 +45,11 @@ config/*token*
 config/*credential*
 config/audiobook_*.*.bak
 config/whatsapp_audiobook_*.*.bak
+config/vocallab_*
+config/vocallab_api_key
+config/vocallab_credential_rotation_authority.local.json
+config/vocallab_verification_hmac_key
+config/vocallab_voice_catalog.local.json
 config/amazon_archon_password
 config/amazon_password
 config/*credential*.json.*.bak
@@ -73,6 +78,9 @@ state/assistant_property_boundary_archive/
 state/proactive_ooda_run_receipts/
 state/proactive_ooda_safe_work_results/
 state/proactive_ooda_stage_packets/
+state/vocallab_provider_verification/
+state/vocallab_budget_ledgers/
+state/vocallab_request_ledgers/
 ea/state/
 .state/home-girschele/
 .state/
@@ -129,3 +137,6 @@ state/propertyquarry_actions_runner/
 state/propertyquarry_release_tools/
 state/onemin_*refresh*.json
 data/audiobook-mount-guard/
+data/audiobooks/vocallab_provider_verification/
+data/audiobooks/vocallab_budget_ledgers/
+data/audiobooks/vocallab_request_ledgers/

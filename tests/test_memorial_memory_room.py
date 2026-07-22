@@ -127,7 +127,7 @@ def test_memory_room_renderer_is_bounded_and_keeps_a_no_js_reading_path() -> Non
     assert "infinite" not in rendered
 
 
-def test_manfred_page_links_to_the_memory_room(
+def test_manfred_page_keeps_memory_room_outside_conversation_only_surface(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.api.routes import public_memorial_surface
@@ -146,9 +146,11 @@ def test_manfred_page_links_to_the_memory_room(
     response = _client().get("/memorials/manfred")
 
     assert response.status_code == 200
-    assert response.text.count('href="/memorials/manfred/memory-room"') >= 2
-    assert "Freigegebene Spuren in 3D" in response.text
-    assert "keine Rekonstruktion eines realen Ortes" in response.text
+    assert 'data-public-memorial-surface="conversation-only"' in response.text
+    assert 'id="memorial-conversation-region"' in response.text
+    assert 'href="/memorials/manfred/memory-room"' not in response.text
+    assert "Freigegebene Spuren in 3D" not in response.text
+    assert "keine Rekonstruktion eines realen Ortes" not in response.text
 
 
 def test_memory_room_transport_and_error_paths_fail_closed(

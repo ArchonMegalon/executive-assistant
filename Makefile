@@ -4,8 +4,16 @@
 .PHONY: plan-ea-memorial-api-baseline-normalization execute-ea-memorial-api-baseline-normalization verify-ea-memorial-api-baseline-normalization
 .PHONY: reconcile-ea-public-ingress verify-ea-public-ingress-preflight verify-ea-public-ingress-public
 .PHONY: verify-manfred-memorial-source-gate verify-manfred-memorial-promotion-preflight manfred-memorial-public-launch-gates
+.PHONY: init-vocallab-verification-hmac-key probe-vocallab-provider materialize-vocallab-provider-verification verify-vocallab-provider-verification
 
 PYTHON_BIN ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
+PIP_AUDIT_PYTHON ?= $(PYTHON_BIN)
+VOCALLAB_PROVIDER_PROBE ?= .runtime/vocallab-provider-probe.generated.json
+VOCALLAB_PROVIDER_VERIFICATION ?= .runtime/vocallab-provider-verification.generated.json
+VOCALLAB_VERIFICATION_HMAC_KEY_FILE ?= config/vocallab_verification_hmac_key
+VOCALLAB_VOICE_CATALOG_FILE ?= config/vocallab_voice_catalog.local.json
+VOCALLAB_PROBE_KEY_FILE ?=
+VOCALLAB_CREDENTIAL_ROTATION_AUTHORITY_FILE ?=
 TEST_API_PYTEST_IGNORE ?= --ignore-glob=tests/test_chummer*.py --ignore-glob=tests/test_next90*.py --ignore=tests/test_design_mirror_bundle_contracts.py
 TEST_API_PYTEST_DESELECT ?= \
 	--deselect=tests/test_responses_api_contracts.py::test_tool_shim_direct_operator_unblock_hotspot_does_not_restart_from_new_shard_after_repo_diff \
@@ -416,7 +424,7 @@ tasks-archive-dry-run:
 	bash scripts/archive_tasks.sh --dry-run
 
 materialize-release-assets:
-	PYTHONPATH=ea $(PYTHON_BIN) scripts/materialize_release_bundle.py --python-bin $(PYTHON_BIN)
+	EA_PIP_AUDIT_PYTHON="$(PIP_AUDIT_PYTHON)" PYTHONPATH=ea $(PYTHON_BIN) scripts/materialize_release_bundle.py --python-bin $(PYTHON_BIN)
 
 materialize-release-manifest: materialize-deploy-context
 	$(PYTHON_BIN) scripts/materialize_release_manifest.py
@@ -587,6 +595,32 @@ materialize-whatsapp-audiobook-live-voice-selection-shadow:
 verify-whatsapp-audiobook-live-voice-selection-shadow:
 	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_whatsapp_audiobook_live_voice_selection_shadow.py --require-pass
 
+# GET-only. The reserved synthetic switch currently fails closed until its
+# durable account coordinator and post-balance reconciliation are implemented.
+init-vocallab-verification-hmac-key:
+	PYTHONPATH=ea $(PYTHON_BIN) scripts/probe_vocallab_provider.py \
+		--initialize-verification-hmac-key \
+		--verification-hmac-key-file "$(VOCALLAB_VERIFICATION_HMAC_KEY_FILE)"
+
+probe-vocallab-provider:
+	PYTHONPATH=ea $(PYTHON_BIN) scripts/probe_vocallab_provider.py \
+		$(if $(strip $(VOCALLAB_PROBE_KEY_FILE)),--key-file "$(VOCALLAB_PROBE_KEY_FILE)") \
+		$(if $(strip $(VOCALLAB_CREDENTIAL_ROTATION_AUTHORITY_FILE)),--credential-rotation-authority-file "$(VOCALLAB_CREDENTIAL_ROTATION_AUTHORITY_FILE)") \
+		--verification-hmac-key-file "$(VOCALLAB_VERIFICATION_HMAC_KEY_FILE)" \
+		--output "$(VOCALLAB_PROVIDER_PROBE)"
+
+materialize-vocallab-provider-verification:
+	PYTHONPATH=ea $(PYTHON_BIN) scripts/materialize_vocallab_provider_verification.py \
+		--verification-hmac-key-file "$(VOCALLAB_VERIFICATION_HMAC_KEY_FILE)" \
+		--voice-catalog-file "$(VOCALLAB_VOICE_CATALOG_FILE)" \
+		--probe "$(VOCALLAB_PROVIDER_PROBE)" \
+		--output "$(VOCALLAB_PROVIDER_VERIFICATION)"
+
+verify-vocallab-provider-verification:
+	PYTHONPATH=ea $(PYTHON_BIN) scripts/verify_vocallab_provider_verification.py \
+		--verification-hmac-key-file "$(VOCALLAB_VERIFICATION_HMAC_KEY_FILE)" \
+		--input "$(VOCALLAB_PROVIDER_VERIFICATION)"
+
 materialize-telegram-video-delivery-operator-receipt:
 	PYTHONPATH=ea $(PYTHON_BIN) scripts/materialize_telegram_video_delivery_receipt.py
 
@@ -609,7 +643,7 @@ verify-runtime-supply-chain:
 	$(PYTHON_BIN) scripts/verify_runtime_supply_chain.py
 
 materialize-runtime-dependency-evidence:
-	$(PYTHON_BIN) scripts/materialize_runtime_dependency_evidence.py
+	EA_PIP_AUDIT_PYTHON="$(PIP_AUDIT_PYTHON)" $(PYTHON_BIN) scripts/materialize_runtime_dependency_evidence.py
 
 verify-runtime-dependency-evidence:
 	$(MAKE) materialize-runtime-dependency-evidence

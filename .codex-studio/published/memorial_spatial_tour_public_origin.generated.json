@@ -7,9 +7,9 @@
   "gold_claim_allowed": false,
   "head_semantics": "source_state",
   "provider_calls_performed": false,
-  "source_git_head": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
-  "source_state_fingerprint": "e7c5e24e9c2a6e72fa7820b585b437b4cd0837660f8b14890de49eb4c5c9d7ec",
+  "source_git_head": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
+  "source_state_fingerprint": "362cc24a424ad0f930637202232846f2d3bf4186fadffe6820be3b41133ae663",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
-  "source_worktree_dirty": false,
+  "source_worktree_dirty": true,
   "status": "blocked"
 }

@@ -1,50 +1,233 @@
 {
   "contract_name": "ea.memorial_operator_status",
   "generated_by": "scripts/materialize_memorial_operator_status.py",
-  "source_git_head": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
+  "source_git_head": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
   "head_semantics": "source_state",
-  "source_worktree_dirty": false,
-  "source_dirty_count": 0,
-  "source_dirty_files": [],
+  "source_worktree_dirty": true,
+  "source_dirty_count": 44,
+  "source_dirty_files": [
+    ".dockerignore",
+    ".env.example",
+    ".gitignore",
+    "LTDs.md",
+    "Makefile",
+    "deploy/audiobook-runtime-production/docker-compose.production-stage.yml",
+    "docker-compose.memorial.yml",
+    "docker-compose.whatsapp-web-session.yml",
+    "docker-compose.yml",
+    "ea/app/api/routes/memorial_memory_room.py",
+    "ea/app/api/routes/public_memorial_turn_support.py",
+    "ea/app/api/routes/public_memorials.py",
+    "ea/app/services/audiobook_epub_pipeline.py",
+    "ea/app/services/audiobook_tts/__init__.py",
+    "ea/app/services/audiobook_tts/authorities.py",
+    "ea/app/services/audiobook_tts/budget_ledger.py",
+    "ea/app/services/audiobook_tts/contracts.py",
+    "ea/app/services/audiobook_tts/errors.py",
+    "ea/app/services/audiobook_tts/output_validation.py",
+    "ea/app/services/audiobook_tts/provider_router.py",
+    "ea/app/services/audiobook_tts/providers/__init__.py",
+    "ea/app/services/audiobook_tts/providers/base.py",
+    "ea/app/services/audiobook_tts/providers/unmixr.py",
+    "ea/app/services/audiobook_tts/providers/vocallab.py",
+    "ea/app/services/audiobook_tts/providers/vocallab_schema.py",
+    "ea/app/services/audiobook_tts/voice_catalog.py",
+    "ea/tests/test_audiobook_provider_router.py",
+    "ea/tests/test_audiobook_tts_provider_boundary.py",
+    "ea/tests/test_audiobook_vocallab_authorities.py",
+    "ea/tests/test_audiobook_vocallab_budget_ledger.py",
+    "ea/tests/test_audiobook_vocallab_output_validation.py",
+    "ea/tests/test_audiobook_vocallab_provider.py",
+    "ea/tests/test_audiobook_vocallab_schema.py",
+    "ea/tests/test_audiobook_vocallab_voice_catalog.py",
+    "ea/tests/test_memorial_runtime.py",
+    "ea/tests/vocallab_support.py",
+    "scripts/apply_manfred_memorial_capacity_handoff.py",
+    "scripts/deploy_ea_memorial.py",
+    "scripts/materialize_proactive_ooda_operator_status.py",
+    "scripts/materialize_runtime_dependency_evidence.py",
+    "scripts/materialize_vocallab_provider_verification.py",
+    "scripts/probe_vocallab_provider.py",
+    "scripts/reclaim_manfred_memorial_build_capacity.py",
+    "scripts/sync_env_to_teable.py"
+  ],
   "source_dirty_omitted_count": 0,
-  "source_dirty_status_sha256": "",
+  "source_dirty_status_sha256": "1ebd67264ee8c90a39d64e3e9bfc73233b59f2d6c15f51941b12ac78c7180b9b",
   "source_dirty_summary": {
-    "status": "clean",
-    "total_count": 0,
-    "visible_count": 0,
+    "status": "dirty",
+    "total_count": 44,
+    "visible_count": 44,
     "omitted_count": 0,
-    "category_count": 0,
-    "categories": [],
-    "recommended_first_action": "none",
-    "operator_hint": "Source worktree is clean for clean-clone receipt refresh."
+    "category_count": 9,
+    "categories": [
+      {
+        "category": "api_routes",
+        "visible_count": 3,
+        "sample_files": [
+          "ea/app/api/routes/memorial_memory_room.py",
+          "ea/app/api/routes/public_memorial_turn_support.py",
+          "ea/app/api/routes/public_memorials.py"
+        ]
+      },
+      {
+        "category": "services",
+        "visible_count": 14,
+        "sample_files": [
+          "ea/app/services/audiobook_epub_pipeline.py",
+          "ea/app/services/audiobook_tts/__init__.py",
+          "ea/app/services/audiobook_tts/authorities.py",
+          "ea/app/services/audiobook_tts/budget_ledger.py",
+          "ea/app/services/audiobook_tts/contracts.py",
+          "ea/app/services/audiobook_tts/errors.py",
+          "ea/app/services/audiobook_tts/output_validation.py",
+          "ea/app/services/audiobook_tts/provider_router.py"
+        ]
+      },
+      {
+        "category": "scripts",
+        "visible_count": 8,
+        "sample_files": [
+          "scripts/apply_manfred_memorial_capacity_handoff.py",
+          "scripts/deploy_ea_memorial.py",
+          "scripts/materialize_proactive_ooda_operator_status.py",
+          "scripts/materialize_runtime_dependency_evidence.py",
+          "scripts/materialize_vocallab_provider_verification.py",
+          "scripts/probe_vocallab_provider.py",
+          "scripts/reclaim_manfred_memorial_build_capacity.py",
+          "scripts/sync_env_to_teable.py"
+        ]
+      },
+      {
+        "category": "deploy_runtime",
+        "visible_count": 3,
+        "sample_files": [
+          "docker-compose.memorial.yml",
+          "docker-compose.whatsapp-web-session.yml",
+          "docker-compose.yml"
+        ]
+      },
+      {
+        "category": "env_examples",
+        "visible_count": 1,
+        "sample_files": [
+          ".env.example"
+        ]
+      },
+      {
+        "category": "docs",
+        "visible_count": 1,
+        "sample_files": [
+          "LTDs.md"
+        ]
+      },
+      {
+        "category": "tests",
+        "visible_count": 10,
+        "sample_files": [
+          "ea/tests/test_audiobook_provider_router.py",
+          "ea/tests/test_audiobook_tts_provider_boundary.py",
+          "ea/tests/test_audiobook_vocallab_authorities.py",
+          "ea/tests/test_audiobook_vocallab_budget_ledger.py",
+          "ea/tests/test_audiobook_vocallab_output_validation.py",
+          "ea/tests/test_audiobook_vocallab_provider.py",
+          "ea/tests/test_audiobook_vocallab_schema.py",
+          "ea/tests/test_audiobook_vocallab_voice_catalog.py"
+        ]
+      },
+      {
+        "category": "repo_config",
+        "visible_count": 2,
+        "sample_files": [
+          ".gitignore",
+          "Makefile"
+        ]
+      },
+      {
+        "category": "other",
+        "visible_count": 2,
+        "sample_files": [
+          ".dockerignore",
+          "deploy/audiobook-runtime-production/docker-compose.production-stage.yml"
+        ]
+      }
+    ],
+    "recommended_first_action": "review_and_commit_or_stash_source_groups_before_clean_receipts",
+    "operator_hint": "Start with api_routes/services/scripts/deploy_runtime groups; generated-only receipt changes do not explain clean-clone proof failures."
   },
   "source_dirty_verifier": {
     "contract_name": "ea.source_dirty_groups_verifier.v1",
     "status": "pass",
     "issues": [],
-    "source_dirty_status": "clean",
-    "source_dirty_count": 0,
-    "category_count": 0,
-    "priority_group_count": 0
+    "source_dirty_status": "dirty",
+    "source_dirty_count": 44,
+    "category_count": 9,
+    "priority_group_count": 4
   },
   "source_cleanup": {
-    "status": "ready",
-    "source_worktree_dirty": false,
-    "source_dirty_count": 0,
+    "status": "blocked",
+    "source_worktree_dirty": true,
+    "source_dirty_count": 44,
     "source_dirty_omitted_count": 0,
-    "source_dirty_status_sha256": "",
-    "summary_status": "clean",
-    "category_count": 0,
-    "top_categories": [],
-    "category_drilldown_commands": [],
+    "source_dirty_status_sha256": "1ebd67264ee8c90a39d64e3e9bfc73233b59f2d6c15f51941b12ac78c7180b9b",
+    "summary_status": "dirty",
+    "category_count": 9,
+    "top_categories": [
+      {
+        "category": "api_routes",
+        "visible_count": 3,
+        "drilldown_command": "scripts/inspect_source_dirty_groups.py --category api_routes --limit 20"
+      },
+      {
+        "category": "services",
+        "visible_count": 14,
+        "drilldown_command": "scripts/inspect_source_dirty_groups.py --category services --limit 20"
+      },
+      {
+        "category": "scripts",
+        "visible_count": 8,
+        "drilldown_command": "scripts/inspect_source_dirty_groups.py --category scripts --limit 20"
+      },
+      {
+        "category": "deploy_runtime",
+        "visible_count": 3,
+        "drilldown_command": "scripts/inspect_source_dirty_groups.py --category deploy_runtime --limit 20"
+      },
+      {
+        "category": "env_examples",
+        "visible_count": 1,
+        "drilldown_command": "scripts/inspect_source_dirty_groups.py --category env_examples --limit 20"
+      },
+      {
+        "category": "docs",
+        "visible_count": 1,
+        "drilldown_command": "scripts/inspect_source_dirty_groups.py --category docs --limit 20"
+      }
+    ],
+    "category_drilldown_commands": [
+      "scripts/inspect_source_dirty_groups.py --category api_routes --limit 20",
+      "scripts/inspect_source_dirty_groups.py --category services --limit 20",
+      "scripts/inspect_source_dirty_groups.py --category scripts --limit 20",
+      "scripts/inspect_source_dirty_groups.py --category deploy_runtime --limit 20",
+      "scripts/inspect_source_dirty_groups.py --category env_examples --limit 20",
+      "scripts/inspect_source_dirty_groups.py --category docs --limit 20",
+      "scripts/inspect_source_dirty_groups.py --category tests --limit 20",
+      "scripts/inspect_source_dirty_groups.py --category repo_config --limit 20",
+      "scripts/inspect_source_dirty_groups.py --category other --limit 20"
+    ],
     "handoff_commands": [
       "git status --short",
-      "scripts/inspect_source_dirty_groups.py --list-categories"
+      "scripts/inspect_source_dirty_groups.py --list-categories",
+      "scripts/inspect_source_dirty_groups.py --category api_routes --limit 20",
+      "scripts/inspect_source_dirty_groups.py --category services --limit 20",
+      "scripts/inspect_source_dirty_groups.py --category scripts --limit 20",
+      "scripts/inspect_source_dirty_groups.py --category deploy_runtime --limit 20",
+      "scripts/inspect_source_dirty_groups.py --category env_examples --limit 20",
+      "scripts/inspect_source_dirty_groups.py --category docs --limit 20"
     ],
     "verifier_status": "pass",
     "verifier_issues": [],
-    "next_action": "",
-    "next_command": ""
+    "next_action": "commit_or_stash_source_changes_before_clean_receipts",
+    "next_command": "scripts/inspect_source_dirty_groups.py --list-categories"
   },
   "slug": "manfred",
   "status": "blocked",
@@ -54,7 +237,7 @@
   "public_browser_receipt": "missing_or_blocked",
   "public_browser_meaningful_receipt": "pass",
   "public_runtime_mode": "blocked",
-  "public_origin_access": "blocked",
+  "public_origin_access": "pass",
   "memorial_surface_contract": "pass",
   "room_audio_receipt": "missing_or_blocked",
   "public_spatial_tour_receipt": "missing_or_blocked",
@@ -136,6 +319,7 @@
           "spatial_public_origin_schema_invalid",
           "spatial_public_origin_status_not_pass",
           "spatial_public_origin_generated_at_invalid",
+          "spatial_public_origin_source_worktree_dirty",
           "spatial_public_origin_https_origin_invalid",
           "spatial_public_origin_runtime_revision_mismatch",
           "spatial_public_origin_slug_invalid",
@@ -177,6 +361,17 @@
         "next_command": "make materialize-memorial-public-auto-receipts-clean"
       },
       {
+        "key": "source_worktree",
+        "code": "source_worktree",
+        "label": "Source worktree",
+        "component": "Source worktree",
+        "issues": [
+          "source_worktree_dirty"
+        ],
+        "next_action": "commit_or_stash_source_changes_before_clean_receipts",
+        "next_command": "scripts/inspect_source_dirty_groups.py --list-categories"
+      },
+      {
         "key": "public_runtime_mode",
         "code": "public_runtime_mode",
         "label": "Public runtime mode",
@@ -193,7 +388,8 @@
         "label": "Release authority",
         "component": "Release authority",
         "issues": [
-          "deployment_id_local_fallback"
+          "deployment_id_local_fallback",
+          "dirty_worktree"
         ],
         "next_action": "clear_release_authority_for_memorial_deploy",
         "next_command": "python3 scripts/verify_release_authority.py --pretty"
@@ -207,6 +403,7 @@
       "room_audio_receipt",
       "public_spatial_tour_receipt",
       "receipt_set_binding",
+      "source_worktree",
       "public_runtime_mode",
       "release_authority"
     ],
@@ -218,10 +415,11 @@
       "make materialize-memorial-room-audio-gold-clean",
       "make materialize-memorial-public-auto-receipts-clean",
       "make materialize-memorial-public-auto-receipts-clean",
+      "scripts/inspect_source_dirty_groups.py --list-categories",
       "make deploy-ea-memorial",
       "python3 scripts/verify_release_authority.py --pretty"
     ],
-    "blocked_count": 9
+    "blocked_count": 10
   },
   "operator_notes": [
     "Use labels only: Memorial local release candidate / Memorial public-origin gold: blocked|pass.",
@@ -270,7 +468,7 @@
   },
   "readiness": {
     "status": "blocked",
-    "current_head": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
+    "current_head": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
     "claim_labels": {
       "ea_receipt_set": "EA receipt-set gold",
       "memorial_local": "Memorial local release candidate",
@@ -316,6 +514,7 @@
       "spatial_public_origin_schema_invalid",
       "spatial_public_origin_status_not_pass",
       "spatial_public_origin_generated_at_invalid",
+      "spatial_public_origin_source_worktree_dirty",
       "spatial_public_origin_https_origin_invalid",
       "spatial_public_origin_runtime_revision_mismatch",
       "spatial_public_origin_slug_invalid",
@@ -419,6 +618,7 @@
             "spatial_public_origin_schema_invalid",
             "spatial_public_origin_status_not_pass",
             "spatial_public_origin_generated_at_invalid",
+            "spatial_public_origin_source_worktree_dirty",
             "spatial_public_origin_https_origin_invalid",
             "spatial_public_origin_runtime_revision_mismatch",
             "spatial_public_origin_slug_invalid",
@@ -458,6 +658,17 @@
           "code": "receipt_set_binding",
           "component": "Public receipt-set binding",
           "next_command": "make materialize-memorial-public-auto-receipts-clean"
+        },
+        {
+          "key": "source_worktree",
+          "code": "source_worktree",
+          "label": "Source worktree",
+          "component": "Source worktree",
+          "issues": [
+            "source_worktree_dirty"
+          ],
+          "next_action": "commit_or_stash_source_changes_before_clean_receipts",
+          "next_command": "scripts/inspect_source_dirty_groups.py --list-categories"
         }
       ],
       "blocked_component_keys": [
@@ -467,7 +678,8 @@
         "meaningful_browser_receipt",
         "room_audio_receipt",
         "public_spatial_tour_receipt",
-        "receipt_set_binding"
+        "receipt_set_binding",
+        "source_worktree"
       ],
       "blocked_commands": [
         "make materialize-memorial-public-voice-gold",
@@ -476,54 +688,238 @@
         "make materialize-memorial-public-auto-receipts-clean",
         "make materialize-memorial-room-audio-gold-clean",
         "make materialize-memorial-public-auto-receipts-clean",
-        "make materialize-memorial-public-auto-receipts-clean"
+        "make materialize-memorial-public-auto-receipts-clean",
+        "scripts/inspect_source_dirty_groups.py --list-categories"
       ],
-      "blocked_count": 7
+      "blocked_count": 8
     },
-    "next_action": "refresh_memorial_public_auto_receipts_clean",
-    "next_command": "make materialize-memorial-public-auto-receipts-clean",
-    "source_worktree_dirty": false,
-    "source_dirty_count": 0,
-    "source_dirty_files": [],
+    "next_action": "commit_or_stash_source_changes_before_clean_receipts",
+    "next_command": "scripts/inspect_source_dirty_groups.py --list-categories",
+    "source_worktree_dirty": true,
+    "source_dirty_count": 44,
+    "source_dirty_files": [
+      ".dockerignore",
+      ".env.example",
+      ".gitignore",
+      "LTDs.md",
+      "Makefile",
+      "deploy/audiobook-runtime-production/docker-compose.production-stage.yml",
+      "docker-compose.memorial.yml",
+      "docker-compose.whatsapp-web-session.yml",
+      "docker-compose.yml",
+      "ea/app/api/routes/memorial_memory_room.py",
+      "ea/app/api/routes/public_memorial_turn_support.py",
+      "ea/app/api/routes/public_memorials.py",
+      "ea/app/services/audiobook_epub_pipeline.py",
+      "ea/app/services/audiobook_tts/__init__.py",
+      "ea/app/services/audiobook_tts/authorities.py",
+      "ea/app/services/audiobook_tts/budget_ledger.py",
+      "ea/app/services/audiobook_tts/contracts.py",
+      "ea/app/services/audiobook_tts/errors.py",
+      "ea/app/services/audiobook_tts/output_validation.py",
+      "ea/app/services/audiobook_tts/provider_router.py",
+      "ea/app/services/audiobook_tts/providers/__init__.py",
+      "ea/app/services/audiobook_tts/providers/base.py",
+      "ea/app/services/audiobook_tts/providers/unmixr.py",
+      "ea/app/services/audiobook_tts/providers/vocallab.py",
+      "ea/app/services/audiobook_tts/providers/vocallab_schema.py",
+      "ea/app/services/audiobook_tts/voice_catalog.py",
+      "ea/tests/test_audiobook_provider_router.py",
+      "ea/tests/test_audiobook_tts_provider_boundary.py",
+      "ea/tests/test_audiobook_vocallab_authorities.py",
+      "ea/tests/test_audiobook_vocallab_budget_ledger.py",
+      "ea/tests/test_audiobook_vocallab_output_validation.py",
+      "ea/tests/test_audiobook_vocallab_provider.py",
+      "ea/tests/test_audiobook_vocallab_schema.py",
+      "ea/tests/test_audiobook_vocallab_voice_catalog.py",
+      "ea/tests/test_memorial_runtime.py",
+      "ea/tests/vocallab_support.py",
+      "scripts/apply_manfred_memorial_capacity_handoff.py",
+      "scripts/deploy_ea_memorial.py",
+      "scripts/materialize_proactive_ooda_operator_status.py",
+      "scripts/materialize_runtime_dependency_evidence.py",
+      "scripts/materialize_vocallab_provider_verification.py",
+      "scripts/probe_vocallab_provider.py",
+      "scripts/reclaim_manfred_memorial_build_capacity.py",
+      "scripts/sync_env_to_teable.py"
+    ],
     "source_dirty_omitted_count": 0,
-    "source_dirty_status_sha256": "",
+    "source_dirty_status_sha256": "1ebd67264ee8c90a39d64e3e9bfc73233b59f2d6c15f51941b12ac78c7180b9b",
     "source_dirty_summary": {
-      "status": "clean",
-      "total_count": 0,
-      "visible_count": 0,
+      "status": "dirty",
+      "total_count": 44,
+      "visible_count": 44,
       "omitted_count": 0,
-      "category_count": 0,
-      "categories": [],
-      "recommended_first_action": "none",
-      "operator_hint": "Source worktree is clean for clean-clone receipt refresh."
+      "category_count": 9,
+      "categories": [
+        {
+          "category": "api_routes",
+          "visible_count": 3,
+          "sample_files": [
+            "ea/app/api/routes/memorial_memory_room.py",
+            "ea/app/api/routes/public_memorial_turn_support.py",
+            "ea/app/api/routes/public_memorials.py"
+          ]
+        },
+        {
+          "category": "services",
+          "visible_count": 14,
+          "sample_files": [
+            "ea/app/services/audiobook_epub_pipeline.py",
+            "ea/app/services/audiobook_tts/__init__.py",
+            "ea/app/services/audiobook_tts/authorities.py",
+            "ea/app/services/audiobook_tts/budget_ledger.py",
+            "ea/app/services/audiobook_tts/contracts.py",
+            "ea/app/services/audiobook_tts/errors.py",
+            "ea/app/services/audiobook_tts/output_validation.py",
+            "ea/app/services/audiobook_tts/provider_router.py"
+          ]
+        },
+        {
+          "category": "scripts",
+          "visible_count": 8,
+          "sample_files": [
+            "scripts/apply_manfred_memorial_capacity_handoff.py",
+            "scripts/deploy_ea_memorial.py",
+            "scripts/materialize_proactive_ooda_operator_status.py",
+            "scripts/materialize_runtime_dependency_evidence.py",
+            "scripts/materialize_vocallab_provider_verification.py",
+            "scripts/probe_vocallab_provider.py",
+            "scripts/reclaim_manfred_memorial_build_capacity.py",
+            "scripts/sync_env_to_teable.py"
+          ]
+        },
+        {
+          "category": "deploy_runtime",
+          "visible_count": 3,
+          "sample_files": [
+            "docker-compose.memorial.yml",
+            "docker-compose.whatsapp-web-session.yml",
+            "docker-compose.yml"
+          ]
+        },
+        {
+          "category": "env_examples",
+          "visible_count": 1,
+          "sample_files": [
+            ".env.example"
+          ]
+        },
+        {
+          "category": "docs",
+          "visible_count": 1,
+          "sample_files": [
+            "LTDs.md"
+          ]
+        },
+        {
+          "category": "tests",
+          "visible_count": 10,
+          "sample_files": [
+            "ea/tests/test_audiobook_provider_router.py",
+            "ea/tests/test_audiobook_tts_provider_boundary.py",
+            "ea/tests/test_audiobook_vocallab_authorities.py",
+            "ea/tests/test_audiobook_vocallab_budget_ledger.py",
+            "ea/tests/test_audiobook_vocallab_output_validation.py",
+            "ea/tests/test_audiobook_vocallab_provider.py",
+            "ea/tests/test_audiobook_vocallab_schema.py",
+            "ea/tests/test_audiobook_vocallab_voice_catalog.py"
+          ]
+        },
+        {
+          "category": "repo_config",
+          "visible_count": 2,
+          "sample_files": [
+            ".gitignore",
+            "Makefile"
+          ]
+        },
+        {
+          "category": "other",
+          "visible_count": 2,
+          "sample_files": [
+            ".dockerignore",
+            "deploy/audiobook-runtime-production/docker-compose.production-stage.yml"
+          ]
+        }
+      ],
+      "recommended_first_action": "review_and_commit_or_stash_source_groups_before_clean_receipts",
+      "operator_hint": "Start with api_routes/services/scripts/deploy_runtime groups; generated-only receipt changes do not explain clean-clone proof failures."
     },
     "source_dirty_verifier": {
       "contract_name": "ea.source_dirty_groups_verifier.v1",
       "status": "pass",
       "issues": [],
-      "source_dirty_status": "clean",
-      "source_dirty_count": 0,
-      "category_count": 0,
-      "priority_group_count": 0
+      "source_dirty_status": "dirty",
+      "source_dirty_count": 44,
+      "category_count": 9,
+      "priority_group_count": 4
     },
     "source_cleanup": {
-      "status": "ready",
-      "source_worktree_dirty": false,
-      "source_dirty_count": 0,
+      "status": "blocked",
+      "source_worktree_dirty": true,
+      "source_dirty_count": 44,
       "source_dirty_omitted_count": 0,
-      "source_dirty_status_sha256": "",
-      "summary_status": "clean",
-      "category_count": 0,
-      "top_categories": [],
-      "category_drilldown_commands": [],
+      "source_dirty_status_sha256": "1ebd67264ee8c90a39d64e3e9bfc73233b59f2d6c15f51941b12ac78c7180b9b",
+      "summary_status": "dirty",
+      "category_count": 9,
+      "top_categories": [
+        {
+          "category": "api_routes",
+          "visible_count": 3,
+          "drilldown_command": "scripts/inspect_source_dirty_groups.py --category api_routes --limit 20"
+        },
+        {
+          "category": "services",
+          "visible_count": 14,
+          "drilldown_command": "scripts/inspect_source_dirty_groups.py --category services --limit 20"
+        },
+        {
+          "category": "scripts",
+          "visible_count": 8,
+          "drilldown_command": "scripts/inspect_source_dirty_groups.py --category scripts --limit 20"
+        },
+        {
+          "category": "deploy_runtime",
+          "visible_count": 3,
+          "drilldown_command": "scripts/inspect_source_dirty_groups.py --category deploy_runtime --limit 20"
+        },
+        {
+          "category": "env_examples",
+          "visible_count": 1,
+          "drilldown_command": "scripts/inspect_source_dirty_groups.py --category env_examples --limit 20"
+        },
+        {
+          "category": "docs",
+          "visible_count": 1,
+          "drilldown_command": "scripts/inspect_source_dirty_groups.py --category docs --limit 20"
+        }
+      ],
+      "category_drilldown_commands": [
+        "scripts/inspect_source_dirty_groups.py --category api_routes --limit 20",
+        "scripts/inspect_source_dirty_groups.py --category services --limit 20",
+        "scripts/inspect_source_dirty_groups.py --category scripts --limit 20",
+        "scripts/inspect_source_dirty_groups.py --category deploy_runtime --limit 20",
+        "scripts/inspect_source_dirty_groups.py --category env_examples --limit 20",
+        "scripts/inspect_source_dirty_groups.py --category docs --limit 20",
+        "scripts/inspect_source_dirty_groups.py --category tests --limit 20",
+        "scripts/inspect_source_dirty_groups.py --category repo_config --limit 20",
+        "scripts/inspect_source_dirty_groups.py --category other --limit 20"
+      ],
       "handoff_commands": [
         "git status --short",
-        "scripts/inspect_source_dirty_groups.py --list-categories"
+        "scripts/inspect_source_dirty_groups.py --list-categories",
+        "scripts/inspect_source_dirty_groups.py --category api_routes --limit 20",
+        "scripts/inspect_source_dirty_groups.py --category services --limit 20",
+        "scripts/inspect_source_dirty_groups.py --category scripts --limit 20",
+        "scripts/inspect_source_dirty_groups.py --category deploy_runtime --limit 20",
+        "scripts/inspect_source_dirty_groups.py --category env_examples --limit 20",
+        "scripts/inspect_source_dirty_groups.py --category docs --limit 20"
       ],
       "verifier_status": "pass",
       "verifier_issues": [],
-      "next_action": "",
-      "next_command": ""
+      "next_action": "commit_or_stash_source_changes_before_clean_receipts",
+      "next_command": "scripts/inspect_source_dirty_groups.py --list-categories"
     },
     "gold_thresholds": {
       "direct_tts_f1_min": 0.92,
@@ -543,12 +939,12 @@
     }
   },
   "evidence_heads": {
-    "whole_project_map": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
+    "whole_project_map": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
     "public_voice_receipt": "e739be479a4e9e7c2b364259d7a8b15e9d9318e6",
     "public_browser_receipt": "e739be479a4e9e7c2b364259d7a8b15e9d9318e6",
     "public_meaningful_browser_receipt": "65f80831660870d44a2150960ff5ade4aa4f6455",
     "room_audio_receipt": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c",
-    "public_spatial_tour_receipt": "b9fa090e69157d5ecebe537a7023c61492f05bbf"
+    "public_spatial_tour_receipt": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5"
   },
   "workflow_backing": {
     "status": "no",
@@ -560,15 +956,16 @@
     "state": "watch",
     "authority_posture": "local_only_deploy_id",
     "issues": [
-      "deployment_id_local_fallback"
+      "deployment_id_local_fallback",
+      "dirty_worktree"
     ],
-    "next_action": "Set an explicit deployment ID from the real deploy system and rematerialize the release manifest.",
+    "next_action": "Deploy from a clean committed tree with an explicit deployment ID from the real deploy system, then rematerialize the release manifest.",
     "detail": "Release authority is present but still has gaps to resolve.",
-    "deployment_id": "local-20260717T162908327840Z-b9fa090e6915",
+    "deployment_id": "local-20260722T143113671712Z-3aa52edd8119",
     "deployment_id_source": "local_fallback",
     "dirty_worktree": true,
-    "deploy_context_commit_sha": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
-    "commit_sha": "b9fa090e69157d5ecebe537a7023c61492f05bbf"
+    "deploy_context_commit_sha": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
+    "commit_sha": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5"
   },
   "public_runtime_mode_detail": {
     "status": "blocked",
@@ -586,17 +983,16 @@
     "reason": "public_origin_not_deployed_in_memorial_mode"
   },
   "public_origin_access_detail": {
-    "status": "blocked",
+    "status": "pass",
     "base_url": "https://myexternalbrain.com",
     "source_key": "EA_PUBLIC_APP_BASE_URL",
-    "page_status_code": 421,
-    "manifest_status_code": 421,
+    "page_status_code": 200,
+    "manifest_status_code": 200,
     "page_probe_url": "https://myexternalbrain.com/memorials/manfred",
     "manifest_probe_url": "https://myexternalbrain.com/memorials/manfred.json",
-    "page_detail": "{\"error\":{\"code\":\"host_not_allowed\",\"message\":\"request authority rejected\"}}",
-    "manifest_detail": "{\"error\":{\"code\":\"host_not_allowed\",\"message\":\"request authority rejected\"}}",
-    "next_action": "inspect_public_memorial_origin_http_failure",
-    "reason": "public_origin_http_probe_failed"
+    "page_detail": "<!doctype html>\n<html lang=\"de\">\n  <head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n    <title>Erinner",
+    "manifest_detail": "{\"slug\":\"manfred\",\"person_name\":\"Manfred Hoza\",\"title\":\"Erinnerungen an Manfred Hoza\",\"subtitle\":\"Eine ruhige Seite für Erinnerungen, belegte Gedanken und öffen",
+    "next_action": "maintain_public_memorial_origin_access"
   },
   "memorial_surface_contract_detail": {
     "status": "pass",
@@ -737,6 +1133,7 @@
       "spatial_public_origin_schema_invalid",
       "spatial_public_origin_status_not_pass",
       "spatial_public_origin_generated_at_invalid",
+      "spatial_public_origin_source_worktree_dirty",
       "spatial_public_origin_https_origin_invalid",
       "spatial_public_origin_runtime_revision_mismatch",
       "spatial_public_origin_slug_invalid",
@@ -817,27 +1214,24 @@
     "next_action": "collect_real_room_audio_attestation"
   },
   "spoken_conversation_stt": {
-    "status": "pass",
-    "receipt_status": "pass",
-    "production_eligible": true,
-    "best_provider": "full_runtime",
-    "production_provider": "full_runtime",
-    "top_candidate_provider": "full_runtime",
-    "provider_label": "full_runtime",
-    "provider_key": "full_runtime",
+    "status": "blocked",
+    "receipt_status": "blocked",
+    "production_eligible": false,
+    "best_provider": "",
+    "production_provider": "",
+    "top_candidate_provider": "onemin_sample",
+    "provider_label": "no_production_stt_provider",
+    "provider_key": "onemin_sample",
     "production_transcriber": "",
-    "production_transcriber_set": [
-      "{'family': 'cartesia', 'identifier_sha256': '6e40259d3b564bc9230f166b59a7d60c97d9c5cc58e5b0685c74ba07b7f10d0d'}",
-      "{'family': 'memorial', 'identifier_sha256': 'c0ef897f5d79f9c095885e3cd6a07ba89d9583ded6dd3f3bcb9e3946e588396e'}"
-    ],
+    "production_transcriber_set": [],
     "fallback_provider_statuses": [
       {
-        "provider": "onemin_sample",
-        "passed_samples": 0,
+        "provider": "full_runtime",
+        "passed_samples": 2,
         "sample_count": 4,
         "scored_samples": 4,
-        "avg_token_f1": 0.215,
-        "avg_wer": 6.8333,
+        "avg_token_f1": 0.9445,
+        "avg_wer": 0.0556,
         "production_eligible": false
       },
       {
@@ -852,17 +1246,17 @@
     ],
     "fallback_production_eligible": false,
     "fallback_health": "blocked",
-    "passed_samples": 4,
+    "passed_samples": 2,
     "sample_count": 4,
-    "avg_token_f1": 1.0,
-    "avg_wer": 0.0,
-    "avg_latency_ms": 321.6,
+    "avg_token_f1": 0.9445,
+    "avg_wer": 0.0556,
+    "avg_latency_ms": 2642.2,
     "receipt_path": ".codex-studio/published/memorial_stt_provider_benchmark.generated.json",
     "availability": {
       "providers": {
         "full_runtime": {
-          "configured": true,
-          "credential_source": "default_credential_file"
+          "configured": false,
+          "credential_source": "none"
         },
         "shadow": {
           "configured": true,
@@ -876,9 +1270,9 @@
       },
       "credential_environment": {
         "file_count": 2,
-        "loaded_count": 434,
+        "loaded_count": 443,
         "provider_families": {
-          "cartesia": true,
+          "cartesia": false,
           "onemin": true,
           "blipai_shadow": true
         }
@@ -895,7 +1289,7 @@
     "fixture_quality_failed_codes": [],
     "ground_truth_fixture_mode": "synthetic_only",
     "cartesia_credential_status": {},
-    "next_action": "rerun_operator_local_full_text_benchmark_or_correct_ground_truth_transcript",
+    "next_action": "configure_cartesia_credentials",
     "scoring": {
       "pass_rule": "usable transcript + required tokens present + token_f1 >= sample min + WER <= sample max",
       "raw_provider_transcript_scored": true,
@@ -907,8 +1301,7 @@
       "raw_transcript_fields": false,
       "redacted_text_fields": true,
       "redacted_receipt_rule": "Default receipts store transcript hashes, lengths, and token hashes instead of raw expected/actual text. Set EA_MEMORIAL_STT_BENCHMARK_TEXT_MODE=full or pass --text-mode full for operator-local raw transcript diagnostics."
-    },
-    "real_captured_fixture_status": "captured_candidate_diagnostic_blocked"
+    }
   },
   "stt_fixture_candidate": {
     "status": "pass",

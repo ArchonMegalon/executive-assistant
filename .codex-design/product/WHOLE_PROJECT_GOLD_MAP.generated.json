@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-07-17T16:29:15Z",
+  "generated_at": "2026-07-22T14:00:26Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "source_git_head": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
+  "source_git_head": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
   "head_semantics": "source_state",
   "head_semantics_note": "source_git_head records the proved source state. Generated-only artifact commits may advance repository HEAD without changing the source state that the receipts prove.",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
@@ -52,7 +52,8 @@
         ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json is not pass",
         "weekly release_health=blocked: The EA flagship receipt is blocked by the current browser workflow proof or release evidence.",
         "weekly flagship_readiness=blocked: Browser workflow proof is currently blocked, so the flagship receipt cannot support wider release claims.",
-        "weekly launch_readiness: Hold launch expansion pending browser execution proof and cross-host journey coverage."
+        "weekly launch_readiness: Hold launch expansion pending browser execution proof and cross-host journey coverage.",
+        ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json is not pass"
       ],
       "design_notes": []
     },
@@ -199,6 +200,7 @@
         "public spatial-tour receipt: spatial_public_origin_schema_invalid",
         "public spatial-tour receipt: spatial_public_origin_status_not_pass",
         "public spatial-tour receipt: spatial_public_origin_generated_at_invalid",
+        "public spatial-tour receipt: spatial_public_origin_source_worktree_dirty",
         "public spatial-tour receipt: spatial_public_origin_https_origin_invalid",
         "public spatial-tour receipt: spatial_public_origin_runtime_revision_mismatch",
         "public spatial-tour receipt: spatial_public_origin_slug_invalid",
@@ -232,6 +234,7 @@
         "public spatial-tour receipt: spatial_public_origin_schema_invalid",
         "public spatial-tour receipt: spatial_public_origin_status_not_pass",
         "public spatial-tour receipt: spatial_public_origin_generated_at_invalid",
+        "public spatial-tour receipt: spatial_public_origin_source_worktree_dirty",
         "public spatial-tour receipt: spatial_public_origin_https_origin_invalid",
         "public spatial-tour receipt: spatial_public_origin_runtime_revision_mismatch",
         "public spatial-tour receipt: spatial_public_origin_slug_invalid",
@@ -383,6 +386,7 @@
     "weekly release_health=blocked: The EA flagship receipt is blocked by the current browser workflow proof or release evidence.",
     "weekly flagship_readiness=blocked: Browser workflow proof is currently blocked, so the flagship receipt cannot support wider release claims.",
     "weekly launch_readiness: Hold launch expansion pending browser execution proof and cross-host journey coverage.",
+    ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json is not pass",
     "ea/_completion/fleet/JOURNEY_GATES.generated.json",
     "canonical Chummer product/UI design review receipt from the owning design repo",
     "public/human-facing Chummer documentation humanization review receipt",
@@ -408,6 +412,7 @@
     "public spatial-tour receipt: spatial_public_origin_schema_invalid",
     "public spatial-tour receipt: spatial_public_origin_status_not_pass",
     "public spatial-tour receipt: spatial_public_origin_generated_at_invalid",
+    "public spatial-tour receipt: spatial_public_origin_source_worktree_dirty",
     "public spatial-tour receipt: spatial_public_origin_https_origin_invalid",
     "public spatial-tour receipt: spatial_public_origin_runtime_revision_mismatch",
     "public spatial-tour receipt: spatial_public_origin_slug_invalid",

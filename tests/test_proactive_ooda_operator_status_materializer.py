@@ -4213,6 +4213,24 @@ def test_materialize_proactive_ooda_operator_status_blocks_on_approval_callback_
     assert receipt["approval_capture_surface"]["callback_noncurrent_pending_count"] == 2
     assert receipt["approval_capture_surface"]["callback_stale_pending_count"] == 2
 
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_provider_cost_pressure",
+        _fake_provider_cost_pressure_misconfigured_probe,
+    )
+    cost_recovery_receipt = module.build_proactive_ooda_operator_status(
+        output_path=output,
+        generated_at="2026-07-02T17:02:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+        skip_provider_cost_pressure_probe=False,
+    )
+
+    assert cost_recovery_receipt["status"] == "ready_with_recovery_action"
+    assert cost_recovery_receipt["reason"] == "provider_cost_pressure_misconfigured"
+    assert cost_recovery_receipt["next_action"] == "repair_provider_cost_routing"
+    assert cost_recovery_receipt["operator_action_state"] == "recovery_required"
+    assert cost_recovery_receipt["approval_capture_surface"]["callback_hygiene_ready"] is False
+
 
 def test_materialize_proactive_ooda_operator_status_surfaces_manual_approval_capture_for_mirrored_packet(
     tmp_path: Path, monkeypatch
