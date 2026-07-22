@@ -64,6 +64,41 @@ def test_inline_english_dialogue_keeps_tags_as_narrator_and_stable_named_speaker
     assert "Ben replied" in narrator_text
 
 
+def test_noncanonical_chapter_order_fails_closed_without_losing_source() -> None:
+    first = "First chapter."
+    second = "Second chapter."
+
+    plan = plan_narration(
+        (_chapter(2, second), _chapter(1, first)),
+        language="en-US",
+        max_chars=180,
+    )
+
+    assert plan["status"] == "blocked_source_integrity_or_planning"
+    assert plan["coverage_complete"] is False
+    assert plan["source_integrity_verified"] is False
+    assert (
+        "chapter_indexes_must_be_strictly_increasing"
+        in plan["source_integrity_issues"]
+    )
+    assert _reconstruct(plan, 1) == first
+    assert _reconstruct(plan, 2) == second
+
+
+def test_attribution_modifiers_do_not_fragment_one_named_speaker() -> None:
+    text = (
+        'Anna said, “One.” Then Anna said, “Two.” '
+        'The tired Anna said, “Three.”'
+    )
+
+    plan = plan_narration((_chapter(1, text),), language="en-US", max_chars=180)
+
+    dialogue = [span for span in plan["spans"] if span["kind"] == "dialogue"]
+    assert [span["speaker_label"] for span in dialogue] == ["Anna"] * 3
+    assert len({span["speaker_id"] for span in dialogue}) == 1
+    assert plan["speaker_count"] == 1
+
+
 def test_german_quotes_guillemets_and_dialogue_tags_preserve_exact_coverage() -> None:
     text = '„Guten Morgen“, sagte Anna. Ben antwortete: «Komm herein.»'
 
@@ -308,6 +343,64 @@ def test_dialogue_dash_keeps_trailing_attribution_with_the_narrator() -> None:
     assert [span["source_text"] for span in layout] == ["— "]
 
 
+def test_english_dialogue_dash_keeps_tag_and_action_with_the_narrator() -> None:
+    text = "— Come now, Anna said, smiling at Ben."
+
+    plan = plan_narration((_chapter(1, text),), language="en", max_chars=180)
+
+    assert plan["status"] == "ready"
+    assert _reconstruct(plan, 1) == text
+    dialogue = [span for span in plan["spans"] if span["kind"] == "dialogue"]
+    narration = [span for span in plan["spans"] if span["kind"] == "narration"]
+    assert [(span["source_text"], span["speaker_label"]) for span in dialogue] == [
+        ("Come now,", "Anna")
+    ]
+    assert [span["source_text"] for span in narration] == [
+        " Anna said, smiling at Ben."
+    ]
+
+
+def test_german_dialogue_dash_keeps_tag_and_action_with_the_narrator() -> None:
+    text = "— Guten Morgen, sagte Anna, und lächelte."
+
+    plan = plan_narration((_chapter(1, text),), language="de-AT", max_chars=180)
+
+    assert plan["status"] == "ready"
+    assert _reconstruct(plan, 1) == text
+    dialogue = [span for span in plan["spans"] if span["kind"] == "dialogue"]
+    narration = [span for span in plan["spans"] if span["kind"] == "narration"]
+    assert [(span["source_text"], span["speaker_label"]) for span in dialogue] == [
+        ("Guten Morgen,", "Anna")
+    ]
+    assert [span["source_text"] for span in narration] == [
+        " sagte Anna, und lächelte."
+    ]
+
+
+def test_dialogue_dash_does_not_misread_reported_speech_as_a_speaker_tag() -> None:
+    texts = (
+        "— I was afraid; Anna said she would help, but she never came.",
+        "— I asked, because Anna said the door was open.",
+    )
+
+    plan = plan_narration(
+        tuple(_chapter(index, text) for index, text in enumerate(texts, start=1)),
+        language="en",
+        max_chars=180,
+    )
+
+    assert plan["status"] == "ready"
+    for index, text in enumerate(texts, start=1):
+        assert _reconstruct(plan, index) == text
+    dialogue = [span for span in plan["spans"] if span["kind"] == "dialogue"]
+    assert [span["source_text"] for span in dialogue] == [
+        "I was afraid; Anna said she would help, but she never came.",
+        "I asked, because Anna said the door was open.",
+    ]
+    assert all(span["speaker_label"] == "Unknown speaker" for span in dialogue)
+    assert not [span for span in plan["spans"] if span["kind"] == "narration"]
+
+
 def test_german_dialogue_dash_turns_keep_tags_and_named_speakers_stable() -> None:
     text = "— Komm jetzt, sagte Anna.\n\n— Warte, antwortete Ben."
 
@@ -414,6 +507,8 @@ def test_provider_limit_split_is_word_safe_and_records_continuation_boundary() -
     assert len(passages) == 3
     assert all(passage["char_count"] <= 80 for passage in passages)
     assert all(passage["boundary_kind_after"] == "continuation" for passage in passages[:-1])
+    assert all(float(passage["pause_seconds_after"]) > 0.0 for passage in passages[:-1])
+    assert float(plan["inserted_pause_seconds_by_kind"]["continuation"]) > 0.0
     assert "".join(passage["text"] for passage in passages) == text
     assert all(not passage["text"].startswith(" ") or index > 0 for index, passage in enumerate(passages))
 

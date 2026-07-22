@@ -1114,7 +1114,16 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
                 patch.object(
                     audiobook_epub_pipeline,
                     "_probe_audio_publication_file",
-                    return_value={"chapters": [{"id": 1}]},
+                    return_value={
+                        "chapters": [
+                            {
+                                "id": 0,
+                                "start_time": "0.000",
+                                "end_time": "120.000",
+                                "tags": {"title": chapters[0].title},
+                            }
+                        ]
+                    },
                 ),
             ):
                 result = audiobook_epub_pipeline._merge_m4b_if_ready(
@@ -1129,13 +1138,23 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
                     job={
                         "chapters": [
                             {
+                                "index": chapters[0].index,
+                                "title": chapters[0].title,
                                 "char_count": chapters[0].char_count,
                             }
                         ],
                         "merge_result": result,
                     },
                     render_result={},
-                    actual_probe_chapter_count=1,
+                    probe_chapters=[
+                        {
+                            "id": 0,
+                            "start_time": "0.000",
+                            "end_time": "120.000",
+                            "tags": {"title": chapters[0].title},
+                        }
+                    ],
+                    duration_seconds=120.0,
                 )
             )
 
@@ -1700,15 +1719,14 @@ def test_configured_dialogue_default_rechecks_exact_current_approval(
             "provider": {"dialogue_voice_selection": selection},
         },
     )
-    pipeline._write_private_json(
-        job_dir / "voice_audition" / "private.json",
+    pipeline._write_voice_audition_private(
+        job_dir,
         {
             "contract_name": pipeline.VOICE_AUDITION_CONTRACT_NAME,
             "candidates": {
                 "approved-dialogue-token": candidate,
             },
         },
-        private_parent=True,
     )
 
     assert pipeline._configured_dialogue_voice_selection(job_dir) == {}
@@ -2156,8 +2174,8 @@ def test_explicit_speaker_voice_must_match_all_reviewed_sensitive_traits(
             "speaker_profiles": {"Maria": profile},
         },
     )
-    pipeline._write_private_json(
-        job_dir / "voice_audition" / "private.json",
+    pipeline._write_voice_audition_private(
+        job_dir,
         {
             "contract_name": pipeline.VOICE_AUDITION_CONTRACT_NAME,
             "candidates": {
@@ -2170,7 +2188,6 @@ def test_explicit_speaker_voice_must_match_all_reviewed_sensitive_traits(
                 }
             },
         },
-        private_parent=True,
     )
 
     result = pipeline._resolve_audiobook_speaker_cast(
@@ -2922,8 +2939,8 @@ def test_speaker_cast_approved_private_choice_wins_without_public_voice_id(
         ),
         encoding="utf-8",
     )
-    pipeline._write_private_json(
-        job_dir / "voice_audition" / "private.json",
+    pipeline._write_voice_audition_private(
+        job_dir,
         {
             "contract_name": pipeline.VOICE_AUDITION_CONTRACT_NAME,
             "candidates": {
@@ -2934,7 +2951,6 @@ def test_speaker_cast_approved_private_choice_wins_without_public_voice_id(
                 }
             },
         },
-        private_parent=True,
     )
 
     result = pipeline._resolve_audiobook_speaker_cast(
@@ -2953,8 +2969,21 @@ def test_speaker_cast_approved_private_choice_wins_without_public_voice_id(
     assert "approved-id" not in (job_dir / "job.json").read_text(encoding="utf-8")
     public_entry = result["public"]["cast"][0]
     assert public_entry["speaker_index"] == 1
-    assert "voice_id_sha256" not in public_entry
+    assert public_entry["speaker_id_sha256"] == pipeline._sha256_bytes(
+        speaker_id.encode("utf-8")
+    )
+    assert public_entry["voice_id_sha256"] == pipeline._sha256_bytes(
+        b"approved-id"
+    )
+    assert public_entry["catalog_provenance_sha256"] == result["private"][
+        speaker_id
+    ]["catalog_provenance_sha256"]
+    assert public_entry["source_provenance_sha256"] == result["private"][
+        speaker_id
+    ]["source_provenance_sha256"]
+    assert public_entry["distinct_from_narrator"] is True
     assert "speaker_id" not in public_entry
+    assert "voice_id" not in public_entry
     assert "speaker_label_sha256" not in public_entry
 
 
@@ -3024,6 +3053,11 @@ def test_public_cast_projection_omits_identifiers_hashes_and_trait_names(
     assert public_entry["matched_trait_count"] == 3
     assert set(public_entry) == {
         "speaker_index",
+        "speaker_id_sha256",
+        "voice_id_sha256",
+        "catalog_provenance_sha256",
+        "source_provenance_sha256",
+        "distinct_from_narrator",
         "voice_label",
         "selection_source",
         "matched_trait_count",
@@ -3034,10 +3068,23 @@ def test_public_cast_projection_omits_identifiers_hashes_and_trait_names(
         "raw_voice_id_exposed",
         "identity_asserted",
     }
+    assert public_entry["speaker_id_sha256"] == pipeline._sha256_bytes(
+        speaker_id.encode("utf-8")
+    )
+    assert public_entry["voice_id_sha256"] == pipeline._sha256_bytes(
+        b"matched-private-id"
+    )
+    assert public_entry["catalog_provenance_sha256"] == result["private"][
+        speaker_id
+    ]["catalog_provenance_sha256"]
+    assert public_entry["source_provenance_sha256"] == result["private"][
+        speaker_id
+    ]["source_provenance_sha256"]
+    assert public_entry["distinct_from_narrator"] is True
     assert speaker_id not in public_json
     assert label not in public_json
     assert "matched-private-id" not in public_json
-    assert pipeline._sha256_bytes(b"matched-private-id") not in public_json
+    assert pipeline._sha256_bytes(b"matched-private-id") in public_json
     assert pipeline._sha256_bytes(label.encode("utf-8")) not in public_json
     assert "gender_presentation" not in public_json
     assert "approximate_age" not in public_json
@@ -3413,8 +3460,8 @@ def test_speaker_cast_snapshot_survives_catalog_change_on_resume(
             },
         },
     )
-    pipeline._write_private_json(
-        job_dir / "voice_audition" / "private.json",
+    pipeline._write_voice_audition_private(
+        job_dir,
         {
             "contract_name": pipeline.VOICE_AUDITION_CONTRACT_NAME,
             "candidates": {
@@ -3428,7 +3475,6 @@ def test_speaker_cast_snapshot_survives_catalog_change_on_resume(
                 }
             },
         },
-        private_parent=True,
     )
     overridden = pipeline._resolve_speaker_cast_for_narration_plan(
         job_dir=job_dir,
@@ -3521,8 +3567,8 @@ def test_invalid_exact_voice_selection_changes_snapshot_and_is_not_reused(
             },
         },
     )
-    pipeline._write_private_json(
-        job_dir / "voice_audition" / "private.json",
+    pipeline._write_voice_audition_private(
+        job_dir,
         {
             "contract_name": pipeline.VOICE_AUDITION_CONTRACT_NAME,
             "candidates": {
@@ -3536,7 +3582,6 @@ def test_invalid_exact_voice_selection_changes_snapshot_and_is_not_reused(
                 }
             },
         },
-        private_parent=True,
     )
     plan = {
         "contract_name": pipeline.NARRATION_PLAN_CONTRACT_NAME,
@@ -4204,14 +4249,14 @@ def test_voice_audition_action_respects_job_transaction_lock(
             "callback-token": {
                 "candidate_key": "candidate-a",
                 "voice_id": "private-id",
+                "voice_id_sha256": pipeline._sha256_bytes(b"private-id"),
                 "public": {"preset_key": "candidate-a"},
             }
         },
     }
-    pipeline._write_private_json(
-        tmp_path / "voice_audition" / "private.json",
+    pipeline._write_voice_audition_private(
+        tmp_path,
         private_payload,
-        private_parent=True,
     )
     monkeypatch.setattr(
         pipeline,
@@ -4262,6 +4307,501 @@ def test_automatic_cast_receipt_counts_natural_voice_reuse() -> None:
     assert result["public"]["automatic_distinct_voice_count"] == 1
     assert result["public"]["automatic_shared_speaker_count"] == 1
     assert result["public"]["automatic_sharing_used"] is True
+
+
+def test_automatic_cast_receipt_binds_each_private_assignment_with_safe_hashes() -> None:
+    pipeline = audiobook_epub_pipeline
+    result = pipeline._speaker_cast_result_from_private_entries(
+        {
+            "speaker_anna": {
+                "speaker_id": "speaker_anna",
+                "voice_id": "private-dialogue-voice",
+                "voice_label": "Dialogue voice",
+                "selection_source": "deterministic_evidence_ranked_catalog",
+            }
+        },
+        narrator_voice_id="private-narrator-voice",
+        reused_private_snapshot=False,
+    )
+
+    public_row = result["public"]["cast"][0]
+    assert public_row["speaker_id_sha256"] == pipeline._sha256_bytes(
+        b"speaker_anna"
+    )
+    assert public_row["voice_id_sha256"] == pipeline._sha256_bytes(
+        b"private-dialogue-voice"
+    )
+    assert public_row["distinct_from_narrator"] is True
+    assert "speaker_id" not in public_row
+    assert "voice_id" not in public_row
+
+    receipt_row = pipeline._safe_receipt_speaker_cast(result["public"])[
+        "cast"
+    ][0]
+    assert receipt_row["speaker_id_sha256"] == public_row["speaker_id_sha256"]
+    assert receipt_row["voice_id_sha256"] == public_row["voice_id_sha256"]
+    assert receipt_row["distinct_from_narrator"] is True
+    assert "speaker_id" not in receipt_row
+    assert "voice_id" not in receipt_row
+
+
+def test_safe_voice_receipts_redact_raw_voice_ids_aliased_as_labels() -> None:
+    pipeline = audiobook_epub_pipeline
+    raw_voice_id = "provider-private-voice-123"
+    candidate = {
+        "voice_id": raw_voice_id,
+        "label": raw_voice_id,
+        "provider": "unmixr",
+        "tags": [raw_voice_id, "narration"],
+        "score_breakdown": {raw_voice_id: 99.0, "language": 1.0},
+    }
+    selection = {
+        "status": "selected",
+        "selected_label": f"Voice {raw_voice_id}",
+        "matched_tags": [raw_voice_id, "audiobook"],
+        "candidates": [
+            {
+                "voice_id": raw_voice_id,
+                "label": "ignored private candidate",
+            }
+        ],
+        "selected_candidate": {
+            "label": raw_voice_id,
+            "provider": "unmixr",
+            "tags": [raw_voice_id, "narration"],
+        },
+        "cast": [
+            {
+                "speaker_id": "speaker_anna",
+                "voice_label": raw_voice_id,
+                "selection_source": f"selected-{raw_voice_id}",
+            }
+        ],
+        "speaker_count": 1,
+        "resolved_speaker_count": 1,
+    }
+
+    candidate_receipt = pipeline._safe_receipt_voice_candidate(candidate)
+    selection_receipt = pipeline._safe_receipt_dialogue_voice_selection(
+        selection
+    )
+    projected = json.dumps(
+        {
+            "candidate": candidate_receipt,
+            "selection": selection_receipt,
+        },
+        sort_keys=True,
+    )
+
+    assert raw_voice_id not in projected
+    assert "label" not in candidate_receipt
+    assert candidate_receipt["tags"] == ["narration"]
+    assert candidate_receipt["score_breakdown"] == {"language": 1.0}
+    assert "selected_label" not in selection_receipt
+    assert selection_receipt["matched_tags"] == ["audiobook"]
+    assert "voice_label" not in selection_receipt["speaker_cast"]["cast"][0]
+    assert (
+        "selection_source"
+        not in selection_receipt["speaker_cast"]["cast"][0]
+    )
+
+    overflow_receipt = pipeline._safe_receipt_voice_selection(
+        {
+            "selected_label": "Ordinary public label",
+            "candidates": [
+                {"voice_id": f"private-voice-{index}"}
+                for index in range(1025)
+            ],
+        }
+    )
+    assert "selected_label" not in overflow_receipt
+
+
+def test_publication_narration_evidence_rejects_empty_ready_dialogue_cast() -> None:
+    pipeline = audiobook_epub_pipeline
+    cast_map_sha256 = "d" * 64
+    render_result = {
+        "narration_plan": {
+            "contract_name": "ea.audiobook_narration_plan.v5",
+            "status": "ready",
+            "source_coverage": "complete",
+            "coverage_complete": True,
+            "source_integrity_verified": True,
+            "plan_sha256": "a" * 64,
+            "source_aggregate_sha256": "b" * 64,
+            "render_signature": "c" * 64,
+            "dialogue_passage_count": 2,
+            "dialogue_span_count": 2,
+            "speaker_count": 2,
+            "cast_map_sha256": cast_map_sha256,
+        },
+        "speaker_cast": {
+            "status": "ready",
+            "speaker_count": 0,
+            "resolved_speaker_count": 0,
+            "distinct_dialogue_voice_count": 0,
+            "narrator_voice_excluded": True,
+            "cast_map_sha256": cast_map_sha256,
+            "cast": [],
+        },
+    }
+
+    evidence, issues = pipeline._audiobook_publication_narration_evidence(
+        render_result
+    )
+
+    assert "dialogue_speaker_cast_incomplete" in issues
+    assert "dialogue_speaker_cast_distinct_voice_count_invalid" in issues
+    assert "dialogue_speaker_cast_assignment_proof_invalid" in issues
+    assert evidence["speaker_cast"]["assignments_complete"] is False
+
+
+def test_publication_narration_evidence_rejects_self_attested_safe_dialogue_cast() -> None:
+    pipeline = audiobook_epub_pipeline
+    cast_map_sha256 = "d" * 64
+    catalog_provenance = "4" * 64
+    source_provenance = "5" * 64
+    catalog_aggregate = pipeline._sha256_bytes(
+        json.dumps(
+            sorted([catalog_provenance, catalog_provenance]),
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+    source_aggregate = pipeline._sha256_bytes(
+        json.dumps(
+            sorted([source_provenance, source_provenance]),
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+    render_result = {
+        "narration_plan": {
+            "contract_name": "ea.audiobook_narration_plan.v5",
+            "status": "ready",
+            "source_coverage": "complete",
+            "coverage_complete": True,
+            "source_integrity_verified": True,
+            "plan_sha256": "a" * 64,
+            "source_aggregate_sha256": "b" * 64,
+            "render_signature": "c" * 64,
+            "dialogue_passage_count": 2,
+            "dialogue_span_count": 2,
+            "speaker_count": 2,
+            "cast_map_sha256": cast_map_sha256,
+        },
+        "speaker_cast": {
+            "status": "ready",
+            "speaker_count": 2,
+            "resolved_speaker_count": 2,
+            "distinct_dialogue_voice_count": 1,
+            "narrator_voice_excluded": True,
+            "cast_map_sha256": cast_map_sha256,
+            "catalog_provenance_sha256": catalog_aggregate,
+            "source_provenance_sha256": source_aggregate,
+            "cast": [
+                {
+                    "speaker_index": 1,
+                    "speaker_id_sha256": "1" * 64,
+                    "voice_id_sha256": "3" * 64,
+                    "catalog_provenance_sha256": catalog_provenance,
+                    "source_provenance_sha256": source_provenance,
+                    "distinct_from_narrator": True,
+                },
+                {
+                    "speaker_index": 2,
+                    "speaker_id_sha256": "2" * 64,
+                    "voice_id_sha256": "3" * 64,
+                    "catalog_provenance_sha256": catalog_provenance,
+                    "source_provenance_sha256": source_provenance,
+                    "distinct_from_narrator": True,
+                },
+            ],
+        },
+    }
+
+    evidence, issues = pipeline._audiobook_publication_narration_evidence(
+        render_result
+    )
+
+    assert issues == ["narration_authority_missing_or_invalid"]
+    assert evidence["authority_verified"] is False
+    assert evidence["speaker_cast"]["assignments_complete"] is True
+    assert evidence["speaker_cast"]["assignment_count"] == 2
+    assert evidence["speaker_cast"]["distinct_dialogue_voice_count"] == 1
+    assert all(
+        row["distinct_from_narrator"] is True
+        for row in evidence["speaker_cast"]["cast"]
+    )
+
+
+def _authoritative_publication_narration_fixture(
+    tmp_path: Path,
+) -> tuple[dict[str, object], dict[str, object]]:
+    pipeline = audiobook_epub_pipeline
+    job_dir = tmp_path / "publication-narration-authority"
+    chapter_dir = job_dir / "chapters"
+    chapter_dir.mkdir(parents=True)
+    source_text = "Anna speaks with exact source authority."
+    text_path = chapter_dir / "001.txt"
+    text_path.write_text(source_text, encoding="utf-8")
+    source_text_sha256 = pipeline._sha256_bytes(source_text.encode("utf-8"))
+    source_href = "chapter.xhtml"
+    source_aggregate_sha256 = pipeline._sha256_bytes(
+        json.dumps(
+            [
+                {
+                    "chapter_index": 1,
+                    "source_href": source_href,
+                    "source_text_sha256": source_text_sha256,
+                }
+            ],
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    )
+    speaker_id = "speaker_anna"
+    speaker_id_sha256 = pipeline._sha256_bytes(speaker_id.encode("utf-8"))
+    voice_id_sha256 = "3" * 64
+    selection_source = "deterministic_evidence_ranked_catalog"
+    private_cast_entry = {
+        "speaker_id": speaker_id,
+        "speaker_detection_evidence": {
+            "kind": "explicit_post_attribution",
+            "confidence": 0.99,
+        },
+        "traits": {},
+        "voice_id_sha256": voice_id_sha256,
+        "voice_label": "Safe dialogue voice",
+        "voice_catalog_source": "fixture:catalog",
+        "voice_catalog_preset_key": "fixture-dialogue",
+        "voice_catalog_language": "en-US",
+        "voice_catalog_supported_languages": ["en-US"],
+        "voice_catalog_tags": ["dialogue", "neutral"],
+        "selection_source": selection_source,
+    }
+    (
+        catalog_provenance_sha256,
+        source_provenance_sha256,
+    ) = pipeline._speaker_cast_entry_provenance(private_cast_entry)
+    private_cast_entry.update(
+        {
+            "catalog_provenance_sha256": catalog_provenance_sha256,
+            "source_provenance_sha256": source_provenance_sha256,
+        }
+    )
+    cast_map_sha256 = pipeline._sha256_bytes(
+        json.dumps(
+            [
+                {
+                    "speaker_id": speaker_id,
+                    "voice_id_sha256": voice_id_sha256,
+                    "selection_source": selection_source,
+                    "catalog_provenance_sha256": catalog_provenance_sha256,
+                    "source_provenance_sha256": source_provenance_sha256,
+                }
+            ],
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+    catalog_aggregate = pipeline._sha256_bytes(
+        json.dumps(
+            [catalog_provenance_sha256],
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+    cast_source_aggregate = pipeline._sha256_bytes(
+        json.dumps(
+            [source_provenance_sha256],
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+    plan_sha256 = "a" * 64
+    render_signature = "c" * 64
+    canonical_source_sha256 = pipeline._sha256_bytes(
+        pipeline._canonical_narration_text(source_text).encode("utf-8")
+    )
+    pipeline._write_private_json(
+        job_dir / "narration_plan.json",
+        {
+            "contract_name": pipeline.NARRATION_PLAN_CONTRACT_NAME,
+            "status": "ready",
+            "source_coverage": "complete",
+            "coverage_complete": True,
+            "source_integrity_verified": True,
+            "source_integrity_issues": [],
+            "chapter_count": 1,
+            "source_chapters": [
+                {
+                    "chapter_index": 1,
+                    "source_href": source_href,
+                    "source_text_sha256": source_text_sha256,
+                    "actual_source_text_sha256": source_text_sha256,
+                }
+            ],
+            "source_spans": [
+                {
+                    "span_index": 1,
+                    "source_chapter_index": 1,
+                    "char_start": 0,
+                    "char_end": len(source_text),
+                    "source_text": source_text,
+                    "source_text_sha256": source_text_sha256,
+                }
+            ],
+            "passages": [
+                {
+                    "passage_index": 1,
+                    "text": source_text,
+                    "text_sha256": source_text_sha256,
+                    "char_count": len(source_text),
+                    "speaker_role": "dialogue",
+                    "speaker_id": speaker_id,
+                    "voice_ref_sha256": voice_id_sha256,
+                    "passage_fingerprint": "6" * 64,
+                }
+            ],
+            "source_canonical_sha256": canonical_source_sha256,
+            "planned_canonical_sha256": canonical_source_sha256,
+            "planner_plan_sha256": plan_sha256,
+            "source_aggregate_sha256": source_aggregate_sha256,
+            "render_signature": render_signature,
+            "dialogue_passage_count": 1,
+            "dialogue_span_count": 1,
+            "speaker_count": 1,
+            "speaker_cast": {
+                "status": "ready",
+                "cast_map_sha256": cast_map_sha256,
+                "entries": [private_cast_entry],
+            },
+        },
+    )
+    speaker_cast = {
+        "status": "ready",
+        "speaker_count": 1,
+        "resolved_speaker_count": 1,
+        "distinct_dialogue_voice_count": 1,
+        "narrator_voice_excluded": True,
+        "cast_map_sha256": cast_map_sha256,
+        "catalog_provenance_sha256": catalog_aggregate,
+        "source_provenance_sha256": cast_source_aggregate,
+        "cast": [
+            {
+                "speaker_index": 1,
+                "speaker_id_sha256": speaker_id_sha256,
+                "voice_id_sha256": voice_id_sha256,
+                "catalog_provenance_sha256": catalog_provenance_sha256,
+                "source_provenance_sha256": source_provenance_sha256,
+                "distinct_from_narrator": True,
+            }
+        ],
+    }
+    render_result = {
+        "narration_plan": {
+            "contract_name": pipeline.NARRATION_PLAN_CONTRACT_NAME,
+            "status": "ready",
+            "source_coverage": "complete",
+            "coverage_complete": True,
+            "source_integrity_verified": True,
+            "plan_sha256": plan_sha256,
+            "source_aggregate_sha256": source_aggregate_sha256,
+            "render_signature": render_signature,
+            "dialogue_passage_count": 1,
+            "dialogue_span_count": 1,
+            "speaker_count": 1,
+            "cast_map_sha256": cast_map_sha256,
+        },
+        "speaker_cast": speaker_cast,
+    }
+    job = {
+        "storage": {"job_dir": str(job_dir)},
+        "chapters": [
+            {
+                "index": 1,
+                "title": "Chapter",
+                "source_href": source_href,
+                "text_path": text_path.name,
+                "char_count": len(source_text),
+                "sha256": source_text_sha256,
+            }
+        ],
+    }
+    return render_result, job
+
+
+def test_publication_narration_evidence_accepts_current_private_authority(
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    render_result, job = _authoritative_publication_narration_fixture(tmp_path)
+
+    evidence, issues = pipeline._audiobook_publication_narration_evidence(
+        render_result,
+        job=job,
+    )
+
+    assert issues == []
+    assert evidence["authority_verified"] is True
+    assert evidence["authority_sha256"]
+    assert evidence["speaker_cast"]["assignments_complete"] is True
+    assert evidence["speaker_cast"]["catalog_provenance_sha256"] == (
+        evidence["speaker_cast"]["recomputed_catalog_provenance_sha256"]
+    )
+    assert evidence["speaker_cast"]["source_provenance_sha256"] == (
+        evidence["speaker_cast"]["recomputed_source_provenance_sha256"]
+    )
+    assert evidence["raw_text_exposed"] is False
+    assert "Anna speaks with exact source authority" not in json.dumps(
+        evidence,
+        sort_keys=True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("tamper", "expected_issue"),
+    (
+        (
+            "catalog_provenance",
+            "dialogue_speaker_cast_catalog_provenance_invalid",
+        ),
+        (
+            "source_provenance",
+            "dialogue_speaker_cast_source_provenance_invalid",
+        ),
+        ("plan_sha256", "narration_plan_sha256_authority_mismatch"),
+        (
+            "cast_map_sha256",
+            "dialogue_speaker_cast_sha256_authority_mismatch",
+        ),
+    ),
+)
+def test_publication_narration_evidence_rejects_tampered_safe_authority(
+    tmp_path: Path,
+    tamper: str,
+    expected_issue: str,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    render_result, job = _authoritative_publication_narration_fixture(tmp_path)
+    plan = render_result["narration_plan"]
+    speaker_cast = render_result["speaker_cast"]
+    if tamper == "catalog_provenance":
+        speaker_cast["cast"][0].pop("catalog_provenance_sha256")
+    elif tamper == "source_provenance":
+        speaker_cast["cast"][0].pop("source_provenance_sha256")
+    elif tamper == "plan_sha256":
+        plan["plan_sha256"] = "b" * 64
+    else:
+        plan["cast_map_sha256"] = "f" * 64
+        speaker_cast["cast_map_sha256"] = "f" * 64
+
+    evidence, issues = pipeline._audiobook_publication_narration_evidence(
+        render_result,
+        job=job,
+    )
+
+    assert expected_issue in issues
+    assert evidence["raw_text_exposed"] is False
+    assert evidence["raw_voice_ids_exposed"] is False
 
 
 if __name__ == "__main__":

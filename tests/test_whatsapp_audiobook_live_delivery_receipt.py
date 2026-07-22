@@ -241,6 +241,7 @@ def _job_receipt(
                 "source_integrity_verified": True,
                 "chapter_count": expected_chapters,
                 "dialogue_span_count": 2,
+                "speaker_count": 2,
                 "plan_sha256": plan_sha256,
                 "source_aggregate_sha256": "3" * 64,
                 "render_signature": render_signature,
@@ -248,8 +249,22 @@ def _job_receipt(
             "speaker_cast": {
                 "status": "ready",
                 "cast_map_sha256": cast_sha256,
+                "speaker_count": 2,
+                "resolved_speaker_count": 2,
                 "distinct_dialogue_voice_count": 2,
                 "narrator_voice_excluded": True,
+                "cast": [
+                    {
+                        "speaker_id_sha256": "a" * 64,
+                        "voice_id_sha256": "c" * 64,
+                        "distinct_from_narrator": True,
+                    },
+                    {
+                        "speaker_id_sha256": "b" * 64,
+                        "voice_id_sha256": "d" * 64,
+                        "distinct_from_narrator": True,
+                    },
+                ],
                 "raw_voice_ids_exposed": False,
             },
             "mastering": {
@@ -344,6 +359,11 @@ def _job_receipt(
             "expected_chapter_count": expected_chapters,
             "actual_chapter_count": expected_chapters,
             "chapter_count_matches": True,
+            "chapter_metadata_verified": True,
+            "chapter_metadata_contract": (
+                "ea.audiobook_m4b_chapter_metadata_proof.v1"
+            ),
+            "chapter_metadata_sha256": "0" * 64,
             "cinematic_timeline_sha256": "",
             "loudness": {
                 "status": "checked",
@@ -358,9 +378,51 @@ def _job_receipt(
                 "status": "pass",
                 "enabled": True,
                 "required": True,
+                "issues": [],
+                "warnings": [],
                 "sample_count": 1,
                 "passed_samples": 1,
                 "failed_samples": 0,
+                "sample_seconds": 30,
+                "min_transcript_tokens": 8,
+                "min_book_token_overlap": 0.55,
+                "min_ordered_token_overlap": 0.55,
+                "max_position_drift_ratio": 0.125,
+                "short_book_text_tolerance": "v2",
+                "alignment_contract": "chapter_time_token_window_v1",
+                "chapter_metadata_contract": (
+                    "ea.audiobook_m4b_chapter_metadata_proof.v1"
+                ),
+                "chapter_metadata_sha256": "0" * 64,
+                "source_text_sha256": "1" * 64,
+                "source_token_count": 120 * expected_chapters,
+                "source_chapter_count": expected_chapters,
+                "probe_chapter_count": expected_chapters,
+                "distinct_source_window_count": 1,
+                "samples": [
+                    {
+                        "index": 1,
+                        "offset_seconds": 0.0,
+                        "primary_offset_seconds": 0.0,
+                        "attempt_count": 1,
+                        "status": "pass",
+                        "issue": "",
+                        "transcript_sha256": "2" * 64,
+                        "transcript_token_count": 12,
+                        "book_token_overlap": 0.92,
+                        "book_unique_token_overlap": 0.91,
+                        "ordered_token_overlap": 0.88,
+                        "source_window_sha256": "4" * 64,
+                        "source_window_token_count": 24,
+                        "source_window_padding_token_count": 4,
+                        "source_chapter_indices": list(
+                            range(1, expected_chapters + 1)
+                        ),
+                        "position_alignment_verified": True,
+                        "raw_text_exposed": False,
+                    }
+                ],
+                "raw_text_exposed": False,
             },
             "raw_paths_exposed": False,
         },
@@ -483,6 +545,105 @@ def test_live_whatsapp_audiobook_delivery_receipt_passes_with_sanitized_job_rece
     assert "wamid" not in serialized
     assert receipt["privacy"]["whatsapp_message_ids_hashed"] is True
     assert receipt["privacy"]["playback_acceptance_feedback_hashed"] is False
+
+
+@pytest.mark.parametrize(
+    "assignment_corruption",
+    ["zero", "missing", "duplicate_speaker", "tampered_voice_digest"],
+)
+def test_live_whatsapp_audiobook_delivery_receipt_rejects_incomplete_cast_assignments(
+    tmp_path: Path,
+    assignment_corruption: str,
+) -> None:
+    module = _load_script("materialize_whatsapp_audiobook_live_delivery_receipt")
+    job = _job_receipt()
+    speaker_cast = job["render"]["speaker_cast"]
+    assignments = speaker_cast["cast"]
+    if assignment_corruption == "zero":
+        speaker_cast["cast"] = []
+    elif assignment_corruption == "missing":
+        speaker_cast.pop("cast")
+    elif assignment_corruption == "duplicate_speaker":
+        assignments[1] = dict(assignments[0])
+    else:
+        assignments[0]["voice_id_sha256"] = "not-a-sha256"
+
+    receipt = module.build_receipt(
+        output_path=tmp_path / f"cast-{assignment_corruption}.generated.json",
+        job_receipts=[job],
+        generated_at="2026-06-21T08:20:00Z",
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["live_delivery_claim_allowed"] is False
+    assert "dialogue_cast_not_ready_or_distinct" in receipt["failed_codes"]
+    performance = receipt["selected_delivery"]["performance_evidence"]
+    assert performance["status"] == "blocked"
+    assert performance["all_required_proof_passed"] is False
+    assert "dialogue_cast_not_ready_or_distinct" in performance["issues"]
+
+
+@pytest.mark.parametrize(
+    ("proof_corruption", "expected_issue"),
+    [
+        ("metadata_contract", "publication_chapter_metadata_not_verified"),
+        ("metadata_sha256", "publication_chapter_metadata_not_verified"),
+        ("stt_metadata_contract", "publication_stt_alignment_not_verified"),
+        ("alignment_contract", "publication_stt_alignment_not_verified"),
+        ("sample_missing", "publication_stt_alignment_not_verified"),
+        ("transcript_sha256", "publication_stt_alignment_not_verified"),
+        ("ordered_overlap_below_threshold", "publication_stt_alignment_not_verified"),
+        ("declared_ordered_overlap_below_release_floor", "publication_stt_alignment_not_verified"),
+        ("position_drift_above_release_max", "publication_stt_alignment_not_verified"),
+        ("padding_missing", "publication_stt_alignment_not_verified"),
+        ("probe_chapter_count_mismatch", "publication_stt_alignment_not_verified"),
+    ],
+)
+def test_live_whatsapp_audiobook_delivery_receipt_rejects_unbound_publication_alignment(
+    tmp_path: Path,
+    proof_corruption: str,
+    expected_issue: str,
+) -> None:
+    module = _load_script("materialize_whatsapp_audiobook_live_delivery_receipt")
+    job = _job_receipt()
+    publication = job["audio_publication_gate"]
+    stt = publication["stt"]
+    if proof_corruption == "metadata_contract":
+        publication["chapter_metadata_contract"] = "legacy.chapter.proof"
+    elif proof_corruption == "metadata_sha256":
+        publication["chapter_metadata_sha256"] = "not-a-sha256"
+    elif proof_corruption == "stt_metadata_contract":
+        stt["chapter_metadata_contract"] = "legacy.chapter.proof"
+    elif proof_corruption == "alignment_contract":
+        stt["alignment_contract"] = "whole_book_bag_of_words_v0"
+    elif proof_corruption == "sample_missing":
+        stt["samples"] = []
+    elif proof_corruption == "transcript_sha256":
+        stt["samples"][0]["transcript_sha256"] = "not-a-sha256"
+    elif proof_corruption == "ordered_overlap_below_threshold":
+        stt["samples"][0]["ordered_token_overlap"] = 0.1
+    elif proof_corruption == "declared_ordered_overlap_below_release_floor":
+        stt["min_ordered_token_overlap"] = 0.1
+    elif proof_corruption == "position_drift_above_release_max":
+        stt["max_position_drift_ratio"] = 0.25
+    elif proof_corruption == "padding_missing":
+        stt["samples"][0]["source_window_padding_token_count"] = 0
+    else:
+        stt["probe_chapter_count"] = 0
+
+    receipt = module.build_receipt(
+        output_path=tmp_path / f"alignment-{proof_corruption}.generated.json",
+        job_receipts=[job],
+        generated_at="2026-06-21T08:20:00Z",
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["live_delivery_claim_allowed"] is False
+    assert expected_issue in receipt["failed_codes"]
+    performance = receipt["selected_delivery"]["performance_evidence"]
+    assert performance["status"] == "blocked"
+    assert performance["all_required_proof_passed"] is False
+    assert expected_issue in performance["issues"]
 
 
 def test_live_whatsapp_audiobook_delivery_receipt_accepts_cleaned_import_target_proof(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
+from difflib import SequenceMatcher
 import base64
 import errno
 import fcntl
@@ -19,6 +20,7 @@ import posixpath
 import re
 import shutil
 import shlex
+import stat
 import subprocess
 import tempfile
 import threading
@@ -401,6 +403,8 @@ def _env_float(name: str, default: float, *, minimum: float = 0.0, maximum: floa
     try:
         value = float(raw or str(default))
     except Exception:
+        value = default
+    if not math.isfinite(value):
         value = default
     value = max(value, minimum)
     if maximum is not None:
@@ -3967,21 +3971,148 @@ def _voice_audition_private_path(job_dir: Path) -> Path:
     return _voice_audition_dir(job_dir) / "private.json"
 
 
+def _empty_voice_audition_private() -> dict[str, object]:
+    return {
+        "contract_name": VOICE_AUDITION_CONTRACT_NAME,
+        "candidates": {},
+    }
+
+
+def _voice_audition_expected_job_id(job_dir: Path) -> str:
+    try:
+        job_payload = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        job_payload = {}
+    if not isinstance(job_payload, dict):
+        job_payload = {}
+    return str(job_payload.get("job_id") or job_dir.name).strip()
+
+
+def _voice_audition_private_bindings_valid(
+    *,
+    job_dir: Path,
+    payload: dict[str, object],
+) -> bool:
+    if payload.get("contract_name") != VOICE_AUDITION_CONTRACT_NAME:
+        return False
+    expected_job_id = _voice_audition_expected_job_id(job_dir)
+    recorded_job_id = str(payload.get("job_id") or "").strip()
+    if not recorded_job_id or recorded_job_id != expected_job_id:
+        return False
+    candidates = payload.get("candidates")
+    if not isinstance(candidates, dict):
+        return False
+    for raw_token, raw_candidate in candidates.items():
+        token = str(raw_token or "").strip()
+        if not token or not isinstance(raw_candidate, dict):
+            return False
+        candidate = dict(raw_candidate)
+        raw_public = candidate.get("public")
+        if raw_public is not None and not isinstance(raw_public, dict):
+            return False
+        public = dict(raw_public or {})
+        voice_id = str(candidate.get("voice_id") or "").strip()
+        recorded_voice_hash = str(
+            candidate.get("voice_id_sha256")
+            or public.get("voice_id_sha256")
+            or ""
+        ).strip()
+        if (
+            not voice_id
+            or recorded_voice_hash != _sha256_bytes(voice_id.encode("utf-8"))
+        ):
+            return False
+        public_token = str(public.get("callback_token") or "").strip()
+        if public_token and public_token != token:
+            return False
+        candidate_key = str(candidate.get("candidate_key") or "").strip()
+        public_key = str(public.get("preset_key") or "").strip()
+        if candidate_key and public_key and candidate_key != public_key:
+            return False
+    selected_token = str(payload.get("selected_callback_token") or "").strip()
+    if selected_token:
+        selected_candidate = candidates.get(selected_token)
+        if not isinstance(selected_candidate, dict):
+            return False
+        selected_key = str(payload.get("selected_candidate_key") or "").strip()
+        candidate_key = str(selected_candidate.get("candidate_key") or "").strip()
+        if selected_key and candidate_key and selected_key != candidate_key:
+            return False
+    return True
+
+
 def _load_voice_audition_private(job_dir: Path) -> dict[str, object]:
     path = _voice_audition_private_path(job_dir)
+    empty = _empty_voice_audition_private()
+    parent_descriptor = -1
+    file_descriptor = -1
     try:
-        if not path.is_file():
-            return {
-                "contract_name": VOICE_AUDITION_CONTRACT_NAME,
-                "candidates": {},
-            }
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        parent_path_stat = path.parent.lstat()
+        if (
+            stat.S_ISLNK(parent_path_stat.st_mode)
+            or not stat.S_ISDIR(parent_path_stat.st_mode)
+        ):
+            return empty
+        parent_descriptor = os.open(
+            path.parent,
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0),
+        )
+        parent_stat = os.fstat(parent_descriptor)
+        job_stat = job_dir.stat()
+        parent_mode = stat.S_IMODE(parent_stat.st_mode)
+        if (
+            not stat.S_ISDIR(parent_stat.st_mode)
+            or (parent_stat.st_dev, parent_stat.st_ino)
+            != (parent_path_stat.st_dev, parent_path_stat.st_ino)
+            or parent_mode & 0o077
+            or not parent_mode & stat.S_IXUSR
+            or parent_stat.st_uid != job_stat.st_uid
+        ):
+            return empty
+        file_path_stat = path.lstat()
+        if (
+            stat.S_ISLNK(file_path_stat.st_mode)
+            or not stat.S_ISREG(file_path_stat.st_mode)
+        ):
+            return empty
+        file_descriptor = os.open(
+            path.name,
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=parent_descriptor,
+        )
+        file_stat = os.fstat(file_descriptor)
+        file_mode = stat.S_IMODE(file_stat.st_mode)
+        if (
+            not stat.S_ISREG(file_stat.st_mode)
+            or (file_stat.st_dev, file_stat.st_ino)
+            != (file_path_stat.st_dev, file_path_stat.st_ino)
+            or file_mode not in {0o400, 0o600}
+            or file_stat.st_uid != job_stat.st_uid
+            or file_stat.st_uid != parent_stat.st_uid
+        ):
+            return empty
+        with os.fdopen(file_descriptor, "r", encoding="utf-8") as handle:
+            file_descriptor = -1
+            payload = json.load(handle)
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
-        return {"contract_name": VOICE_AUDITION_CONTRACT_NAME, "candidates": {}}
-    if not isinstance(payload, dict):
-        return {"contract_name": VOICE_AUDITION_CONTRACT_NAME, "candidates": {}}
-    payload.setdefault("contract_name", VOICE_AUDITION_CONTRACT_NAME)
-    payload.setdefault("candidates", {})
+        return empty
+    finally:
+        if file_descriptor >= 0:
+            with contextlib.suppress(OSError):
+                os.close(file_descriptor)
+        if parent_descriptor >= 0:
+            with contextlib.suppress(OSError):
+                os.close(parent_descriptor)
+    if not isinstance(payload, dict) or not _voice_audition_private_bindings_valid(
+        job_dir=job_dir,
+        payload=payload,
+    ):
+        return empty
     return payload
 
 
@@ -4075,7 +4206,11 @@ def _write_atomic_private_text(path: Path, value: str) -> None:
 
 def _write_voice_audition_private(job_dir: Path, payload: dict[str, object]) -> None:
     path = _voice_audition_private_path(job_dir)
-    _write_private_json(path, payload, private_parent=True)
+    persisted = dict(payload)
+    persisted["contract_name"] = VOICE_AUDITION_CONTRACT_NAME
+    if not str(persisted.get("job_id") or "").strip():
+        persisted["job_id"] = _voice_audition_expected_job_id(job_dir)
+    _write_private_json(path, persisted, private_parent=True)
 
 
 def _clear_voice_audition_private_selection(job_dir: Path) -> None:
@@ -6745,6 +6880,18 @@ def _audiobook_mastering_contract() -> str:
     }
     return _sha256_bytes(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    )
+
+
+def _audiobook_final_track_signature_set_sha256(
+    bindings: list[dict[str, object]],
+) -> str:
+    return _sha256_bytes(
+        json.dumps(
+            bindings,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
     )
 
 
@@ -10001,6 +10148,13 @@ def _speaker_cast_result_from_private_entries(
         public_cast.append(
             {
                 "speaker_index": speaker_index,
+                "speaker_id_sha256": _sha256_bytes(
+                    speaker_id.encode("utf-8")
+                ),
+                "voice_id_sha256": voice_hash,
+                "catalog_provenance_sha256": catalog_provenance_sha256,
+                "source_provenance_sha256": source_provenance_sha256,
+                "distinct_from_narrator": voice_id != narrator_voice_id,
                 "voice_label": _safe_public_voice_label(
                     entry.get("voice_label"),
                     narrator_voice_id,
@@ -10512,9 +10666,8 @@ def _write_private_narration_plan(
     )
     normalized_speaker_cast = dict(speaker_cast or {})
     if not normalized_speaker_cast and dialogue_voice_id and dialogue_voice_id != narrator_voice_id:
-        normalized_speaker_cast = {
-            "status": "ready",
-            "private": {
+        normalized_speaker_cast = _speaker_cast_result_from_private_entries(
+            {
                 "speaker_unknown": {
                     "speaker_id": "speaker_unknown",
                     "speaker_label": "",
@@ -10526,12 +10679,9 @@ def _write_private_narration_plan(
                     "identity_asserted": False,
                 }
             },
-            "public": {
-                "status": "ready",
-                "speaker_count": 1,
-                "raw_voice_ids_exposed": False,
-            },
-        }
+            narrator_voice_id=narrator_voice_id,
+            reused_private_snapshot=False,
+        )
     private_speaker_cast = dict(normalized_speaker_cast.get("private") or {})
     chapter_coverage: list[dict[str, object]] = []
     exact_chapter_coverage = {
@@ -10827,6 +10977,9 @@ def _write_private_narration_plan(
             exact_plan.get("unsafe_or_very_short_passage_runs") or []
         ),
         "speaker_count": int(exact_plan.get("speaker_count") or 0),
+        "dialogue_span_count": int(
+            exact_plan.get("dialogue_span_count") or 0
+        ),
         "attributed_dialogue_span_count": int(
             exact_plan.get("attributed_dialogue_span_count") or 0
         ),
@@ -11193,6 +11346,16 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                                 "audio_quality": cached_master_quality,
                             }
                         )
+                    cached_final_track_bindings = [
+                        {
+                            "track": "cinematic_master",
+                            "signature": cinematic_track_signature,
+                            "audio_sha256": str(
+                                cached_master_output_binding.get("audio_sha256")
+                                or ""
+                            ),
+                        }
+                    ]
                     return {
                         "status": "already_rendered",
                         "reason": "cinematic_master_present",
@@ -11219,26 +11382,19 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                             "final_track_ready_count": 1,
                             "final_track_mastered_this_run_count": 0,
                             "signature_published_or_verified_count": 1,
-                            "signature_set_sha256": _sha256_bytes(
-                                json.dumps(
-                                    [
-                                        {
-                                            "track": "cinematic_master",
-                                            "signature": cinematic_track_signature,
-                                            "audio_sha256": str(
-                                                cached_master_output_binding.get(
-                                                    "audio_sha256"
-                                                )
-                                                or ""
-                                            ),
-                                        }
-                                    ],
-                                    sort_keys=True,
-                                    separators=(",", ":"),
-                                ).encode("utf-8")
+                            "final_track_bindings": cached_final_track_bindings,
+                            "signature_set_sha256": (
+                                _audiobook_final_track_signature_set_sha256(
+                                    cached_final_track_bindings
+                                )
                             ),
                             "segment_mastering": False,
-                            "final_audio_quality": cached_master_quality,
+                            "final_audio_quality": [
+                                {
+                                    **cached_master_quality,
+                                    "track": "cinematic_master",
+                                }
+                            ],
                         },
                     }
     voice_selection = resolved_voice_selection
@@ -11939,6 +12095,15 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                     "segment_audio_quality": segment_audio_quality,
                 }
             )
+        cinematic_final_track_bindings = [
+            {
+                "track": "cinematic_master",
+                "signature": cinematic_track_signature,
+                "audio_sha256": str(
+                    cinematic_master_output_binding.get("audio_sha256") or ""
+                ),
+            }
+        ]
         return {
             "status": "rendered",
             "chapters": rendered,
@@ -11968,26 +12133,19 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                 "final_track_ready_count": 1,
                 "final_track_mastered_this_run_count": 1,
                 "signature_published_or_verified_count": 1,
-                "signature_set_sha256": _sha256_bytes(
-                    json.dumps(
-                        [
-                            {
-                                "track": "cinematic_master",
-                                "signature": cinematic_track_signature,
-                                "audio_sha256": str(
-                                    cinematic_master_output_binding.get(
-                                        "audio_sha256"
-                                    )
-                                    or ""
-                                ),
-                            }
-                        ],
-                        sort_keys=True,
-                        separators=(",", ":"),
-                    ).encode("utf-8")
+                "final_track_bindings": cinematic_final_track_bindings,
+                "signature_set_sha256": (
+                    _audiobook_final_track_signature_set_sha256(
+                        cinematic_final_track_bindings
+                    )
                 ),
                 "segment_mastering": False,
-                "final_audio_quality": cinematic_audio_quality,
+                "final_audio_quality": [
+                    {
+                        **cinematic_audio_quality,
+                        "track": "cinematic_master",
+                    }
+                ],
             },
             "cache": _cache_summary(),
         }
@@ -12241,7 +12399,7 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                     total_reused_passage_count += 1
                     segment_paths.append(existing_segment)
                     merge_paths.append(existing_segment)
-                    if bool(segment_row.get("paragraph_break_after")) and len(segment_rows) > 1:
+                    if bool(segment_row.get("paragraph_break_after")):
                         pause_kind = str(segment_row.get("pause_kind") or "paragraph")
                         pause_seconds_after = float(
                             segment_row.get("pause_seconds_after") or paragraph_pause_seconds
@@ -12380,7 +12538,7 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
             total_regenerated_passage_count += 1
             segment_paths.append(rendered_segment)
             merge_paths.append(rendered_segment)
-            if bool(segment_row.get("paragraph_break_after")) and len(segment_rows) > 1:
+            if bool(segment_row.get("paragraph_break_after")):
                 pause_kind = str(segment_row.get("pause_kind") or "paragraph")
                 pause_seconds_after = float(
                     segment_row.get("pause_seconds_after") or paragraph_pause_seconds
@@ -12587,12 +12745,11 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
             "final_track_ready_count": final_track_ready_count,
             "final_track_mastered_this_run_count": final_track_mastered_this_run_count,
             "signature_published_or_verified_count": final_track_signature_count,
-            "signature_set_sha256": _sha256_bytes(
-                json.dumps(
-                    final_track_signatures,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ).encode("utf-8")
+            "final_track_bindings": final_track_signatures,
+            "signature_set_sha256": (
+                _audiobook_final_track_signature_set_sha256(
+                    final_track_signatures
+                )
             )
             if final_track_signatures
             else "",
@@ -12831,10 +12988,27 @@ def _audio_quality_receipt_summary(render_result: dict[str, object]) -> dict[str
 
 def _audio_publication_stt_receipt_summary(audio_publication_gate: dict[str, object]) -> dict[str, object]:
     stt_gate = dict(audio_publication_gate.get("stt") or {})
+    minimum_hash_token_count = max(
+        8,
+        int(stt_gate.get("min_transcript_tokens") or 0),
+    )
     sample_summaries: list[dict[str, object]] = []
     for sample in list(stt_gate.get("samples") or []):
         if not isinstance(sample, dict):
             continue
+        transcript_token_count = int(sample.get("transcript_token_count") or 0)
+        source_window_token_count = int(
+            sample.get("source_window_token_count") or 0
+        )
+        transcript_sha256 = _receipt_sha256(sample.get("transcript_sha256"))
+        source_window_sha256 = _receipt_sha256(
+            sample.get("source_window_sha256")
+        )
+        transcript_hash_allowed = transcript_token_count >= minimum_hash_token_count
+        source_window_hash_allowed = (
+            transcript_hash_allowed
+            and source_window_token_count >= minimum_hash_token_count
+        )
         sample_summaries.append(
             {
                 "index": int(sample.get("index") or 0),
@@ -12843,18 +13017,49 @@ def _audio_publication_stt_receipt_summary(audio_publication_gate: dict[str, obj
                 "warning": str(sample.get("warning") or "").strip(),
                 "attempt_count": int(sample.get("attempt_count") or 0),
                 "transcriber": str(sample.get("transcriber") or "").strip(),
-                "transcript_sha256": str(sample.get("transcript_sha256") or "").strip(),
-                "transcript_token_count": int(sample.get("transcript_token_count") or 0),
+                "transcript_sha256": (
+                    transcript_sha256 if transcript_hash_allowed else ""
+                ),
+                "transcript_hash_withheld_low_entropy": bool(
+                    transcript_sha256 and not transcript_hash_allowed
+                ),
+                "transcript_token_count": transcript_token_count,
+                "transcript_unique_token_count": int(
+                    sample.get("transcript_unique_token_count") or 0
+                ),
                 "book_token_overlap": float(sample.get("book_token_overlap") or 0.0),
                 "book_unique_token_overlap": float(sample.get("book_unique_token_overlap") or 0.0),
+                "ordered_token_overlap": float(
+                    sample.get("ordered_token_overlap") or 0.0
+                ),
+                "source_window_sha256": (
+                    source_window_sha256 if source_window_hash_allowed else ""
+                ),
+                "source_window_hash_withheld_low_entropy": bool(
+                    source_window_sha256 and not source_window_hash_allowed
+                ),
+                "source_window_token_count": source_window_token_count,
+                "source_window_padding_token_count": int(
+                    sample.get("source_window_padding_token_count") or 0
+                ),
+                "source_chapter_indices": [
+                    int(value)
+                    for value in list(sample.get("source_chapter_indices") or [])
+                    if isinstance(value, int)
+                    and not isinstance(value, bool)
+                    and value > 0
+                ],
+                "position_alignment_verified": bool(
+                    sample.get("position_alignment_verified") is True
+                ),
                 "extractor_seek_mode": str(sample.get("extractor_seek_mode") or "").strip(),
                 "raw_text_exposed": False,
             }
         )
     return {
         "status": str(stt_gate.get("status") or "").strip(),
-        "enabled": bool(stt_gate.get("enabled")),
-        "required": bool(stt_gate.get("required")),
+        "enabled": stt_gate.get("enabled") is True,
+        "required": stt_gate.get("required") is True,
         "sample_count": int(stt_gate.get("sample_count") or 0),
         "sample_seconds": int(stt_gate.get("sample_seconds") or 0),
         "passed_samples": int(stt_gate.get("passed_samples") or 0),
@@ -12863,8 +13068,44 @@ def _audio_publication_stt_receipt_summary(audio_publication_gate: dict[str, obj
         "warnings": list(stt_gate.get("warnings") or []) if isinstance(stt_gate.get("warnings"), list) else [],
         "min_transcript_tokens": int(stt_gate.get("min_transcript_tokens") or 0),
         "min_book_token_overlap": float(stt_gate.get("min_book_token_overlap") or 0.0),
-        "source_text_sha256": str(stt_gate.get("source_text_sha256") or "").strip(),
+        "min_ordered_token_overlap": float(
+            stt_gate.get("min_ordered_token_overlap") or 0.0
+        ),
+        "max_position_drift_ratio": float(
+            stt_gate.get("max_position_drift_ratio") or 0.0
+        ),
+        "minimum_hash_token_count": minimum_hash_token_count,
+        "short_book_text_tolerance": str(
+            stt_gate.get("short_book_text_tolerance") or ""
+        ).strip(),
+        "short_tolerance_min_token_count": int(
+            stt_gate.get("short_tolerance_min_token_count") or 0
+        ),
+        "short_tolerance_min_unique_token_count": int(
+            stt_gate.get("short_tolerance_min_unique_token_count") or 0
+        ),
+        "alignment_contract": str(
+            stt_gate.get("alignment_contract") or ""
+        ).strip(),
+        "chapter_metadata_contract": str(
+            stt_gate.get("chapter_metadata_contract") or ""
+        ).strip(),
+        "chapter_metadata_sha256": _receipt_sha256(
+            stt_gate.get("chapter_metadata_sha256")
+        ),
+        "source_text_sha256": _receipt_sha256(
+            stt_gate.get("source_text_sha256")
+        ),
         "source_token_count": int(stt_gate.get("source_token_count") or 0),
+        "source_chapter_count": int(
+            stt_gate.get("source_chapter_count") or 0
+        ),
+        "probe_chapter_count": int(
+            stt_gate.get("probe_chapter_count") or 0
+        ),
+        "distinct_source_window_count": int(
+            stt_gate.get("distinct_source_window_count") or 0
+        ),
         "samples": sample_summaries,
         "raw_text_exposed": False,
     }
@@ -13022,7 +13263,49 @@ def _audiobook_canary_receipt_hmac_key(channel: str) -> str:
     return ""
 
 
-def _safe_receipt_public_string(value: object, *, max_length: int = 240) -> str:
+_SAFE_RECEIPT_REDACT_ALL_VOICE_STRINGS = "\x00redact-all-voice-strings"
+
+
+def _safe_receipt_private_voice_ids(value: object) -> tuple[str, ...]:
+    private_ids: list[str] = []
+
+    def redact_all() -> None:
+        if _SAFE_RECEIPT_REDACT_ALL_VOICE_STRINGS not in private_ids:
+            private_ids.append(_SAFE_RECEIPT_REDACT_ALL_VOICE_STRINGS)
+
+    def collect(node: object, *, depth: int = 0) -> None:
+        if depth > 8:
+            redact_all()
+            return
+        if len(private_ids) >= 1024:
+            redact_all()
+            return
+        if isinstance(node, dict):
+            for raw_key, raw_value in node.items():
+                key = str(raw_key or "").strip().casefold().replace("-", "_")
+                if (
+                    key == "voice_id"
+                    or key.endswith("_voice_id")
+                ) and not key.endswith("_sha256"):
+                    normalized = str(raw_value or "").strip()
+                    if normalized and normalized not in private_ids:
+                        private_ids.append(normalized)
+                elif isinstance(raw_value, (dict, list, tuple)):
+                    collect(raw_value, depth=depth + 1)
+        elif isinstance(node, (list, tuple)):
+            for item in node:
+                collect(item, depth=depth + 1)
+
+    collect(value)
+    return tuple(private_ids)
+
+
+def _safe_receipt_public_string(
+    value: object,
+    *,
+    max_length: int = 240,
+    forbidden_values: tuple[str, ...] = (),
+) -> str:
     normalized = str(value or "").strip()
     if not normalized or len(normalized) > max_length:
         return ""
@@ -13044,6 +13327,14 @@ def _safe_receipt_public_string(value: object, *, max_length: int = 240) -> str:
     )
     if any(marker in lowered for marker in sensitive_markers):
         return ""
+    for raw_forbidden in forbidden_values:
+        forbidden = str(raw_forbidden or "").strip().casefold()
+        if not forbidden:
+            continue
+        if forbidden == _SAFE_RECEIPT_REDACT_ALL_VOICE_STRINGS:
+            return ""
+        if lowered == forbidden or (len(forbidden) >= 4 and forbidden in lowered):
+            return ""
     if "://" in normalized or "/" in normalized or "\\" in normalized:
         return ""
     if lowered.endswith((".wav", ".mp3", ".m4a", ".json", ".txt")):
@@ -13053,25 +13344,42 @@ def _safe_receipt_public_string(value: object, *, max_length: int = 240) -> str:
     return normalized
 
 
-def _safe_receipt_string_list(value: object) -> list[str]:
+def _safe_receipt_string_list(
+    value: object,
+    *,
+    forbidden_values: tuple[str, ...] = (),
+) -> list[str]:
     if not isinstance(value, (list, tuple, set)):
         return []
     rows: list[str] = []
     for item in value:
         if not isinstance(item, (str, int, float, bool)):
             continue
-        normalized = _safe_receipt_public_string(item, max_length=160)
+        normalized = _safe_receipt_public_string(
+            item,
+            max_length=160,
+            forbidden_values=forbidden_values,
+        )
         if normalized and normalized not in rows:
             rows.append(normalized)
     return rows
 
 
-def _safe_receipt_score_map(value: object) -> dict[str, float]:
+def _safe_receipt_score_map(
+    value: object,
+    *,
+    forbidden_values: tuple[str, ...] = (),
+) -> dict[str, float]:
     if not isinstance(value, dict):
         return {}
     scores: dict[str, float] = {}
     for raw_key, raw_value in value.items():
-        key = _normalize_tag(str(raw_key or ""))
+        safe_key = _safe_receipt_public_string(
+            raw_key,
+            max_length=80,
+            forbidden_values=forbidden_values,
+        )
+        key = _normalize_tag(safe_key)
         if not key or isinstance(raw_value, bool) or not isinstance(raw_value, (int, float)):
             continue
         numeric_value = float(raw_value)
@@ -13080,8 +13388,17 @@ def _safe_receipt_score_map(value: object) -> dict[str, float]:
     return scores
 
 
-def _safe_receipt_voice_candidate(value: object) -> dict[str, object]:
+def _safe_receipt_voice_candidate(
+    value: object,
+    *,
+    forbidden_voice_ids: tuple[str, ...] = (),
+) -> dict[str, object]:
     candidate = dict(value or {}) if isinstance(value, dict) else {}
+    private_voice_ids = tuple(
+        dict.fromkeys(
+            (*forbidden_voice_ids, *_safe_receipt_private_voice_ids(candidate))
+        )
+    )
     public: dict[str, object] = {}
     for key in (
         "label",
@@ -13091,7 +13408,10 @@ def _safe_receipt_voice_candidate(value: object) -> dict[str, object]:
         "selection_basis",
         "display_family",
     ):
-        normalized = _safe_receipt_public_string(candidate.get(key))
+        normalized = _safe_receipt_public_string(
+            candidate.get(key),
+            forbidden_values=private_voice_ids,
+        )
         if normalized:
             public[key] = normalized
     preset_key = str(candidate.get("preset_key") or "").strip()
@@ -13101,7 +13421,10 @@ def _safe_receipt_voice_candidate(value: object) -> dict[str, object]:
     if preset_key_sha256:
         public["preset_key_sha256"] = preset_key_sha256
     for key in ("supported_languages", "tags", "matched_tags", "matched_use_cases"):
-        values = _safe_receipt_string_list(candidate.get(key))
+        values = _safe_receipt_string_list(
+            candidate.get(key),
+            forbidden_values=private_voice_ids,
+        )
         if values:
             public[key] = values
     for key in ("score", "language_score", "tag_score", "feedback_score"):
@@ -13110,7 +13433,10 @@ def _safe_receipt_voice_candidate(value: object) -> dict[str, object]:
             numeric_value = float(raw_value)
             if math.isfinite(numeric_value):
                 public[key] = numeric_value
-    score_breakdown = _safe_receipt_score_map(candidate.get("score_breakdown"))
+    score_breakdown = _safe_receipt_score_map(
+        candidate.get("score_breakdown"),
+        forbidden_values=private_voice_ids,
+    )
     if score_breakdown:
         public["score_breakdown"] = score_breakdown
     for key in ("default", "language_match", "approved_by_user", "selected_by_user"):
@@ -13132,6 +13458,7 @@ def _safe_receipt_voice_candidate(value: object) -> dict[str, object]:
 
 def _safe_receipt_voice_selection(value: object) -> dict[str, object]:
     selection = dict(value or {}) if isinstance(value, dict) else {}
+    private_voice_ids = _safe_receipt_private_voice_ids(selection)
     public: dict[str, object] = {}
     for key in (
         "contract_name",
@@ -13146,7 +13473,10 @@ def _safe_receipt_voice_selection(value: object) -> dict[str, object]:
         "selection_basis",
         "selected_label",
     ):
-        normalized = _safe_receipt_public_string(selection.get(key))
+        normalized = _safe_receipt_public_string(
+            selection.get(key),
+            forbidden_values=private_voice_ids,
+        )
         if normalized:
             public[key] = normalized
     selected_preset_key = str(selection.get("selected_preset_key") or "").strip()
@@ -13173,7 +13503,10 @@ def _safe_receipt_voice_selection(value: object) -> dict[str, object]:
         if isinstance(raw_value, int) and not isinstance(raw_value, bool):
             public[key] = max(0, raw_value)
     for key in ("matched_tags", "supported_languages"):
-        values = _safe_receipt_string_list(selection.get(key))
+        values = _safe_receipt_string_list(
+            selection.get(key),
+            forbidden_values=private_voice_ids,
+        )
         if values:
             public[key] = values
     for key in (
@@ -13188,9 +13521,15 @@ def _safe_receipt_voice_selection(value: object) -> dict[str, object]:
         digest = _receipt_sha256(selection.get(key))
         if digest:
             public[key] = digest
-    selected_candidate = _safe_receipt_voice_candidate(selection.get("selected_candidate"))
+    selected_candidate = _safe_receipt_voice_candidate(
+        selection.get("selected_candidate"),
+        forbidden_voice_ids=private_voice_ids,
+    )
     if not selected_candidate:
-        selected_candidate = _safe_receipt_voice_candidate(selection.get("candidate"))
+        selected_candidate = _safe_receipt_voice_candidate(
+            selection.get("candidate"),
+            forbidden_voice_ids=private_voice_ids,
+        )
     if selected_candidate:
         public["selected_candidate"] = selected_candidate
     return public
@@ -13198,6 +13537,7 @@ def _safe_receipt_voice_selection(value: object) -> dict[str, object]:
 
 def _safe_receipt_dialogue_voice_selection(value: object) -> dict[str, object]:
     selection = dict(value or {}) if isinstance(value, dict) else {}
+    private_voice_ids = _safe_receipt_private_voice_ids(selection)
     public = _safe_receipt_voice_selection(selection)
     for key in (
         "enabled",
@@ -13210,14 +13550,26 @@ def _safe_receipt_dialogue_voice_selection(value: object) -> dict[str, object]:
     ):
         if isinstance(selection.get(key), bool):
             public[key] = bool(selection.get(key))
-    speaker_cast = _safe_receipt_speaker_cast(selection)
+    speaker_cast = _safe_receipt_speaker_cast(
+        selection,
+        forbidden_voice_ids=private_voice_ids,
+    )
     if speaker_cast:
         public["speaker_cast"] = speaker_cast
     return public
 
 
-def _safe_receipt_speaker_cast(value: object) -> dict[str, object]:
+def _safe_receipt_speaker_cast(
+    value: object,
+    *,
+    forbidden_voice_ids: tuple[str, ...] = (),
+) -> dict[str, object]:
     speaker_cast = dict(value or {}) if isinstance(value, dict) else {}
+    private_voice_ids = tuple(
+        dict.fromkeys(
+            (*forbidden_voice_ids, *_safe_receipt_private_voice_ids(speaker_cast))
+        )
+    )
     if not any(
         key in speaker_cast
         for key in (
@@ -13239,7 +13591,10 @@ def _safe_receipt_speaker_cast(value: object) -> dict[str, object]:
         "sharing_policy",
         "casting_policy",
     ):
-        normalized = _safe_receipt_public_string(speaker_cast.get(key))
+        normalized = _safe_receipt_public_string(
+            speaker_cast.get(key),
+            forbidden_values=private_voice_ids,
+        )
         if normalized:
             public[key] = normalized
     for key in (
@@ -13277,15 +13632,34 @@ def _safe_receipt_speaker_cast(value: object) -> dict[str, object]:
         if not isinstance(raw_row, dict):
             continue
         row: dict[str, object] = {}
-        speaker_id = _safe_receipt_public_string(raw_row.get("speaker_id"))
+        speaker_index = raw_row.get("speaker_index")
+        if (
+            isinstance(speaker_index, int)
+            and not isinstance(speaker_index, bool)
+            and speaker_index > 0
+        ):
+            row["speaker_index"] = speaker_index
+        speaker_id = _safe_receipt_public_string(
+            raw_row.get("speaker_id"),
+            forbidden_values=private_voice_ids,
+        )
         if speaker_id:
             row["speaker_id"] = speaker_id
-        for key in ("speaker_label_sha256", "voice_id_sha256"):
+        for key in (
+            "speaker_id_sha256",
+            "speaker_label_sha256",
+            "voice_id_sha256",
+            "catalog_provenance_sha256",
+            "source_provenance_sha256",
+        ):
             digest = _receipt_sha256(raw_row.get(key))
             if digest:
                 row[key] = digest
         for key in ("selection_source", "voice_label"):
-            normalized = _safe_receipt_public_string(raw_row.get(key))
+            normalized = _safe_receipt_public_string(
+                raw_row.get(key),
+                forbidden_values=private_voice_ids,
+            )
             if normalized:
                 row[key] = normalized
         for key in (
@@ -13293,7 +13667,10 @@ def _safe_receipt_speaker_cast(value: object) -> dict[str, object]:
             "unmatched_trait_kinds",
             "ambiguous_trait_kinds",
         ):
-            values = _safe_receipt_string_list(raw_row.get(key))
+            values = _safe_receipt_string_list(
+                raw_row.get(key),
+                forbidden_values=private_voice_ids,
+            )
             if values:
                 row[key] = values
         confidence = raw_row.get("trait_evidence_confidence")
@@ -13303,6 +13680,7 @@ def _safe_receipt_speaker_cast(value: object) -> dict[str, object]:
                 min(float(confidence), 1.0),
             )
         for key in (
+            "distinct_from_narrator",
             "unknown_neutral_fallback",
             "raw_voice_id_exposed",
             "identity_asserted",
@@ -13494,6 +13872,12 @@ def _safe_receipt_mastering(value: object) -> dict[str, object]:
         "signature_set_sha256": _receipt_sha256(
             mastering.get("signature_set_sha256")
         ),
+        "recomputed_signature_set_sha256": _receipt_sha256(
+            mastering.get("recomputed_signature_set_sha256")
+        ),
+        "artifact_signature_set_sha256": _receipt_sha256(
+            mastering.get("artifact_signature_set_sha256")
+        ),
     }
     raw_mastering_status = mastering.get("status")
     mastering_status = (
@@ -13519,6 +13903,69 @@ def _safe_receipt_mastering(value: object) -> dict[str, object]:
         raw = mastering.get(key)
         if isinstance(raw, int) and not isinstance(raw, bool):
             public[key] = max(raw, 0)
+    for key in (
+        "declared_final_track_bindings_complete",
+        "final_track_bindings_complete",
+        "artifact_verification_complete",
+        "declared_final_audio_quality_measurements_complete",
+        "final_audio_quality_measurements_complete",
+        "quality_measurements_recomputed_from_artifacts",
+        "quality_measurements_match_declared",
+    ):
+        raw_flag = mastering.get(key)
+        if isinstance(raw_flag, bool):
+            public[key] = raw_flag
+    raw_bindings = mastering.get("final_track_bindings")
+    if isinstance(raw_bindings, list):
+        public_bindings: list[dict[str, object]] = []
+        for raw_binding in raw_bindings:
+            public_binding: dict[str, object] = {}
+            if isinstance(raw_binding, dict):
+                chapter_index = raw_binding.get("chapter_index")
+                if (
+                    isinstance(chapter_index, int)
+                    and not isinstance(chapter_index, bool)
+                    and chapter_index > 0
+                ):
+                    public_binding["chapter_index"] = chapter_index
+                if str(raw_binding.get("track") or "").strip() == "cinematic_master":
+                    public_binding["track"] = "cinematic_master"
+                signature = _receipt_sha256(raw_binding.get("signature"))
+                audio_sha256 = _receipt_sha256(raw_binding.get("audio_sha256"))
+                if signature:
+                    public_binding["signature"] = signature
+                if audio_sha256:
+                    public_binding["audio_sha256"] = audio_sha256
+                for key in (
+                    "artifact_sha256",
+                    "signature_sidecar_sha256",
+                    "output_binding_record_sha256",
+                    "output_binding_sidecar_sha256",
+                    "mode_sidecar_sha256",
+                ):
+                    digest = _receipt_sha256(raw_binding.get(key))
+                    if digest:
+                        public_binding[key] = digest
+                artifact_size = raw_binding.get("artifact_size_bytes")
+                if (
+                    isinstance(artifact_size, int)
+                    and not isinstance(artifact_size, bool)
+                    and artifact_size >= 0
+                ):
+                    public_binding["artifact_size_bytes"] = artifact_size
+                for key in (
+                    "artifact_verified",
+                    "signature_sidecar_verified",
+                    "output_binding_verified",
+                    "measurement_verified",
+                    "cinematic_path_binding_verified",
+                    "mode_sidecar_verified",
+                ):
+                    raw_flag = raw_binding.get(key)
+                    if isinstance(raw_flag, bool):
+                        public_binding[key] = raw_flag
+            public_bindings.append(public_binding)
+        public["final_track_bindings"] = public_bindings
     final_quality = mastering.get("final_audio_quality")
     quality_rows = final_quality if isinstance(final_quality, list) else [final_quality]
     public_quality_rows: list[dict[str, object]] = []
@@ -13537,6 +13984,8 @@ def _safe_receipt_mastering(value: object) -> dict[str, object]:
             if quality_status in _PUBLIC_FINAL_AUDIO_QUALITY_STATUSES
             else "invalid"
         )
+        if str(raw_row.get("track") or "").strip() == "cinematic_master":
+            public_row["track"] = "cinematic_master"
         chapter_index = raw_row.get("chapter_index")
         if (
             isinstance(chapter_index, int)
@@ -13561,6 +14010,18 @@ def _safe_receipt_mastering(value: object) -> dict[str, object]:
                 if math.isfinite(numeric_value) and numeric_value >= 0:
                     public_row[key] = raw_number
         for key in (
+            "duration_milliseconds",
+            "trailing_silence_milliseconds",
+            "issue_count",
+        ):
+            raw_number = raw_row.get(key)
+            if (
+                isinstance(raw_number, int)
+                and not isinstance(raw_number, bool)
+                and raw_number >= 0
+            ):
+                public_row[key] = raw_number
+        for key in (
             "speech_energy_present",
             "quiet_tail",
             "excessive_trailing_silence",
@@ -13568,6 +14029,21 @@ def _safe_receipt_mastering(value: object) -> dict[str, object]:
             raw_flag = raw_row.get(key)
             if isinstance(raw_flag, bool):
                 public_row[key] = raw_flag
+        for key in (
+            "measurements_valid",
+            "measurement_matches_declared",
+        ):
+            raw_flag = raw_row.get(key)
+            if isinstance(raw_flag, bool):
+                public_row[key] = raw_flag
+        for key in (
+            "artifact_audio_sha256",
+            "declared_measurement_sha256",
+            "measurement_sha256",
+        ):
+            digest = _receipt_sha256(raw_row.get(key))
+            if digest:
+                public_row[key] = digest
         safe_reason = _safe_public_audio_quality_code(raw_row.get("reason"))
         if safe_reason:
             public_row["reason"] = safe_reason
@@ -13982,6 +14458,9 @@ def build_audiobook_job_receipt(*, job_dir: Path, observed_at: datetime | None =
                 }
                 and isinstance(value, (str, int, float, bool))
             },
+            "mastering": _safe_receipt_mastering(
+                audio_publication_gate.get("mastering")
+            ),
             "stt": _audio_publication_stt_receipt_summary(audio_publication_gate),
             "raw_paths_exposed": False,
         },
@@ -17079,37 +17558,273 @@ def _audiobook_publication_stt_enabled() -> bool:
 
 
 def _publication_stt_tokens(text: object) -> list[str]:
-    return re.findall(r"[a-z0-9\u00c0-\u024f]{2,}", str(text or "").lower())
+    normalized = unicodedata.normalize("NFKC", str(text or "")).casefold()
+    tokens: list[str] = []
+    for raw_token in re.findall(r"[^\W_]+", normalized, flags=re.UNICODE):
+        if any(
+            unicodedata.category(char).startswith(("L", "N"))
+            and unicodedata.east_asian_width(char) in {"W", "F"}
+            for char in raw_token
+        ):
+            buffered = ""
+            for char in raw_token:
+                if (
+                    unicodedata.category(char).startswith(("L", "N"))
+                    and unicodedata.east_asian_width(char) in {"W", "F"}
+                ):
+                    if buffered:
+                        tokens.append(buffered)
+                    buffered = ""
+                    tokens.append(char)
+                else:
+                    buffered += char
+            if buffered:
+                tokens.append(buffered)
+            continue
+        if raw_token:
+            tokens.append(raw_token)
+    return tokens
+
+
+def _audiobook_publication_verified_source_chapter_rows(
+    job: dict[str, object],
+) -> list[dict[str, object]]:
+    """Load publication source only when the manifest binds the exact bytes."""
+    job_dir_text = str(
+        dict(job.get("storage") or {}).get("job_dir") or ""
+    ).strip()
+    raw_chapters = job.get("chapters")
+    if not job_dir_text or not isinstance(raw_chapters, list):
+        return []
+    chapter_root = (Path(job_dir_text).expanduser() / "chapters").resolve()
+    max_chars = _env_int("EA_AUDIOBOOK_PUBLICATION_STT_SOURCE_MAX_CHARS", 3000000, minimum=10000, maximum=3000000)
+    rows: list[dict[str, object]] = []
+    total = 0
+    seen_indexes: set[int] = set()
+    seen_text_paths: set[str] = set()
+    for ordinal, item in enumerate(raw_chapters, start=1):
+        row: dict[str, object] = {
+            "ordinal": ordinal,
+            "index": 0,
+            "title": "",
+            "source_href": "",
+            "text_path": "",
+            "manifest_char_count": 0,
+            "manifest_sha256": "",
+            "actual_char_count": 0,
+            "actual_sha256": "",
+            "tokens": [],
+            "text": "",
+            "source_complete": False,
+            "source_integrity_verified": False,
+            "issue": "source_chapter_manifest_invalid",
+            "source": item if isinstance(item, dict) else {},
+        }
+        if not isinstance(item, dict):
+            rows.append(row)
+            continue
+        row["title"] = str(item.get("title") or "").strip()
+        row["source_href"] = str(item.get("source_href") or "").strip()
+        index = item.get("index")
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or index != ordinal
+            or index in seen_indexes
+        ):
+            row["issue"] = "source_chapter_index_or_order_invalid"
+            rows.append(row)
+            continue
+        seen_indexes.add(index)
+        row["index"] = index
+        char_count = item.get("char_count")
+        if (
+            isinstance(char_count, bool)
+            or not isinstance(char_count, int)
+            or char_count <= 0
+        ):
+            row["issue"] = "source_chapter_char_count_invalid"
+            rows.append(row)
+            continue
+        row["manifest_char_count"] = char_count
+        expected_sha256 = str(item.get("sha256") or "").strip()
+        if re.fullmatch(r"[0-9a-f]{64}", expected_sha256) is None:
+            row["issue"] = "source_chapter_sha256_invalid"
+            rows.append(row)
+            continue
+        row["manifest_sha256"] = expected_sha256
+        raw_text_path = str(item.get("text_path") or "").strip()
+        text_name = Path(raw_text_path).name
+        if (
+            not raw_text_path
+            or raw_text_path != text_name
+            or text_name in seen_text_paths
+        ):
+            row["issue"] = "source_chapter_text_path_invalid"
+            rows.append(row)
+            continue
+        seen_text_paths.add(text_name)
+        row["text_path"] = text_name
+        try:
+            text_path = (chapter_root / text_name).resolve()
+            text_path.relative_to(chapter_root)
+            source_bytes = text_path.read_bytes()
+        except Exception:
+            row["issue"] = "source_chapter_file_unreadable"
+            rows.append(row)
+            continue
+        actual_sha256 = _sha256_bytes(source_bytes)
+        row["actual_sha256"] = actual_sha256
+        if actual_sha256 != expected_sha256:
+            row["issue"] = "source_chapter_sha256_mismatch"
+            rows.append(row)
+            continue
+        try:
+            text = source_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            row["issue"] = "source_chapter_utf8_invalid"
+            rows.append(row)
+            continue
+        row["actual_char_count"] = len(text)
+        if len(text) != char_count:
+            row["issue"] = "source_chapter_char_count_mismatch"
+            rows.append(row)
+            continue
+        remaining = max(0, max_chars - total)
+        bounded_text = text[:remaining]
+        total += len(bounded_text)
+        row.update(
+            {
+                "tokens": _publication_stt_tokens(bounded_text),
+                "text": bounded_text,
+                "source_complete": len(bounded_text) == len(text),
+                "source_integrity_verified": True,
+                "issue": (
+                    ""
+                    if len(bounded_text) == len(text)
+                    else "source_chapter_publication_bound_exceeded"
+                ),
+            }
+        )
+        rows.append(row)
+    return rows
 
 
 def _audiobook_publication_source_text(job: dict[str, object]) -> str:
-    job_dir = Path(str(dict(job.get("storage") or {}).get("job_dir") or "")).expanduser()
-    if not job_dir:
+    rows = _audiobook_publication_verified_source_chapter_rows(job)
+    raw_chapters = job.get("chapters")
+    if (
+        not isinstance(raw_chapters, list)
+        or not rows
+        or len(rows) != len(raw_chapters)
+        or not all(row.get("source_complete") is True for row in rows)
+    ):
         return ""
-    max_chars = _env_int("EA_AUDIOBOOK_PUBLICATION_STT_SOURCE_MAX_CHARS", 500000, minimum=10000, maximum=3000000)
-    chunks: list[str] = []
-    total = 0
-    for item in list(job.get("chapters") or []):
-        if not isinstance(item, dict):
+    return "\n".join(str(row.get("text") or "") for row in rows)
+
+
+def _audiobook_publication_source_chapter_token_rows(
+    job: dict[str, object],
+) -> list[dict[str, object]]:
+    return [
+        {
+            key: value
+            for key, value in row.items()
+            if key != "text"
+        }
+        for row in _audiobook_publication_verified_source_chapter_rows(job)
+    ]
+
+
+def _audiobook_publication_aligned_source_window(
+    *,
+    source_chapter_rows: list[dict[str, object]],
+    probe_chapters: list[object],
+    offset_seconds: float,
+    sample_seconds: int,
+    transcript_token_count: int,
+    position_drift_ratio: float,
+) -> dict[str, object]:
+    if (
+        not source_chapter_rows
+        or len(source_chapter_rows) != len(probe_chapters)
+    ):
+        return {}
+    sample_start = max(0.0, float(offset_seconds or 0.0))
+    sample_end = sample_start + max(1.0, float(sample_seconds))
+    window_tokens: list[str] = []
+    chapter_indices: list[int] = []
+    padding_token_count = 0
+    for source_row, raw_probe in zip(
+        source_chapter_rows,
+        probe_chapters,
+        strict=True,
+    ):
+        if not isinstance(raw_probe, dict):
+            return {}
+        chapter_start = _audiobook_publication_probe_chapter_time(
+            raw_probe,
+            "start",
+        )
+        chapter_end = _audiobook_publication_probe_chapter_time(
+            raw_probe,
+            "end",
+        )
+        if (
+            chapter_start is None
+            or chapter_end is None
+            or chapter_start < 0.0
+            or chapter_end <= chapter_start
+        ):
+            return {}
+        overlap_start = max(sample_start, chapter_start)
+        overlap_end = min(sample_end, chapter_end)
+        if overlap_end <= overlap_start:
             continue
-        text_name = Path(str(item.get("text_path") or "")).name
-        if not text_name:
+        tokens = [
+            str(token)
+            for token in list(source_row.get("tokens") or [])
+            if str(token)
+        ]
+        if not tokens:
             continue
-        text_path = job_dir / "chapters" / text_name
-        if not text_path.is_file():
-            continue
-        try:
-            text = text_path.read_text(encoding="utf-8")
-        except Exception:
-            continue
-        if not text.strip():
-            continue
-        remaining = max_chars - total
-        if remaining <= 0:
-            break
-        chunks.append(text[:remaining])
-        total += min(len(text), remaining)
-    return "\n".join(chunks)
+        chapter_duration = chapter_end - chapter_start
+        relative_start = (overlap_start - chapter_start) / chapter_duration
+        relative_end = (overlap_end - chapter_start) / chapter_duration
+        token_start = max(
+            0,
+            min(len(tokens) - 1, int(math.floor(relative_start * len(tokens)))),
+        )
+        token_end = max(
+            token_start + 1,
+            min(len(tokens), int(math.ceil(relative_end * len(tokens)))),
+        )
+        padding_cap = max(4, len(tokens) // 4)
+        padding = min(
+            padding_cap,
+            max(
+                4,
+                int(math.ceil(max(1, transcript_token_count) / 2.0)),
+                int(math.ceil(len(tokens) * position_drift_ratio)),
+            ),
+        )
+        padding_token_count += padding
+        token_start = max(0, token_start - padding)
+        token_end = min(len(tokens), token_end + padding)
+        window_tokens.extend(tokens[token_start:token_end])
+        chapter_indices.append(int(source_row.get("index") or 0))
+    if not window_tokens or not chapter_indices:
+        return {}
+    normalized_window = " ".join(window_tokens)
+    return {
+        "tokens": window_tokens,
+        "chapter_indices": chapter_indices,
+        "source_window_sha256": _sha256_bytes(
+            normalized_window.encode("utf-8")
+        ),
+        "source_window_token_count": len(window_tokens),
+        "source_window_padding_token_count": padding_token_count,
+    }
 
 
 def _audiobook_publication_stt_offsets(*, duration_seconds: float, sample_seconds: int, sample_count: int) -> list[float]:
@@ -17447,15 +18162,20 @@ def _build_audiobook_publication_stt_gate(
     job: dict[str, object],
     target_path: Path,
     duration_seconds: float,
+    probe_chapters: list[object] | None = None,
 ) -> dict[str, object]:
     required = _audiobook_publication_stt_required()
     enabled = _audiobook_publication_stt_enabled()
     if not enabled:
         return {"status": "skipped", "required": required, "enabled": False, "raw_text_exposed": False}
-    source_text = _audiobook_publication_source_text(job)
+    verified_source_rows = (
+        _audiobook_publication_verified_source_chapter_rows(job)
+    )
+    source_text = "\n".join(
+        str(row.get("text") or "") for row in verified_source_rows
+    )
     source_tokens = _publication_stt_tokens(source_text)
-    source_token_set = set(source_tokens)
-    if not source_token_set:
+    if not source_tokens:
         return {
             "status": "fail" if required else "skipped",
             "required": required,
@@ -17465,10 +18185,115 @@ def _build_audiobook_publication_stt_gate(
             "source_token_count": len(source_tokens),
             "raw_text_exposed": False,
         }
+    source_chapter_rows = [
+        {
+            key: value
+            for key, value in row.items()
+            if key != "text"
+        }
+        for row in verified_source_rows
+    ]
+    normalized_probe_chapters = list(probe_chapters or [])
+    chapter_metadata, chapter_metadata_issues = (
+        _audiobook_publication_m4b_chapter_metadata_evidence(
+            source_chapters=list(job.get("chapters") or []),
+            probe_chapters=normalized_probe_chapters,
+            duration_seconds=duration_seconds,
+        )
+    )
+    source_alignment_complete = bool(
+        source_chapter_rows
+        and len(source_chapter_rows) == len(list(job.get("chapters") or []))
+        and all(
+            row.get("source_complete") is True
+            for row in source_chapter_rows
+        )
+        and any(bool(list(row.get("tokens") or [])) for row in source_chapter_rows)
+    )
+    if chapter_metadata_issues or not source_alignment_complete:
+        return {
+            "status": "fail" if required else "skipped",
+            "required": required,
+            "enabled": enabled,
+            "issues": [
+                (
+                    "stt_source_alignment_missing"
+                    if chapter_metadata_issues
+                    else "stt_source_alignment_incomplete"
+                )
+            ],
+            "alignment_contract": "chapter_time_token_window_v1",
+            "chapter_metadata_contract": str(
+                chapter_metadata.get("contract_name") or ""
+            ),
+            "chapter_metadata_sha256": str(
+                chapter_metadata.get("chapter_metadata_sha256") or ""
+            ),
+            "source_text_sha256": _sha256_bytes(source_text.encode("utf-8")),
+            "source_token_count": len(source_tokens),
+            "source_chapter_count": len(source_chapter_rows),
+            "probe_chapter_count": len(normalized_probe_chapters),
+            "raw_text_exposed": False,
+        }
+    stt_float_config_ranges = {
+        "EA_AUDIOBOOK_PUBLICATION_STT_MIN_BOOK_TOKEN_OVERLAP": (0.55, 1.0),
+        "EA_AUDIOBOOK_PUBLICATION_STT_MIN_ORDERED_TOKEN_OVERLAP": (0.55, 1.0),
+        "EA_AUDIOBOOK_PUBLICATION_STT_MAX_POSITION_DRIFT_RATIO": (0.02, 0.125),
+    }
+    stt_float_config_valid = True
+    for config_name, (minimum_value, maximum_value) in (
+        stt_float_config_ranges.items()
+    ):
+        configured = str(os.getenv(config_name) or "").strip()
+        if not configured:
+            continue
+        try:
+            configured_value = float(configured)
+        except (TypeError, ValueError):
+            stt_float_config_valid = False
+            break
+        if (
+            not math.isfinite(configured_value)
+            or configured_value < minimum_value
+            or configured_value > maximum_value
+        ):
+            stt_float_config_valid = False
+            break
+    if not stt_float_config_valid:
+        return {
+            "status": "fail" if required else "skipped",
+            "required": required,
+            "enabled": enabled,
+            "issues": ["stt_threshold_configuration_invalid"],
+            "alignment_contract": "chapter_time_token_window_v1",
+            "chapter_metadata_contract": str(
+                chapter_metadata.get("contract_name") or ""
+            ),
+            "chapter_metadata_sha256": str(
+                chapter_metadata.get("chapter_metadata_sha256") or ""
+            ),
+            "source_text_sha256": _sha256_bytes(source_text.encode("utf-8")),
+            "source_token_count": len(source_tokens),
+            "source_chapter_count": len(source_chapter_rows),
+            "probe_chapter_count": len(normalized_probe_chapters),
+            "raw_text_exposed": False,
+        }
     sample_seconds = _env_int("EA_AUDIOBOOK_PUBLICATION_STT_SAMPLE_SECONDS", 30, minimum=5, maximum=180)
     sample_count = _env_int("EA_AUDIOBOOK_PUBLICATION_STT_SAMPLE_COUNT", 3, minimum=1, maximum=7)
     min_tokens = _env_int("EA_AUDIOBOOK_PUBLICATION_STT_MIN_TRANSCRIPT_TOKENS", 8, minimum=1, maximum=200)
-    min_overlap = _env_float("EA_AUDIOBOOK_PUBLICATION_STT_MIN_BOOK_TOKEN_OVERLAP", 0.55, minimum=0.1, maximum=1.0)
+    min_overlap = _env_float("EA_AUDIOBOOK_PUBLICATION_STT_MIN_BOOK_TOKEN_OVERLAP", 0.55, minimum=0.55, maximum=1.0)
+    min_ordered_overlap = _env_float(
+        "EA_AUDIOBOOK_PUBLICATION_STT_MIN_ORDERED_TOKEN_OVERLAP",
+        min_overlap,
+        minimum=0.55,
+        maximum=1.0,
+    )
+    max_position_drift_ratio = _env_float(
+        "EA_AUDIOBOOK_PUBLICATION_STT_MAX_POSITION_DRIFT_RATIO",
+        0.125,
+        minimum=0.02,
+        maximum=0.125,
+    )
     offsets = _audiobook_publication_stt_offsets(
         duration_seconds=duration_seconds,
         sample_seconds=sample_seconds,
@@ -17514,22 +18339,67 @@ def _build_audiobook_publication_stt_gate(
                 transcript = str(transcribed.get("transcript_text") or "").strip()
                 transcript_tokens = _publication_stt_tokens(transcript)
                 transcript_unique = set(transcript_tokens)
+                source_window = _audiobook_publication_aligned_source_window(
+                    source_chapter_rows=source_chapter_rows,
+                    probe_chapters=normalized_probe_chapters,
+                    offset_seconds=candidate_offset,
+                    sample_seconds=sample_seconds,
+                    transcript_token_count=len(transcript_tokens),
+                    position_drift_ratio=max_position_drift_ratio,
+                )
+                source_window_tokens = [
+                    str(token)
+                    for token in list(source_window.get("tokens") or [])
+                    if str(token)
+                ]
+                source_window_token_set = set(source_window_tokens)
                 token_overlap = (
-                    sum(1 for token in transcript_tokens if token in source_token_set) / float(len(transcript_tokens))
-                    if transcript_tokens
+                    sum(
+                        1
+                        for token in transcript_tokens
+                        if token in source_window_token_set
+                    )
+                    / float(len(transcript_tokens))
+                    if transcript_tokens and source_window_token_set
                     else 0.0
                 )
                 unique_overlap = (
-                    len(transcript_unique & source_token_set) / float(len(transcript_unique))
-                    if transcript_unique
+                    len(transcript_unique & source_window_token_set)
+                    / float(len(transcript_unique))
+                    if transcript_unique and source_window_token_set
                     else 0.0
+                )
+                ordered_overlap = (
+                    sum(
+                        block.size
+                        for block in SequenceMatcher(
+                            None,
+                            source_window_tokens,
+                            transcript_tokens,
+                            autojunk=False,
+                        ).get_matching_blocks()
+                    )
+                    / float(len(transcript_tokens))
+                    if transcript_tokens and source_window_tokens
+                    else 0.0
+                )
+                position_alignment_verified = bool(
+                    source_window_token_set
+                    and math.isfinite(token_overlap)
+                    and math.isfinite(unique_overlap)
+                    and math.isfinite(ordered_overlap)
+                    and token_overlap >= min_overlap
+                    and unique_overlap >= min_overlap
+                    and ordered_overlap >= min_ordered_overlap
                 )
                 issue = ""
                 if str(transcribed.get("status") or "") not in {"transcribed", "ok"}:
                     issue = "stt_transcription_failed"
+                elif not source_window_token_set:
+                    issue = "stt_source_alignment_missing"
                 elif len(transcript_tokens) < min_tokens:
                     issue = "stt_transcript_too_short"
-                elif token_overlap < min_overlap or unique_overlap < min_overlap:
+                elif not position_alignment_verified:
                     issue = "stt_transcript_not_book_text"
                 attempt = {
                     "index": index + 1,
@@ -17540,24 +18410,62 @@ def _build_audiobook_publication_stt_gate(
                     "extractor_seek_mode": str(extracted.get("seek_mode") or "").strip(),
                     "transcript_sha256": _sha256_bytes(transcript.encode("utf-8")) if transcript else "",
                     "transcript_token_count": len(transcript_tokens),
+                    "transcript_unique_token_count": len(transcript_unique),
                     "book_token_overlap": round(token_overlap, 4),
                     "book_unique_token_overlap": round(unique_overlap, 4),
+                    "ordered_token_overlap": round(ordered_overlap, 4),
+                    "source_window_sha256": str(
+                        source_window.get("source_window_sha256") or ""
+                    ),
+                    "source_window_token_count": int(
+                        source_window.get("source_window_token_count") or 0
+                    ),
+                    "source_window_padding_token_count": int(
+                        source_window.get("source_window_padding_token_count")
+                        or 0
+                    ),
+                    "source_chapter_indices": list(
+                        source_window.get("chapter_indices") or []
+                    ),
+                    "position_alignment_verified": position_alignment_verified,
                     "raw_text_exposed": False,
                 }
                 attempts.append(attempt)
                 if not _audiobook_publication_stt_sample_retryable_issue(issue):
                     break
-            selected = next((attempt for attempt in attempts if str(attempt.get("status") or "") == "pass"), attempts[-1])
+            selected = max(
+                attempts,
+                key=lambda attempt:
+                    3
+                    if str(attempt.get("status") or "") == "pass"
+                    else 2
+                    if (
+                        str(attempt.get("issue") or "")
+                        == "stt_transcript_too_short"
+                        and attempt.get("position_alignment_verified") is True
+                    )
+                    else 1
+                    if str(attempt.get("issue") or "")
+                    == "stt_transcript_too_short"
+                    else 0,
+            )
             selected["primary_offset_seconds"] = offset
             selected["attempt_count"] = len(attempts)
             if len(attempts) > 1:
                 selected["alternate_offsets_tried"] = [attempt.get("offset_seconds") for attempt in attempts[1:]]
-                selected["recovered_from_issue"] = str(attempts[0].get("issue") or "").strip()
+                if selected is not attempts[0]:
+                    selected["recovered_from_issue"] = str(
+                        attempts[0].get("issue") or ""
+                    ).strip()
+                else:
+                    selected["alternate_attempts_rejected"] = len(attempts) - 1
             issue = str(selected.get("issue") or "").strip()
             if issue:
                 issues.append(issue)
             samples.append(selected)
     warnings: list[str] = []
+    short_tolerance_min_token_count = 8
+    short_tolerance_min_unique_token_count = 4
     if sorted(set(issues)) == ["stt_transcript_too_short"] and len(samples) >= 3:
         short_samples = [
             sample
@@ -17567,9 +18475,14 @@ def _build_audiobook_publication_stt_gate(
         passed_count = sum(1 for sample in samples if str(sample.get("status") or "") == "pass")
         tolerated_short_limit = max(1, len(samples) // 3)
         short_samples_match_book = all(
-            int(sample.get("transcript_token_count") or 0) > 0
+            int(sample.get("transcript_token_count") or 0)
+            >= short_tolerance_min_token_count
+            and int(sample.get("transcript_unique_token_count") or 0)
+            >= short_tolerance_min_unique_token_count
             and float(sample.get("book_token_overlap") or 0.0) >= min_overlap
             and float(sample.get("book_unique_token_overlap") or 0.0) >= min_overlap
+            and float(sample.get("ordered_token_overlap") or 0.0)
+            >= min_ordered_overlap
             for sample in short_samples
         )
         if (
@@ -17596,9 +18509,31 @@ def _build_audiobook_publication_stt_gate(
         "sample_seconds": sample_seconds,
         "min_transcript_tokens": min_tokens,
         "min_book_token_overlap": min_overlap,
-        "short_book_text_tolerance": "v1",
+        "min_ordered_token_overlap": min_ordered_overlap,
+        "max_position_drift_ratio": max_position_drift_ratio,
+        "short_book_text_tolerance": "v2",
+        "short_tolerance_min_token_count": short_tolerance_min_token_count,
+        "short_tolerance_min_unique_token_count": (
+            short_tolerance_min_unique_token_count
+        ),
+        "alignment_contract": "chapter_time_token_window_v1",
+        "chapter_metadata_contract": str(
+            chapter_metadata.get("contract_name") or ""
+        ),
+        "chapter_metadata_sha256": str(
+            chapter_metadata.get("chapter_metadata_sha256") or ""
+        ),
         "source_text_sha256": _sha256_bytes(source_text.encode("utf-8")),
         "source_token_count": len(source_tokens),
+        "source_chapter_count": len(source_chapter_rows),
+        "probe_chapter_count": len(normalized_probe_chapters),
+        "distinct_source_window_count": len(
+            {
+                str(sample.get("source_window_sha256") or "")
+                for sample in samples
+                if str(sample.get("source_window_sha256") or "")
+            }
+        ),
         "samples": samples,
         "raw_text_exposed": False,
     }
@@ -17615,8 +18550,592 @@ def _audiobook_publication_exact_int(value: object) -> int | None:
     return value
 
 
+def _audiobook_publication_probe_chapter_time(
+    chapter: dict[str, object],
+    boundary: str,
+) -> float | None:
+    for key in (f"{boundary}_time", boundary):
+        value = chapter.get(key)
+        if isinstance(value, bool) or value is None:
+            continue
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(parsed):
+            return parsed
+    return None
+
+
+def _audiobook_publication_chapter_title(value: object) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _audiobook_publication_probe_duration_seconds(
+    probe: dict[str, object],
+) -> float:
+    format_payload = (
+        dict(probe.get("format") or {})
+        if isinstance(probe.get("format"), dict)
+        else {}
+    )
+    value = format_payload.get("duration")
+    if isinstance(value, bool) or value is None:
+        return 0.0
+    try:
+        duration_seconds = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return (
+        duration_seconds
+        if math.isfinite(duration_seconds) and duration_seconds > 0.0
+        else 0.0
+    )
+
+
+def _audiobook_publication_m4b_chapter_metadata_evidence(
+    *,
+    source_chapters: list[object],
+    probe_chapters: list[object],
+    duration_seconds: float,
+) -> tuple[dict[str, object], list[str]]:
+    issues: list[str] = []
+    media_duration = (
+        float(duration_seconds)
+        if isinstance(duration_seconds, (int, float))
+        and not isinstance(duration_seconds, bool)
+        and math.isfinite(float(duration_seconds))
+        and float(duration_seconds) > 0.0
+        else 0.0
+    )
+    boundary_tolerance = 0.05 if media_duration > 0.0 else 0.0
+    if media_duration <= 0.0:
+        issues.append("m4b_probe_media_duration_invalid")
+    canonical_source_chapters: list[dict[str, object]] = []
+    for raw_source_chapter in source_chapters:
+        source_chapter = (
+            dict(raw_source_chapter)
+            if isinstance(raw_source_chapter, dict)
+            else {}
+        )
+        canonical_source_chapters.append(source_chapter)
+        char_count = _audiobook_publication_exact_int(
+            source_chapter.get("char_count")
+        )
+        if char_count is None or char_count <= 0:
+            issues.append("source_chapter_manifest_row_invalid")
+    if not canonical_source_chapters:
+        issues.append("source_chapter_manifest_missing_or_empty")
+    if len(probe_chapters) != len(canonical_source_chapters):
+        issues.append("m4b_probe_chapter_count_mismatch")
+
+    chapter_proofs: list[dict[str, object]] = []
+    previous_source_index = 0
+    previous_probe_id = -1
+    previous_end: float | None = None
+    for ordinal, (source_chapter, raw_probe) in enumerate(
+        zip(canonical_source_chapters, probe_chapters),
+        start=1,
+    ):
+        source_index = _audiobook_publication_exact_int(
+            source_chapter.get("index")
+        )
+        expected_title = _audiobook_publication_chapter_title(
+            source_chapter.get("title")
+        )
+        if (
+            source_index is None
+            or source_index != ordinal
+            or source_index <= previous_source_index
+        ):
+            issues.append("source_chapter_order_invalid")
+        else:
+            previous_source_index = source_index
+        if not expected_title:
+            issues.append("source_chapter_title_invalid")
+
+        probe_chapter = dict(raw_probe) if isinstance(raw_probe, dict) else {}
+        probe_id = _audiobook_publication_exact_int(probe_chapter.get("id"))
+        probe_id_matches = bool(
+            probe_id is not None
+            and probe_id == ordinal - 1
+            and probe_id > previous_probe_id
+        )
+        if not probe_id_matches:
+            issues.append("m4b_probe_chapter_id_order_invalid")
+        elif probe_id is not None:
+            previous_probe_id = probe_id
+        tags = (
+            dict(probe_chapter.get("tags") or {})
+            if isinstance(probe_chapter.get("tags"), dict)
+            else {}
+        )
+        probed_title = _audiobook_publication_chapter_title(
+            tags.get("title") or probe_chapter.get("title")
+        )
+        title_matches = bool(
+            expected_title
+            and probed_title
+            and probed_title == expected_title
+        )
+        if not probed_title:
+            issues.append("m4b_probe_chapter_title_missing")
+        elif not title_matches:
+            issues.append("m4b_probe_chapter_title_order_mismatch")
+
+        start_seconds = _audiobook_publication_probe_chapter_time(
+            probe_chapter,
+            "start",
+        )
+        end_seconds = _audiobook_publication_probe_chapter_time(
+            probe_chapter,
+            "end",
+        )
+        timing_valid = bool(
+            start_seconds is not None
+            and end_seconds is not None
+            and start_seconds >= 0.0
+            and end_seconds > start_seconds
+        )
+        monotonic_nonoverlap = bool(
+            timing_valid
+            and (
+                previous_end is None
+                or start_seconds is not None
+                and start_seconds >= previous_end
+            )
+        )
+        boundary_contiguous = bool(
+            timing_valid
+            and (
+                previous_end is None
+                and start_seconds is not None
+                and abs(start_seconds) <= boundary_tolerance
+                or previous_end is not None
+                and start_seconds is not None
+                and abs(start_seconds - previous_end) <= boundary_tolerance
+            )
+        )
+        if not timing_valid:
+            issues.append("m4b_probe_chapter_timing_invalid")
+        elif not monotonic_nonoverlap:
+            issues.append("m4b_probe_chapter_overlap_or_order_invalid")
+        if timing_valid and not boundary_contiguous:
+            issues.append("m4b_probe_chapter_boundary_not_contiguous")
+        if timing_valid and end_seconds is not None:
+            previous_end = end_seconds
+
+        chapter_proofs.append(
+            {
+                "ordinal": ordinal,
+                "source_index": source_index or 0,
+                "probe_id": probe_id if probe_id is not None else -1,
+                "probe_id_matches": probe_id_matches,
+                "expected_title_sha256": (
+                    _sha256_bytes(expected_title.encode("utf-8"))
+                    if expected_title
+                    else ""
+                ),
+                "probed_title_sha256": (
+                    _sha256_bytes(probed_title.encode("utf-8"))
+                    if probed_title
+                    else ""
+                ),
+                "title_matches": title_matches,
+                "start_milliseconds": (
+                    int(round(start_seconds * 1000.0))
+                    if start_seconds is not None
+                    else -1
+                ),
+                "end_milliseconds": (
+                    int(round(end_seconds * 1000.0))
+                    if end_seconds is not None
+                    else -1
+                ),
+                "timing_valid": timing_valid,
+                "monotonic_nonoverlap": monotonic_nonoverlap,
+                "boundary_contiguous": boundary_contiguous,
+            }
+        )
+
+    final_end = previous_end if previous_end is not None else 0.0
+    duration_matches = bool(
+        media_duration > 0.0
+        and final_end > 0.0
+        and abs(final_end - media_duration) <= boundary_tolerance
+    )
+    if not duration_matches:
+        issues.append("m4b_probe_chapter_duration_mismatch")
+    if issues:
+        issues.append("m4b_chapter_metadata_invalid")
+    canonical_proof = json.dumps(
+        chapter_proofs,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    return (
+        {
+            "contract_name": "ea.audiobook_m4b_chapter_metadata_proof.v1",
+            "status": "verified" if not issues else "invalid",
+            "expected_chapter_count": len(canonical_source_chapters),
+            "probed_chapter_count": len(probe_chapters),
+            "chapter_metadata_verified": not issues,
+            "media_duration_milliseconds": int(round(media_duration * 1000.0)),
+            "boundary_tolerance_milliseconds": int(
+                round(boundary_tolerance * 1000.0)
+            ),
+            "duration_matches": duration_matches,
+            "chapter_metadata_sha256": (
+                _sha256_bytes(canonical_proof.encode("utf-8"))
+                if chapter_proofs
+                else ""
+            ),
+            "chapter_proofs": chapter_proofs,
+            "raw_titles_exposed": False,
+            "raw_text_exposed": False,
+        },
+        sorted(set(issues)),
+    )
+
+
+def _audiobook_publication_private_narration_authority(
+    job: dict[str, object],
+) -> dict[str, object]:
+    """Revalidate the current private plan against the exact chapter bytes."""
+    job_dir_text = str(
+        dict(job.get("storage") or {}).get("job_dir") or ""
+    ).strip()
+    raw_chapters = job.get("chapters")
+    if not job_dir_text or not isinstance(raw_chapters, list) or not raw_chapters:
+        return {}
+    source_rows = _audiobook_publication_verified_source_chapter_rows(job)
+    if (
+        len(source_rows) != len(raw_chapters)
+        or not all(
+            row.get("source_complete") is True
+            and row.get("source_integrity_verified") is True
+            for row in source_rows
+        )
+    ):
+        return {}
+    plan_path = Path(job_dir_text).expanduser() / "narration_plan.json"
+    try:
+        if not plan_path.is_file() or plan_path.stat().st_mode & 0o077:
+            return {}
+        private_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError):
+        return {}
+    if not isinstance(private_plan, dict):
+        return {}
+    if (
+        private_plan.get("contract_name") != NARRATION_PLAN_CONTRACT_NAME
+        or str(private_plan.get("status") or "") != "ready"
+        or str(private_plan.get("source_coverage") or "") != "complete"
+        or private_plan.get("coverage_complete") is not True
+        or private_plan.get("source_integrity_verified") is not True
+        or list(private_plan.get("source_integrity_issues") or [])
+    ):
+        return {}
+
+    source_aggregate = [
+        {
+            "chapter_index": int(row["index"]),
+            "source_href": str(row.get("source_href") or ""),
+            "source_text_sha256": str(row.get("actual_sha256") or ""),
+        }
+        for row in source_rows
+    ]
+    source_aggregate_sha256 = _sha256_bytes(
+        json.dumps(
+            source_aggregate,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    )
+    if (
+        str(private_plan.get("source_aggregate_sha256") or "")
+        != source_aggregate_sha256
+        or _audiobook_publication_exact_int(private_plan.get("chapter_count"))
+        != len(source_rows)
+    ):
+        return {}
+    raw_private_source_chapters = private_plan.get("source_chapters")
+    if not isinstance(raw_private_source_chapters, list) or len(
+        raw_private_source_chapters
+    ) != len(source_rows):
+        return {}
+    for source_row, raw_private_chapter in zip(
+        source_rows,
+        raw_private_source_chapters,
+        strict=True,
+    ):
+        if not isinstance(raw_private_chapter, dict):
+            return {}
+        if (
+            _audiobook_publication_exact_int(
+                raw_private_chapter.get("chapter_index")
+            )
+            != source_row["index"]
+            or str(raw_private_chapter.get("source_href") or "")
+            != str(source_row.get("source_href") or "")
+            or str(raw_private_chapter.get("source_text_sha256") or "")
+            != str(source_row.get("actual_sha256") or "")
+            or str(
+                raw_private_chapter.get("actual_source_text_sha256") or ""
+            )
+            != str(source_row.get("actual_sha256") or "")
+        ):
+            return {}
+
+    source_text_by_index = {
+        int(row["index"]): str(row.get("text") or "")
+        for row in source_rows
+    }
+    raw_spans = private_plan.get("source_spans")
+    if not isinstance(raw_spans, list) or not raw_spans:
+        return {}
+    spans_by_chapter: dict[int, list[dict[str, object]]] = {
+        int(row["index"]): [] for row in source_rows
+    }
+    for ordinal, raw_span in enumerate(raw_spans, start=1):
+        if not isinstance(raw_span, dict):
+            return {}
+        chapter_index = _audiobook_publication_exact_int(
+            raw_span.get("source_chapter_index")
+        )
+        if chapter_index not in spans_by_chapter:
+            return {}
+        span_index = _audiobook_publication_exact_int(raw_span.get("span_index"))
+        if span_index != ordinal:
+            return {}
+        spans_by_chapter[chapter_index].append(raw_span)
+    for chapter_index, chapter_spans in spans_by_chapter.items():
+        chapter_text = source_text_by_index[chapter_index]
+        cursor = 0
+        for span in sorted(
+            chapter_spans,
+            key=lambda value: int(value.get("char_start") or 0),
+        ):
+            start = _audiobook_publication_exact_int(span.get("char_start"))
+            end = _audiobook_publication_exact_int(span.get("char_end"))
+            span_text = span.get("source_text")
+            if (
+                start is None
+                or end is None
+                or start != cursor
+                or end <= start
+                or not isinstance(span_text, str)
+                or chapter_text[start:end] != span_text
+                or str(span.get("source_text_sha256") or "")
+                != _sha256_bytes(span_text.encode("utf-8"))
+            ):
+                return {}
+            cursor = end
+        if cursor != len(chapter_text):
+            return {}
+
+    raw_passages = private_plan.get("passages")
+    if not isinstance(raw_passages, list) or not raw_passages:
+        return {}
+    passage_texts: list[str] = []
+    passage_authority_rows: list[dict[str, object]] = []
+    for ordinal, raw_passage in enumerate(raw_passages, start=1):
+        if not isinstance(raw_passage, dict):
+            return {}
+        passage_index = _audiobook_publication_exact_int(
+            raw_passage.get("passage_index")
+        )
+        passage_text = raw_passage.get("text")
+        if (
+            passage_index != ordinal
+            or not isinstance(passage_text, str)
+            or not passage_text
+            or _audiobook_publication_exact_int(raw_passage.get("char_count"))
+            != len(passage_text)
+            or str(raw_passage.get("text_sha256") or "")
+            != _sha256_bytes(passage_text.encode("utf-8"))
+        ):
+            return {}
+        passage_texts.append(passage_text)
+        passage_authority_rows.append(
+            {
+                "passage_index": ordinal,
+                "text_sha256": str(raw_passage.get("text_sha256") or ""),
+                "speaker_role": str(raw_passage.get("speaker_role") or ""),
+                "speaker_id_sha256": _sha256_bytes(
+                    str(raw_passage.get("speaker_id") or "").encode("utf-8")
+                ),
+                "voice_ref_sha256": str(
+                    raw_passage.get("voice_ref_sha256") or ""
+                ),
+                "passage_fingerprint": str(
+                    raw_passage.get("passage_fingerprint") or ""
+                ),
+            }
+        )
+    source_canonical = _canonical_narration_text(
+        " ".join(source_text_by_index[index] for index in sorted(source_text_by_index))
+    )
+    planned_canonical = _canonical_narration_text(" ".join(passage_texts))
+    source_canonical_sha256 = _sha256_bytes(source_canonical.encode("utf-8"))
+    planned_canonical_sha256 = _sha256_bytes(planned_canonical.encode("utf-8"))
+    if (
+        not source_canonical
+        or planned_canonical != source_canonical
+        or str(private_plan.get("source_canonical_sha256") or "")
+        != source_canonical_sha256
+        or str(private_plan.get("planned_canonical_sha256") or "")
+        != planned_canonical_sha256
+    ):
+        return {}
+
+    private_cast = dict(private_plan.get("speaker_cast") or {})
+    raw_private_entries = private_cast.get("entries")
+    if not isinstance(raw_private_entries, list):
+        return {}
+    authority_cast_rows: list[dict[str, object]] = []
+    cast_fingerprint_rows: list[dict[str, object]] = []
+    seen_speaker_ids: set[str] = set()
+    for raw_entry in raw_private_entries:
+        if not isinstance(raw_entry, dict):
+            return {}
+        speaker_id = str(raw_entry.get("speaker_id") or "").strip()
+        voice_id_sha256 = _audiobook_publication_sha256(
+            raw_entry.get("voice_id_sha256")
+        )
+        catalog_provenance_sha256 = _audiobook_publication_sha256(
+            raw_entry.get("catalog_provenance_sha256")
+        )
+        source_provenance_sha256 = _audiobook_publication_sha256(
+            raw_entry.get("source_provenance_sha256")
+        )
+        (
+            recomputed_catalog_provenance_sha256,
+            recomputed_source_provenance_sha256,
+        ) = _speaker_cast_entry_provenance(dict(raw_entry))
+        if (
+            not speaker_id
+            or speaker_id in seen_speaker_ids
+            or not voice_id_sha256
+            or not catalog_provenance_sha256
+            or not source_provenance_sha256
+            or catalog_provenance_sha256
+            != recomputed_catalog_provenance_sha256
+            or source_provenance_sha256
+            != recomputed_source_provenance_sha256
+        ):
+            return {}
+        seen_speaker_ids.add(speaker_id)
+        selection_source = str(raw_entry.get("selection_source") or "")
+        authority_cast_rows.append(
+            {
+                "speaker_id": speaker_id,
+                "speaker_id_sha256": _sha256_bytes(
+                    speaker_id.encode("utf-8")
+                ),
+                "voice_id_sha256": voice_id_sha256,
+                "catalog_provenance_sha256": catalog_provenance_sha256,
+                "source_provenance_sha256": source_provenance_sha256,
+                "selection_source": selection_source,
+            }
+        )
+        cast_fingerprint_rows.append(
+            {
+                "speaker_id": speaker_id,
+                "voice_id_sha256": voice_id_sha256,
+                "selection_source": selection_source,
+                "catalog_provenance_sha256": catalog_provenance_sha256,
+                "source_provenance_sha256": source_provenance_sha256,
+            }
+        )
+    authority_cast_rows.sort(key=lambda row: str(row["speaker_id"]))
+    cast_fingerprint_rows.sort(key=lambda row: str(row["speaker_id"]))
+    cast_map_sha256 = _sha256_bytes(
+        json.dumps(
+            cast_fingerprint_rows,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ) if cast_fingerprint_rows else ""
+    if str(private_cast.get("cast_map_sha256") or "") != cast_map_sha256:
+        return {}
+    catalog_provenance_sha256 = _sha256_bytes(
+        json.dumps(
+            sorted(
+                str(row["catalog_provenance_sha256"])
+                for row in authority_cast_rows
+            ),
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ) if authority_cast_rows else ""
+    source_provenance_sha256 = _sha256_bytes(
+        json.dumps(
+            sorted(
+                str(row["source_provenance_sha256"])
+                for row in authority_cast_rows
+            ),
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ) if authority_cast_rows else ""
+    planner_plan_sha256 = _audiobook_publication_sha256(
+        private_plan.get("planner_plan_sha256")
+    )
+    render_signature_sha256 = _audiobook_publication_sha256(
+        private_plan.get("render_signature")
+    )
+    if not planner_plan_sha256 or not render_signature_sha256:
+        return {}
+    authority_sha256 = _sha256_bytes(
+        json.dumps(
+            {
+                "contract_name": NARRATION_PLAN_CONTRACT_NAME,
+                "source_aggregate_sha256": source_aggregate_sha256,
+                "planner_plan_sha256": planner_plan_sha256,
+                "render_signature_sha256": render_signature_sha256,
+                "cast_map_sha256": cast_map_sha256,
+                "source_chapters": source_aggregate,
+                "passages": passage_authority_rows,
+                "cast": [
+                    {
+                        key: value
+                        for key, value in row.items()
+                        if key != "speaker_id"
+                    }
+                    for row in authority_cast_rows
+                ],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    )
+    return {
+        "authority_sha256": authority_sha256,
+        "planner_plan_sha256": planner_plan_sha256,
+        "source_aggregate_sha256": source_aggregate_sha256,
+        "render_signature_sha256": render_signature_sha256,
+        "cast_map_sha256": cast_map_sha256,
+        "catalog_provenance_sha256": catalog_provenance_sha256,
+        "source_provenance_sha256": source_provenance_sha256,
+        "chapter_count": len(source_rows),
+        "passage_count": len(raw_passages),
+        "dialogue_passage_count": int(
+            private_plan.get("dialogue_passage_count") or 0
+        ),
+        "dialogue_span_count": int(
+            private_plan.get("dialogue_span_count") or 0
+        ),
+        "speaker_count": int(private_plan.get("speaker_count") or 0),
+        "cast": authority_cast_rows,
+    }
+
+
 def _audiobook_publication_narration_evidence(
     render_result: dict[str, object],
+    *,
+    job: dict[str, object] | None = None,
 ) -> tuple[dict[str, object], list[str]]:
     issues: list[str] = []
     plan = dict(render_result.get("narration_plan") or {})
@@ -17646,8 +19165,24 @@ def _audiobook_publication_narration_evidence(
     if not render_signature_sha256:
         issues.append("narration_render_signature_sha256_invalid")
 
+    authority = _audiobook_publication_private_narration_authority(job or {})
+    if not authority:
+        issues.append("narration_authority_missing_or_invalid")
+    else:
+        if plan_sha256 != str(authority.get("planner_plan_sha256") or ""):
+            issues.append("narration_plan_sha256_authority_mismatch")
+        if source_sha256 != str(authority.get("source_aggregate_sha256") or ""):
+            issues.append("narration_source_aggregate_sha256_mismatch")
+        if render_signature_sha256 != str(
+            authority.get("render_signature_sha256") or ""
+        ):
+            issues.append("narration_render_signature_authority_mismatch")
+
     dialogue_passage_count = _audiobook_publication_exact_int(
         plan.get("dialogue_passage_count")
+    )
+    plan_speaker_count = _audiobook_publication_exact_int(
+        plan.get("speaker_count")
     )
     raw_dialogue_span_count = plan.get("dialogue_span_count")
     dialogue_span_count = (
@@ -17658,6 +19193,19 @@ def _audiobook_publication_narration_evidence(
     if dialogue_passage_count is None or dialogue_span_count is None:
         issues.append("narration_dialogue_count_invalid")
     dialogue_count = max(dialogue_passage_count or 0, dialogue_span_count or 0)
+    if authority:
+        if dialogue_passage_count != _audiobook_publication_exact_int(
+            authority.get("dialogue_passage_count")
+        ):
+            issues.append("narration_dialogue_passage_count_authority_mismatch")
+        if dialogue_span_count != _audiobook_publication_exact_int(
+            authority.get("dialogue_span_count")
+        ):
+            issues.append("narration_dialogue_span_count_authority_mismatch")
+        if plan_speaker_count != _audiobook_publication_exact_int(
+            authority.get("speaker_count")
+        ):
+            issues.append("narration_speaker_count_authority_mismatch")
 
     speaker_cast = dict(render_result.get("speaker_cast") or {})
     if not speaker_cast:
@@ -17668,10 +19216,136 @@ def _audiobook_publication_narration_evidence(
     cast_map_sha256 = _audiobook_publication_sha256(
         speaker_cast.get("cast_map_sha256")
     )
+    catalog_provenance_sha256 = _audiobook_publication_sha256(
+        speaker_cast.get("catalog_provenance_sha256")
+    )
+    source_provenance_sha256 = _audiobook_publication_sha256(
+        speaker_cast.get("source_provenance_sha256")
+    )
     cast_distinct = bool(
         speaker_cast.get("distinct_from_narrator") is True
         or speaker_cast.get("narrator_voice_excluded") is True
     )
+    cast_speaker_count = _audiobook_publication_exact_int(
+        speaker_cast.get("speaker_count")
+    )
+    resolved_speaker_count = _audiobook_publication_exact_int(
+        speaker_cast.get("resolved_speaker_count")
+    )
+    distinct_dialogue_voice_count = _audiobook_publication_exact_int(
+        speaker_cast.get("distinct_dialogue_voice_count")
+    )
+    cast_assignment_rows: list[dict[str, object]] = []
+    cast_assignment_proof_valid = True
+    speaker_hashes: set[str] = set()
+    voice_hashes: set[str] = set()
+    catalog_provenance_hashes: list[str] = []
+    source_provenance_hashes: list[str] = []
+    raw_cast_rows = speaker_cast.get("cast")
+    if not isinstance(raw_cast_rows, list):
+        raw_cast_rows = []
+        cast_assignment_proof_valid = False
+    for ordinal, raw_row in enumerate(raw_cast_rows, start=1):
+        if not isinstance(raw_row, dict):
+            cast_assignment_proof_valid = False
+            continue
+        speaker_index = _audiobook_publication_exact_int(
+            raw_row.get("speaker_index")
+        )
+        speaker_id_sha256 = _audiobook_publication_sha256(
+            raw_row.get("speaker_id_sha256")
+        )
+        voice_id_sha256 = _audiobook_publication_sha256(
+            raw_row.get("voice_id_sha256")
+        )
+        assignment_catalog_provenance_sha256 = (
+            _audiobook_publication_sha256(
+                raw_row.get("catalog_provenance_sha256")
+            )
+        )
+        assignment_source_provenance_sha256 = (
+            _audiobook_publication_sha256(
+                raw_row.get("source_provenance_sha256")
+            )
+        )
+        distinct_from_narrator = raw_row.get("distinct_from_narrator") is True
+        if (
+            speaker_index != ordinal
+            or not speaker_id_sha256
+            or not voice_id_sha256
+            or not assignment_catalog_provenance_sha256
+            or not assignment_source_provenance_sha256
+            or not distinct_from_narrator
+        ):
+            cast_assignment_proof_valid = False
+        if speaker_id_sha256 in speaker_hashes:
+            cast_assignment_proof_valid = False
+        if speaker_id_sha256:
+            speaker_hashes.add(speaker_id_sha256)
+        if voice_id_sha256:
+            voice_hashes.add(voice_id_sha256)
+        if assignment_catalog_provenance_sha256:
+            catalog_provenance_hashes.append(
+                assignment_catalog_provenance_sha256
+            )
+        if assignment_source_provenance_sha256:
+            source_provenance_hashes.append(
+                assignment_source_provenance_sha256
+            )
+        cast_assignment_rows.append(
+            {
+                "speaker_index": speaker_index or 0,
+                "speaker_id_sha256": speaker_id_sha256,
+                "voice_id_sha256": voice_id_sha256,
+                "catalog_provenance_sha256": (
+                    assignment_catalog_provenance_sha256
+                ),
+                "source_provenance_sha256": (
+                    assignment_source_provenance_sha256
+                ),
+                "distinct_from_narrator": distinct_from_narrator,
+            }
+        )
+    recomputed_catalog_provenance_sha256 = (
+        _sha256_bytes(
+            json.dumps(
+                sorted(catalog_provenance_hashes),
+                separators=(",", ":"),
+            ).encode("utf-8")
+        )
+        if cast_assignment_rows
+        else ""
+    )
+    recomputed_source_provenance_sha256 = (
+        _sha256_bytes(
+            json.dumps(
+                sorted(source_provenance_hashes),
+                separators=(",", ":"),
+            ).encode("utf-8")
+        )
+        if cast_assignment_rows
+        else ""
+    )
+    authority_cast_rows = list(authority.get("cast") or []) if authority else []
+    if authority and dialogue_count:
+        expected_safe_rows = [
+            {
+                "speaker_index": index,
+                "speaker_id_sha256": str(row.get("speaker_id_sha256") or ""),
+                "voice_id_sha256": str(row.get("voice_id_sha256") or ""),
+                "catalog_provenance_sha256": str(
+                    row.get("catalog_provenance_sha256") or ""
+                ),
+                "source_provenance_sha256": str(
+                    row.get("source_provenance_sha256") or ""
+                ),
+                "distinct_from_narrator": True,
+            }
+            for index, row in enumerate(authority_cast_rows, start=1)
+        ]
+        if cast_assignment_rows != expected_safe_rows:
+            cast_assignment_proof_valid = False
+            issues.append("dialogue_speaker_cast_authority_mismatch")
     if dialogue_count:
         if str(speaker_cast.get("status") or "").strip() != "ready":
             issues.append("dialogue_speaker_cast_not_ready")
@@ -17681,6 +19355,55 @@ def _audiobook_publication_narration_evidence(
             issues.append("dialogue_speaker_cast_sha256_invalid")
         elif cast_map_sha256 != plan_cast_sha256:
             issues.append("dialogue_speaker_cast_sha256_mismatch")
+        if authority and (
+            cast_map_sha256 != str(authority.get("cast_map_sha256") or "")
+        ):
+            issues.append("dialogue_speaker_cast_sha256_authority_mismatch")
+        if (
+            not catalog_provenance_sha256
+            or catalog_provenance_sha256
+            != recomputed_catalog_provenance_sha256
+            or (
+                authority
+                and catalog_provenance_sha256
+                != str(authority.get("catalog_provenance_sha256") or "")
+            )
+        ):
+            issues.append("dialogue_speaker_cast_catalog_provenance_invalid")
+        if (
+            not source_provenance_sha256
+            or source_provenance_sha256
+            != recomputed_source_provenance_sha256
+            or (
+                authority
+                and source_provenance_sha256
+                != str(authority.get("source_provenance_sha256") or "")
+            )
+        ):
+            issues.append("dialogue_speaker_cast_source_provenance_invalid")
+        if plan_speaker_count is None or plan_speaker_count <= 0:
+            issues.append("narration_speaker_count_invalid")
+        if (
+            cast_speaker_count is None
+            or cast_speaker_count <= 0
+            or resolved_speaker_count != cast_speaker_count
+            or plan_speaker_count != cast_speaker_count
+        ):
+            issues.append("dialogue_speaker_cast_incomplete")
+        if (
+            distinct_dialogue_voice_count is None
+            or distinct_dialogue_voice_count <= 0
+            or distinct_dialogue_voice_count != len(voice_hashes)
+        ):
+            issues.append("dialogue_speaker_cast_distinct_voice_count_invalid")
+        if (
+            not cast_assignment_proof_valid
+            or cast_speaker_count is None
+            or cast_speaker_count <= 0
+            or len(cast_assignment_rows) != cast_speaker_count
+            or len(speaker_hashes) != cast_speaker_count
+        ):
+            issues.append("dialogue_speaker_cast_assignment_proof_invalid")
 
     return (
         {
@@ -17692,13 +19415,43 @@ def _audiobook_publication_narration_evidence(
             "plan_sha256": plan_sha256,
             "source_aggregate_sha256": source_sha256,
             "render_signature_sha256": render_signature_sha256,
+            "authority_sha256": str(
+                authority.get("authority_sha256") or ""
+            ),
+            "authority_verified": bool(authority),
             "dialogue_passage_count": dialogue_passage_count or 0,
             "dialogue_span_count": dialogue_span_count or 0,
+            "speaker_count": plan_speaker_count or 0,
             "speaker_cast": {
                 "required": dialogue_count > 0,
                 "status": str(speaker_cast.get("status") or "").strip(),
                 "distinct_from_narrator": cast_distinct,
                 "cast_map_sha256": cast_map_sha256,
+                "catalog_provenance_sha256": catalog_provenance_sha256,
+                "source_provenance_sha256": source_provenance_sha256,
+                "recomputed_catalog_provenance_sha256": (
+                    recomputed_catalog_provenance_sha256
+                ),
+                "recomputed_source_provenance_sha256": (
+                    recomputed_source_provenance_sha256
+                ),
+                "speaker_count": cast_speaker_count or 0,
+                "resolved_speaker_count": resolved_speaker_count or 0,
+                "distinct_dialogue_voice_count": (
+                    distinct_dialogue_voice_count or 0
+                ),
+                "assignment_count": len(cast_assignment_rows),
+                "assignments_complete": bool(
+                    dialogue_count == 0
+                    or (
+                        cast_assignment_proof_valid
+                        and cast_speaker_count is not None
+                        and cast_speaker_count > 0
+                        and len(cast_assignment_rows) == cast_speaker_count
+                        and len(speaker_hashes) == cast_speaker_count
+                    )
+                ),
+                "cast": cast_assignment_rows,
             },
             "raw_text_exposed": False,
             "raw_voice_ids_exposed": False,
@@ -17709,6 +19462,8 @@ def _audiobook_publication_narration_evidence(
 
 def _audiobook_publication_mastering_evidence(
     render_result: dict[str, object],
+    *,
+    job: dict[str, object],
 ) -> tuple[dict[str, object], list[str]]:
     issues: list[str] = []
     mastering = dict(render_result.get("mastering") or {})
@@ -17721,11 +19476,14 @@ def _audiobook_publication_mastering_evidence(
     contract_sha256 = _audiobook_publication_sha256(
         mastering.get("contract_sha256")
     )
+    expected_contract_sha256 = _audiobook_mastering_contract()
     signature_set_sha256 = _audiobook_publication_sha256(
         mastering.get("signature_set_sha256")
     )
     if not contract_sha256:
         issues.append("mastering_contract_sha256_invalid")
+    elif contract_sha256 != expected_contract_sha256:
+        issues.append("mastering_contract_sha256_mismatch")
     if not signature_set_sha256:
         issues.append("mastering_signature_set_sha256_invalid")
 
@@ -17762,24 +19520,740 @@ def _audiobook_publication_mastering_evidence(
     if mastering.get("segment_mastering") is not False:
         issues.append("segment_mastering_not_prohibited")
 
-    raw_quality = mastering.get("final_audio_quality")
-    quality_rows = raw_quality if isinstance(raw_quality, list) else [raw_quality]
-    quality_statuses = [
-        str(row.get("status") or "").strip().lower()
-        for row in quality_rows
-        if isinstance(row, dict)
-    ]
+    raw_bindings = mastering.get("final_track_bindings")
+    binding_rows: list[dict[str, object]] = []
+    bindings_valid = isinstance(raw_bindings, list)
+    for raw_binding in raw_bindings if isinstance(raw_bindings, list) else []:
+        if not isinstance(raw_binding, dict):
+            bindings_valid = False
+            continue
+        signature = _audiobook_publication_sha256(raw_binding.get("signature"))
+        audio_sha256 = _audiobook_publication_sha256(
+            raw_binding.get("audio_sha256")
+        )
+        if not signature or not audio_sha256:
+            bindings_valid = False
+        if final_track_mode == "chapter_masters":
+            chapter_index = _audiobook_publication_exact_int(
+                raw_binding.get("chapter_index")
+            )
+            if (
+                chapter_index is None
+                or chapter_index <= 0
+                or str(raw_binding.get("track") or "").strip()
+                or set(raw_binding) != {
+                    "chapter_index",
+                    "signature",
+                    "audio_sha256",
+                }
+            ):
+                bindings_valid = False
+            binding_rows.append(
+                {
+                    "chapter_index": chapter_index or 0,
+                    "signature": signature,
+                    "audio_sha256": audio_sha256,
+                }
+            )
+        elif final_track_mode == "cinematic_master":
+            track = str(raw_binding.get("track") or "").strip()
+            if (
+                track != "cinematic_master"
+                or raw_binding.get("chapter_index") not in (None, "")
+                or set(raw_binding) != {
+                    "track",
+                    "signature",
+                    "audio_sha256",
+                }
+            ):
+                bindings_valid = False
+            binding_rows.append(
+                {
+                    "track": track,
+                    "signature": signature,
+                    "audio_sha256": audio_sha256,
+                }
+            )
+        else:
+            bindings_valid = False
     if (
         expected_count is None
         or expected_count <= 0
-        or len(quality_statuses) != expected_count
+        or len(binding_rows) != expected_count
     ):
+        bindings_valid = False
+        issues.append("mastering_final_track_binding_count_mismatch")
+    binding_chapter_indexes = [
+        int(row.get("chapter_index") or 0)
+        for row in binding_rows
+        if "chapter_index" in row
+    ]
+    if final_track_mode == "chapter_masters" and (
+        len(binding_chapter_indexes) != len(binding_rows)
+        or expected_count is None
+        or binding_chapter_indexes != list(range(1, expected_count + 1))
+    ):
+        bindings_valid = False
+        issues.append("mastering_final_track_chapter_bindings_invalid")
+    if final_track_mode == "cinematic_master" and (
+        len(binding_rows) != 1
+        or binding_rows[0].get("track") != "cinematic_master"
+    ):
+        bindings_valid = False
+        issues.append("mastering_cinematic_track_binding_invalid")
+    if not bindings_valid:
+        issues.append("mastering_final_track_bindings_invalid")
+    recomputed_signature_set_sha256 = (
+        _audiobook_final_track_signature_set_sha256(binding_rows)
+        if bindings_valid and binding_rows
+        else ""
+    )
+    if not recomputed_signature_set_sha256:
+        issues.append("mastering_signature_set_not_recomputable")
+    elif (
+        signature_set_sha256
+        and signature_set_sha256 != recomputed_signature_set_sha256
+    ):
+        issues.append("mastering_signature_set_sha256_mismatch")
+
+    raw_quality = mastering.get("final_audio_quality")
+    if isinstance(raw_quality, list):
+        raw_quality_rows = list(raw_quality)
+    elif isinstance(raw_quality, dict):
+        raw_quality_rows = [raw_quality]
+    else:
+        raw_quality_rows = []
+    quality_statuses: list[str] = []
+    quality_evidence_rows: list[dict[str, object]] = []
+    quality_rows_valid = True
+    quality_chapter_indexes: list[int] = []
+
+    def measured_float(
+        value: object,
+        *,
+        positive: bool = False,
+        maximum: float | None = None,
+    ) -> float | None:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            return None
+        if parsed < 0.0 or positive and parsed <= 0.0:
+            return None
+        if maximum is not None and parsed > maximum:
+            return None
+        return parsed
+
+    for raw_row in raw_quality_rows:
+        if not isinstance(raw_row, dict):
+            quality_rows_valid = False
+            continue
+        quality_status = str(raw_row.get("status") or "").strip().lower()
+        quality_statuses.append(quality_status)
+
+        duration_seconds = measured_float(
+            raw_row.get("duration_seconds"),
+            positive=True,
+        )
+        peak = measured_float(raw_row.get("peak"), maximum=1.0)
+        trailing_silence_seconds = measured_float(
+            raw_row.get("trailing_silence_seconds")
+        )
+        channels = _audiobook_publication_exact_int(raw_row.get("channels"))
+        sample_rate = _audiobook_publication_exact_int(
+            raw_row.get("sample_rate")
+        )
+        sample_width = _audiobook_publication_exact_int(
+            raw_row.get("sample_width_bytes")
+        )
+        speech_energy_present = raw_row.get("speech_energy_present") is True
+        quiet_tail = raw_row.get("quiet_tail")
+        excessive_trailing_silence = raw_row.get(
+            "excessive_trailing_silence"
+        )
+        raw_quality_issues = raw_row.get("issues")
+        quality_issue_values = (
+            [str(value).strip() for value in raw_quality_issues]
+            if isinstance(raw_quality_issues, list)
+            and all(isinstance(value, str) for value in raw_quality_issues)
+            else []
+        )
+        issue_list_valid = bool(
+            isinstance(raw_quality_issues, list)
+            and all(isinstance(value, str) for value in raw_quality_issues)
+            and all(
+                value
+                and re.fullmatch(r"[a-z0-9_]{1,80}", value) is not None
+                for value in quality_issue_values
+            )
+        )
+        warning_issues = set(quality_issue_values)
+        status_and_issues_valid = bool(
+            quality_status == "pass"
+            and not quality_issue_values
+            and quiet_tail is False
+            and excessive_trailing_silence is False
+            or quality_status == "warn"
+            and quality_issue_values
+            and warning_issues <= {"quiet_tail", "trailing_silence"}
+            and ("quiet_tail" in warning_issues) == (quiet_tail is True)
+            and ("trailing_silence" in warning_issues)
+            == (excessive_trailing_silence is True)
+        )
+        row_valid = bool(
+            duration_seconds is not None
+            and channels in {1, 2}
+            and sample_rate is not None
+            and 1000 <= sample_rate <= 384000
+            and sample_width in {1, 2, 3, 4}
+            and peak is not None
+            and trailing_silence_seconds is not None
+            and trailing_silence_seconds <= duration_seconds
+            and speech_energy_present
+            and isinstance(quiet_tail, bool)
+            and isinstance(excessive_trailing_silence, bool)
+            and issue_list_valid
+            and status_and_issues_valid
+        )
+        public_row: dict[str, object] = {
+            "status": quality_status,
+            "duration_milliseconds": (
+                int(round(duration_seconds * 1000.0))
+                if duration_seconds is not None
+                else 0
+            ),
+            "channels": channels or 0,
+            "sample_rate": sample_rate or 0,
+            "sample_width_bytes": sample_width or 0,
+            "peak": peak if peak is not None else -1.0,
+            "trailing_silence_milliseconds": (
+                int(round(trailing_silence_seconds * 1000.0))
+                if trailing_silence_seconds is not None
+                else -1
+            ),
+            "speech_energy_present": speech_energy_present,
+            "quiet_tail": quiet_tail if isinstance(quiet_tail, bool) else None,
+            "excessive_trailing_silence": (
+                excessive_trailing_silence
+                if isinstance(excessive_trailing_silence, bool)
+                else None
+            ),
+            "issue_count": len(quality_issue_values),
+            "measurements_valid": row_valid,
+        }
+        if final_track_mode == "chapter_masters":
+            chapter_index = _audiobook_publication_exact_int(
+                raw_row.get("chapter_index")
+            )
+            if (
+                chapter_index is None
+                or chapter_index <= 0
+                or str(raw_row.get("track") or "").strip()
+            ):
+                row_valid = False
+            else:
+                quality_chapter_indexes.append(chapter_index)
+            public_row["chapter_index"] = chapter_index or 0
+        elif final_track_mode == "cinematic_master":
+            track = str(raw_row.get("track") or "").strip()
+            if (
+                track != "cinematic_master"
+                or raw_row.get("chapter_index") not in (None, "")
+            ):
+                row_valid = False
+            public_row["track"] = track
+        else:
+            row_valid = False
+        public_row["measurements_valid"] = row_valid
+        quality_rows_valid = quality_rows_valid and row_valid
+        quality_evidence_rows.append(public_row)
+    if (
+        expected_count is None
+        or expected_count <= 0
+        or len(raw_quality_rows) != expected_count
+    ):
+        quality_rows_valid = False
         issues.append("final_master_quality_count_mismatch")
     if not quality_statuses or any(
         status_value not in {"pass", "warn"}
         for status_value in quality_statuses
     ):
+        quality_rows_valid = False
         issues.append("final_master_quality_not_acceptable")
+    if final_track_mode == "chapter_masters" and (
+        quality_chapter_indexes != binding_chapter_indexes
+        or quality_chapter_indexes != sorted(set(quality_chapter_indexes))
+    ):
+        quality_rows_valid = False
+        issues.append("final_master_quality_chapter_indexes_mismatch")
+    if final_track_mode == "cinematic_master" and (
+        len(quality_evidence_rows) != 1
+        or quality_evidence_rows[0].get("track") != "cinematic_master"
+    ):
+        quality_rows_valid = False
+        issues.append("final_master_cinematic_quality_row_invalid")
+    if not quality_rows_valid:
+        issues.append("final_master_quality_measurements_invalid")
+
+    def quality_binding_payload(
+        raw_row: object,
+        *,
+        identity: dict[str, object],
+    ) -> dict[str, object]:
+        if not isinstance(raw_row, dict):
+            return {}
+        quality_status = str(raw_row.get("status") or "").strip().lower()
+        duration_seconds = measured_float(
+            raw_row.get("duration_seconds"),
+            positive=True,
+        )
+        peak = measured_float(raw_row.get("peak"), maximum=1.0)
+        trailing_silence_seconds = measured_float(
+            raw_row.get("trailing_silence_seconds")
+        )
+        channels = _audiobook_publication_exact_int(raw_row.get("channels"))
+        sample_rate = _audiobook_publication_exact_int(
+            raw_row.get("sample_rate")
+        )
+        sample_width = _audiobook_publication_exact_int(
+            raw_row.get("sample_width_bytes")
+        )
+        speech_energy_present = raw_row.get("speech_energy_present")
+        quiet_tail = raw_row.get("quiet_tail")
+        excessive_trailing_silence = raw_row.get(
+            "excessive_trailing_silence"
+        )
+        raw_issue_values = raw_row.get("issues")
+        if not (
+            isinstance(raw_issue_values, list)
+            and all(isinstance(value, str) for value in raw_issue_values)
+        ):
+            return {}
+        issue_values = [str(value).strip() for value in raw_issue_values]
+        if not all(
+            value
+            and re.fullmatch(r"[a-z0-9_]{1,80}", value) is not None
+            for value in issue_values
+        ):
+            return {}
+        warning_issues = set(issue_values)
+        status_and_issues_valid = bool(
+            quality_status == "pass"
+            and not issue_values
+            and quiet_tail is False
+            and excessive_trailing_silence is False
+            or quality_status == "warn"
+            and issue_values
+            and warning_issues <= {"quiet_tail", "trailing_silence"}
+            and ("quiet_tail" in warning_issues) == (quiet_tail is True)
+            and ("trailing_silence" in warning_issues)
+            == (excessive_trailing_silence is True)
+        )
+        if not (
+            duration_seconds is not None
+            and channels in {1, 2}
+            and sample_rate is not None
+            and 1000 <= sample_rate <= 384000
+            and sample_width in {1, 2, 3, 4}
+            and peak is not None
+            and trailing_silence_seconds is not None
+            and trailing_silence_seconds <= duration_seconds
+            and speech_energy_present is True
+            and isinstance(quiet_tail, bool)
+            and isinstance(excessive_trailing_silence, bool)
+            and status_and_issues_valid
+        ):
+            return {}
+        return {
+            **identity,
+            "status": quality_status,
+            "duration_seconds": duration_seconds,
+            "channels": channels,
+            "sample_rate": sample_rate,
+            "sample_width_bytes": sample_width,
+            "peak": peak,
+            "trailing_silence_seconds": trailing_silence_seconds,
+            "speech_energy_present": True,
+            "quiet_tail": quiet_tail,
+            "excessive_trailing_silence": excessive_trailing_silence,
+            "issues": sorted(issue_values),
+        }
+
+    artifact_binding_rows: list[dict[str, object]] = []
+    measured_quality_rows: list[dict[str, object]] = []
+    artifact_signature_rows: list[dict[str, object]] = []
+    artifact_bindings_valid = bool(bindings_valid and binding_rows)
+    artifact_measurements_valid = bool(quality_rows_valid and raw_quality_rows)
+    storage = dict(job.get("storage") or {})
+    raw_job_dir = str(storage.get("job_dir") or "").strip()
+    job_chapters: tuple[EpubChapter, ...] = ()
+    resolved_audio_dir: Path | None = None
+    if not raw_job_dir:
+        artifact_bindings_valid = False
+        artifact_measurements_valid = False
+        issues.append("mastering_artifact_job_directory_invalid")
+    else:
+        try:
+            job_dir = Path(raw_job_dir).expanduser()
+            audio_dir = job_dir / "audio"
+            resolved_audio_dir = audio_dir.resolve(strict=True)
+            if not audio_dir.is_dir():
+                raise OSError("audio_directory_missing")
+            declared_audio_dir = str(storage.get("audio_dir") or "").strip()
+            if (
+                declared_audio_dir
+                and Path(declared_audio_dir).expanduser().resolve(strict=True)
+                != resolved_audio_dir
+            ):
+                raise OSError("audio_directory_mismatch")
+            job_chapters = _chapters_from_job(job)
+        except (OSError, RuntimeError, TypeError, ValueError):
+            resolved_audio_dir = None
+            artifact_bindings_valid = False
+            artifact_measurements_valid = False
+            issues.append("mastering_artifact_job_directory_invalid")
+
+    expected_source_chapters = tuple(
+        chapter for chapter in job_chapters if int(chapter.char_count) > 0
+    )
+    if (
+        expected_count is None
+        or expected_count <= 0
+        or len(expected_source_chapters) != expected_count
+        or [chapter.index for chapter in expected_source_chapters]
+        != list(range(1, expected_count + 1))
+    ):
+        artifact_bindings_valid = False
+        artifact_measurements_valid = False
+        issues.append("mastering_artifact_chapter_manifest_invalid")
+    chapters_by_index = {
+        chapter.index: chapter for chapter in expected_source_chapters
+    }
+
+    for binding_index, binding_row in enumerate(binding_rows):
+        identity = (
+            {"chapter_index": int(binding_row.get("chapter_index") or 0)}
+            if final_track_mode == "chapter_masters"
+            else {"track": "cinematic_master"}
+        )
+        public_artifact_row: dict[str, object] = {
+            **identity,
+            "signature": str(binding_row.get("signature") or ""),
+            "audio_sha256": str(binding_row.get("audio_sha256") or ""),
+            "artifact_verified": False,
+            "signature_sidecar_verified": False,
+            "output_binding_verified": False,
+            "measurement_verified": False,
+        }
+        artifact_path: Path | None = None
+        signature_path: Path | None = None
+        cache_kind = ""
+        mode_sidecar_verified = True
+        mode_sidecar_sha256 = ""
+        if resolved_audio_dir is not None and final_track_mode == "chapter_masters":
+            chapter_index = int(binding_row.get("chapter_index") or 0)
+            chapter = chapters_by_index.get(chapter_index)
+            audio_filename = str(chapter.audio_filename if chapter else "").strip()
+            if (
+                chapter is None
+                or not audio_filename
+                or Path(audio_filename).name != audio_filename
+                or Path(audio_filename).suffix.lower() != ".wav"
+            ):
+                artifact_bindings_valid = False
+                artifact_measurements_valid = False
+                issues.append("mastering_chapter_artifact_name_invalid")
+            else:
+                artifact_path = resolved_audio_dir / audio_filename
+                signature_path = artifact_path.with_suffix(
+                    artifact_path.suffix + ".narration.signature"
+                )
+                cache_kind = "chapter_master"
+        elif resolved_audio_dir is not None and final_track_mode == "cinematic_master":
+            artifact_path = _cinematic_master_audio_path(resolved_audio_dir)
+            signature_path = _cinematic_master_audio_signature_path(
+                resolved_audio_dir
+            )
+            cache_kind = "cinematic_master"
+            declared_cinematic_path = str(
+                render_result.get("cinematic_master_audio") or ""
+            ).strip()
+            try:
+                declared_path = Path(declared_cinematic_path).expanduser()
+                declared_path_valid = bool(
+                    declared_cinematic_path
+                    and declared_path.name == artifact_path.name
+                    and (
+                        not declared_path.is_absolute()
+                        or declared_path.resolve(strict=True)
+                        == artifact_path.resolve(strict=True)
+                    )
+                )
+            except (OSError, RuntimeError):
+                declared_path_valid = False
+            mode_path = _cinematic_master_audio_mode_path(resolved_audio_dir)
+            try:
+                cinematic_mode = mode_path.read_text(encoding="utf-8").strip()
+                mode_sidecar_verified = bool(
+                    mode_path.is_file()
+                    and mode_path.stat().st_mode & 0o777 == 0o600
+                    and cinematic_mode in _CINEMATIC_MASTER_VALID_MODES
+                )
+                mode_sidecar_sha256 = (
+                    _sha256_file(mode_path) if mode_path.is_file() else ""
+                )
+            except OSError:
+                mode_sidecar_verified = False
+            public_artifact_row.update(
+                {
+                    "cinematic_path_binding_verified": declared_path_valid,
+                    "mode_sidecar_verified": mode_sidecar_verified,
+                    "mode_sidecar_sha256": mode_sidecar_sha256,
+                }
+            )
+            if not declared_path_valid:
+                artifact_bindings_valid = False
+                issues.append("mastering_cinematic_artifact_path_invalid")
+            if not mode_sidecar_verified:
+                artifact_bindings_valid = False
+                issues.append("mastering_cinematic_mode_sidecar_invalid")
+
+        actual_audio_sha256 = ""
+        actual_audio_size = 0
+        artifact_path_valid = False
+        if artifact_path is not None and resolved_audio_dir is not None:
+            try:
+                resolved_artifact_path = artifact_path.resolve(strict=True)
+                artifact_path_valid = bool(
+                    artifact_path.is_file()
+                    and resolved_artifact_path.parent == resolved_audio_dir
+                    and resolved_artifact_path.suffix.lower() == ".wav"
+                )
+                if artifact_path_valid:
+                    actual_audio_size = int(resolved_artifact_path.stat().st_size)
+                    actual_audio_sha256 = _sha256_file(resolved_artifact_path)
+                    artifact_path = resolved_artifact_path
+            except (OSError, RuntimeError):
+                artifact_path_valid = False
+        artifact_verified = bool(
+            artifact_path_valid
+            and actual_audio_size > 0
+            and actual_audio_sha256
+            and actual_audio_sha256 == binding_row.get("audio_sha256")
+        )
+        public_artifact_row.update(
+            {
+                "artifact_sha256": actual_audio_sha256,
+                "artifact_size_bytes": actual_audio_size,
+                "artifact_verified": artifact_verified,
+            }
+        )
+        if not artifact_verified:
+            artifact_bindings_valid = False
+            artifact_measurements_valid = False
+            issues.append("mastering_final_track_artifact_sha256_mismatch")
+
+        signature_sidecar_value = ""
+        signature_sidecar_sha256 = ""
+        signature_sidecar_verified = False
+        if signature_path is not None and resolved_audio_dir is not None:
+            try:
+                resolved_signature_path = signature_path.resolve(strict=True)
+                signature_sidecar_value = resolved_signature_path.read_text(
+                    encoding="utf-8"
+                ).strip()
+                signature_sidecar_sha256 = _sha256_file(
+                    resolved_signature_path
+                )
+                signature_sidecar_verified = bool(
+                    resolved_signature_path.parent == resolved_audio_dir
+                    and resolved_signature_path.stat().st_mode & 0o777 == 0o600
+                    and re.fullmatch(
+                        r"[0-9a-f]{64}", signature_sidecar_value
+                    )
+                    and signature_sidecar_value == binding_row.get("signature")
+                )
+            except (OSError, RuntimeError, UnicodeError):
+                signature_sidecar_verified = False
+        public_artifact_row.update(
+            {
+                "signature_sidecar_sha256": signature_sidecar_sha256,
+                "signature_sidecar_verified": signature_sidecar_verified,
+            }
+        )
+        if not signature_sidecar_verified:
+            artifact_bindings_valid = False
+            issues.append("mastering_signature_sidecar_invalid")
+
+        output_binding: dict[str, object] = {}
+        output_binding_sidecar_sha256 = ""
+        if artifact_path is not None and cache_kind:
+            output_binding = _load_validated_audio_cache_output_binding(
+                audio_path=artifact_path,
+                cache_kind=cache_kind,
+                render_fingerprint=str(binding_row.get("signature") or ""),
+            )
+            output_binding_path = _audio_cache_output_binding_path(artifact_path)
+            try:
+                output_binding_sidecar_sha256 = (
+                    _sha256_file(output_binding_path)
+                    if output_binding_path.is_file()
+                    else ""
+                )
+            except OSError:
+                output_binding_sidecar_sha256 = ""
+        output_binding_verified = bool(
+            output_binding
+            and output_binding.get("audio_sha256") == actual_audio_sha256
+            and output_binding.get("render_fingerprint")
+            == binding_row.get("signature")
+        )
+        public_artifact_row.update(
+            {
+                "output_binding_record_sha256": str(
+                    output_binding.get("record_sha256") or ""
+                ),
+                "output_binding_sidecar_sha256": output_binding_sidecar_sha256,
+                "output_binding_verified": output_binding_verified,
+            }
+        )
+        if not output_binding_verified:
+            artifact_bindings_valid = False
+            issues.append("mastering_output_binding_sidecar_invalid")
+
+        declared_quality = (
+            raw_quality_rows[binding_index]
+            if binding_index < len(raw_quality_rows)
+            else {}
+        )
+        measured_quality = (
+            _rendered_audio_quality_report(artifact_path)
+            if artifact_path is not None and artifact_verified
+            else {}
+        )
+        declared_quality_payload = quality_binding_payload(
+            declared_quality,
+            identity=identity,
+        )
+        measured_quality_payload = quality_binding_payload(
+            measured_quality,
+            identity=identity,
+        )
+        declared_measurement_sha256 = (
+            _sha256_bytes(
+                json.dumps(
+                    declared_quality_payload,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            )
+            if declared_quality_payload
+            else ""
+        )
+        measurement_sha256 = (
+            _sha256_bytes(
+                json.dumps(
+                    measured_quality_payload,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            )
+            if measured_quality_payload
+            else ""
+        )
+        measurement_verified = bool(
+            declared_measurement_sha256
+            and measurement_sha256
+            and declared_measurement_sha256 == measurement_sha256
+        )
+        public_artifact_row["measurement_verified"] = measurement_verified
+        measured_public_row: dict[str, object] = {
+            **identity,
+            "status": str(measured_quality_payload.get("status") or ""),
+            "duration_seconds": float(
+                measured_quality_payload.get("duration_seconds") or 0.0
+            ),
+            "duration_milliseconds": int(
+                round(
+                    float(measured_quality_payload.get("duration_seconds") or 0.0)
+                    * 1000.0
+                )
+            ),
+            "channels": int(measured_quality_payload.get("channels") or 0),
+            "sample_rate": int(
+                measured_quality_payload.get("sample_rate") or 0
+            ),
+            "sample_width_bytes": int(
+                measured_quality_payload.get("sample_width_bytes") or 0
+            ),
+            "peak": float(measured_quality_payload.get("peak") or 0.0),
+            "trailing_silence_seconds": float(
+                measured_quality_payload.get("trailing_silence_seconds")
+                or 0.0
+            ),
+            "trailing_silence_milliseconds": int(
+                round(
+                    float(
+                        measured_quality_payload.get(
+                            "trailing_silence_seconds"
+                        )
+                        or 0.0
+                    )
+                    * 1000.0
+                )
+            ),
+            "speech_energy_present": measured_quality_payload.get(
+                "speech_energy_present"
+            )
+            is True,
+            "quiet_tail": measured_quality_payload.get("quiet_tail"),
+            "excessive_trailing_silence": measured_quality_payload.get(
+                "excessive_trailing_silence"
+            ),
+            "issue_count": len(
+                list(measured_quality_payload.get("issues") or [])
+            ),
+            "artifact_audio_sha256": actual_audio_sha256,
+            "declared_measurement_sha256": declared_measurement_sha256,
+            "measurement_sha256": measurement_sha256,
+            "measurements_valid": bool(measured_quality_payload),
+            "measurement_matches_declared": measurement_verified,
+        }
+        measured_quality_rows.append(measured_public_row)
+        if not measured_quality_payload:
+            artifact_measurements_valid = False
+            issues.append("mastering_actual_quality_not_acceptable")
+        if not measurement_verified:
+            artifact_measurements_valid = False
+            issues.append("mastering_quality_measurement_mismatch")
+
+        artifact_binding_rows.append(public_artifact_row)
+        if actual_audio_sha256 and signature_sidecar_value:
+            artifact_signature_rows.append(
+                {
+                    **identity,
+                    "signature": signature_sidecar_value,
+                    "audio_sha256": actual_audio_sha256,
+                }
+            )
+
+    artifact_signature_set_sha256 = (
+        _audiobook_final_track_signature_set_sha256(artifact_signature_rows)
+        if len(artifact_signature_rows) == len(binding_rows)
+        and artifact_signature_rows
+        else ""
+    )
+    if (
+        not artifact_signature_set_sha256
+        or artifact_signature_set_sha256 != signature_set_sha256
+    ):
+        artifact_bindings_valid = False
+        issues.append("mastering_artifact_signature_set_sha256_mismatch")
+    if not artifact_bindings_valid:
+        issues.append("mastering_artifact_bindings_incomplete")
+    if not artifact_measurements_valid:
+        issues.append("mastering_artifact_quality_measurements_incomplete")
 
     return (
         {
@@ -17791,8 +20265,33 @@ def _audiobook_publication_mastering_evidence(
             "final_track_mastered_this_run_count": mastered_this_run_count or 0,
             "signature_published_or_verified_count": signature_count or 0,
             "signature_set_sha256": signature_set_sha256,
+            "recomputed_signature_set_sha256": recomputed_signature_set_sha256,
+            "artifact_signature_set_sha256": artifact_signature_set_sha256,
+            "final_track_bindings": artifact_binding_rows,
+            "declared_final_track_bindings_complete": bindings_valid,
+            "final_track_bindings_complete": artifact_bindings_valid,
+            "artifact_verification_complete": artifact_bindings_valid,
             "segment_mastering": mastering.get("segment_mastering"),
             "final_audio_quality_statuses": quality_statuses,
+            "final_audio_quality": measured_quality_rows,
+            "declared_final_audio_quality_measurements_complete": quality_rows_valid,
+            "final_audio_quality_measurements_complete": (
+                artifact_measurements_valid
+            ),
+            "quality_measurements_recomputed_from_artifacts": bool(
+                measured_quality_rows
+                and all(
+                    row.get("measurements_valid") is True
+                    for row in measured_quality_rows
+                )
+            ),
+            "quality_measurements_match_declared": bool(
+                measured_quality_rows
+                and all(
+                    row.get("measurement_matches_declared") is True
+                    for row in measured_quality_rows
+                )
+            ),
         },
         issues,
     )
@@ -17802,7 +20301,8 @@ def _audiobook_publication_assembly_evidence(
     *,
     job: dict[str, object],
     render_result: dict[str, object],
-    actual_probe_chapter_count: int,
+    probe_chapters: list[object],
+    duration_seconds: float,
 ) -> tuple[dict[str, object], list[str]]:
     issues: list[str] = []
     merge_result = dict(job.get("merge_result") or {})
@@ -17817,6 +20317,15 @@ def _audiobook_publication_assembly_evidence(
         and int(row.get("char_count") or 0) > 0
     ]
     source_chapter_count = len(source_chapters)
+    actual_probe_chapter_count = len(probe_chapters)
+    chapter_metadata, chapter_metadata_issues = (
+        _audiobook_publication_m4b_chapter_metadata_evidence(
+            source_chapters=list(job.get("chapters") or []),
+            probe_chapters=probe_chapters,
+            duration_seconds=duration_seconds,
+        )
+    )
+    issues.extend(chapter_metadata_issues)
     expected_count = _audiobook_publication_exact_int(
         merge_result.get("expected_chapter_count")
     )
@@ -17879,6 +20388,16 @@ def _audiobook_publication_assembly_evidence(
             "actual_chapter_count": declared_actual_count or 0,
             "probed_chapter_count": actual_probe_chapter_count,
             "chapter_count_matches": chapter_count_matches,
+            "chapter_metadata_verified": bool(
+                chapter_metadata.get("chapter_metadata_verified")
+            ),
+            "chapter_metadata_contract": str(
+                chapter_metadata.get("contract_name") or ""
+            ),
+            "chapter_metadata_sha256": str(
+                chapter_metadata.get("chapter_metadata_sha256") or ""
+            ),
+            "chapter_metadata": chapter_metadata,
             "cinematic": cinematic,
             "cinematic_timeline_sha256": (
                 render_timeline_sha256 if cinematic else ""
@@ -17927,10 +20446,10 @@ def _build_audiobook_publication_gate(*, job: dict[str, object], target_path: Pa
     ):
         issues.append("source_artifact_sha256_mismatch")
     narration_evidence, narration_issues = (
-        _audiobook_publication_narration_evidence(render_result)
+        _audiobook_publication_narration_evidence(render_result, job=job)
     )
     mastering_evidence, mastering_issues = (
-        _audiobook_publication_mastering_evidence(render_result)
+        _audiobook_publication_mastering_evidence(render_result, job=job)
     )
     issues.extend(narration_issues)
     issues.extend(mastering_issues)
@@ -17952,7 +20471,8 @@ def _build_audiobook_publication_gate(*, job: dict[str, object], target_path: Pa
     assembly_evidence, assembly_issues = _audiobook_publication_assembly_evidence(
         job=job,
         render_result=render_result,
-        actual_probe_chapter_count=len(chapters),
+        probe_chapters=chapters,
+        duration_seconds=_audiobook_publication_probe_duration_seconds(probe),
     )
     issues.extend(assembly_issues)
     mastering_track_mode = str(
@@ -18066,24 +20586,15 @@ def _build_audiobook_publication_gate(*, job: dict[str, object], target_path: Pa
                 if true_peak_dbtp > max_true_peak_dbtp:
                     issues.append("true_peak_above_maximum")
 
-    try:
-        duration_seconds = (
-            float(dict(probe.get("format") or {}).get("duration") or 0.0)
-            if isinstance(probe.get("format"), dict)
-            else 0.0
-        )
-    except (TypeError, ValueError):
-        duration_seconds = 0.0
-    if target_ready and (
-        not math.isfinite(duration_seconds) or duration_seconds <= 0.0
-    ):
-        duration_seconds = 0.0
+    duration_seconds = _audiobook_publication_probe_duration_seconds(probe)
+    if target_ready and duration_seconds <= 0.0:
         issues.append("audio_duration_invalid")
     stt_gate = (
         _build_audiobook_publication_stt_gate(
             job=job,
             target_path=target_path,
             duration_seconds=duration_seconds,
+            probe_chapters=chapters,
         )
         if target_ready
         else {"status": "skipped", "required": _audiobook_publication_stt_required(), "enabled": False, "raw_text_exposed": False}
@@ -18157,6 +20668,15 @@ def _build_audiobook_publication_gate(*, job: dict[str, object], target_path: Pa
         ),
         "chapter_count_matches": bool(
             assembly_evidence.get("chapter_count_matches")
+        ),
+        "chapter_metadata_verified": bool(
+            assembly_evidence.get("chapter_metadata_verified")
+        ),
+        "chapter_metadata_contract": str(
+            assembly_evidence.get("chapter_metadata_contract") or ""
+        ),
+        "chapter_metadata_sha256": str(
+            assembly_evidence.get("chapter_metadata_sha256") or ""
         ),
         "cinematic_timeline_sha256": cinematic_timeline_sha256,
         "audio_streams": len(audio_streams),
@@ -19012,10 +21532,10 @@ def _normalize_text_chapter_rows(chapters: tuple[object, ...] | list[object]) ->
             text = item
         elif isinstance(item, dict):
             title = str(item.get("title") or item.get("name") or f"Chapter {index}").strip()
-            text = str(item.get("text") or item.get("content") or "").strip()
+            text = str(item.get("text") or item.get("content") or "")
         else:
             continue
-        if text:
+        if text.strip():
             rows.append({"title": title or f"Chapter {index}", "text": text})
     return tuple(rows)
 
@@ -19070,7 +21590,7 @@ def create_job_from_text_chapters(
         safe_title = _safe_filename(row["title"], fallback=f"Chapter {index:03d}")
         text_filename = f"{index:03d} - {safe_title}.txt"
         audio_filename = f"{index:03d} - {safe_title}.wav"
-        (chapter_dir / text_filename).write_text(row["text"].strip() + "\n", encoding="utf-8")
+        (chapter_dir / text_filename).write_text(row["text"] + "\n", encoding="utf-8")
         chapter_models.append(
             EpubChapter(
                 index=index,

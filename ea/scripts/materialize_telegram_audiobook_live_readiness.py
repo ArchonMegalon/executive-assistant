@@ -605,16 +605,40 @@ def materialize_telegram_audiobook_live_readiness(
 
 
 def _next_action(sample_blockers: list[str], delivery_blockers: list[str]) -> str:
+    sample = set(sample_blockers)
+    delivery = set(delivery_blockers)
     if "external_tts_enabled" in sample_blockers:
         return "Approve raw owned audiobook source text leaving EA for governed external audiobook TTS."
     if "unmixr_api_key_slot_present" in sample_blockers:
         return "Configure at least one owned Unmixr API-key slot."
     if "voice_catalog_configured" in sample_blockers or "voice_catalog_audition_ready" in sample_blockers:
         return "Configure or discover at least three audiobook voices."
-    if "audiobookshelf_public_share_enabled" in delivery_blockers or "audiobookshelf_public_share_configured" in delivery_blockers:
+    job_storage = sample.intersection({"jobs_root_durable", "jobs_root_writable"})
+    import_storage = delivery.intersection(
+        {
+            "audiobookshelf_import_root_durable",
+            "audiobookshelf_import_root_writable",
+        }
+    )
+    if job_storage and import_storage:
+        return (
+            "Configure durable, writable audiobook job and Audiobookshelf import "
+            "storage, then rerun readiness."
+        )
+    if job_storage:
+        return "Configure durable, writable audiobook job storage and rerun readiness."
+    if import_storage:
+        return "Configure durable, writable Audiobookshelf import storage and rerun readiness."
+    if "audiobookshelf_public_share_enabled" in delivery or "audiobookshelf_public_share_configured" in delivery:
         return "Configure Audiobookshelf public-share creation and rerun readiness."
+    if delivery.intersection(
+        {"player_access_signing_secret_present", "player_access_base_url_present"}
+    ):
+        return "Configure player-scoped audiobook link prerequisites and rerun readiness."
+    if sample:
+        return "Fix the remaining audiobook voice-sample prerequisites and rerun readiness."
     if delivery_blockers:
-        return "Fix Audiobookshelf import/player-link prerequisites and rerun readiness."
+        return "Fix the remaining audiobook delivery prerequisites and rerun readiness."
     return "run_real_telegram_epub_audiobook_delivery_test"
 
 

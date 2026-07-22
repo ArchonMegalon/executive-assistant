@@ -74,6 +74,212 @@ def test_unmixr_synthesize_rotates_to_fallback_slot_on_balance_response(monkeypa
     assert audio == b"audio-bytes"
     assert content_type == "audio/wav"
     assert seen_auth == ["Bearer primary-key", "Bearer fallback-key"]
+    state = json.loads((tmp_path / "unmixr-slots.json").read_text(encoding="utf-8"))
+    assert state["slots"]["UNMIXR_API_KEY"]["account_state"] == "depleted"
+    assert state["slots"]["UNMIXR_API_KEY_FALLBACK_1"]["account_state"] == "ready"
+
+
+def test_unmixr_synthesize_rotates_past_invalid_account_to_later_slot(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _clear_unmixr_key_env(monkeypatch)
+    state_path = tmp_path / "unmixr-slots.json"
+    monkeypatch.setenv("EA_UNMIXR_SLOT_SELECTOR_STATE_FILE", str(state_path))
+    monkeypatch.setenv("UNMIXR_API_KEY", "invalid-primary-key")
+    monkeypatch.setenv("UNMIXR_API_KEY_FALLBACK_1", "working-fallback-key")
+    seen_auth: list[str] = []
+
+    def fake_request(method, url, headers=None, **kwargs):  # noqa: ANN001
+        seen_auth.append(str((headers or {}).get("Authorization") or ""))
+        if len(seen_auth) == 1:
+            return _FakeResponse(status_code=400, payload={"detail": "Username or Password incorrect"})
+        return _FakeResponse(status_code=200, payload={"audio_url": "https://audio.example/render.wav"})
+
+    def fake_get(url, **kwargs):  # noqa: ANN001
+        return _FakeResponse(status_code=200, content=b"audio-bytes", headers={"Content-Type": "audio/wav"})
+
+    monkeypatch.setattr(memorial_openvoice.requests, "request", fake_request)
+    monkeypatch.setattr(memorial_openvoice.requests, "get", fake_get)
+
+    audio, content_type = memorial_openvoice.unmixr_synthesize_request(
+        text="Guten Morgen.",
+        voice_id="voice-1",
+        lang="de-DE",
+    )
+
+    assert audio == b"audio-bytes"
+    assert content_type == "audio/wav"
+    assert seen_auth == ["Bearer invalid-primary-key", "Bearer working-fallback-key"]
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["slots"]["UNMIXR_API_KEY"]["account_state"] == "invalid"
+    assert state["slots"]["UNMIXR_API_KEY_FALLBACK_1"]["account_state"] == "ready"
+
+
+def test_unmixr_synthesize_blocks_only_after_all_eligible_accounts_are_depleted(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _clear_unmixr_key_env(monkeypatch)
+    state_path = tmp_path / "unmixr-slots.json"
+    monkeypatch.setenv("EA_UNMIXR_SLOT_SELECTOR_STATE_FILE", str(state_path))
+    monkeypatch.setenv("UNMIXR_API_KEY", "primary-key")
+    monkeypatch.setenv("UNMIXR_API_KEY_FALLBACK_1", "fallback-key")
+    seen_auth: list[str] = []
+
+    def fake_request(method, url, headers=None, **kwargs):  # noqa: ANN001
+        seen_auth.append(str((headers or {}).get("Authorization") or ""))
+        return _FakeResponse(status_code=402, payload={"detail": "Insufficient API balance"})
+
+    monkeypatch.setattr(memorial_openvoice.requests, "request", fake_request)
+
+    with pytest.raises(HTTPException) as caught:
+        memorial_openvoice.unmixr_synthesize_request(
+            text="Guten Morgen.",
+            voice_id="voice-1",
+            lang="de-DE",
+        )
+
+    assert getattr(caught.value, "detail", None) == "unmixr_tts_balance_exhausted:402"
+    assert seen_auth == ["Bearer primary-key", "Bearer fallback-key"]
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["contract_name"] == "ea.unmixr_account_slot_selector.v2"
+    assert state["secrets_exposed"] is False
+    assert state["slots"]["UNMIXR_API_KEY"]["account_state"] == "depleted"
+    assert state["slots"]["UNMIXR_API_KEY_FALLBACK_1"]["account_state"] == "depleted"
+    assert all(float(item["cooldown_until_epoch"]) > time.time() for item in state["slots"].values())
+
+    monkeypatch.setattr(
+        memorial_openvoice.requests,
+        "request",
+        lambda *args, **kwargs: pytest.fail("cooled accounts must not be called"),
+    )
+    with pytest.raises(HTTPException) as cooling:
+        memorial_openvoice.unmixr_synthesize_request(
+            text="Guten Morgen.",
+            voice_id="voice-1",
+            lang="de-DE",
+        )
+    assert getattr(cooling.value, "status_code", None) == 429
+    assert str(getattr(cooling.value, "detail", "")).startswith("unmixr_slots_cooling_down:")
+
+
+def test_unmixr_account_cooldown_expiry_restores_slot_eligibility(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _clear_unmixr_key_env(monkeypatch)
+    state_path = tmp_path / "unmixr-slots.json"
+    now = [1_000.0]
+    state_path.write_text(
+        json.dumps(
+            {
+                "slots": {
+                    "UNMIXR_API_KEY": {
+                        "account_state": "invalid",
+                        "cooldown_until_epoch": 1_010.0,
+                    },
+                    "UNMIXR_API_KEY_FALLBACK_1": {
+                        "account_state": "depleted",
+                        "cooldown_until_epoch": 1_100.0,
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_UNMIXR_SLOT_SELECTOR_STATE_FILE", str(state_path))
+    monkeypatch.setenv("UNMIXR_API_KEY", "recovered-primary-key")
+    monkeypatch.setenv("UNMIXR_API_KEY_FALLBACK_1", "depleted-fallback-key")
+    monkeypatch.setattr(memorial_openvoice.time, "time", lambda: now[0])
+
+    with pytest.raises(HTTPException) as cooling:
+        memorial_openvoice.unmixr_synthesize_request(
+            text="Guten Morgen.",
+            voice_id="voice-1",
+            lang="de-DE",
+        )
+    assert getattr(cooling.value, "status_code", None) == 429
+
+    seen_auth: list[str] = []
+
+    def fake_request(method, url, headers=None, **kwargs):  # noqa: ANN001
+        seen_auth.append(str((headers or {}).get("Authorization") or ""))
+        return _FakeResponse(status_code=200, payload={"audio_url": "https://audio.example/render.wav"})
+
+    monkeypatch.setattr(memorial_openvoice.requests, "request", fake_request)
+    monkeypatch.setattr(
+        memorial_openvoice.requests,
+        "get",
+        lambda url, **kwargs: _FakeResponse(
+            status_code=200,
+            content=b"audio-bytes",
+            headers={"Content-Type": "audio/wav"},
+        ),
+    )
+    now[0] = 1_020.0
+
+    audio, content_type = memorial_openvoice.unmixr_synthesize_request(
+        text="Guten Morgen.",
+        voice_id="voice-1",
+        lang="de-DE",
+    )
+
+    assert audio == b"audio-bytes"
+    assert content_type == "audio/wav"
+    assert seen_auth == ["Bearer recovered-primary-key"]
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    primary = state["slots"]["UNMIXR_API_KEY"]
+    assert primary["account_state"] == "ready"
+    assert "cooldown_until_epoch" not in primary
+
+
+def test_unmixr_multi_account_failover_state_never_leaks_secrets(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _clear_unmixr_key_env(monkeypatch)
+    state_path = tmp_path / "unmixr-slots.json"
+    private_text = "PRIVATE BOOK PASSAGE: keep this out of account state"
+    primary_key = "secret-invalid-primary"
+    fallback_key = "secret-depleted-fallback"
+    monkeypatch.setenv("EA_UNMIXR_SLOT_SELECTOR_STATE_FILE", str(state_path))
+    monkeypatch.setenv("UNMIXR_API_KEY", primary_key)
+    monkeypatch.setenv("UNMIXR_API_KEY_FALLBACK_1", fallback_key)
+    attempts = [
+        _FakeResponse(
+            status_code=401,
+            payload={"detail": f"Invalid API key {primary_key}; text={private_text}"},
+        ),
+        _FakeResponse(
+            status_code=402,
+            payload={"detail": f"Insufficient balance for {fallback_key}; text={private_text}"},
+        ),
+    ]
+    monkeypatch.setattr(
+        memorial_openvoice.requests,
+        "request",
+        lambda *args, **kwargs: attempts.pop(0),
+    )
+
+    with pytest.raises(HTTPException) as caught:
+        memorial_openvoice.unmixr_synthesize_request(
+            text=private_text,
+            voice_id="private-voice-id",
+            lang="de-DE",
+        )
+
+    rendered_error = str(caught.value)
+    rendered_state = state_path.read_text(encoding="utf-8")
+    for sensitive in (primary_key, fallback_key, private_text, "private-voice-id"):
+        assert sensitive not in rendered_error
+        assert sensitive not in rendered_state
+    state = json.loads(rendered_state)
+    assert state["secrets_exposed"] is False
+    if os.name != "nt":
+        assert state_path.stat().st_mode & 0o777 == 0o600
+    assert state["slots"]["UNMIXR_API_KEY"]["account_state"] == "invalid"
+    assert state["slots"]["UNMIXR_API_KEY_FALLBACK_1"]["account_state"] == "depleted"
 
 
 def test_unmixr_synthesize_redacts_provider_body_from_exception_and_slot_state(

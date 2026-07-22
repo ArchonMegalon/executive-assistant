@@ -2762,6 +2762,15 @@ def _voice_action_button_labels(sample: dict[str, object]) -> tuple[str, str]:
     return f"Use {label}", f"Dismiss {label}"
 
 
+def _voice_sample_choice_prompt(sample: dict[str, object]) -> str:
+    label = " ".join(str(sample.get("label") or "this voice").strip().split())
+    return (
+        "This preview is optional. Choose this voice sample, or let EA choose "
+        "the narrator and dialogue cast. If the buttons do not work, reply "
+        f"'use {label}', 'use automatic cast', or 'dismiss all'."
+    )
+
+
 def _language_prefix(value: object) -> str:
     normalized = str(value or "").strip().lower().replace("_", "-")
     return normalized.split("-", 1)[0] if normalized else ""
@@ -3031,12 +3040,7 @@ def _send_whatsapp_voice_samples(
                 request_json=request_json,
                 args=args,
                 recipient_digits=recipient_digits,
-                text=(
-                    "This preview is optional. Choose this voice sample, or let EA choose "
-                    "the narrator and dialogue cast. If the buttons do not work, reply "
-                    f"'use {str(sample.get('label') or 'this voice').strip()}', "
-                    "'use automatic cast', or 'dismiss all'."
-                ),
+                text=_voice_sample_choice_prompt(sample),
                 buttons=[
                     [
                         (use_label, use_callback),

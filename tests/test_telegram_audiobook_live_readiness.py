@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
+import pytest
+
 
 GENERATED_AT = "2026-06-19T22:45:00Z"
 
@@ -32,6 +34,33 @@ def _item_by_key(section: dict[str, object], key: str) -> dict[str, object]:
         if isinstance(row, dict) and row.get("key") == key:
             return row
     raise AssertionError(f"missing readiness item {key}")
+
+
+def test_telegram_audiobook_live_readiness_next_action_names_exact_storage_blockers() -> None:
+    materializer = _load_script("materialize_telegram_audiobook_live_readiness")
+
+    assert materializer._next_action(
+        ["jobs_root_durable", "jobs_root_writable"],
+        [
+            "audiobookshelf_import_root_durable",
+            "audiobookshelf_import_root_writable",
+        ],
+    ) == (
+        "Configure durable, writable audiobook job and Audiobookshelf import "
+        "storage, then rerun readiness."
+    )
+    assert materializer._next_action(
+        ["jobs_root_writable"],
+        [],
+    ) == "Configure durable, writable audiobook job storage and rerun readiness."
+    assert materializer._next_action(
+        [],
+        ["audiobookshelf_import_root_writable"],
+    ) == "Configure durable, writable Audiobookshelf import storage and rerun readiness."
+    assert materializer._next_action(
+        [],
+        ["player_access_signing_secret_present"],
+    ) == "Configure player-scoped audiobook link prerequisites and rerun readiness."
 
 
 def test_telegram_audiobook_live_readiness_blocks_missing_live_sample_prereqs(
@@ -283,6 +312,75 @@ def test_telegram_audiobook_live_readiness_verifier_rejects_overclaims(tmp_path:
     assert "live_readiness_privacy_flag_not_false:env_values_exposed" in verification["issues"]
     assert "live_readiness_required_live_proof_incomplete" in verification["issues"]
     assert "live_readiness_discovery_env_vars_missing:voice_catalog_configured" in verification["issues"]
+
+
+@pytest.mark.parametrize(
+    ("tamper", "expected_issue"),
+    [
+        ("status", "live_readiness_status_mismatch"),
+        ("preflight_status", "live_readiness_preflight_status_mismatch"),
+        ("can_run", "live_readiness_can_run_mismatch"),
+        ("sample_blockers", "live_readiness_sample_blockers_mismatch"),
+        ("delivery_blockers", "live_readiness_delivery_blockers_mismatch"),
+        ("next_action", "live_readiness_next_action_mismatch"),
+        ("voice_ready", "live_readiness_voice_sample_prereqs_mismatch"),
+        ("delivery_ready", "live_readiness_delivery_prereqs_mismatch"),
+        ("voice_section_status", "live_readiness_section_status_mismatch:voice_samples"),
+        ("delivery_section_status", "live_readiness_section_status_mismatch:delivery"),
+    ],
+)
+def test_telegram_audiobook_live_readiness_verifier_rejects_summary_tampering(
+    tmp_path: Path,
+    tamper: str,
+    expected_issue: str,
+) -> None:
+    materializer = _load_script("materialize_telegram_audiobook_live_readiness")
+    verifier = _load_script("verify_telegram_audiobook_live_readiness")
+    receipt_path = tmp_path / f"tampered-{tamper}.generated.json"
+    receipt = materializer.materialize_telegram_audiobook_live_readiness(
+        receipt_path=receipt_path,
+        generated_at=GENERATED_AT,
+        preflight={
+            "contract_name": "ea.telegram_epub_audiobook_runtime_preflight.v1",
+            "status": "fail",
+            "checks": [{"key": "external_tts_enabled", "status": "fail"}],
+            "failed_checks": ["external_tts_enabled"],
+            "warned_checks": [],
+            "provider": {"api_key_slot_count": 0, "voice_catalog_count": 0, "voice_audition_min_candidates": 3},
+            "access": {},
+            "assembly": {},
+            "scheduler": {},
+        },
+    )
+
+    if tamper == "status":
+        receipt["status"] = "ready_for_live_epub_delivery_test"
+    elif tamper == "preflight_status":
+        receipt["preflight_status"] = "pass"
+    elif tamper == "can_run":
+        receipt["can_run_live_epub_delivery_test"] = True
+    elif tamper == "sample_blockers":
+        receipt["sample_blockers"] = []
+    elif tamper == "delivery_blockers":
+        receipt["delivery_blockers"] = []
+    elif tamper == "next_action":
+        receipt["next_action"] = "run_real_telegram_epub_audiobook_delivery_test"
+    elif tamper == "voice_ready":
+        receipt["voice_sample_prereqs_ready"] = True
+    elif tamper == "delivery_ready":
+        receipt["public_share_delivery_prereqs_ready"] = True
+    elif tamper == "voice_section_status":
+        receipt["voice_samples"]["status"] = "ready"
+    elif tamper == "delivery_section_status":
+        receipt["delivery"]["status"] = "ready"
+    else:  # pragma: no cover - the parameter table is closed above.
+        raise AssertionError(f"unknown tamper case: {tamper}")
+    receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    verification = verifier.verify_telegram_audiobook_live_readiness(receipt_path)
+
+    assert verification["status"] == "fail"
+    assert expected_issue in verification["issues"]
 
 
 def test_telegram_audiobook_live_readiness_verifier_checks_deployed_runtime(
