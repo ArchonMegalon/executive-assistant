@@ -148,6 +148,7 @@ def test_audiobook_jobs_root_falls_back_to_default_when_configured_path_is_inacc
     monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(inaccessible))
     monkeypatch.delenv("EA_AUDIOBOOK_JOBS_HOST_ROOT", raising=False)
     monkeypatch.setattr(module, "DEFAULT_JOB_ROOT", durable)
+    monkeypatch.setattr(module, "_dotenv_values", lambda env_files=module.DEFAULT_ENV_FILES: {})
     monkeypatch.setattr(
         module,
         "_storage_path_accessible",
@@ -170,6 +171,7 @@ def test_audiobook_jobs_root_falls_back_to_default_when_configured_path_is_missi
     monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(missing))
     monkeypatch.delenv("EA_AUDIOBOOK_JOBS_HOST_ROOT", raising=False)
     monkeypatch.setattr(module, "DEFAULT_JOB_ROOT", durable)
+    monkeypatch.setattr(module, "_dotenv_values", lambda env_files=module.DEFAULT_ENV_FILES: {})
     monkeypatch.setattr(module, "_storage_path_accessible", lambda path: False if Path(path) == missing else True)
 
     assert module.audiobook_jobs_root() == durable

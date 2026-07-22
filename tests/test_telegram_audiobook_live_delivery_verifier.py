@@ -13,8 +13,11 @@ from ea.scripts import verify_telegram_audiobook_live_delivery_receipt as verifi
 from ea.scripts.materialize_telegram_audiobook_live_delivery_receipt import (
     HUMAN_LISTENED_CANARY_DIGEST_FIELDS,
 )
+from scripts.source_state_head import resolve_source_state_head
+from scripts.source_state_head import resolve_source_worktree_fingerprint
 
 
+ROOT = Path(__file__).resolve().parents[1]
 REFERENCE_TIME = datetime(2026, 7, 19, 12, 0, tzinfo=UTC)
 GENERATED_AT = "2026-07-19T11:59:00Z"
 SOURCE_HEAD = "a" * 40
@@ -37,6 +40,13 @@ def _stable_source_state(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _write(path: Path, **payload: object) -> None:
+    payload.setdefault("source_git_head", resolve_source_state_head(ROOT))
+    payload.setdefault("head_semantics", "source_state")
+    payload.setdefault("source_state_fingerprint", resolve_source_worktree_fingerprint(ROOT))
+    payload.setdefault(
+        "source_state_fingerprint_semantics",
+        "worktree_source_files_sha256_excluding_generated_only_paths",
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
@@ -342,6 +352,25 @@ def test_telegram_audiobook_live_delivery_verifier_accepts_machine_playable_pass
     _write(receipt, **_pass_receipt())
 
     assert _verify(receipt) == []
+
+
+def test_telegram_audiobook_live_delivery_verifier_rejects_machine_only_human_claim_tamper(
+    tmp_path: Path,
+) -> None:
+    receipt = tmp_path / "telegram_audiobook_live_delivery.generated.json"
+    payload = _pass_receipt()
+    payload["human_playback_acceptance_claim_allowed"] = True
+    _write(receipt, **payload)
+
+    issues = _verify(receipt)
+    assert (
+        "human_playback_acceptance_claim_allowed must equal "
+        "canary_completion_claim_allowed"
+    ) in issues
+    assert (
+        "human acceptance claims require "
+        "real_user_playback_acceptance_verified=true"
+    ) in issues
 
 
 def test_telegram_audiobook_live_delivery_verifier_rejects_nonportable_output_and_blocked_human_claims(

@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any
 import urllib.parse
 
 try:
@@ -15,7 +14,7 @@ except Exception:  # pragma: no cover - compat path when the responses surface i
     def _codex_profiles(*_args: object, **_kwargs: object) -> tuple[dict[str, object], ...]:
         return ()
 from app.container import AppContainer
-from app.product.projections.handoffs import handoff_action_options, handoff_action_plan, handoff_from_human_task
+from app.product.projections.handoffs import handoff_action_options, handoff_from_human_task
 from app.product.service import build_product_service
 from app.services.assistant_property_lane import (
     assistant_property_lane_enabled,
@@ -335,15 +334,24 @@ def _proactive_goal_action_surface_visible(
 def _proactive_runtime_has_live_pending_surface(bundle: dict[str, object]) -> bool:
     if not isinstance(bundle, dict) or not bundle:
         return False
+    if _proactive_runtime_has_current_user_approval_surface(bundle):
+        return True
     if any(
         int(bundle.get(key) or 0) > 0
         for key in (
-            "current_packet_live_pending_count",
             "approval_callback_noncurrent_pending_count",
             "approval_callback_stale_pending_count",
             "current_packet_callback_stale_pending_count",
         )
     ):
+        return True
+    return False
+
+
+def _proactive_runtime_has_current_user_approval_surface(bundle: dict[str, object]) -> bool:
+    if not isinstance(bundle, dict) or not bundle:
+        return False
+    if int(bundle.get("current_packet_live_pending_count") or 0) > 0:
         return True
     return current_packet_user_approval_surface(
         stage_packet=dict(bundle.get("stage_packet") or {}),
@@ -351,7 +359,7 @@ def _proactive_runtime_has_live_pending_surface(bundle: dict[str, object]) -> bo
     )
 
 
-def _proactive_receipt_is_approval_capture_only(receipt: dict[str, object]) -> bool:
+def _proactive_receipt_requests_approval_capture(receipt: dict[str, object]) -> bool:
     next_action = str(receipt.get("next_action") or "").strip().lower()
     next_action_href = str(receipt.get("next_action_href") or "").strip().lower()
     next_action_label = str(receipt.get("next_action_label") or "").strip().lower()
@@ -361,7 +369,6 @@ def _proactive_receipt_is_approval_capture_only(receipt: dict[str, object]) -> b
     if next_action in {
         "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
         "record_proactive_ooda_approval_outcome",
-        "maintain_proactive_ooda_gold_acceptance_evidence",
     }:
         return True
     if status == "ready_for_approval_outcome_capture":
@@ -373,6 +380,40 @@ def _proactive_receipt_is_approval_capture_only(receipt: dict[str, object]) -> b
     if next_action_href.endswith("/admin/proactive-ooda/approval"):
         return True
     return "record packet verdict" in next_action_label
+
+
+def _proactive_receipt_is_approval_capture_only(receipt: dict[str, object]) -> bool:
+    if _proactive_receipt_requests_approval_capture(receipt):
+        return True
+    next_action = str(receipt.get("next_action") or "").strip().lower()
+    return next_action == "maintain_proactive_ooda_gold_acceptance_evidence"
+
+
+def _proactive_gold_verdict_available(receipt: dict[str, object]) -> bool:
+    evidence_receipts = dict(receipt.get("evidence_receipts") or {})
+    surface = dict(evidence_receipts.get("approval_capture_surface") or {})
+    return bool(
+        surface.get("ready")
+        and surface.get("current_packet_user_action_required")
+        and surface.get("current_packet_matches_packet_artifacts")
+        and (
+            surface.get("telegram_approval_surface_ready")
+            or surface.get("manual_outcome_capture_ready")
+        )
+    )
+
+
+def _proactive_gold_action_surface_visible(
+    bundle: dict[str, object],
+    *,
+    receipt: dict[str, object],
+) -> bool:
+    if _proactive_gold_verdict_available(receipt):
+        return True
+    return bool(
+        _proactive_runtime_has_current_user_approval_surface(bundle)
+        and _proactive_receipt_requests_approval_capture(receipt)
+    )
 
 
 def _assistant_property_scoped_proactive_runtime(
@@ -1449,35 +1490,26 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     proactive_gold_next_action_href = str(proactive_ooda_gold_receipt.get("next_action_href") or "").strip()
     proactive_gold_next_action_label = str(proactive_ooda_gold_receipt.get("next_action_label") or "").strip()
     proactive_gold_next_action_method = str(proactive_ooda_gold_receipt.get("next_action_method") or "").strip()
-    proactive_gold_evidence_receipts = dict(proactive_ooda_gold_receipt.get("evidence_receipts") or {})
-    proactive_gold_approval_capture_surface = dict(
-        proactive_gold_evidence_receipts.get("approval_capture_surface") or {}
-    )
-    proactive_gold_verdict_available = bool(
-        proactive_gold_approval_capture_surface.get("ready")
-        and proactive_gold_approval_capture_surface.get("current_packet_user_action_required")
-        and proactive_gold_approval_capture_surface.get("current_packet_matches_packet_artifacts")
-        and (
-            proactive_gold_approval_capture_surface.get("telegram_approval_surface_ready")
-            or proactive_gold_approval_capture_surface.get("manual_outcome_capture_ready")
-        )
-    )
+    proactive_gold_verdict_available = _proactive_gold_verdict_available(proactive_ooda_gold_receipt)
     proactive_gold_action_state = _humanize(
         str(proactive_ooda_gold_receipt.get("status") or "watch")
     ).title()
-    proactive_runtime_bundle = _load_current_proactive_ooda_runtime_bundle()
+    # The live proactive probe shells into the runtime compose stack and is
+    # relevant only to the goal-evidence surface. Running it while building
+    # every admin section made otherwise local office/operator pages inherit a
+    # 30-second external probe budget.
+    proactive_runtime_bundle = _load_current_proactive_ooda_runtime_bundle() if section == "goals" else {}
     proactive_goal_action_visible = _proactive_goal_action_surface_visible(
         proactive_runtime_bundle,
         proactive_operator_receipt=proactive_ooda_operator_receipt,
         proactive_gold_receipt=proactive_ooda_gold_receipt,
     )
-    proactive_gold_action_visible = bool(
-        proactive_gold_verdict_available
-        or (
-            str(proactive_ooda_gold_receipt.get("status") or "").strip()
-            and str(proactive_ooda_gold_receipt.get("status") or "").strip() != "missing"
-            and str(proactive_ooda_gold_receipt.get("next_action") or "").strip()
-        )
+    proactive_gold_action_visible = _proactive_gold_action_surface_visible(
+        proactive_runtime_bundle,
+        receipt=proactive_ooda_gold_receipt,
+    )
+    proactive_gold_capture_guidance = _proactive_receipt_requests_approval_capture(
+        proactive_ooda_gold_receipt
     )
     proactive_runtime_property_scoped = _assistant_property_scoped_proactive_runtime(
         proactive_runtime_bundle,
@@ -1571,21 +1603,57 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             proactive_rows.append(
                 _row(
                     "Proactive OODA approval outcome",
-                    " · ".join(part for part in (proactive_gold_summary, proactive_gold_next_action) if part)
+                    " · ".join(
+                        part
+                        for part in (
+                            proactive_gold_summary,
+                            proactive_gold_next_action
+                            if proactive_gold_capture_guidance
+                            else "record_proactive_ooda_approval_outcome",
+                        )
+                        if part
+                    )
                     or "No proactive OODA gold-acceptance guidance is mirrored.",
                     proactive_gold_action_state,
-                    action_href=proactive_gold_next_action_href or ("/admin/proactive-ooda/approval" if proactive_gold_verdict_available else ""),
-                    action_label=proactive_gold_next_action_label or ("Record packet verdict" if proactive_gold_verdict_available else ""),
-                    action_method=proactive_gold_next_action_method or ("get" if proactive_gold_verdict_available else ""),
+                    action_href=(
+                        proactive_gold_next_action_href
+                        if proactive_gold_capture_guidance and proactive_gold_next_action_href
+                        else "/admin/proactive-ooda/approval"
+                    ),
+                    action_label=(
+                        proactive_gold_next_action_label
+                        if proactive_gold_capture_guidance and proactive_gold_next_action_label
+                        else "Record packet verdict"
+                    ),
+                    action_method=(
+                        proactive_gold_next_action_method
+                        if proactive_gold_capture_guidance and proactive_gold_next_action_method
+                        else "get"
+                    ),
                     secondary_action_href=(
                         "/admin/proactive-ooda/approval"
                         if proactive_gold_verdict_available
+                        and proactive_gold_capture_guidance
                         and proactive_gold_next_action_href
                         and proactive_gold_next_action_href != "/admin/proactive-ooda/approval"
                         else ""
                     ),
-                    secondary_action_label="Record packet verdict" if proactive_gold_verdict_available and proactive_gold_next_action_href and proactive_gold_next_action_href != "/admin/proactive-ooda/approval" else "",
-                    secondary_action_method="get" if proactive_gold_verdict_available and proactive_gold_next_action_href and proactive_gold_next_action_href != "/admin/proactive-ooda/approval" else "",
+                    secondary_action_label=(
+                        "Record packet verdict"
+                        if proactive_gold_verdict_available
+                        and proactive_gold_capture_guidance
+                        and proactive_gold_next_action_href
+                        and proactive_gold_next_action_href != "/admin/proactive-ooda/approval"
+                        else ""
+                    ),
+                    secondary_action_method=(
+                        "get"
+                        if proactive_gold_verdict_available
+                        and proactive_gold_capture_guidance
+                        and proactive_gold_next_action_href
+                        and proactive_gold_next_action_href != "/admin/proactive-ooda/approval"
+                        else ""
+                    ),
                 )
             )
         if proactive_rows:

@@ -167,6 +167,7 @@ def memorial_flagship_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
     monkeypatch.setenv("EA_API_TOKEN", "")
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_ARCHIVE_PUBLISHED_SLUGS", "manfred")
     monkeypatch.delenv("EA_LEDGER_BACKEND", raising=False)
     monkeypatch.delenv("EA_DEFAULT_PRINCIPAL_ID", raising=False)
     monkeypatch.delenv("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", raising=False)
@@ -224,11 +225,13 @@ def memorial_flagship_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
                 "archive_sections": [{"title": "Oeffentliches Archiv", "audience": "public", "items": ["doc-public"]}],
                 "fliplink_publications": [
                     {
+                        "approved": True,
                         "id": "doc-public",
                         "title": "Public Doc",
                         "audience": "public",
                         "viewer_type": "smart_document",
                         "url": "https://archive.example/public",
+                        "sensitivity": "PUBLIC",
                         "review_status": "published",
                     },
                 ],
@@ -354,15 +357,16 @@ def test_memorial_flagship_http_surface_is_source_first_and_private_by_default(
     with urllib.request.urlopen(f"{base_url}/memorials/manfred.json", timeout=5.0) as response:
         public_payload = json.loads(response.read().decode("utf-8", errors="replace"))
 
-    assert "Gespräch beginnen" in body
-    assert "Optional: Am Handy/Desktop installieren." in body
-    assert "Erinnerungen und belegte Quellen" in body
-    assert "Behutsam bewahrte Spuren" in body
-    assert "Öffentliche Quellen" in body
-    assert "Fragen als ruhiger Einstieg" in body
-    assert body.count('class="story-card memory-card"') == 6
-    assert body.count('https://sources.example/manfred/') == 8
-    assert body.count('<li>') >= 12
+    assert "Gespräch starten" in body
+    assert 'data-public-memorial-surface="conversation-only"' in body
+    assert "freigegebener Erinnerungen und Quellen" in body
+    assert 'id="memorial-story"' not in body
+    assert "Optional: Am Handy/Desktop installieren." not in body
+    assert "Behutsam bewahrte Spuren" not in body
+    assert "Öffentliche Quellen" not in body
+    assert "Fragen als ruhiger Einstieg" not in body
+    assert 'class="story-card memory-card"' not in body
+    assert 'https://sources.example/manfred/' not in body
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in body
     assert "Stimmvergleich und Feedback" not in body
     assert public_payload["audio_clips"] == []

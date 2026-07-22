@@ -1,5 +1,5 @@
 contract_name: ea.next90_m143_route_specific_compare_packs
-generated_at: '2026-05-25T19:12:24Z'
+generated_at: '2026-07-15T00:12:25Z'
 package_id: next90-m143-ea-compile-route-specific-compare-packs-and-artifact-proofs-for-print-export
 title: Compile route-specific compare packs and artifact proofs for print, export,
   exchange, SR6 supplement, and house-rule workflows.
@@ -23,16 +23,16 @@ summary:
   desktop_client_reason_count: 0
 source_inputs:
   ea_compare_packs:
-    path: /docker/EA/docs/chummer5a_parity_lab/compare_packs.yaml
-    generated_at: '2026-04-22T14:29:14Z'
+    path: docs/chummer5a_parity_lab/compare_packs.yaml
+    generated_at: '2026-07-14T03:44:35Z'
   fleet_veteran_workflow_pack:
-    path: /docker/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml
-    generated_at: '2026-05-06T20:03:20Z'
+    path: docs/chummer5a_parity_lab/source_projections/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml
+    generated_at: '2026-07-15T00:11:10Z'
   next90_guide:
-    path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_GUIDE.md
-    generated_at: '2026-05-24T20:42:40Z'
+    path: .codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_GUIDE.md
+    generated_at: '2026-07-14T03:44:35Z'
   design_queue:
-    path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+    path: .codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
     match_count: 1
     unique_match: true
     status: not_started
@@ -40,7 +40,7 @@ source_inputs:
     owner: executive-assistant
     row_fingerprint: 98c551303dbea90a1f2ba15f13dc50962dc1eaddd50e6a5038a1cb3956723615
   fleet_queue:
-    path: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+    path: .codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
     match_count: 1
     unique_match: true
     status: not_started
@@ -48,7 +48,7 @@ source_inputs:
     owner: executive-assistant
     row_fingerprint: 98c551303dbea90a1f2ba15f13dc50962dc1eaddd50e6a5038a1cb3956723615
   local_mirror_queue:
-    path: /docker/EA/.codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+    path: .codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
     match_count: 1
     unique_match: true
     status: not_started
@@ -56,7 +56,7 @@ source_inputs:
     owner: executive-assistant
     row_fingerprint: 98c551303dbea90a1f2ba15f13dc50962dc1eaddd50e6a5038a1cb3956723615
   registry:
-    path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+    path: .codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
     match_count: 1
     unique_match: true
     status: ''
@@ -65,7 +65,7 @@ source_inputs:
       exchange, SR6 supplement, and house-rule workflows.
     row_fingerprint: 82b1dfc4f1f6d898febab1a0067b243707130e6f3d3e81ba1e7df38dce030b2b
   local_mirror_registry:
-    path: /docker/EA/.codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+    path: .codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
     match_count: 1
     unique_match: true
     status: ''
@@ -74,41 +74,41 @@ source_inputs:
       exchange, SR6 supplement, and house-rule workflows.
     row_fingerprint: 82b1dfc4f1f6d898febab1a0067b243707130e6f3d3e81ba1e7df38dce030b2b
   screenshot_gate:
-    path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json
-    generated_at: '2026-05-21T14:22:53.020400Z'
+    path: docs/chummer5a_parity_lab/source_projections/chummer_cross_repo/chummer-presentation/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json
+    generated_at: '2026-07-15T00:00:00Z'
   section_host_ruleset_parity:
-    path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json
-    generated_at: '2026-05-22T14:28:28.801857Z'
+    path: docs/chummer5a_parity_lab/source_projections/chummer_cross_repo/chummer-presentation/SECTION_HOST_RULESET_PARITY.generated.json
+    generated_at: '2026-07-15T00:00:00Z'
   generated_dialog_parity:
-    path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/GENERATED_DIALOG_ELEMENT_PARITY.generated.json
-    generated_at: '2026-05-22T14:27:56.190881Z'
+    path: docs/chummer5a_parity_lab/source_projections/chummer_cross_repo/chummer-presentation/GENERATED_DIALOG_ELEMENT_PARITY.generated.json
+    generated_at: '2026-07-15T00:00:00Z'
   m114_rule_studio:
-    path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M114_UI_RULE_STUDIO.generated.json
-    generated_at: '2026-05-05T10:18:21Z'
+    path: docs/chummer5a_parity_lab/source_projections/chummer_cross_repo/chummer-presentation/NEXT90_M114_UI_RULE_STUDIO.generated.json
+    generated_at: '2026-07-15T00:00:00Z'
   ui_direct_output_proof:
-    path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M143_UI_DIRECT_OUTPUT_PROOF.generated.json
-    generated_at: '2026-05-06T03:30:16.727332Z'
+    path: docs/chummer5a_parity_lab/source_projections/chummer_cross_repo/chummer-presentation/NEXT90_M143_UI_DIRECT_OUTPUT_PROOF.generated.json
+    generated_at: '2026-07-15T00:00:00Z'
   core_receipts_doc:
-    path: /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.md
-    generated_at: '2026-05-22T15:14:11Z'
+    path: docs/chummer5a_parity_lab/source_projections/chummer_cross_repo/chummer-core-engine/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.md
+    generated_at: '2026-07-15T00:11:10Z'
   fleet_m143_gate:
-    path: /docker/fleet/.codex-studio/published/NEXT90_M143_FLEET_ROUTE_LOCAL_OUTPUT_CLOSEOUT_GATES.generated.json
-    generated_at: '2026-05-06T04:08:55Z'
+    path: docs/chummer5a_parity_lab/source_projections/fleet/NEXT90_M143_FLEET_ROUTE_LOCAL_OUTPUT_CLOSEOUT_GATES.generated.json
+    generated_at: '2026-07-15T00:00:00Z'
   flagship_readiness:
-    path: /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
+    path: docs/chummer5a_parity_lab/source_projections/fleet/FLAGSHIP_PRODUCT_READINESS.generated.json
     coverage_key: desktop_client
     status: ready
     summary: EA-scoped route-specific compare proof for milestone 143 is ready.
     reason_count: 0
     source_status: missing
     source_summary: Desktop flagship proof is still incomplete.
-    source_reason_count: 2
+    source_reason_count: 1
     row_fingerprint_basis:
     - status
     - summary
     - reasons
     - evidence
-    row_fingerprint: ada95b39850b4692cab6c8dae319ca7866f14a5b0b1df3e70b8d3736621db96c
+    row_fingerprint: 1028e984d4fd1441638e4136d2bf04493bc4ec9f05d77ee342bad979ff8581bb
 canonical_monitors:
   guide_markers:
     wave: true
@@ -171,14 +171,14 @@ family_route_compare_packs:
   - menu:open_for_printing
   - menu:open_for_export
   - menu:file_print_multiple
-  workflow_readiness_target: task_proven
+  workflow_readiness_target: receipt-backed route-local output proof
   expected_readiness_floor: implemented
   evidence_paths:
-  - /docker/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml
-  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json
-  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/GENERATED_DIALOG_ELEMENT_PARITY.generated.json
-  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json
-  - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.md
+  - docs/chummer5a_parity_lab/source_projections/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml
+  - docs/chummer5a_parity_lab/source_projections/chummer_cross_repo/chummer-presentation/SECTION_HOST_RULESET_PARITY.generated.json
+  - docs/chummer5a_parity_lab/source_projections/chummer_cross_repo/chummer-presentation/GENERATED_DIALOG_ELEMENT_PARITY.generated.json
+  - docs/chummer5a_parity_lab/source_projections/chummer_cross_repo/chummer-presentation/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json
+  - docs/chummer5a_parity_lab/source_projections/chummer_cross_repo/chummer-core-engine/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.md
   desktop_client_dependency:
     coverage_key: desktop_client
     coverage_status: ready
@@ -224,13 +224,13 @@ family_route_compare_packs:
   required_compare_artifacts:
   - workflow:sr6_supplements
   - workflow:house_rules
-  workflow_readiness_target: implemented
+  workflow_readiness_target: receipt-backed successor workflow proof
   expected_readiness_floor: documented
   evidence_paths:
-  - /docker/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml
-  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M143_UI_DIRECT_OUTPUT_PROOF.generated.json
-  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M114_UI_RULE_STUDIO.generated.json
-  - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.md
+  - docs/chummer5a_parity_lab/source_projections/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml
+  - docs/chummer5a_parity_lab/source_projections/chummer_cross_repo/chummer-presentation/NEXT90_M143_UI_DIRECT_OUTPUT_PROOF.generated.json
+  - docs/chummer5a_parity_lab/source_projections/chummer_cross_repo/chummer-presentation/NEXT90_M114_UI_RULE_STUDIO.generated.json
+  - docs/chummer5a_parity_lab/source_projections/chummer_cross_repo/chummer-core-engine/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.md
   desktop_client_dependency:
     coverage_key: desktop_client
     coverage_status: ready

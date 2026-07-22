@@ -4,7 +4,12 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 try:
     from scripts import ea_live_ops
@@ -15,7 +20,6 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
     from source_state_head import resolve_source_state_head
     from source_state_head import resolve_source_worktree_fingerprint
 
-ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RECEIPT = ROOT / ".codex-studio/published/mymedia_alexa_readiness.generated.json"
 CONTRACT_NAME = "ea.mymedia_alexa_readiness.v1"
 KNOWN_STATUSES = {

@@ -94,6 +94,7 @@ class ToolExecutionService:
             ("gemini_vortex", "structured_generate"): self._register_builtin_gemini_vortex_structured_generate,
             ("magixai", "structured_generate"): self._register_builtin_magixai_structured_generate,
             ("onemin", "code_generate"): self._register_builtin_onemin_code_generate,
+            ("onemin", "structured_generate"): self._register_builtin_onemin_code_generate,
             ("onemin", "reasoned_patch_review"): self._register_builtin_onemin_reasoned_patch_review,
             ("onemin", "image_generate"): self._register_builtin_onemin_image_generate,
             ("onemin", "media_transform"): self._register_builtin_onemin_media_transform,
@@ -549,6 +550,9 @@ class ToolExecutionService:
             for value in (payload_json.get("allowed_tools") or ())
             if str(value or "").strip()
         )
+        # Authorizing the logical router delegates physical selection to its
+        # governed profile; physical-only allow-lists still constrain routing.
+        route_allowed_tools = () if definition.tool_name in allowed_tools else allowed_tools
         profile_name = str(payload_json.get("brain_profile") or "").strip()
         if not profile_name and capability_key == "reasoned_patch_review":
             profile_name = str(payload_json.get("posthoc_review_profile") or "").strip()
@@ -565,7 +569,7 @@ class ToolExecutionService:
             profile_name=profile_name,
             capability_key=capability_key,
             principal_id=principal_id,
-            allowed_tools=allowed_tools,
+            allowed_tools=route_allowed_tools,
             require_executable=True,
             provider_hints=provider_hints,
         )

@@ -89,7 +89,15 @@ def _speech_synthesize_tail_silence_ms(*, direct_contact_opening: bool) -> int:
 async def public_memorial_speech_transcribe(slug: str, request: Request) -> JSONResponse:
     runtime = runtime_from_shared(shared)
     try:
-        shared._load_memorial(slug)
+        memorial = shared._load_memorial(slug)
+        if shared._memorial_voice_release_enforced():
+            # This legacy endpoint accepts production conversation audio. Keep
+            # local rehearsal compatibility, but fail closed in production
+            # behind the same consent and release receipt as a voice turn.
+            shared._require_voice_consent(
+                shared._payload_with_slug(slug, memorial),
+                "conversation_turn",
+            )
         shared._enforce_public_memorial_rate_limit("speech_transcribe", request=request)
         content_length = shared._content_length_or_zero(request)
         if content_length > shared._MAX_SPEECH_UPLOAD_BYTES:

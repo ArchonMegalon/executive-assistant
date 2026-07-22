@@ -17,7 +17,11 @@ PUBLIC_TOUR_FILE_MODE = 0o644
 
 
 def _public_tour_root(root: Path | None = None) -> Path:
-    candidate = Path(os.path.abspath(Path(root if root is not None else public_tour_dir()).expanduser()))
+    candidate = Path(
+        os.path.abspath(
+            Path(root if root is not None else public_tour_dir()).expanduser()
+        )
+    )
     if os.path.lexists(candidate):
         root_stat = os.lstat(candidate)
         if stat.S_ISLNK(root_stat.st_mode) or not stat.S_ISDIR(root_stat.st_mode):
@@ -28,7 +32,9 @@ def _public_tour_root(root: Path | None = None) -> Path:
     return candidate
 
 
-def _path_beneath_public_tour_root(path: Path, *, root: Path | None = None) -> tuple[Path, Path]:
+def _path_beneath_public_tour_root(
+    path: Path, *, root: Path | None = None
+) -> tuple[Path, Path]:
     root_path = _public_tour_root(root)
     candidate = Path(path).expanduser()
     if not candidate.is_absolute():
@@ -49,7 +55,9 @@ def _ensure_directory_chain(path: Path, *, root: Path | None = None) -> Path:
         cursor = cursor / part
         if os.path.lexists(cursor):
             cursor_stat = os.lstat(cursor)
-            if stat.S_ISLNK(cursor_stat.st_mode) or not stat.S_ISDIR(cursor_stat.st_mode):
+            if stat.S_ISLNK(cursor_stat.st_mode) or not stat.S_ISDIR(
+                cursor_stat.st_mode
+            ):
                 raise RuntimeError("public_tour_directory_invalid")
         else:
             cursor.mkdir(mode=PUBLIC_TOUR_DIRECTORY_MODE)
@@ -93,7 +101,9 @@ def _atomic_write_public_tour_file(
             os.fsync(handle.fileno())
         os.replace(temporary_path, target)
         os.chmod(target, PUBLIC_TOUR_FILE_MODE, follow_symlinks=False)
-        directory_descriptor = os.open(target.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        directory_descriptor = os.open(
+            target.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        )
         try:
             os.fsync(directory_descriptor)
         finally:
@@ -114,17 +124,23 @@ def write_public_tour_file(
     return _atomic_write_public_tour_file(path, writer, root=root)
 
 
-def write_public_tour_bytes(path: Path, data: bytes, *, root: Path | None = None) -> Path:
+def write_public_tour_bytes(
+    path: Path, data: bytes, *, root: Path | None = None
+) -> Path:
     payload = bytes(data)
     return write_public_tour_file(path, lambda handle: handle.write(payload), root=root)
 
 
-def write_public_tour_json(path: Path, payload: object, *, root: Path | None = None) -> Path:
+def write_public_tour_json(
+    path: Path, payload: object, *, root: Path | None = None
+) -> Path:
     encoded = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     return write_public_tour_bytes(path, encoded, root=root)
 
 
-def copy_public_tour_file(source: Path, target: Path, *, root: Path | None = None) -> Path:
+def copy_public_tour_file(
+    source: Path, target: Path, *, root: Path | None = None
+) -> Path:
     source_path = Path(source)
     source_stat = os.lstat(source_path)
     if stat.S_ISLNK(source_stat.st_mode) or not stat.S_ISREG(source_stat.st_mode):
@@ -137,7 +153,9 @@ def copy_public_tour_file(source: Path, target: Path, *, root: Path | None = Non
     return _atomic_write_public_tour_file(target, _copy, root=root)
 
 
-def normalize_public_tour_bundle_modes(bundle_dir: Path, *, root: Path | None = None) -> Path:
+def normalize_public_tour_bundle_modes(
+    bundle_dir: Path, *, root: Path | None = None
+) -> Path:
     directory = _ensure_directory_chain(bundle_dir, root=root)
 
     def _normalize(current: Path) -> None:

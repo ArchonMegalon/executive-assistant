@@ -4086,101 +4086,7 @@ def _completed_text_response(
                 event="response.output_text.delta",
                 sequence=_next_sequence(),
                 data={
-                    "type": "response.output_item.added",
-                    "output_index": 0,
-                    "item": in_progress_item,
-                },
-            )
-            yield _sse_event(
-                event="response.function_call_arguments.delta",
-                sequence=_next_sequence(),
-                data={
-                    "type": "response.function_call_arguments.delta",
-                    "output_index": 0,
-                    "item_id": function_item_id,
-                    "delta": arguments_json,
-                },
-            )
-            yield _sse_event(
-                event="response.function_call_arguments.done",
-                sequence=_next_sequence(),
-                data={
-                    "type": "response.function_call_arguments.done",
-                    "output_index": 0,
-                    "item_id": function_item_id,
-                    "arguments": arguments_json,
-                },
-            )
-            final_item = _function_call_item(
-                item_id=function_item_id,
-                call_id=call_id,
-                name=tool_decision.tool_name,
-                arguments=arguments_json,
-                status="completed",
-            )
-            yield _sse_event(
-                event="response.output_item.done",
-                sequence=_next_sequence(),
-                data={
-                    "type": "response.output_item.done",
-                    "output_index": 0,
-                    "item": final_item,
-                },
-            )
-            history_items_to_store.append(final_item)
-            completed_obj = _response_object(
-                response_id=response_id,
-                model=model,
-                created_at=created_at,
-                status="completed",
-                output=[final_item],
-                output_text="",
-                tokens_in=result.tokens_in,
-                tokens_out=result.tokens_out,
-                max_output_tokens=max_output_tokens,
-                metadata=stream_metadata,
-                instructions=instructions,
-                input_items=parsed_input.input_items,
-                reasoning=request.reasoning,
-            )
-        else:
-            streamed_text = "".join(streamed_text_parts).replace(_SSE_KEEPALIVE_TEXT, "")
-            text = streamed_text or (tool_decision.text if tool_decision else result.text)
-            if not message_stream_open:
-                for event in _open_message_stream():
-                    yield event
-                message_stream_open = True
-            if prompt_route_trace_pending and text:
-                prompt_route_trace_pending = False
-                yield _sse_event(
-                    event="response.output_text.delta",
-                    sequence=_next_sequence(),
-                    data={
-                        "type": "response.output_text.delta",
-                        "output_index": 0,
-                        "item_id": item_id,
-                        "content_index": 0,
-                        "delta": prompt_route.trace_line,
-                    },
-                )
-            if not streamed_text and text:
-                yield _sse_event(
-                    event="response.output_text.delta",
-                    sequence=_next_sequence(),
-                    data={
-                        "type": "response.output_text.delta",
-                        "output_index": 0,
-                        "item_id": item_id,
-                        "content_index": 0,
-                        "delta": text,
-                    },
-                )
-
-            yield _sse_event(
-                event="response.output_text.done",
-                sequence=_next_sequence(),
-                data={
-                    "type": "response.output_text.done",
+                    "type": "response.output_text.delta",
                     "output_index": 0,
                     "item_id": item_id,
                     "content_index": 0,
@@ -7180,6 +7086,9 @@ def _run_background_codex_response(
             sequence=_next_sequence(),
             data={"type": "response.in_progress", "response": in_progress_obj},
         )
+        heartbeat_interval_seconds = max(0.001, float(STREAM_HEARTBEAT_SECONDS))
+        yield _sse_heartbeat(sequence=_next_sequence(), response=in_progress_obj)
+        next_heartbeat_monotonic = time.monotonic() + heartbeat_interval_seconds
 
         while True:
             stored = _load_response_for_runtime(
@@ -7190,8 +7099,12 @@ def _run_background_codex_response(
             current_response = dict(stored.response)
             status = str(current_response.get("status") or "").strip().lower()
             if status == "in_progress":
+                remaining = next_heartbeat_monotonic - time.monotonic()
+                if remaining > 0:
+                    time.sleep(remaining)
+                    continue
                 yield _sse_heartbeat(sequence=_next_sequence(), response=in_progress_obj)
-                time.sleep(STREAM_HEARTBEAT_SECONDS)
+                next_heartbeat_monotonic = time.monotonic() + heartbeat_interval_seconds
                 continue
 
             if status == "failed":

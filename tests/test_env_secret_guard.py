@@ -50,6 +50,7 @@ def test_active_secret_scan_excludes_generated_state_and_tests() -> None:
     assert module.is_active_secret_scan_path(".env.example") is True
     assert module.is_active_secret_scan_path("tests/test_example.py") is False
     assert module.is_active_secret_scan_path(".codex-studio/published/example.json") is False
+    assert module.is_active_secret_scan_path(".vexp/manifest.json") is False
     assert module.is_active_secret_scan_path("state/example.json") is False
 
 

@@ -9,6 +9,7 @@ from starlette.responses import Response
 
 from app.api.dependencies import require_request_auth
 from app.api.errors import install_error_handlers
+from app.api.public_http import api_docs_enabled, install_public_http_hardening
 from app.api.threadpool_compat import inline_sync_handlers_enabled, install_inline_threadpool_compat
 from app.container import build_container
 from app.settings import get_settings, validate_startup_settings
@@ -64,6 +65,7 @@ def _include_public_routes(
     landing_property_router: APIRouter,
     landing_archive_router: APIRouter,
     fliplink_public_router: APIRouter,
+    hedy_meeting_review_router: APIRouter,
     health_router: APIRouter,
     register_router: APIRouter,
 ) -> None:
@@ -79,6 +81,7 @@ def _include_public_routes(
     app.include_router(landing_console_router)
     app.include_router(landing_property_router)
     app.include_router(fliplink_public_router)
+    app.include_router(hedy_meeting_review_router)
     if settings.public_results_enabled:
         from app.api.routes.public_results import router as public_results_router
 
@@ -189,6 +192,7 @@ def create_app() -> FastAPI:
     from app.api.routes.fliplink_integration import public_router as fliplink_public_router
     from app.api.routes.google_oauth import router as google_oauth_router
     from app.api.routes.governed_spatial_render import router as governed_spatial_render_router
+    from app.api.routes.hedy_meeting_review_intake import router as hedy_meeting_review_router
     from app.api.routes.health import router as health_router
     from app.api.routes.images import router as images_router
     from app.api.routes.internal_sendr_webhook import router as internal_sendr_webhook_router
@@ -220,10 +224,18 @@ def create_app() -> FastAPI:
     from app.api.routes.task_contracts import router as task_contracts_router
     from app.api.routes.tools import router as tools_router
 
-    app = FastAPI(title=s.app_name, version=s.app_version, docs_url="/api/docs", redoc_url="/api/redoc")
+    expose_api_docs = api_docs_enabled(runtime_mode=s.runtime_mode)
+    app = FastAPI(
+        title=s.app_name,
+        version=s.app_version,
+        docs_url="/api/docs" if expose_api_docs else None,
+        redoc_url="/api/redoc" if expose_api_docs else None,
+        openapi_url="/openapi.json" if expose_api_docs else None,
+    )
     install_source_revision_header(app)
     install_error_handlers(app)
     install_property_surface_boundary(app)
+    install_public_http_hardening(app, settings=s)
     app.state.container = build_container(settings=s)
     app.router.on_startup.append(_prewarm_provider_health_cache)
     _include_public_routes(
@@ -242,6 +254,7 @@ def create_app() -> FastAPI:
         landing_property_router=landing_property_router,
         landing_archive_router=landing_archive_router,
         fliplink_public_router=fliplink_public_router,
+        hedy_meeting_review_router=hedy_meeting_review_router,
         health_router=health_router,
         register_router=register_router,
     )

@@ -1,0 +1,203 @@
+name: ${EA_CORE_COMPOSE_PROJECT:?unique EA core candidate project is required}
+
+x-ea-core-environment: &ea-core-environment
+  EA_RUNTIME_MODE: prod
+  EA_STORAGE_BACKEND: postgres
+  DATABASE_URL: postgresql://postgres:${EA_CORE_POSTGRES_PASSWORD:?candidate database password is required}@postgres:5432/ea
+  EA_API_TOKEN: ${EA_CORE_API_TOKEN:?candidate API token is required}
+  EA_SIGNING_SECRET: ${EA_CORE_SIGNING_SECRET:?candidate signing secret is required}
+  EA_DEFAULT_PRINCIPAL_ID: candidate-principal
+  EA_CODEXEA_AUTHENTICATED_PRINCIPAL_ID: candidate-principal
+  EA_PUBLIC_APP_BASE_URL: https://myexternalbrain.com
+  EA_ALLOWED_PUBLIC_HOSTS: myexternalbrain.com
+  EA_TRUST_PROXY_HEADERS: "1"
+  EA_TRUSTED_PROXY_CIDRS: "127.0.0.0/8,::1/128"
+  EA_ENABLE_API_DOCS: "0"
+  EA_WORKSPACE_ACCESS_TOKEN_ISSUER: https://myexternalbrain.com
+  EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE: ea-core-candidate
+  EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION: candidate-v1
+  EA_ALLOW_LOOPBACK_NO_AUTH: "0"
+  EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER: "0"
+  EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER: "0"
+  EA_TRUST_API_TOKEN_PRINCIPAL_HEADER: "0"
+  EA_ENABLE_PUBLIC_SIDE_SURFACES: "0"
+  EA_ENABLE_PUBLIC_RESULTS: "0"
+  EA_ENABLE_PUBLIC_TOURS: "0"
+  EA_ENABLE_PUBLIC_MEMORIALS: "0"
+  EA_ENABLE_LEGACY_RUNTIME_SURFACES: "0"
+  EA_SCHEDULER_SIDE_EFFECTS_ENABLED: "0"
+  EA_PROACTIVE_OODA_ENABLED: "0"
+  EA_ARTIFACTS_DIR: /data/artifacts
+  EA_RESPONSES_PROVIDER_LEDGER_DIR: /data/provider-ledger
+  TZ: Europe/Vienna
+
+x-ea-core-service: &ea-core-service
+  image: ${EA_CORE_IMAGE:?immutable EA core candidate image is required}
+  restart: unless-stopped
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  pids_limit: 512
+  tmpfs:
+    - /tmp:uid=10001,gid=10001,mode=1770
+    - /run:uid=10001,gid=10001,mode=0750
+    - /data/artifacts:uid=10001,gid=10001,mode=0770
+    - /data/provider-ledger:uid=10001,gid=10001,mode=0770
+  healthcheck:
+    test: ["CMD-SHELL", "test -r /proc/1/cmdline && cmdline=$$(tr '\\000' ' ' </proc/1/cmdline) && case \"$$cmdline\" in *'python -m app.runner'*) exit 0 ;; *) exit 1 ;; esac"]
+    interval: 30s
+    timeout: 10s
+    retries: 5
+  networks:
+    - backend
+
+services:
+  postgres:
+    image: postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: ea
+      POSTGRES_PASSWORD: ${EA_CORE_POSTGRES_PASSWORD:?candidate database password is required}
+    user: "70:70"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    tmpfs:
+      - /tmp:uid=70,gid=70,mode=1770
+      - /var/run/postgresql:uid=70,gid=70,mode=0770
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ea"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - backend
+
+  redis:
+    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    user: "999:1000"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    tmpfs:
+      - /tmp:uid=999,gid=1000,mode=1770
+      - /run:uid=999,gid=1000,mode=0750
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - backend
+
+  api:
+    <<: *ea-core-service
+    environment:
+      <<: *ea-core-environment
+      EA_ROLE: api
+      EA_HOST: 0.0.0.0
+      EA_PORT: "8090"
+    command: ["python", "-m", "app.runner"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:8090/healthz >/dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  responses-proxy:
+    <<: *ea-core-service
+    environment:
+      <<: *ea-core-environment
+      EA_ROLE: api
+      EA_RESPONSES_PROXY_HOST: 0.0.0.0
+      EA_RESPONSES_PROXY_PORT: "8091"
+      PYTHONPATH: /app
+    command: ["/bin/sh", "/app/scripts/ea_responses_proxy_start_guard.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:8091/health/ready >/dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 20s
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    <<: *ea-core-service
+    environment:
+      <<: *ea-core-environment
+      EA_ROLE: worker
+    command: ["python", "-m", "app.runner"]
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  scheduler:
+    <<: *ea-core-service
+    environment:
+      <<: *ea-core-environment
+      EA_ROLE: scheduler
+    command: ["python", "-m", "app.runner"]
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  proactive:
+    <<: *ea-core-service
+    environment:
+      <<: *ea-core-environment
+      EA_ROLE: proactive
+      EA_PROACTIVE_OODA_ENABLED: "0"
+    command:
+      - /bin/sh
+      - -ec
+      - while :; do sleep 300; done
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1 && test -r /app/scripts/run_proactive_ooda.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+networks:
+  backend:
+    internal: true
+
+volumes:
+  postgres_data:

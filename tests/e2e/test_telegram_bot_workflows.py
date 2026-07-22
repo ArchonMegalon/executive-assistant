@@ -686,7 +686,11 @@ def test_telegram_epub_webhook_sends_three_voice_samples_with_inline_controls(
     monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
     monkeypatch.setattr(channels_route, "resolve_telegram_message_payload", _fake_resolve_telegram_message_payload)
     monkeypatch.setattr(pipeline, "download_telegram_epub", _fake_download_telegram_epub)
-    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (b"fake-wav", "audio/wav"))
+    monkeypatch.setattr(
+        pipeline,
+        "unmixr_synthesize_request",
+        lambda **kwargs: (f"fake-wav:{kwargs['voice_id']}".encode(), "audio/wav"),
+    )
     monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
 
     client = _client(principal_id="")
@@ -837,7 +841,11 @@ def test_telegram_epub_webhook_dismiss_replaces_voice_sample_immediately(
     monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
     monkeypatch.setattr(channels_route, "resolve_telegram_message_payload", _fake_resolve_telegram_message_payload)
     monkeypatch.setattr(pipeline, "download_telegram_epub", _fake_download_telegram_epub)
-    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (b"fake-wav", "audio/wav"))
+    monkeypatch.setattr(
+        pipeline,
+        "unmixr_synthesize_request",
+        lambda **kwargs: (f"fake-wav:{kwargs['voice_id']}".encode(), "audio/wav"),
+    )
     monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
 
     client = _client(principal_id="")
@@ -910,10 +918,11 @@ def test_telegram_epub_webhook_dismiss_replaces_voice_sample_immediately(
         "replacement audiobook voice sample" in str(dismissal_response_3["reply_text"])
         or "No replacement audiobook voice is available yet." in str(dismissal_response_3["reply_text"])
         or "No more configured audiobook voice samples" in str(dismissal_response_3["reply_text"])
+        or "audiobook voice samples remain in this audition batch" in str(dismissal_response_3["reply_text"])
     )
 
 
-def test_telegram_epub_webhook_dismiss_replaces_voice_sample_immediately_with_small_catalog(
+def test_telegram_epub_webhook_dismiss_reports_no_replacement_when_small_catalog_is_exhausted(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1026,7 +1035,11 @@ def test_telegram_epub_webhook_dismiss_replaces_voice_sample_immediately_with_sm
     monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
     monkeypatch.setattr(channels_route, "resolve_telegram_message_payload", _fake_resolve_telegram_message_payload)
     monkeypatch.setattr(pipeline, "download_telegram_epub", _fake_download_telegram_epub)
-    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (b"fake-wav", "audio/wav"))
+    monkeypatch.setattr(
+        pipeline,
+        "unmixr_synthesize_request",
+        lambda **kwargs: (f"fake-wav:{kwargs['voice_id']}".encode(), "audio/wav"),
+    )
     monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
 
     client = _client(principal_id="")
@@ -1047,24 +1060,21 @@ def test_telegram_epub_webhook_dismiss_replaces_voice_sample_immediately_with_sm
     assert response["reply_text"] == ""
     assert len(sent_audio_bodies) == 3
 
-    def dismiss_latest() -> str:
-        return _extract_dismiss_callback(sent_audio_bodies[-1])
+    result = agent.send_callback_query(
+        {
+            "id": "dismiss-callback-small-1",
+            "from": {"id": agent.chat_id, "first_name": "Tester"},
+            "message": {
+                "message_id": 123456,
+                "chat": {"id": agent.chat_id, "type": "private"},
+            },
+            "data": _extract_dismiss_callback(sent_audio_bodies[-1]),
+        }
+    )
 
-    for idx in range(3):
-        data = dismiss_latest()
-        result = agent.send_callback_query(
-            {
-                "id": f"dismiss-callback-small-{idx}",
-                "from": {"id": agent.chat_id, "first_name": "Tester"},
-                "message": {
-                    "message_id": 123456,
-                    "chat": {"id": agent.chat_id, "type": "private"},
-                },
-                "data": data,
-            }
-        )
-        assert result["reply_sent"] is True
-        assert "replacement audiobook voice sample" in str(result["reply_text"])
+    assert result["reply_sent"] is True
+    assert result["reply_text"] == "Dismissed. No replacement audiobook voice sample is available yet."
+    assert len(sent_audio_bodies) == 3
 
 
 def test_telegram_epub_webhook_uses_supplied_knuf_epub_for_german_voice_samples(
@@ -1231,6 +1241,7 @@ def test_telegram_audiobook_status_webhook_resends_playback_buttons(
                 "metadata": {"title": "Ready Book", "author": "A. Writer", "language": "en-US"},
                 "storage": {"job_dir": str(job_dir)},
                 "telegram": {"chat_id": "1354554303", "message_id": "7"},
+                "audio_publication_gate": {"status": "pass", "issues": []},
                 "audiobookshelf_import": {
                     "status": "imported",
                     "target_path": str(target_path),
@@ -1283,9 +1294,16 @@ def test_telegram_audiobook_status_webhook_resends_playback_buttons(
         for row in list(reply_markup.get("inline_keyboard") or [])
         for button in row
     ]
-    assert any(button.get("text") == "Playback works" for button in buttons)
+    updated_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    callback = updated_job["audiobookshelf_import"]["public_share"]["playback_acceptance_callback"]
+    callback_token = str(callback["token"])
+    assert callback["status"] == "ready"
+    assert any(button.get("text") == "Attest all 7 checks pass" for button in buttons)
     assert any(button.get("text") == "Problem" for button in buttons)
-    assert any(str(button.get("callback_data") or "").startswith("ap|a|callback-token|") for button in buttons)
+    assert any(
+        str(button.get("callback_data") or "").startswith(f"ap2|a|{callback_token}|")
+        for button in buttons
+    )
 
 
 def test_telegram_bot_workflow_persists_async_admin_followup_memory(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1367,7 +1385,7 @@ def test_telegram_bot_workflow_persists_async_admin_followup_memory(monkeypatch:
     assert "After that, focus on Review Noah school paperwork." in second["reply_text"]
 
 
-def test_telegram_bot_workflow_persists_property_comparison_memory(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_telegram_bot_workflow_does_not_persist_property_comparison_memory(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-e2e-property")
@@ -1407,8 +1425,8 @@ def test_telegram_bot_workflow_persists_property_comparison_memory(monkeypatch: 
         user_messages = [item["content"] for item in kwargs["messages"] if item["role"] == "user"]
         prompt = str(user_messages[-1]) if user_messages else ""
         if "what about the other one" in prompt.lower():
-            assert "comparison_secondary: Strong Doebling listing | willhaben:1071155412" in grounding_text
-            return _FakeResult("The other one is the Strong Doebling listing. It is the backup because it still has lift and bike access, but the Waehring one stays ahead.")
+            assert "comparison_secondary: Strong Doebling listing | willhaben:1071155412" not in grounding_text
+            return _FakeResult("There is no active property comparison in this EA chat. Open PropertyQuarry to compare those listings.")
         return _FakeResult("The Strong Waehring listing is still better. Keep the Strong Doebling listing as the backup option.")
 
     class _FakeProductService:
@@ -1458,12 +1476,11 @@ def test_telegram_bot_workflow_persists_property_comparison_memory(monkeypatch: 
     assert first["reply_sent"] is False
     observations = list(client.app.state.container.channel_runtime.list_recent_observations(limit=24, principal_id="exec-telegram-e2e-property"))
     first_async = next(dict(row.payload or {}) for row in observations if str(row.event_type) == "telegram.reply_async_sent")
-    assert first_async["comparison_state"]["comparison_primary"].startswith("Strong Waehring listing")
-    assert first_async["comparison_state"]["comparison_secondary"].startswith("Strong Doebling listing")
+    assert first_async["comparison_state"] == {}
 
     second = agent.ask("What about the other one?")
     assert second["reply_sent"] is False
-    assert any("comparison_secondary: Strong Doebling listing | willhaben:1071155412" in item for item in upstream_groundings)
+    assert not any("comparison_secondary: Strong Doebling listing | willhaben:1071155412" in item for item in upstream_groundings)
 
 
 def test_telegram_bot_workflow_answers_focus_on_tomorrow_from_calendar_signal(monkeypatch: pytest.MonkeyPatch) -> None:

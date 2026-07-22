@@ -1,0 +1,12 @@
+contract_name: projection.chummer5a_parity_lab_capture_pack
+generated_at: '2026-07-15T00:00:00Z'
+projection_redacted: true
+oracle_surface_extract:
+  source_line_proofs:
+    direct_routes:
+      - id: translator_route
+        source_projection: redacted
+      - id: xml_amendment_editor_route
+        source_projection: redacted
+      - id: hero_lab_importer_route
+        source_projection: redacted

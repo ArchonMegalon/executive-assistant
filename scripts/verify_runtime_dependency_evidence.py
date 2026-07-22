@@ -21,6 +21,14 @@ def _load(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _requirement_count(path: Path) -> int:
+    return sum(
+        1
+        for raw in path.read_text(encoding="utf-8").splitlines()
+        if (line := raw.strip()) and not line.startswith("#") and not line.startswith("--")
+    )
+
+
 def verify() -> dict[str, Any]:
     issues: list[str] = []
     if not SBOM_PATH.is_file():
@@ -34,6 +42,7 @@ def verify() -> dict[str, Any]:
     else:
         audit = _load(AUDIT_PATH)
 
+    components: list[object] = []
     if sbom:
         if sbom.get("bomFormat") != "CycloneDX":
             issues.append("sbom_format_invalid")
@@ -58,6 +67,8 @@ def verify() -> dict[str, Any]:
             issues.append("audit_contract_invalid")
         if audit.get("status") != "pass":
             issues.append("audit_status_not_pass")
+        if audit.get("audit_complete") is not True:
+            issues.append("audit_incomplete")
         if int(audit.get("vulnerable_dependency_count") or 0) != 0:
             issues.append("audit_vulnerabilities_present")
         if Path(str(audit.get("sbom_path") or "")) != SBOM_PATH.relative_to(ROOT):
@@ -72,6 +83,32 @@ def verify() -> dict[str, Any]:
                 issues.append("audit_requirements_sources_incomplete")
             if any(not str(item.get("requirements_sha256") or "").strip() for item in sources if isinstance(item, dict)):
                 issues.append("audit_requirements_sources_sha_missing")
+            if any(item.get("audit_complete") is not True for item in sources if isinstance(item, dict)):
+                issues.append("audit_requirements_source_incomplete")
+
+        expected_direct_count = sum(_requirement_count(ROOT / source) for source in REQUIRED_REQUIREMENTS_SOURCES)
+        audit_direct_count = int(audit.get("direct_requirement_count") or 0)
+        audit_dependency_count = int(audit.get("dependency_count") or 0)
+        source_direct_count = sum(
+            int(item.get("direct_requirement_count") or 0)
+            for item in sources
+            if isinstance(item, dict)
+        )
+        source_dependency_count = sum(
+            int(item.get("dependency_count") or 0)
+            for item in sources
+            if isinstance(item, dict)
+        )
+        if expected_direct_count <= 0:
+            issues.append("requirements_empty")
+        if len(components) != expected_direct_count:
+            issues.append("sbom_direct_requirement_count_mismatch")
+        if audit_direct_count != expected_direct_count or source_direct_count != expected_direct_count:
+            issues.append("audit_direct_requirement_count_mismatch")
+        if audit_dependency_count != source_dependency_count:
+            issues.append("audit_dependency_count_mismatch")
+        if audit_dependency_count < expected_direct_count:
+            issues.append("audit_dependency_coverage_incomplete")
 
     return {
         "contract_name": "ea.runtime_dependency_evidence_verify.v1",

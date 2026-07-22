@@ -20,6 +20,7 @@ from app.services.browseract_ui_service_catalog import browseract_ui_service_by_
 from app.services.browseract_ui_template_catalog import browseract_ui_template_spec
 from app.services.evidence_runtime import EvidenceRuntimeService
 from app.services.orchestrator import RewriteOrchestrator, build_default_orchestrator
+from app.services.public_urls import PROPERTYQUARRY_PUBLIC_DEFAULT_URL
 from app.services.provider_registry import CapabilityRoute, ProviderBinding, ProviderCapability, ProviderRegistryService
 from app.services.responses_upstream import UpstreamResult
 from app.services.tool_execution import (
@@ -6114,7 +6115,7 @@ def test_crezlo_public_tour_base_url_defaults_to_propertyquarry(monkeypatch: pyt
     monkeypatch.delenv("PROPERTYQUARRY_PUBLIC_BASE_URL", raising=False)
     monkeypatch.delenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", raising=False)
 
-    assert BrowserActToolAdapter._crezlo_public_tour_base_url() == "https://propertyquarry.com/tours"
+    assert BrowserActToolAdapter._crezlo_public_tour_base_url() == f"{PROPERTYQUARRY_PUBLIC_DEFAULT_URL}/tours"
 
     monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_BASE_URL", "https://property.example.test/")
     assert BrowserActToolAdapter._crezlo_public_tour_base_url() == "https://property.example.test/tours"

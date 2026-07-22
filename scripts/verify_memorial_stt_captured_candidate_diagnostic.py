@@ -9,7 +9,12 @@ from typing import Any
 
 try:
     from scripts import materialize_memorial_stt_captured_candidate_diagnostic as diagnostic
-except ModuleNotFoundError:  # pragma: no cover - script execution path
+except ImportError as exc:  # pragma: no cover - script execution path
+    if exc.name not in {
+        "scripts",
+        "scripts.materialize_memorial_stt_captured_candidate_diagnostic",
+    }:
+        raise
     import materialize_memorial_stt_captured_candidate_diagnostic as diagnostic
 
 

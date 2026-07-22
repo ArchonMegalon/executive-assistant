@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 
+from app.services.assistant_property_lane import propertyquarry_request_scope
 from app.services.public_branding import request_brand
 from app.services.public_urls import propertyquarry_public_base_url
 
@@ -109,7 +110,12 @@ def install_property_surface_boundary(app: FastAPI) -> None:
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
-        boundary = property_surface_boundary_response(request)
-        if boundary is not None:
-            return boundary
-        return await call_next(request)
+        brand = request_brand(request)
+        propertyquarry_request = (
+            str(brand.get("key") or "").strip().lower() == "propertyquarry"
+        )
+        with propertyquarry_request_scope(active=propertyquarry_request):
+            boundary = property_surface_boundary_response(request)
+            if boundary is not None:
+                return boundary
+            return await call_next(request)

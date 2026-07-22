@@ -37,7 +37,7 @@ class MemorialRuntimeTests(unittest.TestCase):
 
         self.assertEqual(model, public_memorials.FAST_PUBLIC_MODEL)
 
-    def test_public_memorial_page_opens_with_person_context_before_runtime_button(self) -> None:
+    def test_public_memorial_page_is_privacy_safe_and_conversation_only(self) -> None:
         payload = {
             "slug": "manfred",
             "person_name": "Manfred",
@@ -75,6 +75,7 @@ class MemorialRuntimeTests(unittest.TestCase):
             "external_sources": [
                 {
                     "public": True,
+                    "approved": True,
                     "label": "Öffentliche Quelle",
                     "url": "https://example.test/manfred",
                     "status": "Dokumentiert",
@@ -91,7 +92,6 @@ class MemorialRuntimeTests(unittest.TestCase):
             ],
         }
         with (
-            patch.object(public_memorials, "clickrank_head_snippet", return_value=""),
             patch.object(public_memorials, "_memorial_pwa_icon_url", return_value="/memorials/manfred/icon-180.png"),
             patch.object(public_memorials, "_memorial_video_call_avatar", return_value={}),
             patch.object(public_memorials, "_memorial_video_call_avatar_fallback_html", return_value=""),
@@ -104,27 +104,56 @@ class MemorialRuntimeTests(unittest.TestCase):
             )
 
         self.assertIn("<h1>Erinnerungen an Manfred</h1>", rendered)
-        self.assertIn("Eine ruhige Seite für Erinnerungen, Originalstimme und dokumentierte Gedanken.", rendered)
-        self.assertIn('<a class="skip-link" href="#memorial-story">', rendered)
+        self.assertIn("Ein ruhiger Ort für ein Gespräch über Manfred.", rendered)
+        self.assertNotIn("Eine ruhige Seite für Erinnerungen, Originalstimme und dokumentierte Gedanken.", rendered)
         self.assertIn('<a class="skip-link" href="#memorial-conversation-region">', rendered)
-        self.assertIn('<main id="memorial-story" tabindex="-1">', rendered)
-        self.assertIn("Diese Seite sammelt echte Aufnahmen und belegte Erinnerungen.", rendered)
+        self.assertIn('data-public-memorial-surface="conversation-only"', rendered)
+        self.assertEqual(rendered.count("<main "), 1)
+        self.assertNotIn("<aside ", rendered)
+        self.assertIn(
+            '<main class="conversation-dock" '
+            'aria-label="KI-Gespräch über Manfred" '
+            'id="memorial-conversation-region" tabindex="-1"',
+            rendered,
+        )
         self.assertLess(
-            rendered.index("Diese Seite sammelt echte Aufnahmen und belegte Erinnerungen."),
+            rendered.index("<h1>Erinnerungen an Manfred</h1>"),
             rendered.index('id="memorial-conversation"'),
         )
-        self.assertIn("Stimme aus dem Archiv", rendered)
-        self.assertIn("Über Gerechtigkeit", rendered)
-        self.assertIn('controls preload="metadata"', rendered)
-        self.assertIn("/memorials/files/manfred/audio/gerechtigkeit.mp3", rendered)
-        self.assertIn("Gerechtigkeit bedeutete für mich ...", rendered)
-        self.assertIn("Kindheit in Döbling", rendered)
-        self.assertIn("Eine freigegebene Erinnerung.", rendered)
-        self.assertIn("Öffentliche Quelle", rendered)
-        self.assertIn('href="https://example.test/manfred"', rendered)
-        self.assertIn('referrerpolicy="no-referrer"', rendered)
-        self.assertNotIn('target="_blank"', rendered)
-        self.assertIn("Was war dir bei Gerechtigkeit wichtig?", rendered)
+        self.assertNotIn('<a class="skip-link" href="#memorial-story">', rendered)
+        self.assertNotIn('id="memorial-story"', rendered)
+        self.assertNotIn('<nav class="hero-nav"', rendered)
+        self.assertNotIn("Stimme aus dem Archiv", rendered)
+        self.assertNotIn("Über Gerechtigkeit", rendered)
+        self.assertNotIn("/memorials/files/manfred/audio/gerechtigkeit.mp3", rendered)
+        self.assertNotIn("Gerechtigkeit bedeutete für mich ...", rendered)
+        self.assertNotIn("Kindheit in Döbling", rendered)
+        self.assertNotIn("Eine freigegebene Erinnerung.", rendered)
+        self.assertNotIn("Öffentliche Quelle", rendered)
+        self.assertNotIn("Was war dir bei Gerechtigkeit wichtig?", rendered)
+        self.assertNotIn("3D-Erinnerungsraum", rendered)
+        self.assertNotIn('id="memorial-contribution"', rendered)
+        self.assertNotIn('id="memorial-contribution-form"', rendered)
+        self.assertNotIn('id="memorial-contribution-management"', rendered)
+        self.assertNotIn('id="memorial-install-hint"', rendered)
+        self.assertNotIn("Optional: Am Handy/Desktop installieren.", rendered)
+        self.assertEqual(rendered.count('<details class="conversation-settings">'), 1)
+        self.assertIn("<summary>Datenschutz und Gespräch</summary>", rendered)
+        self.assertIn(
+            '<input type="checkbox" id="memorial-personal-memory-optin" disabled aria-disabled="true">',
+            rendered,
+        )
+        self.assertIn(
+            'id="memorial-personal-memory-status">Gastmodus · Gedächtnis aus.</span>',
+            rendered,
+        )
+        self.assertIn(
+            'id="memorial-personal-memory-forget" disabled aria-disabled="true">'
+            "Gesprächsgedächtnis löschen und ausschalten</button>",
+            rendered,
+        )
+        self.assertNotIn('id="memorial-video-call-avatar"', rendered)
+        self.assertNotIn('/video-meeting/', rendered)
         self.assertNotIn("PRIVATE_AUDIO_SENTINEL", rendered)
         self.assertNotIn("PRIVATE_MEMORY_SENTINEL", rendered)
         self.assertNotIn("PRIVATE_SOURCE_SENTINEL", rendered)
@@ -135,14 +164,39 @@ class MemorialRuntimeTests(unittest.TestCase):
         )
         self.assertNotIn('id="memorial-speech-note" role="status"', rendered)
         self.assertNotIn('id="memorial-speech-transcript-shell" aria-live=', rendered)
-        self.assertIn(
-            '<aside class="conversation-dock" aria-label="Gespräch mit Manfred" id="memorial-conversation-region" tabindex="-1">',
-            rendered,
-        )
         self.assertIn('id="memorial-speech-audio" preload="none" aria-hidden="true"', rendered)
         self.assertNotIn(" autoplay", rendered)
+        self.assertIn("Hier antwortet eine KI anhand freigegebener Erinnerungen und Quellen.", rendered)
+        self.assertIn("Sie ist nicht Manfred und spricht nicht für ihn.", rendered)
+        self.assertIn("Die Stimme ist künstlich erzeugt.", rendered)
         self.assertIn("Das Mikrofon wird erst nach deinem Start verwendet.", rendered)
         self.assertIn("Gespräch wird vorbereitet …", rendered)
+
+    def test_public_memorial_operator_preview_is_default_denied(self) -> None:
+        payload = {
+            "slug": "manfred",
+            "person_name": "Manfred",
+            "title": "Erinnerungen an Manfred",
+        }
+        with (
+            patch.object(public_memorials, "_memorial_pwa_icon_url", return_value="/memorials/manfred/icon-180.png"),
+            patch.object(public_memorials, "_memorial_voice_release_enforced", return_value=True),
+            patch.object(public_memorials, "_memorial_voice_release_decision", return_value={"allowed": False}),
+        ):
+            public_document = public_memorials._public_memorial_page_html(payload)
+            preview_document = public_memorials._public_memorial_page_html(
+                payload,
+                operator_preview_allowed=True,
+            )
+
+        self.assertNotIn('data-operator-voice-preview="allowed"', public_document)
+        self.assertIn('data-voice-access="text-only"', public_document)
+        self.assertIn('id="memorial-conversation"', public_document)
+        self.assertIn('aria-disabled="true" disabled', public_document)
+        self.assertIn("Sprechen ist derzeit nicht verfügbar", public_document)
+        self.assertIn('data-operator-voice-preview="allowed"', preview_document)
+        self.assertIn('data-voice-release="blocked" data-voice-access="operator-preview"', preview_document)
+        self.assertIn("öffentliche Sprachfreigabe bleibt blockiert", preview_document)
 
     def test_public_memorial_story_rejects_unapproved_or_unsafe_nested_values(self) -> None:
         payload = {
@@ -173,7 +227,6 @@ class MemorialRuntimeTests(unittest.TestCase):
             "suggested_prompts": [{"prompt": "NON_STRING_PROMPT_SENTINEL"}],
         }
         with (
-            patch.object(public_memorials, "clickrank_head_snippet", return_value=""),
             patch.object(public_memorials, "_memorial_pwa_icon_url", return_value="/memorials/manfred/icon-180.png"),
             patch.object(public_memorials, "_memorial_video_call_avatar", return_value={}),
             patch.object(public_memorials, "_memorial_video_call_avatar_fallback_html", return_value=""),
@@ -189,8 +242,8 @@ class MemorialRuntimeTests(unittest.TestCase):
         self.assertNotIn("NON_STRING_PROMPT_SENTINEL", rendered)
         self.assertNotIn("<script>MEMORY_MARKUP_SENTINEL</script>", rendered)
         self.assertNotIn("<img src=x onerror=MEMORY_BODY_SENTINEL>", rendered)
-        self.assertIn("&lt;script&gt;MEMORY_MARKUP_SENTINEL&lt;/script&gt;", rendered)
-        self.assertIn("&lt;img src=x onerror=MEMORY_BODY_SENTINEL&gt;", rendered)
+        self.assertNotIn("MEMORY_MARKUP_SENTINEL", rendered)
+        self.assertNotIn("MEMORY_BODY_SENTINEL", rendered)
 
     def test_public_memorial_payload_filters_nested_story_collections(self) -> None:
         payload = {
@@ -222,7 +275,12 @@ class MemorialRuntimeTests(unittest.TestCase):
                 {"visibility": "private", "title": "PRIVATE_CANDIDATE_SENTINEL"},
             ],
             "external_sources": [
-                {"public": True, "label": "Public source", "url": "https://example.test"},
+                {
+                    "public": True,
+                    "approved": True,
+                    "label": "Public source",
+                    "url": "https://example.test",
+                },
                 {"visibility": "private", "label": "PRIVATE_SOURCE_SENTINEL", "url": "https://private.test"},
                 {
                     "visibility": "public",
@@ -266,12 +324,26 @@ class MemorialRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(
             public_payload["memory_cards"],
-            [{"title": "Public memory", "body": "[stark redigiert] Redacted downstream"}],
+            [
+                {
+                    "title": "Public memory",
+                    "body": "[stark redigiert] Redacted downstream",
+                    "curation_status": "strongly_redacted_preview",
+                }
+            ],
         )
-        self.assertEqual(public_payload["candidate_recordings"], [])
+        self.assertNotIn("candidate_recordings", public_payload)
         self.assertEqual(
             public_payload["external_sources"],
-            [{"label": "Public source", "url": "https://example.test"}],
+            [
+                {
+                    "approved": True,
+                    "label": "Public source",
+                    "public": True,
+                    "url": "https://example.test",
+                    "visibility": "public",
+                }
+            ],
         )
         self.assertEqual(public_payload["suggested_prompts"], ["Public prompt"])
         self.assertEqual(public_payload["source_grounded_profile"], [{"trait": "Public trait"}])
@@ -306,11 +378,17 @@ class MemorialRuntimeTests(unittest.TestCase):
         self.assertEqual(len(public_payload["audio_clips"]), 0)
         self.assertEqual(len(public_payload["memory_cards"]), 6)
         self.assertEqual(len(public_payload["source_grounded_profile"]), 9)
-        self.assertEqual(len(public_payload["external_sources"]), 12)
-        self.assertEqual(len(public_payload["candidate_recordings"]), 0)
+        self.assertEqual(len(public_payload["external_sources"]), 1)
+        self.assertNotIn("candidate_recordings", public_payload)
         self.assertEqual(len(public_payload["suggested_prompts"]), 4)
         self.assertTrue(
-            all(str(item.get("body") or "").startswith("[stark redigiert]") for item in public_payload["memory_cards"])
+            all(
+                item.get("curation_status") == "approved_public_excerpt"
+                for item in public_payload["memory_cards"]
+            )
+        )
+        self.assertTrue(
+            all(str(item.get("source_label") or "").strip() for item in public_payload["memory_cards"])
         )
         self.assertTrue(
             all(str(item.get("url") or "").startswith("https://") for item in public_payload["external_sources"])
@@ -318,16 +396,19 @@ class MemorialRuntimeTests(unittest.TestCase):
         self.assertNotIn("Originalstimme", str(public_payload.get("subtitle") or ""))
 
         with (
-            patch.object(public_memorials, "clickrank_head_snippet", return_value=""),
             patch.object(public_memorials, "_memorial_pwa_icon_url", return_value="/memorials/manfred/icon-180.png"),
             patch.object(public_memorials, "_memorial_video_call_avatar", return_value={}),
             patch.object(public_memorials, "_memorial_video_call_avatar_fallback_html", return_value=""),
         ):
             rendered = public_memorials._public_memorial_page_html(payload, private_profile={})
 
-        self.assertEqual(rendered.count('class="story-card memory-card"'), 6)
-        self.assertEqual(rendered.count('referrerpolicy="no-referrer"'), 8)
+        self.assertEqual(rendered.count('class="story-card memory-card"'), 0)
+        self.assertEqual(rendered.count('referrerpolicy="no-referrer"'), 0)
         self.assertNotIn('id="memorial-archive-title"', rendered)
+        self.assertNotIn('id="memorial-story"', rendered)
+        self.assertNotIn("3D-Erinnerungsraum", rendered)
+        self.assertNotIn('id="memorial-contribution"', rendered)
+        self.assertIn('data-public-memorial-surface="conversation-only"', rendered)
         self.assertNotIn("Hanusch Krankenhaus: Gespraech ueber Behandlung und Familie", rendered)
         self.assertNotIn("Der Flugzeugreisegepaeckkoffer", rendered)
 
@@ -403,6 +484,7 @@ class MemorialRuntimeTests(unittest.TestCase):
                 "external_sources": [
                     {
                         "public": True,
+                        "approved": True,
                         "label": "Public interview",
                         "status": "public_audio_reference",
                         "url": "https://youtube.example/public",

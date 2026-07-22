@@ -1120,7 +1120,7 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     trust_page = client.get("/app/settings/trust")
     assert trust_page.status_code == 200
     assert "Workspace trust" in trust_page.text
-    assert "Get help without guessing" in trust_page.text
+    assert "What is wrong?" in trust_page.text
     assert "What the assistant recently did" in trust_page.text
     assert "Evidence, rules, and retention" in trust_page.text
     assert "What release trust is anchored to" in trust_page.text

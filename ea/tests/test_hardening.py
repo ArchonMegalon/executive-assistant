@@ -202,21 +202,27 @@ class HardeningTests(unittest.TestCase):
             hdrs={},
             fp=io.BytesIO(detail),
         )
-        env = {"EMAILIT_API_KEY": "emailit-fixture", "EA_EMAILIT_MAX_429_SLEEP_SECONDS": "30"}
-
-        with patch.dict(os.environ, env, clear=True), patch.object(
-            registration_email.urllib.request,
-            "urlopen",
-            side_effect=http_error,
-        ) as urlopen, patch.object(registration_email.time, "sleep") as sleep:
-            with self.assertRaises(registration_email.EmailDeliveryRateLimitedError) as raised:
-                registration_email.send_plaintext_digest_email(
-                    recipient_email="tibor@example.test",
-                    digest_key="daily-limit",
-                    headline="Daily limit fixture",
-                    preview_text="",
-                    plain_text="body",
-                )
+        with tempfile.TemporaryDirectory() as state_dir:
+            env = {
+                "EMAILIT_API_KEY": "emailit-fixture",
+                "EA_EMAILIT_MAX_429_RETRY_ATTEMPTS": "1",
+                "EA_EMAILIT_MAX_429_SLEEP_SECONDS": "30",
+                "EA_OUTBOUND_EMAIL_GUARD_STATE_PATH": str(Path(state_dir) / "outbound_email_guard.json"),
+            }
+            with patch.dict(os.environ, env, clear=True), patch.object(
+                registration_email.urllib.request,
+                "urlopen",
+                side_effect=http_error,
+            ) as urlopen, patch.object(registration_email.time, "sleep") as sleep:
+                with self.assertRaises(registration_email.EmailDeliveryRateLimitedError) as raised:
+                    registration_email.send_plaintext_digest_email(
+                        recipient_email="tibor@example.test",
+                        digest_key="daily-limit",
+                        headline="Daily limit fixture",
+                        preview_text="",
+                        plain_text="body",
+                    )
+            self.assertTrue(Path(env["EA_OUTBOUND_EMAIL_GUARD_STATE_PATH"]).is_file())
 
         self.assertEqual(raised.exception.retry_after_seconds, 48712)
         self.assertEqual(raised.exception.provider_error, "Daily limit exceeded")
@@ -243,20 +249,26 @@ class HardeningTests(unittest.TestCase):
             hdrs={},
             fp=io.BytesIO(detail),
         )
-        env = {"EMAILIT_API_KEY": "emailit-fixture", "EA_EMAILIT_MAX_429_SLEEP_SECONDS": "30"}
-
-        with patch.dict(os.environ, env, clear=True), patch.object(
-            registration_email.urllib.request,
-            "urlopen",
-            side_effect=[http_error, _Response()],
-        ) as urlopen, patch.object(registration_email.time, "sleep") as sleep:
-            receipt = registration_email.send_plaintext_digest_email(
-                recipient_email="tibor@example.test",
-                digest_key="short-retry",
-                headline="Short retry fixture",
-                preview_text="",
-                plain_text="body",
-            )
+        with tempfile.TemporaryDirectory() as state_dir:
+            env = {
+                "EMAILIT_API_KEY": "emailit-fixture",
+                "EA_EMAILIT_MAX_429_RETRY_ATTEMPTS": "1",
+                "EA_EMAILIT_MAX_429_SLEEP_SECONDS": "30",
+                "EA_OUTBOUND_EMAIL_GUARD_STATE_PATH": str(Path(state_dir) / "outbound_email_guard.json"),
+            }
+            with patch.dict(os.environ, env, clear=True), patch.object(
+                registration_email.urllib.request,
+                "urlopen",
+                side_effect=[http_error, _Response()],
+            ) as urlopen, patch.object(registration_email.time, "sleep") as sleep:
+                receipt = registration_email.send_plaintext_digest_email(
+                    recipient_email="tibor@example.test",
+                    digest_key="short-retry",
+                    headline="Short retry fixture",
+                    preview_text="",
+                    plain_text="body",
+                )
+            self.assertTrue(Path(env["EA_OUTBOUND_EMAIL_GUARD_STATE_PATH"]).is_file())
 
         self.assertEqual(receipt.provider, "emailit")
         self.assertEqual(receipt.message_id, "emailit-message-id")

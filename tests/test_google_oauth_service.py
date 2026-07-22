@@ -1336,7 +1336,7 @@ def test_list_google_accounts_uses_principal_email_aliases_for_cf_email_principa
                     scope_json={"bundle": "full_workspace"},
                     auth_metadata_json={
                         "google_subject": "google-sub-1",
-                        "google_email": "tibor.girschele@gmail.com",
+                        "google_email": "principal.user@example.test",
                         "google_hosted_domain": "",
                         "granted_scopes": [google_service.GOOGLE_SCOPE_GMAIL_MODIFY],
                         "refresh_token_ref": "refresh-token",
@@ -1356,10 +1356,10 @@ def test_list_google_accounts_uses_principal_email_aliases_for_cf_email_principa
                     binding_id="connector-google-1",
                     principal_id="exec-1",
                     connector_name="google_workspace",
-                    external_account_ref="tibor.girschele@gmail.com",
+                    external_account_ref="principal.user@example.test",
                     scope_json={"bundle": "full_workspace"},
                     auth_metadata_json={
-                        "google_email": "tibor.girschele@gmail.com",
+                        "google_email": "principal.user@example.test",
                         "google_subject": "google-sub-1",
                     },
                     status="enabled",
@@ -1371,7 +1371,7 @@ def test_list_google_accounts_uses_principal_email_aliases_for_cf_email_principa
     monkeypatch.setattr(
         google_service,
         "_principal_db_ids_for_email",
-        lambda **kwargs: ("exec-1",) if kwargs["email"] == "tibor.girschele@gmail.com" else tuple(),
+        lambda **kwargs: ("exec-1",) if kwargs["email"] == "principal.user@example.test" else tuple(),
     )
     monkeypatch.setattr(google_service, "_principal_db_email", lambda **kwargs: "")
 
@@ -1380,12 +1380,12 @@ def test_list_google_accounts_uses_principal_email_aliases_for_cf_email_principa
             provider_registry=_Registry(),
             tool_runtime=_ToolRuntime(),
         ),
-        principal_id="cf-email:tibor.girschele@gmail.com",
+        principal_id="cf-email:principal.user@example.test",
     )
 
     assert len(accounts) == 1
     assert accounts[0].binding.principal_id == "exec-1"
-    assert accounts[0].google_email == "tibor.girschele@gmail.com"
+    assert accounts[0].google_email == "principal.user@example.test"
 
 
 def test_load_google_draft_context_uses_principal_email_aliases_for_canonical_principal(
@@ -1395,8 +1395,8 @@ def test_load_google_draft_context_uses_principal_email_aliases_for_canonical_pr
     from app.services import google_oauth as google_service
 
     binding = ProviderBindingRecord(
-        binding_id="cf-email:tibor.girschele@gmail.com:google_gmail",
-        principal_id="cf-email:tibor.girschele@gmail.com",
+        binding_id="cf-email:principal.user@example.test:google_gmail",
+        principal_id="cf-email:principal.user@example.test",
         provider_key="google_gmail",
         status="enabled",
         priority=80,
@@ -1405,7 +1405,7 @@ def test_load_google_draft_context_uses_principal_email_aliases_for_canonical_pr
         scope_json={"bundle": "full_workspace"},
         auth_metadata_json={
             "google_subject": "google-sub-1",
-            "google_email": "tibor.girschele@gmail.com",
+            "google_email": "principal.user@example.test",
             "granted_scopes": [google_service.GOOGLE_SCOPE_GMAIL_MODIFY],
             "refresh_token_ref": "refresh-token",
             "token_status": "active",
@@ -1416,19 +1416,19 @@ def test_load_google_draft_context_uses_principal_email_aliases_for_canonical_pr
 
     class _Registry:
         def get_persisted_binding_record(self, *, binding_id: str, principal_id: str | None = None):
-            if binding_id == "cf-email:tibor.girschele@gmail.com:google_gmail" and principal_id == "cf-email:tibor.girschele@gmail.com":
+            if binding_id == "cf-email:principal.user@example.test:google_gmail" and principal_id == "cf-email:principal.user@example.test":
                 return binding
             return None
 
     monkeypatch.setattr(
         google_service,
         "_principal_db_email",
-        lambda **kwargs: "tibor.girschele@gmail.com" if kwargs["principal_id"] == "exec-1" else "",
+        lambda **kwargs: "principal.user@example.test" if kwargs["principal_id"] == "exec-1" else "",
     )
     monkeypatch.setattr(
         google_service,
         "_principal_db_ids_for_email",
-        lambda **kwargs: ("exec-1",) if kwargs["email"] == "tibor.girschele@gmail.com" else tuple(),
+        lambda **kwargs: ("exec-1",) if kwargs["email"] == "principal.user@example.test" else tuple(),
     )
     monkeypatch.setattr(
         google_service,
@@ -1452,10 +1452,10 @@ def test_load_google_draft_context_uses_principal_email_aliases_for_canonical_pr
     )
 
     assert resolved_binding.binding_id == binding.binding_id
-    assert metadata["google_email"] == "tibor.girschele@gmail.com"
+    assert metadata["google_email"] == "principal.user@example.test"
     assert token_payload["access_token"] == "token-123"
     assert access_token == "token-123"
-    assert sender_email == "tibor.girschele@gmail.com"
+    assert sender_email == "principal.user@example.test"
 
 
 def test_complete_google_oauth_callback_prefers_existing_principal_for_sign_in_email(
@@ -1514,14 +1514,14 @@ def test_complete_google_oauth_callback_prefers_existing_principal_for_sign_in_e
         "_fetch_google_userinfo",
         lambda access_token: {
             "sub": "google-sub-1",
-            "email": "tibor.girschele@gmail.com",
+            "email": "principal.user@example.test",
         },
     )
     monkeypatch.setattr(google_service, "_encrypt_secret", lambda value, key: f"enc:{value}")
     monkeypatch.setattr(
         google_service,
         "_principal_db_ids_for_email",
-        lambda **kwargs: ("exec-1",) if kwargs["email"] == "tibor.girschele@gmail.com" else tuple(),
+        lambda **kwargs: ("exec-1",) if kwargs["email"] == "principal.user@example.test" else tuple(),
     )
 
     account = google_service.complete_google_oauth_callback(
@@ -1561,7 +1561,7 @@ def test_complete_google_oauth_callback_rejects_wrong_expected_google_email(
             "principal_id": "exec-1",
             "scope_bundle": "full_workspace",
             "redirect_uri": "https://ea.example.test/google/callback",
-            "expected_google_email": "tibor.girschele@gmail.com",
+            "expected_google_email": "principal.user@example.test",
         },
     )
     monkeypatch.setattr(
@@ -1585,7 +1585,10 @@ def test_complete_google_oauth_callback_rejects_wrong_expected_google_email(
 
     with pytest.raises(
         RuntimeError,
-        match="Expected tibor\\.girschele@gmail\\.com but received manfred\\.hoza@gmail\\.com",
+        match=(
+            "Expected principal\\.user@example\\.test but received "
+            "manfred\\.hoza@gmail\\.com"
+        ),
     ):
         google_service.complete_google_oauth_callback(
             container=SimpleNamespace(),
@@ -2090,9 +2093,9 @@ def test_build_google_oauth_start_forces_account_prompt_when_expected_google_ema
     )
 
     started = google_service.build_google_oauth_start(
-        principal_id="cf-email:tibor.girschele@gmail.com",
+        principal_id="cf-email:principal.user@example.test",
         scope_bundle="full_workspace",
-        expected_google_email="tibor.girschele@gmail.com",
+        expected_google_email="principal.user@example.test",
     )
 
     parsed = urllib.parse.urlparse(started.auth_url)
@@ -2118,7 +2121,7 @@ def test_build_google_oauth_start_keeps_identity_account_selector_prompt(
     )
 
     started = google_service.build_google_oauth_start(
-        principal_id="cf-email:tibor.girschele@gmail.com",
+        principal_id="cf-email:principal.user@example.test",
         scope_bundle="identity",
         expected_google_email="",
     )

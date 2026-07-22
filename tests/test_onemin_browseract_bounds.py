@@ -11,8 +11,8 @@ def test_onemin_browseract_default_limits_are_host_safe(monkeypatch: pytest.Monk
 
     from app.api.routes import providers as providers_route
 
-    assert providers_route._onemin_browseract_max_accounts_per_refresh() == 1
-    assert providers_route._onemin_browseract_parallelism() == 1
+    assert providers_route._onemin_browseract_max_accounts_per_refresh() == 50
+    assert providers_route._onemin_browseract_parallelism() == 6
 
 
 def test_onemin_browseract_env_overrides_are_capped_by_host_safe_hard_limits(
@@ -25,11 +25,11 @@ def test_onemin_browseract_env_overrides_are_capped_by_host_safe_hard_limits(
 
     from app.api.routes import providers as providers_route
 
-    assert providers_route._onemin_browseract_max_accounts_per_refresh() == 1
-    assert providers_route._onemin_browseract_parallelism() == 1
+    assert providers_route._onemin_browseract_max_accounts_per_refresh() == 50
+    assert providers_route._onemin_browseract_parallelism() == 6
 
 
-def test_onemin_browseract_hard_limits_can_be_raised_explicitly(
+def test_onemin_browseract_hard_limits_can_be_lowered_explicitly(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ONEMIN_BROWSERACT_MAX_ACCOUNTS_PER_REFRESH", "59")

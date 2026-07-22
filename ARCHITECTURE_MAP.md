@@ -22,11 +22,14 @@
 
 - Health: `GET /health`
 - Product browser data API: `/app/api/*`
+- Admin outreach: `/v1/admin/outreach/*`
 - Channels: `/v1/channels/*`
 - Connectors: `/v1/connectors/*`
 - Delivery: `/v1/delivery/*`
 - Evidence: `/v1/evidence/*`
 - Human tasks: `/v1/human/*`
+- Internal governed spatial-render bridge: `/v1/internal/governed-spatial-render/*`
+- Internal Sendr bridge: `/v1/internal/sendr/*`
 - Memory: `/v1/memory/*`
 - Observations: `/v1/observations/*`
 - Onboarding: `/v1/onboarding/*`

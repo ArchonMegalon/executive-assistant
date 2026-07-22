@@ -12,6 +12,8 @@ services:
     mem_reservation: 128m
     environment:
       - TEABLE_RELAY_LISTEN_HOST=${TEABLE_RELAY_LISTEN_HOST:-172.17.0.1}
+      - VOCALLAB_API_KEY=
+      - VOCALLAB_API_KEY_FILE=
       - TZ=Europe/Vienna
     network_mode: host
     command:
@@ -85,6 +87,36 @@ services:
       - EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED=${EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED:-1}
       - EA_AUDIOBOOK_UNMIXR_AUTO_RENDER=${EA_AUDIOBOOK_UNMIXR_AUTO_RENDER:-1}
       - EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST:-1800}
+      - VOCALLAB_API_KEY=${VOCALLAB_API_KEY:-}
+      - VOCALLAB_API_KEY_FILE=${VOCALLAB_API_KEY_FILE:-config/vocallab_api_key}
+      - EA_AUDIOBOOK_VOCALLAB_ENABLED=${EA_AUDIOBOOK_VOCALLAB_ENABLED:-0}
+      - EA_AUDIOBOOK_VOCALLAB_AUTO_RENDER=${EA_AUDIOBOOK_VOCALLAB_AUTO_RENDER:-0}
+      - EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_ROTATION_REQUIRED=${EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_ROTATION_REQUIRED:-1}
+      - EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_PRODUCTION_ELIGIBLE=${EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_PRODUCTION_ELIGIBLE:-0}
+      - EA_AUDIOBOOK_VOCALLAB_BASE_URL=${EA_AUDIOBOOK_VOCALLAB_BASE_URL:-https://api.vocallab.ai}
+      - EA_AUDIOBOOK_VOCALLAB_MODEL=${EA_AUDIOBOOK_VOCALLAB_MODEL:-v-pro}
+      - EA_AUDIOBOOK_VOCALLAB_EXPRESSIVE_MODEL=${EA_AUDIOBOOK_VOCALLAB_EXPRESSIVE_MODEL:-v-studio}
+      - EA_AUDIOBOOK_VOCALLAB_DRAFT_MODEL=${EA_AUDIOBOOK_VOCALLAB_DRAFT_MODEL:-v-lite}
+      - EA_AUDIOBOOK_VOCALLAB_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_VOCALLAB_MAX_CHARS_PER_REQUEST:-1800}
+      - EA_AUDIOBOOK_VOCALLAB_REQUESTS_PER_MINUTE=${EA_AUDIOBOOK_VOCALLAB_REQUESTS_PER_MINUTE:-30}
+      - EA_AUDIOBOOK_VOCALLAB_MAX_IN_FLIGHT=${EA_AUDIOBOOK_VOCALLAB_MAX_IN_FLIGHT:-1}
+      - EA_AUDIOBOOK_VOCALLAB_MAX_SEGMENTS_PER_RUN=${EA_AUDIOBOOK_VOCALLAB_MAX_SEGMENTS_PER_RUN:-10}
+      - EA_AUDIOBOOK_VOCALLAB_TIMEOUT_SECONDS=${EA_AUDIOBOOK_VOCALLAB_TIMEOUT_SECONDS:-120}
+      - EA_AUDIOBOOK_VOCALLAB_POLL_INTERVAL_SECONDS=${EA_AUDIOBOOK_VOCALLAB_POLL_INTERVAL_SECONDS:-2}
+      - EA_AUDIOBOOK_VOCALLAB_POLL_TIMEOUT_SECONDS=${EA_AUDIOBOOK_VOCALLAB_POLL_TIMEOUT_SECONDS:-180}
+      - EA_AUDIOBOOK_VOCALLAB_OUTPUT_FORMAT=${EA_AUDIOBOOK_VOCALLAB_OUTPUT_FORMAT:-WAV}
+      - EA_AUDIOBOOK_VOCALLAB_SAMPLE_RATE=${EA_AUDIOBOOK_VOCALLAB_SAMPLE_RATE:-44100}
+      - EA_AUDIOBOOK_VOCALLAB_MAX_AUDIO_BYTES=${EA_AUDIOBOOK_VOCALLAB_MAX_AUDIO_BYTES:-33554432}
+      - EA_AUDIOBOOK_VOCALLAB_MIN_REMAINING_POINTS=${EA_AUDIOBOOK_VOCALLAB_MIN_REMAINING_POINTS:-3000}
+      - EA_AUDIOBOOK_VOCALLAB_MAX_POINTS_PER_JOB=${EA_AUDIOBOOK_VOCALLAB_MAX_POINTS_PER_JOB:-6000}
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_TOPUP_POINTS=${EA_AUDIOBOOK_VOCALLAB_ALLOW_TOPUP_POINTS:-0}
+      - EA_AUDIOBOOK_VOCALLAB_ALLOWED_VOICE_CLASSES=${EA_AUDIOBOOK_VOCALLAB_ALLOWED_VOICE_CLASSES:-professional,consented_clone}
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES=${EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES:-0}
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES=${EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES:-0}
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL=${EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL:-0}
+      - EA_AUDIOBOOK_VOCALLAB_VOICE_CATALOG_FILE=${EA_AUDIOBOOK_VOCALLAB_VOICE_CATALOG_FILE:-config/vocallab_voice_catalog.local.json}
+      - EA_AUDIOBOOK_TTS_PROVIDER_ORDER=${EA_AUDIOBOOK_TTS_PROVIDER_ORDER:-unmixr,vocallab,piper_local}
+      - EA_AUDIOBOOK_TTS_ALLOW_CROSS_PROVIDER_FALLBACK=${EA_AUDIOBOOK_TTS_ALLOW_CROSS_PROVIDER_FALLBACK:-0}
       - EA_AUDIOBOOK_CINEMATIC_NARRATION=${EA_AUDIOBOOK_CINEMATIC_NARRATION:-1}
       - EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS=${EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS:-0}
       - EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST:-1800}
@@ -140,6 +172,8 @@ services:
       # image modules and live modules to diverge after a restart.
       - ./ea/app:/app/app:ro
       - ./scripts:/app/scripts:ro
+      - ./scripts/materialize_whatsapp_web_action_processor_readiness.py:/app/scripts/materialize_whatsapp_web_action_processor_readiness.py:ro
+      - ./docker-compose.whatsapp-web-session.yml:/app/docker-compose.whatsapp-web-session.yml:ro
       - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-./data/onedrive_attachments}:/data/onedrive_attachments
       - ${EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT:-./data/pocket-ai-audio}:/data/pocket-ai-audio
       - ${EA_DURABLE_AUDIOBOOK_HOST_ROOT:-./data/audiobooks}:/data/audiobooks
@@ -160,6 +194,10 @@ services:
       - /run
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      default:
+      public_ingress:
+        ipv4_address: ${EA_PUBLIC_INGRESS_API_IPV4:-172.31.254.3}
     depends_on:
       ea-teable-relay:
         condition: service_healthy
@@ -184,6 +222,8 @@ services:
         required: false
     environment:
       - EA_ROLE=api
+      - VOCALLAB_API_KEY=
+      - VOCALLAB_API_KEY_FILE=
       - EA_RESPONSES_PROXY_HOST=0.0.0.0
       - EA_RESPONSES_PROXY_PORT=8091
       - EA_ARTIFACTS_DIR=/data/artifacts
@@ -203,8 +243,64 @@ services:
     ports:
       - "127.0.0.1:${EA_RESPONSES_PROXY_HOST_PORT:-8092}:8091"
     volumes:
-      - ./config:/config:ro
-      - ./config:/app/config:ro
+      - type: tmpfs
+        target: /config
+        tmpfs:
+          size: 65536
+          mode: 365
+      - type: tmpfs
+        target: /app/config
+        tmpfs:
+          size: 65536
+          mode: 365
+      - type: bind
+        source: ./config/onemin_api_keys.example.json
+        target: /config/onemin_api_keys.example.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/onemin_api_keys.example.json
+        target: /app/config/onemin_api_keys.example.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/onemin_slot_owners.json
+        target: /config/onemin_slot_owners.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/onemin_slot_owners.json
+        target: /app/config/onemin_slot_owners.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/places.yml
+        target: /config/places.yml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/places.yml
+        target: /app/config/places.yml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/tenants.yml
+        target: /config/tenants.yml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/tenants.yml
+        target: /app/config/tenants.yml
+        read_only: true
+        bind:
+          create_host_path: false
       - ./ea/app:/app/app:ro
       - ./scripts:/app/scripts:ro
       - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-./data/onedrive_attachments}:/data/onedrive_attachments
@@ -215,6 +311,11 @@ services:
       - ea_artifacts:/data/artifacts
       - ea_public_tours:/data/public_property_tours
       - ea_provider_ledger:/data/provider-ledger
+      - type: tmpfs
+        target: /data/provider-ledger/vocallab
+        tmpfs:
+          size: 65536
+          mode: 365
     pids_limit: 512
     read_only: true
     cap_drop:
@@ -272,6 +373,36 @@ services:
       - EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED=${EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED:-1}
       - EA_AUDIOBOOK_UNMIXR_AUTO_RENDER=${EA_AUDIOBOOK_UNMIXR_AUTO_RENDER:-1}
       - EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST:-1800}
+      - VOCALLAB_API_KEY=${VOCALLAB_API_KEY:-}
+      - VOCALLAB_API_KEY_FILE=${VOCALLAB_API_KEY_FILE:-config/vocallab_api_key}
+      - EA_AUDIOBOOK_VOCALLAB_ENABLED=${EA_AUDIOBOOK_VOCALLAB_ENABLED:-0}
+      - EA_AUDIOBOOK_VOCALLAB_AUTO_RENDER=${EA_AUDIOBOOK_VOCALLAB_AUTO_RENDER:-0}
+      - EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_ROTATION_REQUIRED=${EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_ROTATION_REQUIRED:-1}
+      - EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_PRODUCTION_ELIGIBLE=${EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_PRODUCTION_ELIGIBLE:-0}
+      - EA_AUDIOBOOK_VOCALLAB_BASE_URL=${EA_AUDIOBOOK_VOCALLAB_BASE_URL:-https://api.vocallab.ai}
+      - EA_AUDIOBOOK_VOCALLAB_MODEL=${EA_AUDIOBOOK_VOCALLAB_MODEL:-v-pro}
+      - EA_AUDIOBOOK_VOCALLAB_EXPRESSIVE_MODEL=${EA_AUDIOBOOK_VOCALLAB_EXPRESSIVE_MODEL:-v-studio}
+      - EA_AUDIOBOOK_VOCALLAB_DRAFT_MODEL=${EA_AUDIOBOOK_VOCALLAB_DRAFT_MODEL:-v-lite}
+      - EA_AUDIOBOOK_VOCALLAB_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_VOCALLAB_MAX_CHARS_PER_REQUEST:-1800}
+      - EA_AUDIOBOOK_VOCALLAB_REQUESTS_PER_MINUTE=${EA_AUDIOBOOK_VOCALLAB_REQUESTS_PER_MINUTE:-30}
+      - EA_AUDIOBOOK_VOCALLAB_MAX_IN_FLIGHT=${EA_AUDIOBOOK_VOCALLAB_MAX_IN_FLIGHT:-1}
+      - EA_AUDIOBOOK_VOCALLAB_MAX_SEGMENTS_PER_RUN=${EA_AUDIOBOOK_VOCALLAB_MAX_SEGMENTS_PER_RUN:-10}
+      - EA_AUDIOBOOK_VOCALLAB_TIMEOUT_SECONDS=${EA_AUDIOBOOK_VOCALLAB_TIMEOUT_SECONDS:-120}
+      - EA_AUDIOBOOK_VOCALLAB_POLL_INTERVAL_SECONDS=${EA_AUDIOBOOK_VOCALLAB_POLL_INTERVAL_SECONDS:-2}
+      - EA_AUDIOBOOK_VOCALLAB_POLL_TIMEOUT_SECONDS=${EA_AUDIOBOOK_VOCALLAB_POLL_TIMEOUT_SECONDS:-180}
+      - EA_AUDIOBOOK_VOCALLAB_OUTPUT_FORMAT=${EA_AUDIOBOOK_VOCALLAB_OUTPUT_FORMAT:-WAV}
+      - EA_AUDIOBOOK_VOCALLAB_SAMPLE_RATE=${EA_AUDIOBOOK_VOCALLAB_SAMPLE_RATE:-44100}
+      - EA_AUDIOBOOK_VOCALLAB_MAX_AUDIO_BYTES=${EA_AUDIOBOOK_VOCALLAB_MAX_AUDIO_BYTES:-33554432}
+      - EA_AUDIOBOOK_VOCALLAB_MIN_REMAINING_POINTS=${EA_AUDIOBOOK_VOCALLAB_MIN_REMAINING_POINTS:-3000}
+      - EA_AUDIOBOOK_VOCALLAB_MAX_POINTS_PER_JOB=${EA_AUDIOBOOK_VOCALLAB_MAX_POINTS_PER_JOB:-6000}
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_TOPUP_POINTS=${EA_AUDIOBOOK_VOCALLAB_ALLOW_TOPUP_POINTS:-0}
+      - EA_AUDIOBOOK_VOCALLAB_ALLOWED_VOICE_CLASSES=${EA_AUDIOBOOK_VOCALLAB_ALLOWED_VOICE_CLASSES:-professional,consented_clone}
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES=${EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES:-0}
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES=${EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES:-0}
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL=${EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL:-0}
+      - EA_AUDIOBOOK_VOCALLAB_VOICE_CATALOG_FILE=${EA_AUDIOBOOK_VOCALLAB_VOICE_CATALOG_FILE:-config/vocallab_voice_catalog.local.json}
+      - EA_AUDIOBOOK_TTS_PROVIDER_ORDER=${EA_AUDIOBOOK_TTS_PROVIDER_ORDER:-unmixr,vocallab,piper_local}
+      - EA_AUDIOBOOK_TTS_ALLOW_CROSS_PROVIDER_FALLBACK=${EA_AUDIOBOOK_TTS_ALLOW_CROSS_PROVIDER_FALLBACK:-0}
       - EA_AUDIOBOOK_CINEMATIC_NARRATION=${EA_AUDIOBOOK_CINEMATIC_NARRATION:-1}
       - EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS=${EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS:-0}
       - EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST:-1800}
@@ -337,9 +468,6 @@ services:
         condition: service_healthy
       ea-db:
         condition: service_healthy
-    healthcheck:
-      disable: true
-
   ea-scheduler:
     build:
       context: .
@@ -377,6 +505,36 @@ services:
       - EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED=${EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED:-1}
       - EA_AUDIOBOOK_UNMIXR_AUTO_RENDER=${EA_AUDIOBOOK_UNMIXR_AUTO_RENDER:-1}
       - EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST:-1800}
+      - VOCALLAB_API_KEY=${VOCALLAB_API_KEY:-}
+      - VOCALLAB_API_KEY_FILE=${VOCALLAB_API_KEY_FILE:-config/vocallab_api_key}
+      - EA_AUDIOBOOK_VOCALLAB_ENABLED=${EA_AUDIOBOOK_VOCALLAB_ENABLED:-0}
+      - EA_AUDIOBOOK_VOCALLAB_AUTO_RENDER=${EA_AUDIOBOOK_VOCALLAB_AUTO_RENDER:-0}
+      - EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_ROTATION_REQUIRED=${EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_ROTATION_REQUIRED:-1}
+      - EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_PRODUCTION_ELIGIBLE=${EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_PRODUCTION_ELIGIBLE:-0}
+      - EA_AUDIOBOOK_VOCALLAB_BASE_URL=${EA_AUDIOBOOK_VOCALLAB_BASE_URL:-https://api.vocallab.ai}
+      - EA_AUDIOBOOK_VOCALLAB_MODEL=${EA_AUDIOBOOK_VOCALLAB_MODEL:-v-pro}
+      - EA_AUDIOBOOK_VOCALLAB_EXPRESSIVE_MODEL=${EA_AUDIOBOOK_VOCALLAB_EXPRESSIVE_MODEL:-v-studio}
+      - EA_AUDIOBOOK_VOCALLAB_DRAFT_MODEL=${EA_AUDIOBOOK_VOCALLAB_DRAFT_MODEL:-v-lite}
+      - EA_AUDIOBOOK_VOCALLAB_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_VOCALLAB_MAX_CHARS_PER_REQUEST:-1800}
+      - EA_AUDIOBOOK_VOCALLAB_REQUESTS_PER_MINUTE=${EA_AUDIOBOOK_VOCALLAB_REQUESTS_PER_MINUTE:-30}
+      - EA_AUDIOBOOK_VOCALLAB_MAX_IN_FLIGHT=${EA_AUDIOBOOK_VOCALLAB_MAX_IN_FLIGHT:-1}
+      - EA_AUDIOBOOK_VOCALLAB_MAX_SEGMENTS_PER_RUN=${EA_AUDIOBOOK_VOCALLAB_MAX_SEGMENTS_PER_RUN:-10}
+      - EA_AUDIOBOOK_VOCALLAB_TIMEOUT_SECONDS=${EA_AUDIOBOOK_VOCALLAB_TIMEOUT_SECONDS:-120}
+      - EA_AUDIOBOOK_VOCALLAB_POLL_INTERVAL_SECONDS=${EA_AUDIOBOOK_VOCALLAB_POLL_INTERVAL_SECONDS:-2}
+      - EA_AUDIOBOOK_VOCALLAB_POLL_TIMEOUT_SECONDS=${EA_AUDIOBOOK_VOCALLAB_POLL_TIMEOUT_SECONDS:-180}
+      - EA_AUDIOBOOK_VOCALLAB_OUTPUT_FORMAT=${EA_AUDIOBOOK_VOCALLAB_OUTPUT_FORMAT:-WAV}
+      - EA_AUDIOBOOK_VOCALLAB_SAMPLE_RATE=${EA_AUDIOBOOK_VOCALLAB_SAMPLE_RATE:-44100}
+      - EA_AUDIOBOOK_VOCALLAB_MAX_AUDIO_BYTES=${EA_AUDIOBOOK_VOCALLAB_MAX_AUDIO_BYTES:-33554432}
+      - EA_AUDIOBOOK_VOCALLAB_MIN_REMAINING_POINTS=${EA_AUDIOBOOK_VOCALLAB_MIN_REMAINING_POINTS:-3000}
+      - EA_AUDIOBOOK_VOCALLAB_MAX_POINTS_PER_JOB=${EA_AUDIOBOOK_VOCALLAB_MAX_POINTS_PER_JOB:-6000}
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_TOPUP_POINTS=${EA_AUDIOBOOK_VOCALLAB_ALLOW_TOPUP_POINTS:-0}
+      - EA_AUDIOBOOK_VOCALLAB_ALLOWED_VOICE_CLASSES=${EA_AUDIOBOOK_VOCALLAB_ALLOWED_VOICE_CLASSES:-professional,consented_clone}
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES=${EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES:-0}
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES=${EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES:-0}
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL=${EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL:-0}
+      - EA_AUDIOBOOK_VOCALLAB_VOICE_CATALOG_FILE=${EA_AUDIOBOOK_VOCALLAB_VOICE_CATALOG_FILE:-config/vocallab_voice_catalog.local.json}
+      - EA_AUDIOBOOK_TTS_PROVIDER_ORDER=${EA_AUDIOBOOK_TTS_PROVIDER_ORDER:-unmixr,vocallab,piper_local}
+      - EA_AUDIOBOOK_TTS_ALLOW_CROSS_PROVIDER_FALLBACK=${EA_AUDIOBOOK_TTS_ALLOW_CROSS_PROVIDER_FALLBACK:-0}
       - EA_AUDIOBOOK_CINEMATIC_NARRATION=${EA_AUDIOBOOK_CINEMATIC_NARRATION:-1}
       - EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS=${EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS:-0}
       - EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST:-1800}
@@ -445,9 +603,6 @@ services:
         condition: service_healthy
       ea-db:
         condition: service_healthy
-    healthcheck:
-      disable: true
-
   ea-proactive-ooda:
     image: ea-runtime:latest
     container_name: ea-proactive-ooda
@@ -463,6 +618,8 @@ services:
     working_dir: /app
     environment:
       - EA_PROACTIVE_OODA_ENABLED=${EA_PROACTIVE_OODA_ENABLED:-0}
+      - VOCALLAB_API_KEY=
+      - VOCALLAB_API_KEY_FILE=
       - EA_PROACTIVE_OODA_ARMED_SEND=${EA_PROACTIVE_OODA_CONTAINER_ARMED_SEND:-1}
       - EA_PROACTIVE_OODA_INTERVAL_SECONDS=${EA_PROACTIVE_OODA_INTERVAL_SECONDS:-900}
       - EA_PROACTIVE_OODA_STATE_PATH=${EA_PROACTIVE_OODA_CONTAINER_STATE_PATH:-/data/provider-ledger/proactive_ooda_notified.json}
@@ -476,10 +633,50 @@ services:
       - TZ=Europe/Vienna
     volumes:
       - ./:/app:ro
+      - type: bind
+        source: /dev/null
+        target: /app/.env
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: tmpfs
+        target: /app/config
+        tmpfs:
+          size: 65536
+          mode: 365
+      - type: bind
+        source: ./config/onemin_api_keys.example.json
+        target: /app/config/onemin_api_keys.example.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/onemin_slot_owners.json
+        target: /app/config/onemin_slot_owners.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/places.yml
+        target: /app/config/places.yml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/tenants.yml
+        target: /app/config/tenants.yml
+        read_only: true
+        bind:
+          create_host_path: false
       - ./.codex-studio/published:/app/.codex-studio/published
       - ./.runtime:/app/.runtime
       - ${EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT:-./data/pocket-ai-audio}:/data/pocket-ai-audio
       - ea_provider_ledger:/data/provider-ledger
+      - type: tmpfs
+        target: /data/provider-ledger/vocallab
+        tmpfs:
+          size: 65536
+          mode: 365
     pids_limit: 256
     read_only: true
     cap_drop:
@@ -509,7 +706,14 @@ services:
           sleep "$${EA_PROACTIVE_OODA_INTERVAL_SECONDS:-900}"
         done
     healthcheck:
-      test: ["CMD-SHELL", "kill -0 1 && test -r /app/scripts/run_proactive_ooda.py"]
+      test:
+        - CMD-SHELL
+        - >
+          if [ "$${EA_PROACTIVE_OODA_ENABLED:-0}" = "1" ]; then
+            python /app/scripts/verify_proactive_ooda_live_receipt.py;
+          else
+            python -c "import pathlib; p=pathlib.Path('/app/scripts/run_proactive_ooda.py'); raise SystemExit(0 if p.exists() else 1)";
+          fi
       interval: 2m
       start_period: 2m
       timeout: 10s
@@ -529,6 +733,8 @@ services:
     working_dir: /app
     environment:
       - EA_TELEGRAM_TEABLE_SYNC_ENABLED=${EA_TELEGRAM_TEABLE_SYNC_ENABLED:-0}
+      - VOCALLAB_API_KEY=
+      - VOCALLAB_API_KEY_FILE=
       - EA_TELEGRAM_TEABLE_SYNC_INTERVAL_SECONDS=${EA_TELEGRAM_TEABLE_SYNC_INTERVAL_SECONDS:-60}
       - EA_TELEGRAM_TEABLE_SYNC_BATCH_SIZE=${EA_TELEGRAM_TEABLE_SYNC_BATCH_SIZE:-500}
       - EA_TELEGRAM_TEABLE_BASE_ID=${EA_TELEGRAM_TEABLE_BASE_ID:-}
@@ -542,6 +748,41 @@ services:
       - TZ=Europe/Vienna
     volumes:
       - ./:/app:ro
+      - type: bind
+        source: /dev/null
+        target: /app/.env
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: tmpfs
+        target: /app/config
+        tmpfs:
+          size: 65536
+          mode: 365
+      - type: bind
+        source: ./config/onemin_api_keys.example.json
+        target: /app/config/onemin_api_keys.example.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/onemin_slot_owners.json
+        target: /app/config/onemin_slot_owners.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/places.yml
+        target: /app/config/places.yml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/tenants.yml
+        target: /app/config/tenants.yml
+        read_only: true
+        bind:
+          create_host_path: false
       - ea_telegram_teable_sync:/data/telegram-teable-sync
     pids_limit: 256
     read_only: true
@@ -632,3 +873,11 @@ volumes:
   ea_provider_ledger: {}
   ea_whatsapp_web_actions:
     name: ea_whatsapp_web_actions
+
+networks:
+  public_ingress:
+    name: ${EA_PUBLIC_INGRESS_NETWORK_NAME:-ea_public_ingress}
+    ipam:
+      config:
+        - subnet: ${EA_PUBLIC_INGRESS_SUBNET:-172.31.254.0/29}
+          gateway: ${EA_PUBLIC_INGRESS_GATEWAY:-172.31.254.1}

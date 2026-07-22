@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT_PATH = ROOT / "ea" / "scripts" / "prepare_memorial_unmixr_refresh_packet.py"
+SCRIPT_PATH = ROOT / "scripts" / "prepare_memorial_unmixr_refresh_packet.py"
 
 
 def _load_module():

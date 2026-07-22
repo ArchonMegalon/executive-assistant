@@ -24,10 +24,11 @@ SYNC_ARTIFACTS = [
     Path(".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json"),
     Path(".codex-studio/published/memorial_realtime_browser_public_origin.generated.json"),
     Path(".codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json"),
-    Path(".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json"),
-    Path(".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json"),
+    Path(".codex-studio/published/memorial_spatial_tour_public_origin.generated.json"),
     Path(".codex-design/product/PROJECT_MODES.generated.json"),
     Path(".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json"),
+    Path(".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json"),
+    Path(".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json"),
 ]
 
 
@@ -215,6 +216,21 @@ def build_meaningful_browser_receipt_command(args: argparse.Namespace) -> list[s
     ]
 
 
+def build_spatial_receipt_command(args: argparse.Namespace) -> list[str]:
+    return [
+        args.python_bin,
+        "scripts/materialize_memorial_spatial_tour_public_origin.py",
+        "--deploy-receipt",
+        str(args.spatial_deploy_receipt),
+        "--candidate-browser-receipt",
+        str(args.spatial_candidate_browser_receipt),
+        "--public-base-url",
+        args.base_url,
+        "--output",
+        ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json",
+    ]
+
+
 def _copy_artifacts_from_clean_clone(clean_root: Path, destination_root: Path) -> list[str]:
     copied: list[str] = []
     for relpath in SYNC_ARTIFACTS:
@@ -258,6 +274,12 @@ def main() -> int:
     parser.add_argument("--browser-first-answer-ms", type=float, default=4500.0)
     parser.add_argument("--meaningful-browser-first-answer-ms", type=float, default=8000.0)
     parser.add_argument("--meaningful-prompt", default="Was war dir bei Gerechtigkeit wichtig?")
+    parser.add_argument("--spatial-deploy-receipt", type=Path, required=True)
+    parser.add_argument(
+        "--spatial-candidate-browser-receipt",
+        type=Path,
+        required=True,
+    )
     args = parser.parse_args()
     args.python_bin = _resolve_python_bin(args.python_bin)
 
@@ -271,13 +293,14 @@ def main() -> int:
         (build_voice_receipt_command(args), (SYNC_ARTIFACTS[1],)),
         (build_browser_receipt_command(args), (SYNC_ARTIFACTS[2],)),
         (build_meaningful_browser_receipt_command(args), (SYNC_ARTIFACTS[3],)),
+        (build_spatial_receipt_command(args), (SYNC_ARTIFACTS[4],)),
     ):
         copied.extend(_run_clean_clone_command(cmd, clone_env, outputs))
 
-    _run([args.python_bin, "scripts/materialize_whole_project_gold_map.py"], cwd=ROOT, env=clone_env)
     _run([args.python_bin, "scripts/materialize_project_mode_manifests.py"], cwd=ROOT, env=clone_env)
+    _run([args.python_bin, "scripts/materialize_whole_project_gold_map.py"], cwd=ROOT, env=clone_env)
     _run([args.python_bin, "scripts/materialize_memorial_operator_status.py"], cwd=ROOT, env=clone_env)
-    for relpath in SYNC_ARTIFACTS[4:]:
+    for relpath in SYNC_ARTIFACTS[5:]:
         if (ROOT / relpath).exists() and relpath.as_posix() not in copied:
             copied.append(relpath.as_posix())
 
@@ -288,6 +311,7 @@ def main() -> int:
         "public_voice_receipt": ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
         "public_browser_receipt": ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
         "public_meaningful_browser_receipt": ".codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json",
+        "spatial_tour_receipt": ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json",
         "source_worktree": source_worktree,
     }
     print(json.dumps(payload, ensure_ascii=False))

@@ -7,7 +7,7 @@ import os
 import sys
 from datetime import datetime, time as datetime_time, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -516,7 +516,7 @@ def _load_json_payload(path: Path) -> dict[str, Any]:
 
 
 def _apply_operator_status_receipt_fallback(report: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
-    if not bool(getattr(args, "allow_operator_status_receipt_fallback", True)):
+    if not bool(getattr(args, "allow_operator_status_receipt_fallback", False)):
         return report
     receipt_path = _resolved_operator_status_receipt_path(args)
     receipt = _load_json_payload(receipt_path)

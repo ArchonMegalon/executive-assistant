@@ -13,7 +13,9 @@ BASE_URL = "https://ea.example"
 SLUG = "flagship-tour"
 VIDEO_BYTES = b"reviewed-mp4-video"
 VIEWER_BYTES = b"<!doctype html><html><body><canvas></canvas></body></html>"
-VIDEO_DISCLOSURE = "Generated synthetic walkthrough; not a captured or provider-verified scan."
+VIDEO_DISCLOSURE = (
+    "Generated synthetic walkthrough; not a captured or provider-verified scan."
+)
 VIEWER_DISCLOSURE = (
     "Generated interactive reconstruction; not a captured or provider-verified 3D scan."
 )
@@ -115,14 +117,23 @@ def _origin_fetcher(
             headers={"content-type": "text/html; charset=utf-8"},
             body=html_body if html_body is not None else _html(),
         ),
-        ("HEAD", f"/tours/files/{SLUG}/generated-reconstruction/walkthrough.mp4"): _receipt(
+        (
+            "HEAD",
+            f"/tours/files/{SLUG}/generated-reconstruction/walkthrough.mp4",
+        ): _receipt(
             headers=_video_headers(),
         ),
-        ("GET", f"/tours/files/{SLUG}/generated-reconstruction/walkthrough.mp4"): _receipt(
+        (
+            "GET",
+            f"/tours/files/{SLUG}/generated-reconstruction/walkthrough.mp4",
+        ): _receipt(
             headers=_video_headers(),
             body=VIDEO_BYTES,
         ),
-        ("HEAD", f"/tours/viewer/{SLUG}/generated-reconstruction/viewer.html"): _receipt(
+        (
+            "HEAD",
+            f"/tours/viewer/{SLUG}/generated-reconstruction/viewer.html",
+        ): _receipt(
             headers=_viewer_headers(),
         ),
         ("GET", f"/tours/viewer/{SLUG}/generated-reconstruction/viewer.html"): _receipt(
@@ -185,14 +196,18 @@ def test_deployment_verifier_blocks_propertyquarry_style_video_url_without_relea
     payload.pop("generated_viewer")
     fetcher, calls = _origin_fetcher(
         payload,
-        html_body=_html("This surface does not claim a captured or provider-verified 3D scan."),
+        html_body=_html(
+            "This surface does not claim a captured or provider-verified 3D scan."
+        ),
     )
     monkeypatch.setattr(verifier, "_http_fetch", fetcher)
 
     receipt = verifier.verify_deployment(base_url=BASE_URL, slug=SLUG)
 
     assert receipt["pass"] is False
-    assert any(row["code"] == "video_url_without_release" for row in receipt["blockers"])
+    assert any(
+        row["code"] == "video_url_without_release" for row in receipt["blockers"]
+    )
     assert calls == [("GET", f"/tours/{SLUG}.json"), ("GET", f"/tours/{SLUG}")]
 
 
@@ -204,7 +219,10 @@ def test_deployment_verifier_does_not_follow_redirected_public_json(
         mutations={
             ("GET", f"/tours/{SLUG}.json"): {
                 "status": 302,
-                "headers": {"content-type": "text/html", "location": "https://other.example/tour"},
+                "headers": {
+                    "content-type": "text/html",
+                    "location": "https://other.example/tour",
+                },
                 "body": b"",
             }
         },
@@ -287,7 +305,9 @@ def test_deployment_verifier_rejects_unsafe_entrypoints_without_network(
     monkeypatch.setattr(
         verifier,
         "_http_fetch",
-        lambda *_args, **_kwargs: pytest.fail("unsafe inputs must not trigger a request"),
+        lambda *_args, **_kwargs: pytest.fail(
+            "unsafe inputs must not trigger a request"
+        ),
     )
 
     receipt = verifier.verify_deployment(base_url=origin, slug=slug)

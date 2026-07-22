@@ -10,53 +10,18 @@ PropertyQuarry generation, promotion, and public deployment: `blocked`
 
 ## Decision
 
-Do not promote the separate generated reconstruction proof as a flagship 3D
-tour, and do not mistake the priority control tour's PDF floorplan fallback for
-interactive 3D.
+Do not promote the current generated reconstruction as a flagship 3D tour.
 EA now has a fail-closed viewer/video publication lane, but EA is not the
 renderer or the `propertyquarry.com` release authority. PropertyQuarry must
 produce and promote a new provenance-bound bundle through its governed
 execution bridge before this gate can pass.
 
 This is a release decision, not a claim that generation is absent. The current
-priority route is a coherent first-party guided-tour shell with a one-scene PDF
-floorplan fallback. A different proof route has an interactive generated
-viewer, but its spatial output is still visibly proof-grade: placeholder-like
-photo panels, very low-detail geometry, and source provenance rooted in
-test/tmp paths. Neither artifact satisfies the flagship interactive-3D gate.
+viewer is interactive and the public guided-tour layout is coherent. Its
+spatial output is still visibly proof-grade: placeholder-like photo panels,
+very low-detail geometry, and source provenance rooted in test/tmp paths.
 
-## Priority control-tour truth
-
-Re-observed at `2026-07-13T16:45:30Z`:
-
-- `https://myexternalbrain.com/tours/360-tour-balkon-wohnung-in-neustift-layout-first-0146e6f9c6`
-  returns HTTP 200.
-- Its public JSON SHA-256 is
-  `57160de8f9d8378d8f8b1421d471b5de18f4f3a2fa40970629746b1ac8e0cd64`.
-- The JSON reports `creation_mode=hosted_floorplan_tour` with exactly one
-  scene: role `floorplan`, MIME type `application/pdf`.
-- It has no generated-viewer or generated-video release projection.
-- Its release posture is `fallback_only_not_flagship_3d`.
-
-This is the exact priority slug protected by the Manfred memorial scoped
-deployment gate. Preserving its JSON digest proves compatibility only; it does
-not prove real 3D generation or flagship visual quality.
-
-## Separate rejected reconstruction proof
-
-Re-observed at `2026-07-13T16:45:30Z`:
-
-- `https://propertyquarry.com/tours/maisonette-with-balcony-layout-first-c3d1b14c44`
-  returns HTTP 200.
-- Its public JSON SHA-256 is
-  `5203fe59a7473261b0a8aab0e1f206f1565da67e2fed7a62934b74422311ba4b`.
-- It reports `creation_mode=generated_reconstruction_tour` and advertises a
-  generated viewer, walkthrough video, two photo textures, and source
-  floorplan assets.
-- It is not the priority control-tour slug and cannot supply evidence for that
-  route by implication.
-
-## Historical reconstruction receipt
+## Current production receipt
 
 Observed at `2026-07-13T06:18:06Z`:
 
@@ -183,13 +148,10 @@ The command is read-only, emits one deterministic JSON receipt, and exits
 nonzero for any blocker. A local policy pass is necessary but not sufficient:
 the same revision and digests must pass against the final public origin.
 
-The historical `130 passed` combined-suite claim is not bound to a durable
-receipt and is therefore not accepted as launch evidence. The current bound
-local checkpoint covers 30 focused governed-spatial tests with zero failures;
-that focused result proves fail-closed EA policy behavior only. PropertyQuarry
-must rerun the complete release, quarantine, registration, permission, repair,
-viewer, and browser suites and persist the exact command, source revision,
-timestamp, and result digest during promotion.
+Focused EA regression state at this handoff: `130 passed` in one combined
+release, quarantine, scene-less renderer, registration, permission, repair,
+and verifier run before the final runtime restart. The suite must be rerun and
+recorded again during PropertyQuarry promotion.
 
 ## Promotion sequence
 

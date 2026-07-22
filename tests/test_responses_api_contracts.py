@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import inspect
 import json
@@ -4307,6 +4308,67 @@ def test_responses_stream_emits_sse_events(monkeypatch: pytest.MonkeyPatch) -> N
     assert "data: [DONE]" in body
 
 
+def test_completed_text_response_stream_emits_prompt_trace_once_before_answer() -> None:
+    from app.api.routes import responses
+
+    trace_line = "[route: easy -> core]"
+    answer = "completed answer"
+    response = responses._completed_text_response(
+        request=responses._ResponsesCreateRequest(stream=True, store=False),
+        response_id="resp_completed_trace",
+        item_id="msg_completed_trace",
+        model="ea-coder-hard",
+        created_at=1,
+        text=answer,
+        metadata={},
+        instructions=None,
+        input_items=[],
+        history_items=[],
+        principal_id="trace-test",
+        container=None,
+        reasoning=None,
+        max_output_tokens=None,
+        prompt_route_trace_line=trace_line,
+    )
+
+    async def _collect_body() -> str:
+        chunks: list[str] = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
+        return "".join(chunks)
+
+    body = asyncio.run(_collect_body())
+    events: list[tuple[str, dict[str, object]]] = []
+    for frame in body.split("\n\n"):
+        lines = frame.splitlines()
+        if len(lines) != 2 or not lines[0].startswith("event: ") or not lines[1].startswith("data: "):
+            continue
+        events.append(
+            (
+                lines[0].removeprefix("event: "),
+                json.loads(lines[1].removeprefix("data: ")),
+            )
+        )
+
+    assert [event for event, _ in events] == [
+        "response.created",
+        "response.in_progress",
+        "response.output_item.added",
+        "response.content_part.added",
+        "response.output_text.delta",
+        "response.output_text.delta",
+        "response.output_text.done",
+        "response.content_part.done",
+        "response.output_item.done",
+        "response.completed",
+        "response.done",
+    ]
+    deltas = [data["delta"] for event, data in events if event == "response.output_text.delta"]
+    assert deltas == [trace_line, answer]
+    assert deltas.count(trace_line) == 1
+    assert deltas.count(answer) == 1
+
+
 def test_responses_stream_emits_keepalive_while_waiting(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-test")
     from app.api.routes import responses
@@ -6057,6 +6119,10 @@ def test_core_batch_stream_emits_heartbeats_until_completion(monkeypatch: pytest
     assert '"heartbeat":true' in body
     assert "event: response.completed" in body
     assert "stream batch done" in body
+    assert body.index("event: response.created") < body.index('"heartbeat":true')
+    assert body.index('"heartbeat":true') < body.index("event: response.completed")
+    assert body.count("event: response.completed") == 1
+    assert body.count("event: response.done") == 1
 
 
 def test_core_batch_late_completion_stays_failed_after_timeout(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -545,6 +545,67 @@ def test_live_whatsapp_audiobook_delivery_receipt_surfaces_whatsapp_playback_acc
     assert receipt["privacy"]["playback_acceptance_feedback_hashed"] is True
 
 
+def test_live_whatsapp_receipt_mixed_accepted_and_pending_normalizes_root_claims_and_verifies(
+    tmp_path: Path,
+) -> None:
+    materializer = _load_script(
+        "materialize_whatsapp_audiobook_live_delivery_receipt"
+    )
+    verifier = _load_script("verify_whatsapp_audiobook_live_delivery_receipt")
+    materializer.audiobook_runtime_preflight = lambda: _runtime_preflight_ready()
+    materializer._runtime_container_preflight = lambda: {}
+    accepted = _job_receipt(
+        job_id="accepted-completed-delivery",
+        playback_accepted=True,
+    )
+    pending = _job_receipt(
+        job_id="distinct-pending-delivery",
+        status="rendering",
+        render_status="rendering",
+        voice_selected_by_user=True,
+    )
+    pending["source"]["source_sha256"] = "a" * 64
+    receipt_path = tmp_path / "mixed-accepted-pending.generated.json"
+
+    receipt = materializer.build_receipt(
+        output_path=receipt_path,
+        job_receipts=[accepted, pending],
+        generated_at="2026-06-21T08:25:00Z",
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["live_delivery_claim_scope"] == "none"
+    for field in (
+        "live_delivery_claim_allowed",
+        "fresh_live_job_receipt_proven",
+        "machine_playback_e2e_verified",
+        "real_user_playback_acceptance_verified",
+        "human_playback_acceptance_claim_allowed",
+        "canary_completion_claim_allowed",
+        "goal_completion_claim_allowed",
+    ):
+        assert receipt[field] is False
+    human_evidence = receipt["human_playback_acceptance_evidence"]
+    assert human_evidence["status"] == "not_human_verified"
+    assert human_evidence["accepted"] is False
+    assert human_evidence["claim_allowed"] is False
+    selected = receipt["selected_delivery"]
+    assert selected["job_id_sha256"] == _sha256("accepted-completed-delivery")
+    assert selected["projection_scope"] == "historical_non_claim_evidence"
+    assert selected["current_claim_allowed"] is False
+    assert selected["historical_human_acceptance_observed"] is True
+    assert selected["playback_acceptance_verified"] is False
+    assert selected["canary_completion_claim_allowed"] is False
+    assert selected["human_listened_canary"]["claim_allowed"] is False
+    assert selected["human_listened_canary"]["projection_scope"] == (
+        "historical_non_claim_evidence"
+    )
+    assert verifier.verify(
+        receipt_path,
+        now=datetime(2026, 6, 21, 8, 30, tzinfo=UTC),
+    ) == []
+
+
 def test_whatsapp_load_error_forces_valid_accepted_delivery_to_nonclaiming_blocked_state(
     tmp_path: Path,
 ) -> None:
@@ -1537,6 +1598,31 @@ def test_live_whatsapp_receipt_isolates_malformed_numeric_job_per_candidate(
     ]
     serialized = json.dumps(receipt, allow_nan=False, sort_keys=True)
     assert "PRIVATE MALFORMED WHATSAPP TITLE" not in serialized
+
+
+def test_live_whatsapp_receipt_isolates_malformed_pending_render_index(
+    tmp_path: Path,
+) -> None:
+    module = _load_script("materialize_whatsapp_audiobook_live_delivery_receipt")
+    malformed = _job_receipt(
+        job_id="malformed-pending-render-index",
+        status="waiting_voice_selection",
+        render_status="waiting_voice_selection",
+        voice_choice_pending=True,
+    )
+    malformed["render"]["chapter_index"] = "not-an-int"
+
+    receipt = module.build_receipt(
+        output_path=tmp_path / "malformed-pending-render.generated.json",
+        job_receipts=[malformed],
+        generated_at="2026-06-21T08:20:00Z",
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["live_delivery_claim_allowed"] is False
+    assert receipt["pending_user_selected_voice_job_count"] == 0
+    assert "malformed_job_receipt" in receipt["failed_codes"]
+    assert receipt["failed_candidates"][0]["status"] == "malformed_job_receipt"
 
 
 def test_whatsapp_scan_never_falls_back_to_stale_same_dir_after_build_error(

@@ -475,20 +475,35 @@ def _memorial_runtime_status(request: Request) -> dict[str, object]:
     }
 
 
+def _public_gate_projection(value: object) -> dict[str, object]:
+    gate = dict(value) if isinstance(value, dict) else {}
+    issues = gate.get("issues")
+    issue_count = len(issues) if isinstance(issues, list) else 0
+    projection: dict[str, object] = {
+        "contract_name": str(gate.get("contract_name") or ""),
+        "status": str(gate.get("status") or "error"),
+        "issue_count": issue_count,
+    }
+    authority_posture = str(gate.get("authority_posture") or "").strip()
+    if authority_posture:
+        projection["authority_posture"] = authority_posture
+    return projection
+
+
 def _redact_release_authority(summary: dict[str, object]) -> dict[str, object]:
     return {
         "state": str(summary.get("state") or "missing"),
         "authority_posture": str(summary.get("authority_posture") or "missing_manifest"),
         "source": str(summary.get("source") or "manifest_fallback"),
-        "gate": dict(summary.get("gate") or {}),
-        "deploy_context_gate": dict(summary.get("deploy_context_gate") or {}),
+        "gate": _public_gate_projection(summary.get("gate")),
+        "deploy_context_gate": _public_gate_projection(summary.get("deploy_context_gate")),
     }
 
 
 def _redact_runtime_supply_chain(summary: dict[str, object]) -> dict[str, object]:
     return {
         "state": str(summary.get("state") or "watch"),
-        "gate": dict(summary.get("gate") or {}),
+        "gate": _public_gate_projection(summary.get("gate")),
     }
 
 
@@ -550,9 +565,12 @@ async def health_ready(container: AppContainer = Depends(get_container)) -> dict
 
 
 @router.get("/version")
-async def version(request: Request, container: AppContainer = Depends(get_container)) -> dict[str, str]:
+async def version(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+) -> dict[str, str | bool]:
     release_authority_summary = build_product_service(container).release_authority_summary()
-    payload = {
+    payload: dict[str, str | bool] = {
         "app_name": container.settings.app_name,
         "version": container.settings.app_version,
         "role": container.settings.role,
@@ -570,6 +588,17 @@ async def version(request: Request, container: AppContainer = Depends(get_contai
             "branch": str(release_authority_summary.get("branch") or ""),
             "tracking_branch": str(release_authority_summary.get("tracking_branch") or ""),
             "commit_sha": str(release_authority_summary.get("commit_sha") or ""),
+            "source_remote_ref": str(release_authority_summary.get("source_remote_ref") or ""),
+            "source_remote_ref_commit_sha": str(
+                release_authority_summary.get("source_remote_ref_commit_sha") or ""
+            ),
+            "source_remote_ref_evidence": str(
+                release_authority_summary.get("source_remote_ref_evidence") or ""
+            ),
+            "source_commit_reachable_from_remote_ref": (
+                release_authority_summary.get("source_commit_reachable_from_remote_ref")
+                is True
+            ),
             "deployment_id": str(release_authority_summary.get("deployment_id") or ""),
             "deployment_id_source": str(release_authority_summary.get("deployment_id_source") or ""),
             "public_origin": str(release_authority_summary.get("public_origin") or ""),

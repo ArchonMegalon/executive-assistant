@@ -226,10 +226,10 @@ def test_memorial_deploy_readiness_fails_closed_for_incomplete_authority(
     assert payload["release_authority"]["status"] == "fail"
 
 
-def test_memorial_make_target_uses_scoped_lane_and_orders_authority_readiness() -> None:
+def test_memorial_make_target_uses_joint_lane_and_orders_authority_readiness() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     deploy_alias = makefile.split("deploy-ea-memorial:", 1)[1].split("\n\n", 1)[0]
-    scoped_target = makefile.split("deploy-ea-memorial-scoped:\n", 1)[1].split(
+    joint_target = makefile.split("deploy-ea-memorial-joint:\n", 1)[1].split(
         "\n\n", 1
     )[0]
     readiness_target = makefile.split(
@@ -237,10 +237,11 @@ def test_memorial_make_target_uses_scoped_lane_and_orders_authority_readiness() 
         1,
     )[1].split("\n\n", 1)[0]
 
-    assert "deploy-ea-memorial-scoped" in deploy_alias
-    assert "EA_DEPLOYMENT_ID" in scoped_target
-    assert "scripts/deploy_ea_memorial.py" in scoped_target
-    assert "scripts/deploy.sh" not in deploy_alias + scoped_target
+    assert "deploy-ea-memorial-joint" in deploy_alias
+    assert "EA_DEPLOYMENT_ID" in joint_target
+    assert "EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT" in joint_target
+    assert "scripts/deploy_ea_memorial_joint.py" in joint_target
+    assert "scripts/deploy.sh" not in deploy_alias + joint_target
     assert readiness_target.index(
         "scripts/materialize_memorial_operator_status.py"
     ) < readiness_target.index("scripts/verify_memorial_deploy_readiness.py")

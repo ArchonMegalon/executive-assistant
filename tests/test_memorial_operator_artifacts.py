@@ -2,11 +2,20 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
+import sys
 from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _load_module(path_str: str, name: str):
     path = Path(path_str)
+    try:
+        path = REPO_ROOT / path.relative_to("/docker/EA")
+    except ValueError:
+        pass
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -158,7 +167,14 @@ def test_memorial_operator_status_materializer_summarizes_blocked_public_gold(tm
             "reason": "public_origin_not_deployed_in_memorial_mode",
         },
     )
-    assert module.main() == 0
+    assert module.main(
+        [
+            "--output",
+            str(tmp_path / "operator_status.json"),
+            "--release-authority-status",
+            str(release_authority_status),
+        ]
+    ) == 0
     payload = __import__("json").loads((tmp_path / "operator_status.json").read_text(encoding="utf-8"))
     assert payload["current_label"] == "Memorial public-origin gold: blocked"
     assert payload["local_release_candidate"] == "pass"
@@ -281,9 +297,11 @@ def test_memorial_operator_status_marks_whole_project_gold_pass_only_when_map_al
                 "public_gold_issues": [],
                 "public_browser_gold_issues": [],
                 "public_meaningful_browser_gold_issues": [],
-                "memorial_surface_contract_issues": [],
-                "room_audio_issues": [],
-                "next_action": "maintain_memorial_public_origin_gold",
+                    "memorial_surface_contract_issues": [],
+                    "room_audio_issues": [],
+                    "public_spatial_tour_issues": [],
+                    "public_spatial_tour_receipt": ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json",
+                    "next_action": "maintain_memorial_public_origin_gold",
                 "blocker_summary": {"blocked_component_keys": [], "blocked_count": 0},
             }
             if "verify_memorial_gold_readiness" in script
@@ -316,7 +334,7 @@ def test_memorial_operator_status_marks_whole_project_gold_pass_only_when_map_al
             "reason": "memorial_runtime_declared",
         },
     )
-    assert module.main() == 0
+    assert module.main(["--output", str(tmp_path / "operator_status.json")]) == 0
     payload = json.loads((tmp_path / "operator_status.json").read_text(encoding="utf-8"))
     assert payload["whole_project_gold"] == "pass"
     assert payload["public_browser_meaningful_receipt"] == "pass"
@@ -1210,13 +1228,15 @@ def test_memorial_operator_status_keeps_memorial_pass_when_unrelated_whole_proje
                 "public_gold_issues": [],
                 "public_browser_gold_issues": [],
                 "room_audio_issues": [],
+                "public_spatial_tour_issues": [],
+                "public_spatial_tour_receipt": ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json",
             }
             if "verify_memorial_gold_readiness" in script
             else {"status": "pass"}
         ),
     )
 
-    assert module.main() == 0
+    assert module.main(["--output", str(tmp_path / "operator_status.json")]) == 0
     payload = json.loads((tmp_path / "operator_status.json").read_text(encoding="utf-8"))
     assert payload["current_label"] == "Memorial public-origin gold: pass"
     assert payload["whole_project_gold"] == "blocked"
@@ -1249,13 +1269,15 @@ def test_memorial_operator_status_fails_closed_when_whole_project_verifier_block
                 "public_gold_issues": [],
                 "public_browser_gold_issues": [],
                 "room_audio_issues": [],
+                "public_spatial_tour_issues": [],
+                "public_spatial_tour_receipt": ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json",
             }
             if "verify_memorial_gold_readiness" in script
             else {"status": "blocked", "issues": ["whole-project gold map is stale relative to current HEAD"]}
         ),
     )
 
-    assert module.main() == 0
+    assert module.main(["--output", str(tmp_path / "operator_status.json")]) == 0
     payload = json.loads((tmp_path / "operator_status.json").read_text(encoding="utf-8"))
     assert payload["whole_project_gold"] == "blocked"
     assert payload["current_label"] == "Memorial public-origin gold: pass"
@@ -1324,7 +1346,7 @@ def test_memorial_operator_status_uses_source_state_head(tmp_path, monkeypatch) 
         ),
     )
 
-    assert module.main() == 0
+    assert module.main(["--output", str(tmp_path / "operator_status.json")]) == 0
     payload = json.loads((tmp_path / "operator_status.json").read_text(encoding="utf-8"))
     assert payload["source_git_head"] == "SOURCE_HEAD"
     assert payload["source_worktree_dirty"] is False
@@ -1393,7 +1415,7 @@ def test_memorial_operator_status_reports_dirty_source_snapshot(tmp_path, monkey
         ),
     )
 
-    assert module.main() == 0
+    assert module.main(["--output", str(tmp_path / "operator_status.json")]) == 0
     payload = json.loads((tmp_path / "operator_status.json").read_text(encoding="utf-8"))
     assert payload["source_git_head"] == "SOURCE_HEAD"
     assert payload["source_worktree_dirty"] is True
@@ -1513,7 +1535,7 @@ def test_memorial_operator_status_routes_dirty_source_to_verifier_when_verifier_
         ),
     )
 
-    assert module.main() == 0
+    assert module.main(["--output", str(tmp_path / "operator_status.json")]) == 0
     payload = json.loads((tmp_path / "operator_status.json").read_text(encoding="utf-8"))
 
     assert payload["source_dirty_verifier"]["status"] == "blocked"
@@ -1830,12 +1852,15 @@ def test_memorial_public_gold_clean_materializer_builds_expected_commands() -> N
         browser_first_answer_ms = 4500.0
         meaningful_browser_first_answer_ms = 8000.0
         meaningful_prompt = "Was war dir bei Gerechtigkeit wichtig?"
+        spatial_deploy_receipt = Path("/private/deploy-receipt.json")
+        spatial_candidate_browser_receipt = Path("/private/candidate-browser-receipt.json")
 
     local_voice = module.build_local_voice_receipt_command(_Args())
     voice = module.build_voice_receipt_command(_Args())
     browser = module.build_browser_receipt_command(_Args())
     meaningful = module.build_meaningful_browser_receipt_command(_Args())
     room = module.build_room_receipt_command(_Args())
+    spatial = module.build_spatial_receipt_command(_Args())
 
     assert local_voice[:2] == ["python3", "scripts/materialize_memorial_voice_roundtrip_exit_gate.py"]
     assert ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json" in local_voice
@@ -1858,6 +1883,31 @@ def test_memorial_public_gold_clean_materializer_builds_expected_commands() -> N
     assert "--normal-spoken-turn-confirmed" in room
     assert "--interruption-behavior-confirmed" in room
     assert "--retry-path-confirmed" in room
+    assert spatial == [
+        "python3",
+        "scripts/materialize_memorial_spatial_tour_public_origin.py",
+        "--deploy-receipt",
+        "/private/deploy-receipt.json",
+        "--candidate-browser-receipt",
+        "/private/candidate-browser-receipt.json",
+        "--public-base-url",
+        "https://example.com",
+        "--output",
+        ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json",
+    ]
+    assert module.SYNC_ARTIFACTS.index(
+        Path(".codex-studio/published/memorial_spatial_tour_public_origin.generated.json")
+    ) < module.SYNC_ARTIFACTS.index(
+        Path(".codex-design/product/PROJECT_MODES.generated.json")
+    )
+    assert module.SYNC_ARTIFACTS.index(
+        Path(".codex-design/product/PROJECT_MODES.generated.json")
+    ) < module.SYNC_ARTIFACTS.index(
+        Path(".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json")
+    )
+    assert module.SYNC_ARTIFACTS[-1] == Path(
+        ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json"
+    )
 
 
 def test_memorial_public_gold_clean_resolves_bare_python_from_path(monkeypatch) -> None:
@@ -1925,11 +1975,14 @@ def test_memorial_public_auto_receipts_clean_builds_expected_commands() -> None:
         browser_first_answer_ms = 4500.0
         meaningful_browser_first_answer_ms = 8000.0
         meaningful_prompt = "Was war dir bei Gerechtigkeit wichtig?"
+        spatial_deploy_receipt = Path("/private/deploy-receipt.json")
+        spatial_candidate_browser_receipt = Path("/private/candidate-browser-receipt.json")
 
     local_voice = module.build_local_voice_receipt_command(_Args())
     voice = module.build_voice_receipt_command(_Args())
     browser = module.build_browser_receipt_command(_Args())
     meaningful = module.build_meaningful_browser_receipt_command(_Args())
+    spatial = module.build_spatial_receipt_command(_Args())
 
     assert local_voice[:2] == ["python3", "scripts/materialize_memorial_voice_roundtrip_exit_gate.py"]
     assert ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json" in local_voice
@@ -1943,6 +1996,51 @@ def test_memorial_public_auto_receipts_clean_builds_expected_commands() -> None:
     assert meaningful[:2] == ["python3", "scripts/measure_memorial_live_browser.py"]
     assert "--text-prompt" in meaningful
     assert "Was war dir bei Gerechtigkeit wichtig?" in meaningful
+    assert spatial == [
+        "python3",
+        "scripts/materialize_memorial_spatial_tour_public_origin.py",
+        "--deploy-receipt",
+        "/private/deploy-receipt.json",
+        "--candidate-browser-receipt",
+        "/private/candidate-browser-receipt.json",
+        "--public-base-url",
+        "https://example.com",
+        "--output",
+        ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json",
+    ]
+    assert module.SYNC_ARTIFACTS.index(
+        Path(".codex-studio/published/memorial_spatial_tour_public_origin.generated.json")
+    ) < module.SYNC_ARTIFACTS.index(
+        Path(".codex-design/product/PROJECT_MODES.generated.json")
+    )
+    assert module.SYNC_ARTIFACTS.index(
+        Path(".codex-design/product/PROJECT_MODES.generated.json")
+    ) < module.SYNC_ARTIFACTS.index(
+        Path(".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json")
+    )
+    assert module.SYNC_ARTIFACTS[-1] == Path(
+        ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json"
+    )
+
+
+def test_memorial_clean_materializers_require_explicit_spatial_input_receipts() -> None:
+    root = Path(__file__).resolve().parents[1]
+    scripts = (
+        root / "scripts" / "materialize_memorial_public_gold_clean.py",
+        root / "scripts" / "materialize_memorial_public_auto_receipts_clean.py",
+    )
+
+    for script in scripts:
+        result = subprocess.run(
+            [sys.executable, str(script)],
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 2
+        assert "--spatial-deploy-receipt" in result.stderr
+        assert "--spatial-candidate-browser-receipt" in result.stderr
 
 
 def test_memorial_public_auto_receipts_clean_resolves_bare_python_from_path(monkeypatch) -> None:

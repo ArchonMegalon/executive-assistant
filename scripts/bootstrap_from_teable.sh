@@ -52,7 +52,7 @@ fi
 
 if [[ -z "${TEABLE_API_KEY:-}" && ! -f "${EA_ROOT}/.env" ]]; then
   cat >&2 <<'EOF'
-TEABLE_API_KEY is required when no local .env exists.
+TEABLE_API_KEY must be seeded when no local .env exists.
 
 Seed it first:
   export TEABLE_API_KEY=...

@@ -4,12 +4,14 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RELEASE_MANIFEST = ROOT / ".codex-studio/published/release_manifest.generated.json"
 DEFAULT_PROJECT_MODES = ROOT / ".codex-design/product/PROJECT_MODES.generated.json"
+_GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -46,6 +48,16 @@ def _derive_authority_posture(issues: list[str]) -> str:
         return "dirty_worktree"
     if "compose_files_missing" in issue_set:
         return "compose_topology_missing"
+    if {
+        "source_remote_ref_missing",
+        "source_remote_ref_invalid",
+        "source_remote_ref_tracking_branch_mismatch",
+        "source_remote_ref_commit_sha_missing",
+        "source_remote_ref_commit_sha_invalid",
+        "source_remote_ref_evidence_invalid",
+        "source_commit_not_reachable_from_remote_ref",
+    } & issue_set:
+        return "source_not_remote"
     if issues:
         return "watch"
     return "authoritative_runtime"
@@ -59,6 +71,7 @@ def validate_release_authority(
     require_explicit_deployment: bool = True,
     require_clean_worktree: bool = True,
     require_tracking_branch: bool = True,
+    require_source_remote_ref: bool = True,
     require_compose_files: bool = True,
 ) -> list[str]:
     issues: list[str] = []
@@ -71,6 +84,16 @@ def validate_release_authority(
     branch = str(release_manifest.get("branch") or "").strip()
     tracking_branch = str(release_manifest.get("tracking_branch") or "").strip()
     commit_sha = str(release_manifest.get("commit_sha") or "").strip()
+    source_remote_ref = str(release_manifest.get("source_remote_ref") or "").strip()
+    source_remote_ref_commit_sha = str(
+        release_manifest.get("source_remote_ref_commit_sha") or ""
+    ).strip()
+    source_remote_ref_evidence = str(
+        release_manifest.get("source_remote_ref_evidence") or ""
+    ).strip()
+    source_commit_reachable_from_remote_ref = release_manifest.get(
+        "source_commit_reachable_from_remote_ref"
+    )
     deployment_id = str(release_manifest.get("deployment_id") or "").strip()
     deployment_id_source = str(release_manifest.get("deployment_id_source") or "").strip()
     public_origin = str(release_manifest.get("public_origin") or "").strip()
@@ -115,6 +138,21 @@ def validate_release_authority(
         issues.append("artifact_set_empty")
     if require_tracking_branch and not tracking_branch:
         issues.append("tracking_branch_missing")
+    if require_source_remote_ref:
+        if not source_remote_ref:
+            issues.append("source_remote_ref_missing")
+        elif not source_remote_ref.startswith("refs/remotes/"):
+            issues.append("source_remote_ref_invalid")
+        elif tracking_branch and source_remote_ref.removeprefix("refs/remotes/") != tracking_branch:
+            issues.append("source_remote_ref_tracking_branch_mismatch")
+        if not source_remote_ref_commit_sha:
+            issues.append("source_remote_ref_commit_sha_missing")
+        elif not _GIT_COMMIT_RE.fullmatch(source_remote_ref_commit_sha):
+            issues.append("source_remote_ref_commit_sha_invalid")
+        if source_remote_ref_evidence != "local_remote_tracking_ref":
+            issues.append("source_remote_ref_evidence_invalid")
+        if source_commit_reachable_from_remote_ref is not True:
+            issues.append("source_commit_not_reachable_from_remote_ref")
     if require_compose_files and not compose_files:
         issues.append("compose_files_missing")
     if require_public_origin:
@@ -177,6 +215,7 @@ def main() -> int:
         require_explicit_deployment=not args.allow_local_deployment_id,
         require_clean_worktree=not args.allow_dirty_worktree,
         require_tracking_branch=not args.allow_missing_tracking_branch,
+        require_source_remote_ref=not args.allow_missing_tracking_branch,
         require_compose_files=not args.allow_missing_compose_files,
     )
     payload = {
@@ -190,6 +229,16 @@ def main() -> int:
         "branch": str(release_manifest.get("branch") or "").strip(),
         "tracking_branch": str(release_manifest.get("tracking_branch") or "").strip(),
         "commit_sha": str(release_manifest.get("commit_sha") or "").strip(),
+        "source_remote_ref": str(release_manifest.get("source_remote_ref") or "").strip(),
+        "source_remote_ref_commit_sha": str(
+            release_manifest.get("source_remote_ref_commit_sha") or ""
+        ).strip(),
+        "source_remote_ref_evidence": str(
+            release_manifest.get("source_remote_ref_evidence") or ""
+        ).strip(),
+        "source_commit_reachable_from_remote_ref": (
+            release_manifest.get("source_commit_reachable_from_remote_ref") is True
+        ),
         "deployment_id": str(release_manifest.get("deployment_id") or "").strip(),
         "deployment_id_source": str(release_manifest.get("deployment_id_source") or "").strip(),
         "public_origin": str(release_manifest.get("public_origin") or "").strip(),

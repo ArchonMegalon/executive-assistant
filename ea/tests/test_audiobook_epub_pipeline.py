@@ -10,6 +10,7 @@ import struct
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import wave
@@ -28,6 +29,56 @@ def test_audiobook_cinematic_narration_default_enabled() -> None:
 def test_audiobook_cinematic_single_pass_default_disabled() -> None:
     with patch.dict(os.environ, {}, clear=True):
         assert audiobook_epub_pipeline._audiobook_cinematic_single_pass() is False
+
+
+def test_exact_narration_plan_cache_rejects_tampered_passage_with_stale_hashes(
+    tmp_path: Path,
+) -> None:
+    text = (
+        "The narrator opens the chapter with an exact source-bound sentence. "
+        "A second sentence keeps the passage long enough for deterministic planning."
+    )
+    chapter = audiobook_epub_pipeline.EpubChapter(
+        index=1,
+        title="Cache integrity",
+        source_href="chapter-001.xhtml",
+        text_path="chapter-001.txt",
+        audio_filename="001-cache-integrity.wav",
+        char_count=len(text),
+        sha256=audiobook_epub_pipeline._sha256_bytes(text.encode("utf-8")),
+    )
+    plan_kwargs = {
+        "chapter_inputs": ((chapter, text),),
+        "render_language": "en-US",
+        "max_chars": 96,
+        "job_dir": tmp_path,
+    }
+
+    first = audiobook_epub_pipeline._build_exact_narration_plan(**plan_kwargs)
+    reused = audiobook_epub_pipeline._build_exact_narration_plan(**plan_kwargs)
+
+    assert first["planner_cache"]["status"] == "materialized"
+    assert reused["planner_cache"]["status"] == "reused"
+    cache_files = list((tmp_path / "narration_plans").iterdir())
+    assert len(cache_files) == 1
+    cache_path = cache_files[0]
+    cached_payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    original_passage = dict(cached_payload["passages"][0])
+    tampered_text = "X" + str(original_passage["text"])[1:]
+    assert tampered_text != original_passage["text"]
+    cached_payload["passages"][0]["text"] = tampered_text
+    cache_path.write_text(
+        json.dumps(cached_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    repaired = audiobook_epub_pipeline._build_exact_narration_plan(**plan_kwargs)
+
+    assert repaired["planner_cache"]["status"] == "materialized"
+    assert repaired["plan_sha256"] == first["plan_sha256"]
+    assert repaired["passages"] == first["passages"]
+    repaired_payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    assert repaired_payload["passages"][0] == original_passage
 
 
 def _chapter_text() -> str:
@@ -155,6 +206,11 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
         audiobook_epub_pipeline._write_atomic_private_text(
             audiobook_epub_pipeline._cinematic_master_audio_signature_path(audio_dir),
             render_signature,
+        )
+        audiobook_epub_pipeline._write_audio_cache_output_binding(
+            audio_path=master,
+            cache_kind="cinematic_master",
+            render_fingerprint=render_signature,
         )
         return master
 
@@ -995,6 +1051,109 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
         self.assertEqual(merge_segments.call_count, 0)
         self.assertEqual(merge_m4b.call_count, 1)
         self.assertEqual(merge_m4b.call_args.kwargs["cinematic_track_path"], cinematic_track)
+
+    def test_preferred_m4b_tool_verifies_exact_chapter_count_and_output_digest(
+        self,
+    ) -> None:
+        with self._base_context(chapter_count=1) as (job_dir, chapters, metadata):
+            audio_dir = job_dir / "audio"
+            chapter_master = audio_dir / chapters[0].audio_filename
+            self._write_audio_file(target_wav=chapter_master)
+            render_fingerprint = "a" * 64
+            audiobook_epub_pipeline._write_atomic_private_text(
+                chapter_master.with_suffix(
+                    chapter_master.suffix + ".narration.signature"
+                ),
+                render_fingerprint,
+            )
+            audiobook_epub_pipeline._write_audio_cache_output_binding(
+                audio_path=chapter_master,
+                cache_kind="chapter_master",
+                render_fingerprint=render_fingerprint,
+            )
+            m4b_tool_commands: list[list[str]] = []
+
+            def run_m4b_tool(command: list[str], **_kwargs: object) -> object:
+                m4b_tool_commands.append(list(command))
+                output_path = Path(
+                    command[command.index("--output-file") + 1]
+                )
+                output_path.write_bytes(b"m4b-tool exact chapter artifact")
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "EA_AUDIOBOOK_CINEMATIC_NARRATION": "0",
+                        "EA_AUDIOBOOK_M4B_AUTO_MERGE": "1",
+                    },
+                ),
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_m4b_cover_image_path",
+                    return_value=None,
+                ),
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_m4b_tool_available",
+                    return_value=True,
+                ),
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_merge_m4b_with_ffmpeg",
+                    side_effect=AssertionError(
+                        "preferred m4b-tool success must not select ffmpeg"
+                    ),
+                ) as ffmpeg_merge,
+                patch.object(
+                    audiobook_epub_pipeline.subprocess,
+                    "run",
+                    side_effect=run_m4b_tool,
+                ),
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_probe_audio_publication_file",
+                    return_value={"chapters": [{"id": 1}]},
+                ),
+            ):
+                result = audiobook_epub_pipeline._merge_m4b_if_ready(
+                    job_dir=job_dir,
+                    metadata=metadata,
+                    chapters=chapters,
+                )
+
+            output_path = Path(str(result["output_file"]))
+            assembly_evidence, assembly_issues = (
+                audiobook_epub_pipeline._audiobook_publication_assembly_evidence(
+                    job={
+                        "chapters": [
+                            {
+                                "char_count": chapters[0].char_count,
+                            }
+                        ],
+                        "merge_result": result,
+                    },
+                    render_result={},
+                    actual_probe_chapter_count=1,
+                )
+            )
+
+            self.assertEqual(result["status"], "m4b_ready")
+            self.assertEqual(result["provider"], "m4b-tool")
+            self.assertEqual(result["expected_chapter_count"], 1)
+            self.assertEqual(result["actual_chapter_count"], 1)
+            self.assertIs(result["chapter_count_matches"], True)
+            self.assertEqual(
+                result["output_file_sha256"],
+                audiobook_epub_pipeline._sha256_file(output_path),
+            )
+            self.assertEqual(result["output_file_size"], output_path.stat().st_size)
+            self.assertEqual(len(m4b_tool_commands), 1)
+            self.assertEqual(m4b_tool_commands[0][:2], ["m4b-tool", "merge"])
+            self.assertEqual(ffmpeg_merge.call_count, 0)
+            self.assertEqual(assembly_issues, [])
+            self.assertIs(assembly_evidence["chapter_count_matches"], True)
 
     def test_merge_m4b_if_ready_rejects_invalid_cinematic_track_path(self) -> None:
         with self._base_context(chapter_count=4) as (job_dir, chapters, metadata):

@@ -141,14 +141,18 @@ def _block(code: str, **context: object) -> dict[str, object]:
 def _deduplicated_sorted(blockers: list[dict[str, object]]) -> list[dict[str, object]]:
     by_key: dict[str, dict[str, object]] = {}
     for blocker in blockers:
-        key = json.dumps(blocker, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        key = json.dumps(
+            blocker, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        )
         by_key[key] = blocker
     return [by_key[key] for key in sorted(by_key)]
 
 
 def _normalized_base_url(value: str) -> str:
     normalized = str(value or "").strip().rstrip("/")
-    if not normalized or any(character in normalized for character in "\x00\r\n\\\"'`<>"):
+    if not normalized or any(
+        character in normalized for character in "\x00\r\n\\\"'`<>"
+    ):
         return ""
     try:
         parsed = urllib.parse.urlsplit(normalized)
@@ -215,7 +219,12 @@ def _safe_same_origin_media_url(
         parsed_raw.port
     except ValueError:
         return ""
-    if parsed_raw.username or parsed_raw.password or parsed_raw.query or parsed_raw.fragment:
+    if (
+        parsed_raw.username
+        or parsed_raw.password
+        or parsed_raw.query
+        or parsed_raw.fragment
+    ):
         return ""
     if parsed_raw.scheme and parsed_raw.scheme.lower() not in {"http", "https"}:
         return ""
@@ -251,7 +260,10 @@ def _http_fetch(url: str, *, method: str, max_body_bytes: int) -> dict[str, obje
             body = response.read(max_body_bytes + 1) if method == "GET" else b""
             return {
                 "status": int(response.status),
-                "headers": {key.lower(): value.strip() for key, value in response.headers.items()},
+                "headers": {
+                    key.lower(): value.strip()
+                    for key, value in response.headers.items()
+                },
                 "body": body,
                 "body_exceeded_cap": len(body) > max_body_bytes,
                 "error": "",
@@ -259,7 +271,9 @@ def _http_fetch(url: str, *, method: str, max_body_bytes: int) -> dict[str, obje
     except urllib.error.HTTPError as exc:
         return {
             "status": int(exc.code),
-            "headers": {key.lower(): value.strip() for key, value in exc.headers.items()},
+            "headers": {
+                key.lower(): value.strip() for key, value in exc.headers.items()
+            },
             "body": b"",
             "body_exceeded_cap": False,
             "error": "http_error",
@@ -329,7 +343,9 @@ def _provenance_category(value: str) -> str:
     for category in ("internal", "debug", "probe"):
         if re.search(rf"(?:^|[^a-z0-9]){category}(?:[^a-z0-9]|$)", normalized):
             return category
-    if re.search(r"https?://(?:localhost|127(?:\.[0-9]{1,3}){3}|\[?::1\]?)(?::|/|$)", normalized):
+    if re.search(
+        r"https?://(?:localhost|127(?:\.[0-9]{1,3}){3}|\[?::1\]?)(?::|/|$)", normalized
+    ):
         return "loopback"
     return ""
 
@@ -352,7 +368,9 @@ def _json_path_key(parent: str, key: object) -> str:
     return f"{parent}[{json.dumps(normalized, ensure_ascii=True)}]"
 
 
-def _public_payload_blockers(value: object, *, path: str = "$") -> list[dict[str, object]]:
+def _public_payload_blockers(
+    value: object, *, path: str = "$"
+) -> list[dict[str, object]]:
     blockers: list[dict[str, object]] = []
     if isinstance(value, dict):
         for key in sorted(value, key=lambda candidate: str(candidate)):
@@ -408,17 +426,24 @@ def _truthful_disclosure(
         or len(disclosure) > 1000
         or any(ord(character) < 32 for character in disclosure)
         or _provenance_category(disclosure)
-        or synthetic and verified_provider_capture
+        or synthetic
+        and verified_provider_capture
     ):
         return ""
     lowered = disclosure.lower()
     if synthetic:
-        if not any(token in lowered for token in ("generated", "synthetic", "reconstruction")):
+        if not any(
+            token in lowered for token in ("generated", "synthetic", "reconstruction")
+        ):
             return ""
-        if "not" not in lowered or not any(token in lowered for token in ("captured", "provider-verified", "scan")):
+        if "not" not in lowered or not any(
+            token in lowered for token in ("captured", "provider-verified", "scan")
+        ):
             return ""
     elif verified_provider_capture:
-        if "provider" not in lowered or not any(token in lowered for token in ("captured", "verified", "reviewed")):
+        if "provider" not in lowered or not any(
+            token in lowered for token in ("captured", "verified", "reviewed")
+        ):
             return ""
     elif not (
         "not" in lowered
@@ -438,7 +463,9 @@ def _video_projection(
     video_occurrences = _key_occurrences(payload, "video_url")
     raw_release = payload.get("video_release")
     if video_occurrences and video_occurrences != ["$.video_url"]:
-        blockers.append(_block("video_url_projection_invalid", paths=",".join(video_occurrences)))
+        blockers.append(
+            _block("video_url_projection_invalid", paths=",".join(video_occurrences))
+        )
     if not video_occurrences:
         if raw_release is not None:
             blockers.append(_block("video_release_without_url"))
@@ -453,7 +480,10 @@ def _video_projection(
     digest = str(release.get("asset_sha256") or "").strip().lower()
     synthetic = release.get("synthetic")
     verified_capture = release.get("verified_provider_capture")
-    if release.get("contract") != _VIDEO_RELEASE_CONTRACT or release.get("status") != "ready":
+    if (
+        release.get("contract") != _VIDEO_RELEASE_CONTRACT
+        or release.get("status") != "ready"
+    ):
         blockers.append(_block("video_release_contract_invalid"))
     if not revision:
         blockers.append(_block("video_release_revision_invalid"))
@@ -490,14 +520,17 @@ def _viewer_projection(
     blockers: list[dict[str, object]] = []
     occurrences = _key_occurrences(payload, "generated_viewer")
     if occurrences and occurrences != ["$.generated_viewer"]:
-        blockers.append(_block("generated_viewer_projection_invalid", paths=",".join(occurrences)))
+        blockers.append(
+            _block("generated_viewer_projection_invalid", paths=",".join(occurrences))
+        )
     if not occurrences:
         viewer_urls = [
-            path
-            for path in _string_paths_matching(payload, needle="/tours/viewer/")
+            path for path in _string_paths_matching(payload, needle="/tours/viewer/")
         ]
         if viewer_urls:
-            blockers.append(_block("viewer_url_without_projection", paths=",".join(viewer_urls)))
+            blockers.append(
+                _block("viewer_url_without_projection", paths=",".join(viewer_urls))
+            )
         return {}, "", blockers
     raw_projection = payload.get("generated_viewer")
     if not isinstance(raw_projection, dict):
@@ -508,7 +541,10 @@ def _viewer_projection(
         blockers.append(_block("generated_viewer_projection_keys_invalid"))
     if not _safe_revision(projection.get("release_revision")):
         blockers.append(_block("generated_viewer_revision_invalid"))
-    if projection.get("synthetic") is not True or projection.get("verified_provider_capture") is not False:
+    if (
+        projection.get("synthetic") is not True
+        or projection.get("verified_provider_capture") is not False
+    ):
         blockers.append(_block("generated_viewer_truth_flags_invalid"))
     disclosure = _truthful_disclosure(
         projection.get("disclosure"),
@@ -533,11 +569,15 @@ def _string_paths_matching(value: object, *, needle: str, path: str = "$") -> li
     if isinstance(value, dict):
         for key, child in value.items():
             matches.extend(
-                _string_paths_matching(child, needle=needle, path=_json_path_key(path, key))
+                _string_paths_matching(
+                    child, needle=needle, path=_json_path_key(path, key)
+                )
             )
     elif isinstance(value, list):
         for index, child in enumerate(value):
-            matches.extend(_string_paths_matching(child, needle=needle, path=f"{path}[{index}]"))
+            matches.extend(
+                _string_paths_matching(child, needle=needle, path=f"{path}[{index}]")
+            )
     elif isinstance(value, str) and needle in value:
         matches.append(path)
     return sorted(matches)
@@ -576,7 +616,9 @@ def _response_basics(
             )
         )
     if bool(receipt.get("body_exceeded_cap")):
-        blockers.append(_block("http_body_size_cap_exceeded", endpoint=endpoint, method=method))
+        blockers.append(
+            _block("http_body_size_cap_exceeded", endpoint=endpoint, method=method)
+        )
     return blockers
 
 
@@ -655,7 +697,9 @@ def _verify_video_origin(
         else:
             head_headers = headers
             raw_length = headers.get("content-length", "")
-            if not raw_length.isdigit() or not (0 < int(raw_length) <= _VIDEO_MAX_BYTES):
+            if not raw_length.isdigit() or not (
+                0 < int(raw_length) <= _VIDEO_MAX_BYTES
+            ):
                 blockers.append(_block("video_head_size_invalid", actual=raw_length))
     if get_headers and head_headers:
         if head_headers.get("content-length", "") != str(get_size):
@@ -699,12 +743,17 @@ def _verify_viewer_origin(
         digest_header = headers.get("x-propertyquarry-asset-sha256", "").lower()
         if not _SHA256_RE.fullmatch(digest_header):
             blockers.append(_block("viewer_digest_header_invalid", method=method))
-        if _parse_csp(headers.get("content-security-policy", "")) != _EXPECTED_VIEWER_CSP:
+        if (
+            _parse_csp(headers.get("content-security-policy", ""))
+            != _EXPECTED_VIEWER_CSP
+        ):
             blockers.append(_block("viewer_csp_invalid", method=method))
         if method == "GET":
             get_body = bytes(receipt.get("body") or b"")
             if not get_body or len(get_body) > _VIEWER_MAX_BYTES:
-                blockers.append(_block("viewer_body_size_invalid", actual=len(get_body)))
+                blockers.append(
+                    _block("viewer_body_size_invalid", actual=len(get_body))
+                )
             blockers.extend(
                 _content_length_blockers(
                     headers=headers,
@@ -713,16 +762,22 @@ def _verify_viewer_origin(
                     method=method,
                 )
             )
-            if _SHA256_RE.fullmatch(digest_header) and hashlib.sha256(get_body).hexdigest() != digest_header:
+            if (
+                _SHA256_RE.fullmatch(digest_header)
+                and hashlib.sha256(get_body).hexdigest() != digest_header
+            ):
                 blockers.append(_block("viewer_body_digest_mismatch"))
         else:
             raw_length = headers.get("content-length", "")
-            if not raw_length.isdigit() or not (0 < int(raw_length) <= _VIEWER_MAX_BYTES):
+            if not raw_length.isdigit() or not (
+                0 < int(raw_length) <= _VIEWER_MAX_BYTES
+            ):
                 blockers.append(_block("viewer_head_size_invalid", actual=raw_length))
     if {"GET", "HEAD"}.issubset(method_headers):
-        if method_headers["GET"].get("x-propertyquarry-asset-sha256", "").lower() != method_headers[
-            "HEAD"
-        ].get("x-propertyquarry-asset-sha256", "").lower():
+        if (
+            method_headers["GET"].get("x-propertyquarry-asset-sha256", "").lower()
+            != method_headers["HEAD"].get("x-propertyquarry-asset-sha256", "").lower()
+        ):
             blockers.append(_block("viewer_digest_headers_mismatch"))
         if method_headers["HEAD"].get("content-length", "") != str(len(get_body)):
             blockers.append(_block("viewer_head_get_size_mismatch"))
@@ -777,8 +832,12 @@ def verify_deployment(*, base_url: str, slug: str) -> dict[str, object]:
         quoted_slug = urllib.parse.quote(normalized_slug, safe="")
         json_url = f"{normalized_base}/tours/{quoted_slug}.json"
         html_url = f"{normalized_base}/tours/{quoted_slug}"
-        json_receipt = _http_fetch(json_url, method="GET", max_body_bytes=_JSON_HTML_MAX_BYTES)
-        html_receipt = _http_fetch(html_url, method="GET", max_body_bytes=_JSON_HTML_MAX_BYTES)
+        json_receipt = _http_fetch(
+            json_url, method="GET", max_body_bytes=_JSON_HTML_MAX_BYTES
+        )
+        html_receipt = _http_fetch(
+            html_url, method="GET", max_body_bytes=_JSON_HTML_MAX_BYTES
+        )
         blockers.extend(
             _response_basics(
                 json_receipt,
@@ -799,17 +858,21 @@ def verify_deployment(*, base_url: str, slug: str) -> dict[str, object]:
         json_response_valid = (
             int(json_receipt.get("status") or 0) == 200
             and not json_receipt.get("body_exceeded_cap")
-            and _normalized_content_type(json_headers.get("content-type", "")) == "application/json"
+            and _normalized_content_type(json_headers.get("content-type", ""))
+            == "application/json"
         )
         html_headers = _headers(html_receipt)
         html_response_valid = (
             int(html_receipt.get("status") or 0) == 200
             and not html_receipt.get("body_exceeded_cap")
-            and _normalized_content_type(html_headers.get("content-type", "")) == "text/html"
+            and _normalized_content_type(html_headers.get("content-type", ""))
+            == "text/html"
         )
         if json_response_valid:
             try:
-                decoded = json.loads(bytes(json_receipt.get("body") or b"").decode("utf-8"))
+                decoded = json.loads(
+                    bytes(json_receipt.get("body") or b"").decode("utf-8")
+                )
                 if isinstance(decoded, dict):
                     payload = decoded
                 else:
@@ -842,7 +905,9 @@ def verify_deployment(*, base_url: str, slug: str) -> dict[str, object]:
         video_present = "video_url" in payload
         viewer_present = "generated_viewer" in payload
         if video_url and release and not video_blockers:
-            media_blockers, video_size = _verify_video_origin(url=video_url, release=release)
+            media_blockers, video_size = _verify_video_origin(
+                url=video_url, release=release
+            )
             blockers.extend(media_blockers)
             video_verified = not media_blockers
         if viewer_url and viewer and not viewer_blockers:
@@ -863,7 +928,10 @@ def verify_deployment(*, base_url: str, slug: str) -> dict[str, object]:
         normalized_visible = " ".join(visible_text.lower().split())
         normalized_disclosure = " ".join(active_disclosure.lower().split())
         if active_disclosure:
-            if not normalized_disclosure or normalized_disclosure not in normalized_visible:
+            if (
+                not normalized_disclosure
+                or normalized_disclosure not in normalized_visible
+            ):
                 blockers.append(_block("html_release_disclosure_missing"))
         elif not _fallback_disclosure_present(visible_text):
             blockers.append(_block("html_truthful_disclosure_missing"))
@@ -893,7 +961,11 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Verify an EA public-tour origin without modifying it."
     )
-    parser.add_argument("--base-url", required=True, help="EA public origin, optionally with a path prefix.")
+    parser.add_argument(
+        "--base-url",
+        required=True,
+        help="EA public origin, optionally with a path prefix.",
+    )
     parser.add_argument("--slug", required=True, help="Public tour slug.")
     return parser
 

@@ -11,8 +11,11 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from html.parser import HTMLParser
+from http.cookies import CookieError, SimpleCookie
 from pathlib import Path
-from urllib.parse import urlparse
+from typing import Callable
+from urllib.parse import unquote, urlparse
 
 
 RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_smoke.v1"
@@ -27,6 +30,99 @@ BROWSER_ZERO_COUNT_FIELDS = (
     "page_errors",
     "http_errors",
 )
+VERIFIER_REQUEST_HEADERS = {
+    "User-Agent": "EA-Memorial-Launch-Verifier/1.0",
+    "Accept": "application/json,text/html;q=0.9,*/*;q=0.1",
+}
+MEMORIAL_GUEST_COOKIE = "ea_memorial_guest"
+MEMORIAL_HSTS = "max-age=31536000"
+MEMORIAL_ARCHIVE_GATE_SCHEMA = "ea.memorial_archive_gate.v1"
+MEMORIAL_ARCHIVE_GATE_STATE = "intentionally_unpublished"
+MEMORIAL_SURFACE = "conversation_only"
+SPATIAL_SCOPE = "separate_propertyquarry_lane"
+CONVERSATION_ONLY_BLOCKED_ACTION_LABEL = "Frage schreiben"
+CONVERSATION_ONLY_TEXT_PLACEHOLDER = "Was möchtest du fragen?"
+_CANDIDATE_HREF_MAX_CHARS = 4096
+_CANDIDATE_HREF_MAX_DECODE_ROUNDS = 4
+_CONVERSATION_ONLY_FORBIDDEN_HREF_TOKENS = {
+    "archive",
+    "archives",
+    "archiv",
+    "beitrag",
+    "biografie",
+    "biography",
+    "contribution",
+    "contributions",
+    "erinnerungsraum",
+    "geschichte",
+    "install",
+    "memorial-archive",
+    "memorial-contribution",
+    "memorial-story",
+    "memorial-tour",
+    "memory-room",
+    "rundgang",
+    "stories",
+    "story",
+    "tour",
+    "tours",
+    "video",
+}
+_CONVERSATION_ONLY_FORBIDDEN_DOM_MARKERS = (
+    "story",
+    "biography",
+    "biografie",
+    "geschichte",
+    "contribution",
+    "beitrag",
+    "install",
+    "video",
+    "memory-room",
+    "erinnerungsraum",
+    "archive",
+    "archiv",
+    "tour",
+    "rundgang",
+)
+_CONVERSATION_ONLY_ALLOWED_VISIBLE_MARKER_TEXTS = (
+    "wenn die seite als app installiert ist, darf sie das mikrofon nach dem "
+    "start sofort vorbereiten.",
+)
+_CANDIDATE_NAVIGATION_ATTRIBUTE_LOCAL_NAMES = {
+    "action",
+    "formaction",
+    "href",
+}
+_HTML_VOID_ELEMENTS = {
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "param",
+    "source",
+    "track",
+    "wbr",
+}
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(  # type: ignore[no-untyped-def]
+        self,
+        req,
+        fp,
+        code,
+        msg,
+        headers,
+        newurl,
+    ):
+        del req, fp, code, msg, headers, newurl
+        return None
 
 
 def _http_origin(value: str) -> tuple[str, str, int] | None:
@@ -42,6 +138,16 @@ def _http_origin(value: str) -> tuple[str, str, int] | None:
     if port is None:
         port = 443 if scheme == "https" else 80
     return scheme, hostname, port
+
+
+def _browser_proxy_headers(base_url: str, public_origin: str) -> dict[str, str]:
+    authority, canonical_origin = _canonical_public_https_origin(public_origin)
+    if _http_origin(base_url) == _http_origin(canonical_origin):
+        return {}
+    return {
+        "X-Forwarded-Host": authority,
+        "X-Forwarded-Proto": "https",
+    }
 
 
 def _is_same_origin_http_error(
@@ -69,9 +175,14 @@ def _request(
     payload: dict[str, object] | None = None,
     headers: dict[str, str] | None = None,
     expected: set[int] | None = None,
+    follow_redirects: bool = True,
 ) -> tuple[int, bytes, dict[str, str]]:
     data = None
     request_headers = dict(headers or {})
+    # Cloudflare may reject urllib's default user agent. Keep this automation
+    # identity explicit and stable; callers may add headers but cannot replace
+    # the verifier identity or its bounded response preference.
+    request_headers.update(VERIFIER_REQUEST_HEADERS)
     if payload is not None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         request_headers["Content-Type"] = "application/json"
@@ -82,7 +193,12 @@ def _request(
         method=method,
     )
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
+        open_request = (
+            urllib.request.urlopen
+            if follow_redirects
+            else urllib.request.build_opener(_NoRedirectHandler()).open
+        )
+        with open_request(request, timeout=20) as response:
             status = int(response.status)
             body = response.read(2 * 1024 * 1024 + 1)
             response_headers = {
@@ -108,6 +224,238 @@ def _json_body(body: bytes, *, path: str) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise RuntimeError(f"candidate_http_json_invalid:{path}")
     return payload
+
+
+def _verify_singular_memorial_alias(
+    base_url: str,
+    public_origin: str,
+    *,
+    request_fn: Callable[..., tuple[int, bytes, dict[str, str]]] | None = None,
+) -> None:
+    request = request_fn or _request
+    authority, _canonical_origin = _canonical_public_https_origin(public_origin)
+    proxy_headers = {
+        "Host": authority,
+        "X-Forwarded-Host": authority,
+        "X-Forwarded-Proto": "https",
+    }
+    query = "from=ea-launch-verifier"
+    path = f"/memorial/manfred?{query}"
+    expected_location = f"/memorials/manfred?{query}"
+    expected_headers = {
+        "cache-control": "no-store",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-robots-tag": "noindex, nofollow",
+    }
+    for method in ("GET", "HEAD"):
+        status, body, headers = request(
+            base_url,
+            path,
+            method=method,
+            headers=proxy_headers,
+            expected={308},
+            follow_redirects=False,
+        )
+        if status != 308 or headers.get("location") != expected_location:
+            raise RuntimeError("candidate_memorial_alias_invalid")
+        if any(
+            str(headers.get(name) or "").strip().casefold() != value
+            for name, value in expected_headers.items()
+        ):
+            raise RuntimeError("candidate_memorial_alias_invalid")
+        if method == "HEAD" and body:
+            raise RuntimeError("candidate_memorial_alias_invalid")
+
+
+def _verify_memorial_archive_gate(
+    base_url: str,
+    *,
+    request_fn: Callable[..., tuple[int, bytes, dict[str, str]]] | None = None,
+) -> dict[str, object]:
+    request = request_fn or _request
+    status, body, _headers = request(
+        base_url,
+        "/memorials/manfred/archive.json",
+        expected={404},
+    )
+    payload = _json_body(body, path="/memorials/manfred/archive.json")
+    gate_value = payload.get("archive_gate")
+    gate = dict(gate_value) if isinstance(gate_value, dict) else {}
+    registry_sha256 = str(gate.get("registry_sha256") or "")
+    content_type = str(_headers.get("content-type") or "")
+    media_type = content_type.split(";", 1)[0].strip().lower()
+    if (
+        status != 404
+        or media_type != "application/json"
+        or set(payload) != {"detail", "archive_gate"}
+        or set(gate) != {"schema", "state", "slug", "registry_sha256"}
+        or str(payload.get("detail") or "") != "memorial_not_found"
+        or str(gate.get("schema") or "") != MEMORIAL_ARCHIVE_GATE_SCHEMA
+        or str(gate.get("state") or "") != MEMORIAL_ARCHIVE_GATE_STATE
+        or str(gate.get("slug") or "") != "manfred"
+        or len(registry_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in registry_sha256)
+    ):
+        raise RuntimeError("candidate_memorial_archive_gate_invalid")
+    return {
+        "schema": MEMORIAL_ARCHIVE_GATE_SCHEMA,
+        "state": MEMORIAL_ARCHIVE_GATE_STATE,
+        "slug": "manfred",
+        "registry_sha256": registry_sha256,
+        "http_status": 404,
+        "publication_authority": False,
+    }
+
+
+def _canonical_public_https_origin(value: str) -> tuple[str, str]:
+    try:
+        parsed = urlparse(str(value or "").strip())
+        port = parsed.port
+    except ValueError as exc:
+        raise RuntimeError("candidate_public_origin_transport_invalid") from exc
+    hostname = str(parsed.hostname or "").strip().rstrip(".").casefold()
+    if (
+        parsed.scheme.casefold() != "https"
+        or not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.params
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise RuntimeError("candidate_public_origin_transport_invalid")
+    authority = f"[{hostname}]" if ":" in hostname else hostname
+    if port is not None and port != 443:
+        authority = f"{authority}:{port}"
+    return authority, f"https://{authority}"
+
+
+def _verify_memorial_transport_security(
+    base_url: str,
+    public_origin: str,
+    *,
+    request_fn: Callable[..., tuple[int, bytes, dict[str, str]]] | None = None,
+) -> dict[str, object]:
+    request = request_fn or _request
+    authority, canonical_origin = _canonical_public_https_origin(public_origin)
+    page_path = "/memorials/manfred"
+    proxy_headers = {
+        "Host": authority,
+        "X-Forwarded-Host": authority,
+        "X-Forwarded-Proto": "https",
+        "CF-Visitor": '{"scheme":"https"}',
+    }
+    status, _body, headers = request(
+        base_url,
+        page_path,
+        headers=proxy_headers,
+        expected={200},
+        follow_redirects=False,
+    )
+    if (
+        status != 200
+        or headers.get("strict-transport-security", "").strip() != MEMORIAL_HSTS
+        or "location" in headers
+    ):
+        raise RuntimeError("candidate_memorial_transport_https_invalid")
+
+    raw_cookie = str(headers.get("set-cookie") or "").strip()
+    cookies = SimpleCookie()
+    try:
+        cookies.load(raw_cookie)
+    except CookieError as exc:
+        raise RuntimeError("candidate_memorial_transport_cookie_invalid") from exc
+    guest_cookie = cookies.get(MEMORIAL_GUEST_COOKIE)
+    if (
+        guest_cookie is None
+        or not guest_cookie["secure"]
+        or not guest_cookie["httponly"]
+        or str(guest_cookie["samesite"] or "").casefold() != "lax"
+        or str(guest_cookie["path"] or "") != page_path
+        or str(guest_cookie["max-age"] or "") != "31536000"
+    ):
+        raise RuntimeError("candidate_memorial_transport_cookie_invalid")
+
+    # A verifier already attached to the canonical HTTPS origin cannot prove an
+    # HTTP-to-HTTPS redirect by sending another HTTPS request with fewer proxy
+    # headers: the real TLS transport remains HTTPS and must continue to return
+    # the page.  The deploy lane runs this verifier against its local HTTP
+    # origin first, where the redirect is exercised below, and then against the
+    # public HTTPS origin, where HSTS, the secure cookie, and absence of a
+    # redirect are the applicable transport checks above.
+    if _http_origin(base_url) == _http_origin(canonical_origin):
+        return {
+            "status": "pass",
+            "public_origin": canonical_origin,
+            "proxy_scheme_headers_consistent": True,
+            "cookie": {
+                "name": MEMORIAL_GUEST_COOKIE,
+                "secure": True,
+                "http_only": True,
+                "same_site": "Lax",
+                "path": page_path,
+                "max_age_seconds": 31_536_000,
+            },
+            "hsts": MEMORIAL_HSTS,
+            "http_redirect_probe": "not_applicable_to_https_base",
+        }
+
+    redirect_path = f"{page_path}?from=ea-transport-verifier"
+    redirect_status, _redirect_body, redirect_headers = request(
+        base_url,
+        redirect_path,
+        headers={"Host": authority},
+        expected={308},
+        follow_redirects=False,
+    )
+    expected_location = f"{canonical_origin}{redirect_path}"
+    if (
+        redirect_status != 308
+        or redirect_headers.get("location") != expected_location
+        or "set-cookie" in redirect_headers
+    ):
+        raise RuntimeError("candidate_memorial_transport_redirect_invalid")
+
+    return {
+        "status": "pass",
+        "public_origin": canonical_origin,
+        "proxy_scheme_headers_consistent": True,
+        "cookie": {
+            "name": MEMORIAL_GUEST_COOKIE,
+            "secure": True,
+            "http_only": True,
+            "same_site": "Lax",
+            "path": page_path,
+            "max_age_seconds": 31_536_000,
+        },
+        "hsts": MEMORIAL_HSTS,
+        "http_redirect_status": redirect_status,
+        "http_redirect_location": expected_location,
+    }
+
+
+def _verify_memorial_head_surface(
+    base_url: str,
+    public_origin: str,
+    *,
+    request_fn: Callable[..., tuple[int, bytes, dict[str, str]]] | None = None,
+) -> None:
+    request = request_fn or _request
+    authority, _canonical_origin = _canonical_public_https_origin(public_origin)
+    request(
+        base_url,
+        "/memorials/manfred",
+        method="HEAD",
+        headers={
+            "Host": authority,
+            "X-Forwarded-Host": authority,
+            "X-Forwarded-Proto": "https",
+        },
+        expected={200},
+        follow_redirects=False,
+    )
 
 
 def _contains_forbidden_recipient_field(value: object) -> bool:
@@ -142,6 +490,522 @@ def _wait_for_health(base_url: str, timeout_seconds: int) -> None:
     raise RuntimeError(last_error)
 
 
+def _bounded_canonical_candidate_href(value: object) -> tuple[str, bool]:
+    """Decode a candidate URL without allowing nested-encoding bypasses."""
+
+    current = str(value or "").strip()
+    unsafe = len(current) > _CANDIDATE_HREF_MAX_CHARS
+    current = current[:_CANDIDATE_HREF_MAX_CHARS]
+    for _round in range(_CANDIDATE_HREF_MAX_DECODE_ROUNDS):
+        decoded = unquote(current, errors="replace")
+        if decoded == current:
+            break
+        current = decoded
+    if unquote(current, errors="replace") != current:
+        unsafe = True
+    if any(ord(character) < 32 for character in current):
+        unsafe = True
+    return current.casefold().replace("_", "-").replace("\\", "/"), unsafe
+
+
+def _candidate_attribute_local_name(value: object) -> str:
+    normalized = str(value or "").strip().casefold()
+    if "}" in normalized:
+        normalized = normalized.rsplit("}", 1)[-1]
+    return normalized.rsplit(":", 1)[-1]
+
+
+def _is_candidate_navigation_attribute(value: object) -> bool:
+    return (
+        _candidate_attribute_local_name(value)
+        in _CANDIDATE_NAVIGATION_ATTRIBUTE_LOCAL_NAMES
+    )
+
+
+def _is_candidate_inline_event_attribute(value: object) -> bool:
+    normalized = str(value or "").strip().casefold()
+    return (
+        len(normalized) > 2
+        and normalized.startswith("on")
+        and normalized[2:].replace("-", "").isalnum()
+    )
+
+
+def _candidate_href_facts(value: object) -> tuple[set[str], bool, bool, bool]:
+    canonical, unsafe = _bounded_canonical_candidate_href(value)
+    try:
+        parsed = urlparse(canonical)
+        hostname = str(parsed.hostname or "")
+    except ValueError:
+        parsed = urlparse("")
+        hostname = ""
+        unsafe = True
+    if parsed.scheme and parsed.scheme not in {"http", "https"}:
+        unsafe = True
+    semantic_sources = [
+        hostname,
+        parsed.netloc,
+        parsed.path,
+        parsed.params,
+        parsed.query,
+        parsed.fragment,
+    ]
+    token_source = " ".join(semantic_sources)
+    for separator in "/\\:#?&=;,.+@()[]{}":
+        token_source = token_source.replace(separator, " ")
+    tokens = {item for item in token_source.split() if item}
+    forbidden = tokens & _CONVERSATION_ONLY_FORBIDDEN_HREF_TOKENS
+    forbidden.update(_forbidden_dom_semantic_markers(semantic_sources))
+    memory_room = bool(forbidden & {"memory-room", "erinnerungsraum"})
+    tour = bool(
+        forbidden & {"memorial-tour", "rundgang", "tour", "tours"}
+    )
+    return forbidden, memory_room, tour, unsafe
+
+
+def _forbidden_dom_semantic_markers(values: list[str]) -> set[str]:
+    normalized = " ".join(values).casefold().replace("_", "-")
+    return {
+        marker
+        for marker in _CONVERSATION_ONLY_FORBIDDEN_DOM_MARKERS
+        if marker in normalized
+    }
+
+
+def _forbidden_visible_text_markers(values: list[str]) -> set[str]:
+    normalized = " ".join(" ".join(values).split()).casefold().replace("_", "-")
+    for allowed in _CONVERSATION_ONLY_ALLOWED_VISIBLE_MARKER_TEXTS:
+        normalized = normalized.replace(allowed, " ")
+    return {
+        marker
+        for marker in _CONVERSATION_ONLY_FORBIDDEN_DOM_MARKERS
+        if marker in normalized
+    }
+
+
+class _ConversationOnlyDocumentParser(HTMLParser):
+    """Collect rendered DOM facts without mistaking script strings for elements."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.id_counts: dict[str, int] = {}
+        self.main_count = 0
+        self.nav_count = 0
+        self.aside_count = 0
+        self.iframe_count = 0
+        self.video_count = 0
+        self.article_count = 0
+        self.form_count = 0
+        self.details_count = 0
+        self.section_count = 0
+        self.conversation_settings_count = 0
+        self.personal_memory_optin_count = 0
+        self.personal_memory_optin_default_checked = False
+        self.personal_memory_optin_default_disabled = False
+        self.personal_memory_forget_count = 0
+        self.memory_room_link_count = 0
+        self.tour_link_count = 0
+        self.public_surface = ""
+        self.voice_release = ""
+        self.voice_access = ""
+        self.operator_preview = ""
+        self.forbidden_dom_semantics: set[str] = set()
+        self._id_text: dict[str, list[str]] = {}
+        self._labelled_elements: list[
+            tuple[str, str, set[str], tuple[str, ...]]
+        ] = []
+        self._open_text_elements: list[
+            tuple[str, str, set[str], list[str]]
+        ] = []
+        self._suppressed_text_depth = 0
+
+    def _record_forbidden_semantics(
+        self,
+        *,
+        tag: str,
+        element_id: str,
+        classes: set[str],
+        reasons: set[str],
+    ) -> None:
+        if not reasons:
+            return
+        identity = f"#{element_id}" if element_id else ""
+        class_identity = "".join(f".{item}" for item in sorted(classes))
+        self.forbidden_dom_semantics.add(
+            f"{tag}{identity}{class_identity}:{','.join(sorted(reasons))}"
+        )
+
+    def _finish_text_element(
+        self,
+        element: tuple[str, str, set[str], list[str]],
+    ) -> None:
+        tag, element_id, classes, text_parts = element
+        text = " ".join(" ".join(text_parts).split())
+        contiguous_text = " ".join("".join(text_parts).split())
+        if element_id and text:
+            self._id_text.setdefault(element_id, []).append(text)
+        if text:
+            self._record_forbidden_semantics(
+                tag=tag,
+                element_id=element_id,
+                classes=classes,
+                reasons=(
+                    _forbidden_visible_text_markers([text])
+                    | _forbidden_visible_text_markers([contiguous_text])
+                ),
+            )
+
+    def handle_data(self, data: str) -> None:
+        if self._suppressed_text_depth or not data.strip():
+            return
+        for _tag, _element_id, _classes, text_parts in self._open_text_elements:
+            text_parts.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"script", "style"} and self._suppressed_text_depth:
+            self._suppressed_text_depth -= 1
+        matching_index = next(
+            (
+                index
+                for index in range(len(self._open_text_elements) - 1, -1, -1)
+                if self._open_text_elements[index][0] == tag
+            ),
+            -1,
+        )
+        if matching_index < 0:
+            return
+        completed = self._open_text_elements[matching_index:]
+        del self._open_text_elements[matching_index:]
+        for element in reversed(completed):
+            self._finish_text_element(element)
+
+    def finalize_semantics(self) -> None:
+        for element in reversed(self._open_text_elements):
+            self._finish_text_element(element)
+        self._open_text_elements.clear()
+        for tag, element_id, classes, reference_ids in self._labelled_elements:
+            referenced_text = [
+                text
+                for reference_id in reference_ids
+                for text in self._id_text.get(reference_id, ())
+            ]
+            self._record_forbidden_semantics(
+                tag=tag,
+                element_id=element_id,
+                classes=classes,
+                reasons=_forbidden_dom_semantic_markers(referenced_text),
+            )
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        normalized_attribute_names = [
+            str(key).strip().casefold() for key, _value in attrs
+        ]
+        duplicate_attribute_names = {
+            name
+            for name in normalized_attribute_names
+            if normalized_attribute_names.count(name) > 1
+        }
+        attributes = {
+            str(key).casefold(): str(value or "") for key, value in attrs
+        }
+        raw_ids = [
+            str(value or "").strip()
+            for key, value in attrs
+            if str(key).casefold() == "id" and str(value or "").strip()
+        ]
+        element_id = raw_ids[-1] if raw_ids else ""
+        for raw_id in raw_ids:
+            self.id_counts[raw_id] = self.id_counts.get(raw_id, 0) + 1
+        classes = set(attributes.get("class", "").split())
+        semantic_values = [element_id, *classes]
+        semantic_values.extend(
+            f"{str(key).casefold()}={str(value or '').casefold()}"
+            for key, value in attrs
+            if str(key).casefold().startswith("data-")
+            or str(key).casefold()
+            in {
+                "role",
+                "aria-label",
+                "aria-labelledby",
+                "aria-describedby",
+                "aria-description",
+                "aria-roledescription",
+                "alt",
+                "title",
+            }
+        )
+        if tag in {"button", "input", "option", "select", "textarea"}:
+            semantic_values.extend(
+                f"{key}={attributes.get(key, '')}"
+                for key in (
+                    "alt",
+                    "command",
+                    "commandfor",
+                    "form",
+                    "formaction",
+                    "name",
+                    "placeholder",
+                    "popovertarget",
+                    "value",
+                )
+                if key in attributes
+            )
+        elif tag in {"a", "area"}:
+            semantic_values.extend(
+                f"{key}={attributes.get(key, '')}"
+                for key in ("download", "hreflang", "rel", "target", "type")
+                if key in attributes
+            )
+        semantic_markers = _forbidden_dom_semantic_markers(semantic_values)
+        structural_reasons: set[str] = set()
+        if duplicate_attribute_names:
+            structural_reasons.add("duplicate-attribute")
+        if any(
+            _is_candidate_inline_event_attribute(name)
+            for name in normalized_attribute_names
+        ):
+            structural_reasons.add("inline-event-handler")
+        if tag == "body":
+            self.public_surface = attributes.get(
+                "data-public-memorial-surface", ""
+            )
+            self.operator_preview = attributes.get(
+                "data-operator-voice-preview", ""
+            )
+        elif tag == "main":
+            self.main_count += 1
+        elif tag == "nav":
+            self.nav_count += 1
+        elif tag == "aside":
+            self.aside_count += 1
+        elif tag == "iframe":
+            self.iframe_count += 1
+        elif tag == "video":
+            self.video_count += 1
+        elif tag == "article":
+            self.article_count += 1
+            structural_reasons.add("article")
+        elif tag == "form":
+            self.form_count += 1
+            if element_id != "memorial-text-turn-form":
+                structural_reasons.add("unexpected-form")
+        elif tag == "details":
+            self.details_count += 1
+            if "conversation-settings" not in classes:
+                structural_reasons.add("unexpected-details")
+        elif tag == "section":
+            self.section_count += 1
+            if not (
+                (
+                    element_id == "memorial-speech-transcript-shell"
+                    and "speech-transcript-shell" in classes
+                )
+                or (
+                    not element_id
+                    and {"chat", "quiet-shell"}.issubset(classes)
+                )
+            ):
+                structural_reasons.add("unexpected-section")
+        elif tag == "base":
+            structural_reasons.add("unexpected-base")
+        elif (
+            tag == "meta"
+            and attributes.get("http-equiv", "").strip().casefold() == "refresh"
+        ):
+            structural_reasons.add("unexpected-meta-refresh")
+        elif tag in {"dialog", "embed", "object", "template"}:
+            structural_reasons.add(f"unexpected-{tag}")
+        href_forbidden: set[str] = set()
+        href_memory_room = False
+        href_tour = False
+        href_unsafe = False
+        navigation_values = [
+            str(value or "")
+            for name, value in attrs
+            if _is_candidate_navigation_attribute(name)
+        ]
+        for navigation_value in navigation_values:
+            (
+                navigation_forbidden,
+                navigation_memory_room,
+                navigation_tour,
+                navigation_unsafe,
+            ) = _candidate_href_facts(navigation_value)
+            href_forbidden.update(navigation_forbidden)
+            href_memory_room = href_memory_room or navigation_memory_room
+            href_tour = href_tour or navigation_tour
+            href_unsafe = href_unsafe or navigation_unsafe
+        if href_forbidden:
+            structural_reasons.add("forbidden-link")
+        if href_unsafe:
+            structural_reasons.add("unsafe-link-encoding")
+        self._record_forbidden_semantics(
+            tag=tag,
+            element_id=element_id,
+            classes=classes,
+            reasons=semantic_markers | structural_reasons,
+        )
+        if element_id == "memorial-conversation-region":
+            self.voice_release = attributes.get("data-voice-release", "")
+            self.voice_access = attributes.get("data-voice-access", "")
+        if tag == "details" and "conversation-settings" in classes:
+            self.conversation_settings_count += 1
+        if tag == "input" and element_id == "memorial-personal-memory-optin":
+            self.personal_memory_optin_count += 1
+            self.personal_memory_optin_default_checked = "checked" in attributes
+            self.personal_memory_optin_default_disabled = "disabled" in attributes
+        if tag == "button" and element_id == "memorial-personal-memory-forget":
+            self.personal_memory_forget_count += 1
+        if tag == "a" and href_memory_room:
+            self.memory_room_link_count += 1
+        if tag == "a" and href_tour:
+            self.tour_link_count += 1
+        labelled_by = tuple(
+            (
+                attributes.get("aria-labelledby", "")
+                + " "
+                + attributes.get("aria-describedby", "")
+            ).split()
+        )
+        if labelled_by:
+            self._labelled_elements.append(
+                (tag, element_id, classes, labelled_by)
+            )
+        if tag not in _HTML_VOID_ELEMENTS:
+            self._open_text_elements.append((tag, element_id, classes, []))
+        if tag in {"script", "style"}:
+            self._suppressed_text_depth += 1
+
+
+def verify_conversation_only_page_html(page_body: bytes) -> dict[str, object]:
+    """Verify the exact rendered Memorial voice/text public surface."""
+
+    try:
+        page_html = page_body.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise RuntimeError("candidate_conversation_surface_invalid") from exc
+    parser = _ConversationOnlyDocumentParser()
+    try:
+        parser.feed(page_html)
+        parser.close()
+        parser.finalize_semantics()
+    except Exception as exc:
+        raise RuntimeError("candidate_conversation_surface_invalid") from exc
+
+    required_ids = {
+        "memorial-conversation-region",
+        "memorial-conversation",
+        "memorial-conversation-disclosure",
+        "memorial-text-turn-form",
+        "memorial-text-turn-input",
+        "memorial-text-guidance",
+        "memorial-retry-button",
+        "memorial-speech-message",
+        "memorial-speech-transcript",
+        "memorial-chat-status",
+        "memorial-speech-audio",
+        "memorial-personal-memory-optin",
+        "memorial-personal-memory-status",
+        "memorial-personal-memory-forget",
+    }
+    forbidden_ids = {
+        "memorial-story",
+        "memorial-memory-room",
+        "memorial-contribution",
+        "memorial-contribution-form",
+        "memorial-contribution-management",
+        "memorial-install-hint",
+        "memorial-install-button",
+        "memorial-video-call-avatar",
+    }
+    missing_ids = sorted(
+        element_id
+        for element_id in required_ids
+        if parser.id_counts.get(element_id, 0) == 0
+    )
+    duplicate_ids = sorted(
+        element_id
+        for element_id, count in parser.id_counts.items()
+        if count > 1
+    )
+    present_forbidden_ids = sorted(
+        element_id
+        for element_id in forbidden_ids
+        if parser.id_counts.get(element_id, 0) > 0
+    )
+    forbidden_dom_semantics = sorted(parser.forbidden_dom_semantics)
+    contract = {
+        "status": "pass",
+        "public_surface": parser.public_surface,
+        "main_count": parser.main_count,
+        "nav_count": parser.nav_count,
+        "aside_count": parser.aside_count,
+        "iframe_count": parser.iframe_count,
+        "video_count": parser.video_count,
+        "article_count": parser.article_count,
+        "form_count": parser.form_count,
+        "details_count": parser.details_count,
+        "section_count": parser.section_count,
+        "conversation_settings_count": parser.conversation_settings_count,
+        "personal_memory_optin_count": parser.personal_memory_optin_count,
+        "personal_memory_optin_default_checked": (
+            parser.personal_memory_optin_default_checked
+        ),
+        "personal_memory_optin_default_disabled": (
+            parser.personal_memory_optin_default_disabled
+        ),
+        "personal_memory_forget_count": parser.personal_memory_forget_count,
+        "memory_room_link_count": parser.memory_room_link_count,
+        "tour_link_count": parser.tour_link_count,
+        "voice_release": parser.voice_release,
+        "voice_access": parser.voice_access,
+        "operator_preview": parser.operator_preview,
+        "missing_required_ids": missing_ids,
+        "duplicate_ids": duplicate_ids,
+        "present_forbidden_ids": present_forbidden_ids,
+        "forbidden_dom_semantics": forbidden_dom_semantics,
+    }
+    if (
+        parser.public_surface != "conversation-only"
+        or parser.main_count != 1
+        or parser.nav_count != 0
+        or parser.aside_count != 0
+        or parser.iframe_count != 0
+        or parser.video_count != 0
+        or parser.article_count != 0
+        or parser.form_count != 1
+        or parser.details_count != 1
+        or parser.section_count != 2
+        or parser.conversation_settings_count != 1
+        or parser.personal_memory_optin_count != 1
+        or parser.personal_memory_optin_default_checked
+        or not parser.personal_memory_optin_default_disabled
+        or parser.personal_memory_forget_count != 1
+        or parser.memory_room_link_count != 0
+        or parser.tour_link_count != 0
+        or parser.operator_preview
+        or (parser.voice_release, parser.voice_access)
+        not in {
+            ("blocked", "text-only"),
+            ("available", "public-release"),
+        }
+        or missing_ids
+        or duplicate_ids
+        or present_forbidden_ids
+        or forbidden_dom_semantics
+    ):
+        contract["status"] = "fail"
+        raise RuntimeError(
+            "candidate_conversation_surface_invalid:"
+            + json.dumps(contract, sort_keys=True, separators=(",", ":"))
+        )
+    return contract
+
+
 def _chromium_launch_executable(browser_type: object) -> str:
     configured = str(os.environ.get("EA_PLAYWRIGHT_CHROMIUM_EXECUTABLE") or "").strip()
     if configured:
@@ -165,8 +1029,13 @@ def _chromium_launch_executable(browser_type: object) -> str:
     raise RuntimeError("candidate_browser_executable_unavailable")
 
 
-def audit_browser_surface(base_url: str) -> dict[str, object]:
+def audit_browser_surface(
+    base_url: str,
+    *,
+    public_origin: str | None = None,
+) -> dict[str, object]:
     try:
+        from playwright.sync_api import Error as PlaywrightError
         from playwright.sync_api import sync_playwright
     except ModuleNotFoundError as exc:
         raise RuntimeError("candidate_browser_runtime_unavailable") from exc
@@ -196,9 +1065,16 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
             browser = playwright.chromium.launch(
                 **launch_options,
             )
+            context_options: dict[str, object] = {
+                "viewport": {"width": 390, "height": 844},
+                "reduced_motion": "reduce",
+            }
+            if public_origin is not None:
+                proxy_headers = _browser_proxy_headers(base_url, public_origin)
+                if proxy_headers:
+                    context_options["extra_http_headers"] = proxy_headers
             context = browser.new_context(
-                viewport={"width": 390, "height": 844},
-                reduced_motion="reduce",
+                **context_options,
             )
             page = context.new_page()
             page.on("request", lambda request: requested_urls.append(request.url))
@@ -265,13 +1141,137 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
             if failed_requests or page_errors:
                 raise RuntimeError("candidate_browser_runtime_error")
 
+            browser_semantic_policy = {
+                "markers": list(_CONVERSATION_ONLY_FORBIDDEN_DOM_MARKERS),
+                "allowed_visible_texts": list(
+                    _CONVERSATION_ONLY_ALLOWED_VISIBLE_MARKER_TEXTS
+                ),
+                "maximum_url_chars": _CANDIDATE_HREF_MAX_CHARS,
+                "maximum_decode_rounds": _CANDIDATE_HREF_MAX_DECODE_ROUNDS,
+            }
             accessibility = page.evaluate(
-                """() => {
+                """(policy) => {
                   const visible = (element) => {
                     if (!element || element.getClientRects().length === 0) return false;
                     const style = getComputedStyle(element);
                     return !element.hidden && style.display !== "none" && style.visibility !== "hidden";
                   };
+                  const normalize = (value) => String(value || "")
+                    .toLocaleLowerCase("und")
+                    .replaceAll("_", "-")
+                    .replace(/\\s+/g, " ")
+                    .trim();
+                  const semanticMarkers = (value, allowVisibleText = false) => {
+                    let normalized = normalize(value);
+                    if (allowVisibleText) {
+                      for (const allowed of policy.allowed_visible_texts) {
+                        normalized = normalized.split(normalize(allowed)).join(" ");
+                      }
+                      normalized = normalize(normalized);
+                    }
+                    return policy.markers.filter((marker) => normalized.includes(marker));
+                  };
+                  const semanticClone = document.body.cloneNode(true);
+                  semanticClone.querySelectorAll("script, style").forEach((element) => element.remove());
+                  const forbiddenVisibleSemantics = semanticMarkers(
+                    semanticClone.textContent || "",
+                    true,
+                  );
+                  const semanticAttributeNames = new Set([
+                    "alt", "aria-describedby", "aria-description", "aria-label",
+                    "aria-labelledby", "aria-roledescription", "role", "title",
+                  ]);
+                  const interactiveAttributeNames = new Set([
+                    "alt", "command", "commandfor", "form", "formaction", "name",
+                    "placeholder", "popovertarget", "value",
+                  ]);
+                  const interactiveTags = new Set(["BUTTON", "INPUT", "OPTION", "SELECT", "TEXTAREA"]);
+                  const forbiddenAttributeSemantics = [];
+                  const navigationViolations = [];
+                  const inlineEventHandlers = [];
+                  const navigationLocalName = (name) => {
+                    const normalized = normalize(name);
+                    const namespaceTail = normalized.includes("}")
+                      ? normalized.slice(normalized.lastIndexOf("}") + 1)
+                      : normalized;
+                    return namespaceTail.includes(":")
+                      ? namespaceTail.slice(namespaceTail.lastIndexOf(":") + 1)
+                      : namespaceTail;
+                  };
+                  const navigationFacts = (value) => {
+                    let decoded = String(value || "").trim();
+                    let unsafe = decoded.length > Number(policy.maximum_url_chars || 0);
+                    decoded = decoded.slice(0, Number(policy.maximum_url_chars || 0));
+                    for (let index = 0; index < Number(policy.maximum_decode_rounds || 0); index += 1) {
+                      let next;
+                      try {
+                        next = decodeURIComponent(decoded);
+                      } catch (error) {
+                        unsafe = true;
+                        break;
+                      }
+                      if (next === decoded) break;
+                      decoded = next;
+                    }
+                    try {
+                      if (decodeURIComponent(decoded) !== decoded) unsafe = true;
+                    } catch (error) {
+                      unsafe = true;
+                    }
+                    let parsed;
+                    try {
+                      parsed = new URL(decoded, document.baseURI);
+                    } catch (error) {
+                      unsafe = true;
+                    }
+                    if (parsed && !["http:", "https:"].includes(parsed.protocol)) unsafe = true;
+                    const semanticSource = parsed
+                      ? [decoded, parsed.hostname, parsed.pathname, parsed.search, parsed.hash].join(" ")
+                      : decoded;
+                    return {unsafe, markers: semanticMarkers(semanticSource)};
+                  };
+                  for (const element of document.querySelectorAll("*")) {
+                    const semanticValues = [element.id || "", element.className?.baseVal || element.className || ""];
+                    for (const attribute of Array.from(element.attributes || [])) {
+                      const name = normalize(attribute.name);
+                      if (name.startsWith("data-") || semanticAttributeNames.has(name)) {
+                        semanticValues.push(`${name}=${attribute.value || ""}`);
+                      }
+                      if (interactiveTags.has(element.tagName) && interactiveAttributeNames.has(name)) {
+                        semanticValues.push(`${name}=${attribute.value || ""}`);
+                      }
+                      if (name.length > 2 && name.startsWith("on") && /^[a-z0-9-]+$/.test(name.slice(2))) {
+                        inlineEventHandlers.push(`${element.tagName.toLowerCase()}:${name}`);
+                      }
+                      if (["action", "formaction", "href"].includes(navigationLocalName(name))) {
+                        const facts = navigationFacts(attribute.value);
+                        if (facts.unsafe || facts.markers.length) {
+                          navigationViolations.push(
+                            `${element.tagName.toLowerCase()}:${name}:${facts.unsafe ? "unsafe" : facts.markers.join(",")}`,
+                          );
+                        }
+                      }
+                    }
+                    const markers = semanticMarkers(semanticValues.join(" "));
+                    if (markers.length) {
+                      forbiddenAttributeSemantics.push(
+                        `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}:${markers.join(",")}`,
+                      );
+                    }
+                  }
+                  const forbiddenPseudoElementSemantics = [];
+                  for (const element of document.body.querySelectorAll("*")) {
+                    if (!visible(element)) continue;
+                    const pseudoContent = ["::before", "::after"]
+                      .map((pseudo) => getComputedStyle(element, pseudo).content || "")
+                      .join(" ");
+                    const markers = semanticMarkers(pseudoContent);
+                    if (markers.length) {
+                      forbiddenPseudoElementSemantics.push(
+                        `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}:${markers.join(",")}`,
+                      );
+                    }
+                  }
                   const controls = Array.from(document.querySelectorAll("input, textarea, button"))
                     .filter((element) => visible(element) && String(element.type || "") !== "hidden");
                   const unlabeled = controls.filter((element) => {
@@ -285,6 +1285,11 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
                   const storyRect = story?.getBoundingClientRect();
                   const conversationRect = conversation?.getBoundingClientRect();
                   const conversationPosition = conversation ? getComputedStyle(conversation).position : "missing";
+                  const unwantedIds = [
+                    "memorial-story", "memorial-memory-room", "memorial-contribution-form",
+                    "memorial-contribution-management", "memorial-install-hint",
+                    "memorial-install-button", "memorial-video-call-avatar"
+                  ].filter((id) => document.getElementById(id));
                   return {
                     lang: document.documentElement.lang,
                     main_count: document.querySelectorAll("main").length,
@@ -292,7 +1297,9 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
                     skip_link_count: document.querySelectorAll("a.skip-link").length,
                     unlabeled_controls: unlabeled,
                     consent_checked: Boolean(document.getElementById("memorial-contribution-consent")?.checked),
+                    personal_memory_optin_present: Boolean(document.getElementById("memorial-personal-memory-optin")),
                     personal_memory_checked: Boolean(document.getElementById("memorial-personal-memory-optin")?.checked),
+                    personal_memory_forget_present: Boolean(document.getElementById("memorial-personal-memory-forget")),
                     conversation_enabled: !Boolean(document.getElementById("memorial-conversation")?.disabled),
                     conversation_label: String(document.getElementById("memorial-conversation")?.textContent || "").trim(),
                     voice_release: String(document.getElementById("memorial-conversation-region")?.dataset.voiceRelease || ""),
@@ -312,20 +1319,43 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
                       0,
                       Math.round((storyRect?.bottom || 0) - (conversationRect?.top || 0)),
                     ),
+                    conversation_region_present: Boolean(conversation),
+                    story_present: Boolean(story),
+                    unwanted_ids: unwantedIds,
+                    public_nav_count: document.querySelectorAll("nav a").length,
+                    forbidden_visible_semantics: forbiddenVisibleSemantics,
+                    forbidden_attribute_semantics: forbiddenAttributeSemantics,
+                    forbidden_pseudo_element_semantics: forbiddenPseudoElementSemantics,
+                    forbidden_navigation_semantics: navigationViolations,
+                    inline_event_handlers: inlineEventHandlers,
+                    base_element_count: document.querySelectorAll("base").length,
+                    meta_refresh_count: Array.from(document.querySelectorAll("meta[http-equiv]"))
+                      .filter((element) => normalize(element.getAttribute("http-equiv")) === "refresh").length,
                   };
-                }"""
+                }""",
+                browser_semantic_policy,
             )
             if (
                 not str(accessibility.get("lang") or "").lower().startswith("de")
                 or accessibility.get("main_count") != 1
                 or accessibility.get("h1_count") != 1
-                or int(accessibility.get("skip_link_count") or 0) < 2
+                or int(accessibility.get("skip_link_count") or 0) < 1
                 or accessibility.get("unlabeled_controls")
-                or accessibility.get("consent_checked") is True
+                or accessibility.get("story_present") is True
+                or accessibility.get("unwanted_ids")
+                or accessibility.get("forbidden_visible_semantics")
+                or accessibility.get("forbidden_attribute_semantics")
+                or accessibility.get("forbidden_pseudo_element_semantics")
+                or accessibility.get("forbidden_navigation_semantics")
+                or accessibility.get("inline_event_handlers")
+                or int(accessibility.get("base_element_count") or 0) != 0
+                or int(accessibility.get("meta_refresh_count") or 0) != 0
+                or accessibility.get("personal_memory_optin_present") is not True
                 or accessibility.get("personal_memory_checked") is True
+                or accessibility.get("personal_memory_forget_present") is not True
                 or accessibility.get("conversation_enabled") is not True
                 or accessibility.get("conversation_label")
-                != "Schriftliche Frage stellen"
+                != CONVERSATION_ONLY_BLOCKED_ACTION_LABEL
                 or accessibility.get("voice_release") != "blocked"
                 or "ist nicht Manfred" not in str(accessibility.get("guidance") or "")
                 or "spricht nicht für ihn"
@@ -333,15 +1363,15 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
                 or accessibility.get("text_form_visible") is not True
                 or accessibility.get("text_input_focused") is not True
                 or accessibility.get("text_placeholder")
-                != "Welche belegte Erinnerung möchtest du einordnen?"
+                != CONVERSATION_ONLY_TEXT_PLACEHOLDER
                 or accessibility.get("voice_autostart_hidden") is not True
                 or accessibility.get("old_impersonation_copy_visible") is True
                 or accessibility.get("reduced_motion") is not True
                 or int(accessibility.get("horizontal_overflow") or 0) > 1
                 or accessibility.get("conversation_position")
                 in {"fixed", "sticky", "missing"}
-                or accessibility.get("conversation_after_story") is not True
-                or int(accessibility.get("conversation_overlap") or 0) > 1
+                or accessibility.get("conversation_region_present") is not True
+                or int(accessibility.get("public_nav_count") or 0) != 0
             ):
                 raise RuntimeError("candidate_browser_accessibility_contract_failed")
 
@@ -378,6 +1408,8 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
                       0,
                       Math.round((storyRect?.bottom || 0) - (conversationRect?.top || 0)),
                     ),
+                    conversation_present: Boolean(conversation),
+                    story_present: Boolean(story),
                   };
                 }"""
             )
@@ -386,13 +1418,15 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
                 desktop_overflow > 1
                 or desktop_layout.get("conversation_position")
                 in {"fixed", "sticky", "missing"}
-                or desktop_layout.get("conversation_after_story") is not True
-                or int(desktop_layout.get("conversation_overlap") or 0) > 1
+                or desktop_layout.get("conversation_present") is not True
+                or desktop_layout.get("story_present") is True
             ):
                 raise RuntimeError("candidate_browser_desktop_layout_contract_failed")
             context.close()
             browser.close()
             browser = None
+    except PlaywrightError as exc:
+        raise RuntimeError("candidate_browser_runtime_error") from exc
     finally:
         if browser is not None:
             with contextlib.suppress(Exception):
@@ -409,6 +1443,8 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
         "horizontal_overflow_px": 0,
         "conversation_in_document_flow": True,
         "conversation_overlap_px": 0,
+        "memorial_surface": MEMORIAL_SURFACE,
+        "spatial_scope": SPATIAL_SCOPE,
         "unlabeled_controls": 0,
         "automatic_provider_requests": 0,
         "automatic_websockets": 0,
@@ -528,6 +1564,7 @@ def verify_candidate(
     submit_receipt: Path | None,
     withdraw_receipt: Path | None,
     browser_audit: bool = False,
+    transport_request: Callable[..., tuple[int, bytes, dict[str, str]]] | None = None,
 ) -> dict[str, object]:
     _wait_for_health(base_url, wait_seconds)
     checks: list[str] = ["healthz"]
@@ -551,11 +1588,47 @@ def verify_candidate(
         raise RuntimeError("candidate_public_headers_incomplete")
     checks.append("public_projection")
 
-    _request(base_url, "/memorials/manfred", method="HEAD")
-    _request(base_url, "/memorials/manfred/archive.json")
+    _page_status, page_body, page_headers = _request(
+        base_url,
+        "/memorials/manfred",
+        headers=_browser_proxy_headers(base_url, public_origin),
+    )
+    encoded_page = page_body.decode("utf-8", errors="replace")
+    if any(marker in encoded_page for marker in forbidden_markers):
+        raise RuntimeError("candidate_public_page_private_data_exposed")
+    if page_headers.get("x-content-type-options", "").lower() != "nosniff":
+        raise RuntimeError("candidate_public_headers_incomplete")
+    conversation_surface = verify_conversation_only_page_html(page_body)
+    checks.append("conversation_only_public_surface")
+
+    transport_security = _verify_memorial_transport_security(
+        base_url,
+        public_origin,
+        request_fn=transport_request,
+    )
+    checks.append("memorial_transport_security")
+
+    _verify_memorial_head_surface(
+        base_url,
+        public_origin,
+        request_fn=transport_request,
+    )
+    _verify_singular_memorial_alias(
+        base_url,
+        public_origin,
+        request_fn=transport_request,
+    )
+    archive_gate = _verify_memorial_archive_gate(base_url)
     _request(base_url, "/memorials/manfred/app.webmanifest")
     _request(base_url, "/memorials/manfred/service-worker.js")
-    checks.extend(["head_surface_no_prewarm", "archive", "pwa"])
+    checks.extend(
+        [
+            "head_surface_no_prewarm",
+            "singular_memorial_alias",
+            "archive_publication_gate",
+            "pwa",
+        ]
+    )
 
     _request(
         base_url,
@@ -641,7 +1714,10 @@ def verify_candidate(
 
     browser_evidence: dict[str, object] = {"status": "not_run"}
     if browser_audit:
-        browser_evidence = audit_browser_surface(base_url)
+        browser_evidence = audit_browser_surface(
+            base_url,
+            public_origin=public_origin,
+        )
         if browser_evidence.get("status") != "pass" or not _has_exact_zero_counts(
             browser_evidence
         ):
@@ -657,12 +1733,17 @@ def verify_candidate(
         .replace("+00:00", "Z"),
         "base_url": base_url,
         "checks": checks,
+        "conversation_only_public_surface": conversation_surface,
         "provider_calls_performed": False,
-        "page_get_performed": browser_audit,
+        "page_get_performed": True,
         "operator_surface_used": False,
         "private_audio_served": False,
+        "archive_gate": archive_gate,
+        "transport_security": transport_security,
         "contribution": contribution,
         "browser_audit": browser_evidence,
+        "memorial_surface": MEMORIAL_SURFACE,
+        "spatial_scope": SPATIAL_SCOPE,
     }
 
 

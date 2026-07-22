@@ -721,7 +721,7 @@ def test_materialize_proactive_ooda_operator_status_prefers_source_health_over_f
         "live_receipt_checked": True,
         "live_receipt": {
             "ok": False,
-            "errors": ["followthrough_artifacts_missing"],
+            "errors": ["receipt_not_sent", "followthrough_artifacts_missing"],
             "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
             "notification_status": "sent",
             "delivery_next_action": "repair_proactive_operator_runtime_posture",
@@ -829,6 +829,23 @@ def test_materialize_proactive_ooda_operator_status_prefers_source_health_over_f
         "Proactive OODA route and packet runtime are available, but "
         "Google workspace recovery cooldown is active until 2026-07-06T20:00:00Z."
     )
+
+    source_health_route_probe = module.ea_live_ops.probe_proactive_route
+
+    def _stage_error_route_probe(**kwargs: object) -> dict[str, object]:
+        payload = source_health_route_probe(**kwargs)
+        payload["route_report"]["stage_packets"]["errors"] = ["receipt_not_sent"]
+        return payload
+
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_route", _stage_error_route_probe)
+    unrelated_receipt_error = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / "ea_proactive_ooda_operator_status.unrelated-error.generated.json",
+        generated_at="2026-07-06T18:02:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+    )
+
+    assert unrelated_receipt_error["status"] == "ready_with_recovery_action"
+    assert unrelated_receipt_error["reason"] == "receipt_not_sent"
 
 
 def test_materialize_proactive_ooda_operator_status_recovers_on_runtime_artifact_drift(
@@ -1528,7 +1545,7 @@ def test_materialize_proactive_ooda_operator_status_retries_transient_source_cov
         report_args=Namespace(principal_id="exec-1"),
     )
 
-    assert captured_timeouts == [30.0, 180.0]
+    assert captured_timeouts == [120.0, 180.0]
     assert receipt["status"] == "ready_with_live_receipt"
     assert receipt["reason"] == "ready"
     assert receipt["operator_action_state"] == "clear"
@@ -1608,6 +1625,7 @@ def test_build_operator_status_reuses_route_artifact_probe(tmp_path: Path, monke
     module = _load_script()
     monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
     artifact_calls: list[object] = []
+    route_calls: list[dict[str, object]] = []
     route_artifact = {
         "probe_ok": True,
         "source": "docker_compose_exec",
@@ -1623,7 +1641,8 @@ def test_build_operator_status_reuses_route_artifact_probe(tmp_path: Path, monke
         "safe_work_result": {"result_ref": "safe_work_result:res-route"},
     }
 
-    def _fake_route(**_kwargs: object) -> dict[str, object]:
+    def _fake_route(**kwargs: object) -> dict[str, object]:
+        route_calls.append(kwargs)
         return {
             "probe_ok": True,
             "source": "docker_compose_exec",
@@ -1660,11 +1679,35 @@ def test_build_operator_status_reuses_route_artifact_probe(tmp_path: Path, monke
     )
 
     assert artifact_calls == []
+    assert route_calls
+    assert route_calls[0]["include_artifact_probe"] is True
     assert receipt["approval_capture_surface"]["source"] == "docker_compose_exec"
     assert receipt["approval_capture_surface"]["current_packet_callback_record_count"] == 1
 
 
-def test_build_operator_status_uses_local_artifact_probe_when_route_skips_artifacts(
+def test_route_artifact_probe_reuse_fails_closed_on_explicit_probe_failure(monkeypatch) -> None:
+    monkeypatch.delenv("EA_PROACTIVE_OODA_LIVE_PROBE_TIMEOUT_SECONDS", raising=False)
+    module = _load_script()
+
+    assert module._live_probe_timeout_seconds() == 120.0
+    assert module._route_artifact_probe_reusable(
+        {
+            "probe_ok": False,
+            "status": "probe_failed",
+            "blocking_reason": "runtime_artifact_probe_timed_out:TimeoutExpired:22s",
+            "timed_out": True,
+            "stage_packet": {"packet_id": "stale-packet"},
+        }
+    ) is False
+    assert module._route_artifact_probe_reusable(
+        {
+            "status": "ok",
+            "stage_packet": {"packet_id": "legacy-authoritative-packet"},
+        }
+    ) is True
+
+
+def test_build_operator_status_rejects_timed_out_route_artifacts_and_uses_local_probe(
     tmp_path: Path, monkeypatch
 ) -> None:
     module = _load_script()
@@ -1746,7 +1789,15 @@ def test_build_operator_status_uses_local_artifact_probe_when_route_skips_artifa
                 "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
                 "errors": [],
             },
-            "artifact_probe": {},
+            "artifact_probe": {
+                "probe_ok": False,
+                "status": "probe_failed",
+                "source": "docker_compose_exec",
+                "blocking_reason": "runtime_artifact_probe_timed_out:TimeoutExpired:22s",
+                "timed_out": True,
+                "stage_packet": {"packet_ref": "stage_packet:stale-route-packet"},
+                "safe_work_result": {"result_ref": "safe_work_result:stale-route-result"},
+            },
             "route_report": {
                 "ok": True,
                 "delivery_route": {"ready": True, "selected_channel": "telegram", "selected_by": "tool_runtime_binding"},
@@ -1788,6 +1839,7 @@ def test_build_operator_status_uses_local_artifact_probe_when_route_skips_artifa
     assert receipt["provider_cost_pressure"]["primary_background_provider"] == "onemin"
     assert receipt["approval_capture_surface"]["source"] == "local_filesystem"
     assert receipt["approval_capture_surface"]["current_packet_live_pending_count"] == 1
+    assert "stale-route" not in json.dumps(receipt, sort_keys=True)
 
 
 def test_host_path_for_runtime_container_path_translates_provider_ledger_mount(monkeypatch) -> None:
@@ -4160,6 +4212,24 @@ def test_materialize_proactive_ooda_operator_status_blocks_on_approval_callback_
     assert receipt["approval_capture_surface"]["callback_hygiene_next_action"] == "cleanup_proactive_approval_callbacks"
     assert receipt["approval_capture_surface"]["callback_noncurrent_pending_count"] == 2
     assert receipt["approval_capture_surface"]["callback_stale_pending_count"] == 2
+
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_provider_cost_pressure",
+        _fake_provider_cost_pressure_misconfigured_probe,
+    )
+    cost_recovery_receipt = module.build_proactive_ooda_operator_status(
+        output_path=output,
+        generated_at="2026-07-02T17:02:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+        skip_provider_cost_pressure_probe=False,
+    )
+
+    assert cost_recovery_receipt["status"] == "ready_with_recovery_action"
+    assert cost_recovery_receipt["reason"] == "provider_cost_pressure_misconfigured"
+    assert cost_recovery_receipt["next_action"] == "repair_provider_cost_routing"
+    assert cost_recovery_receipt["operator_action_state"] == "recovery_required"
+    assert cost_recovery_receipt["approval_capture_surface"]["callback_hygiene_ready"] is False
 
 
 def test_materialize_proactive_ooda_operator_status_surfaces_manual_approval_capture_for_mirrored_packet(

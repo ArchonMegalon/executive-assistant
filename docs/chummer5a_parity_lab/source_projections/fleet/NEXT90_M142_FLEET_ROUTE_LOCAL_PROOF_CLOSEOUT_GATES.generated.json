@@ -1,0 +1,7 @@
+{
+  "contract_name": "projection.next90_m142_fleet_route_local_proof_closeout_gates",
+  "generated_at": "2026-07-15T00:00:00Z",
+  "projection_redacted": true,
+  "package_closeout": {"status": "pass"},
+  "monitor_summary": {"route_local_proof_closeout_status": "pass"}
+}

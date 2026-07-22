@@ -1,8 +1,17 @@
 {
   "contract_name": "ea.memorial_stt_provider_benchmark",
+  "generated_at": "2026-07-22T14:31:06Z",
+  "generated_by": "scripts/benchmark_memorial_stt_providers.py",
+  "source_git_head": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
+  "head_semantics": "source_state",
+  "source_state_fingerprint": "362cc24a424ad0f930637202232846f2d3bf4186fadffe6820be3b41133ae663",
+  "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+  "captured_candidate_binding": {},
   "status": "blocked",
   "scoring": {
     "pass_rule": "usable transcript + required tokens present + token_f1 >= sample min + WER <= sample max",
+    "raw_provider_transcript_scored": true,
+    "semantic_repair_applied": false,
     "fixture_quality_rule": "ground-truth fixtures must be long enough to contain their expected transcript before provider accuracy is scored",
     "known_bad_non_empty_text_is_not_enough": true,
     "production_eligible_rule": "provider must pass every ground-truth benchmark sample and hostile variant",
@@ -14,55 +23,39 @@
   "fixture_quality_status": "pass",
   "fixture_quality_failed_codes": [],
   "availability": {
-    "shadow_provider": "blipai",
-    "cartesia_configured": true,
-    "cartesia_default_credential_file_present": true,
-    "cartesia": {
-      "configured": true,
-      "credential_source": "default_credential_file",
-      "accepted_source_types": [
-        "direct_env",
-        "inline_json_env",
-        "credential_file_env",
-        "default_credential_file"
-      ],
-      "default_credential_files": [
-        {
-          "path": "config/cartesia.local.json",
-          "resolved_path": "config/cartesia.local.json",
-          "present": true,
-          "contains_key": true
-        }
-      ],
-      "operator_hint": ""
+    "providers": {
+      "full_runtime": {
+        "configured": false,
+        "credential_source": "none"
+      },
+      "shadow": {
+        "configured": true,
+        "provider_family": "blipai"
+      },
+      "onemin_sample": {
+        "configured": true,
+        "key_count": 71,
+        "max_key_attempts": 4
+      }
     },
-    "onemin_key_count": 71,
-    "onemin_max_key_attempts": 4,
-    "provider_env": {
-      "files": [
-        ".env",
-        ".env.local"
-      ],
-      "loaded_count": 435,
+    "credential_environment": {
+      "file_count": 2,
+      "loaded_count": 443,
       "provider_families": {
-        "cartesia": true,
+        "cartesia": false,
         "onemin": true,
         "blipai_shadow": true
       }
+    },
+    "governance_preflight": {
+      "blocked": false,
+      "failed_codes": [],
+      "external_candidate_failed_codes": [],
+      "tracked_fixture_failed_codes": [],
+      "captured_candidate_pair_count": 0
     }
   },
   "provider_ranking": [
-    {
-      "provider": "full_runtime",
-      "passed_samples": 3,
-      "sample_count": 4,
-      "scored_samples": 4,
-      "intent_correct_samples": 3,
-      "avg_token_f1": 0.9722,
-      "avg_wer": 0.0278,
-      "avg_latency_ms": 555.4,
-      "production_eligible": false
-    },
     {
       "provider": "onemin_sample",
       "passed_samples": 2,
@@ -71,7 +64,18 @@
       "intent_correct_samples": 2,
       "avg_token_f1": 0.9445,
       "avg_wer": 0.0556,
-      "avg_latency_ms": 3286.2,
+      "avg_latency_ms": 2642.2,
+      "production_eligible": false
+    },
+    {
+      "provider": "full_runtime",
+      "passed_samples": 2,
+      "sample_count": 4,
+      "scored_samples": 4,
+      "intent_correct_samples": 2,
+      "avg_token_f1": 0.9445,
+      "avg_wer": 0.0556,
+      "avg_latency_ms": 2830.5,
       "production_eligible": false
     },
     {
@@ -82,7 +86,7 @@
       "intent_correct_samples": 0,
       "avg_token_f1": 0.0,
       "avg_wer": 1.0,
-      "avg_latency_ms": 899.8,
+      "avg_latency_ms": 828.4,
       "production_eligible": false
     }
   ],
@@ -92,183 +96,322 @@
       "variant": "synthetic",
       "fixture": "contact_opening_captured.wav",
       "fixture_sha256": "a5589abeb9b81ab6fb991d280e285d3416ec1c29a92013bc5e47fee3d2198d88",
+      "source_fixture_sha256": "a5589abeb9b81ab6fb991d280e285d3416ec1c29a92013bc5e47fee3d2198d88",
       "fixture_quality": {
         "status": "pass",
         "failed_codes": [],
         "audio_duration_seconds": 2.9,
-        "expected_min_duration_seconds": 2.24
+        "expected_min_duration_seconds": 2.24,
+        "max_duration_seconds": 120.0,
+        "wav_format": {
+          "audio_format": 1,
+          "channels": 1,
+          "sample_rate_hz": 44100,
+          "sample_width_bytes": 2
+        }
+      },
+      "source_fixture_quality": {
+        "status": "pass",
+        "failed_codes": [],
+        "audio_duration_seconds": 2.9,
+        "expected_min_duration_seconds": 2.24,
+        "max_duration_seconds": 120.0,
+        "wav_format": {
+          "audio_format": 1,
+          "channels": 1,
+          "sample_rate_hz": 44100,
+          "sample_width_bytes": 2
+        }
+      },
+      "transformation": {
+        "contract_name": "ea.memorial_stt_audio_transformation_receipt.v1",
+        "canonicalization": "json_utf8_sorted_keys_compact_v1",
+        "sha256": "b8ace6bebaa9bc65e0f312e42f056a2ae501bc5bc2a0866ad021f26cb1d81bd6",
+        "payload": {
+          "contract_name": "ea.memorial_stt_audio_transformation_receipt.v1",
+          "transformation_id": "identity_v1",
+          "transformation_version": 1,
+          "source_audio_sha256": "a5589abeb9b81ab6fb991d280e285d3416ec1c29a92013bc5e47fee3d2198d88",
+          "output_audio_sha256": "a5589abeb9b81ab6fb991d280e285d3416ec1c29a92013bc5e47fee3d2198d88",
+          "source_duration_seconds": 2.9,
+          "output_duration_seconds": 2.9,
+          "duration_preserved": true,
+          "parameters": {}
+        }
       },
       "provenance": {
-        "origin": "Synthetic German speech generated through EA Unmixr TTS from the exact expected text after the previous captured fixture proved truncated.",
-        "speaker_consent": "synthetic_voice_provider_output_no_human_speaker",
+        "origin": "governed_synthetic_stt_fixture",
+        "speaker_consent": "synthetic_fixture_no_human_speaker",
         "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
-        "retention": "private_repo_synthetic_regression_fixture",
+        "retention": "repo_synthetic_regression_fixture",
         "synthetic": true,
-        "accent": "synthetic German voice"
+        "accent": "synthetic",
+        "provider_upload_authorization": {
+          "full_runtime": true,
+          "shadow": true,
+          "onemin_sample": true
+        }
       },
-      "shadow": {
-        "status": "error",
-        "ms": 899.8,
-        "reason": "http_401",
-        "wer": 1.0,
-        "token_f1": 0.0,
-        "intent_correct": false,
-        "usable": false,
-        "passed": false,
-        "min_token_f1": 0.65,
-        "max_wer": 0.45,
-        "text_mode": "redacted",
-        "expected_text_chars": 48,
-        "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
-        "actual_text_chars": 0,
-        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "required_token_count": 3,
-        "required_token_sha256": [
-          "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
-          "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
-          "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
-        ],
-        "text_redacted": true
-      },
-      "onemin_sample": {
-        "status": "ok",
-        "ms": 3699.0,
-        "wer": 0.0,
-        "token_f1": 1.0,
-        "intent_correct": true,
-        "usable": true,
-        "passed": true,
-        "min_token_f1": 0.65,
-        "max_wer": 0.45,
-        "text_mode": "redacted",
-        "expected_text_chars": 48,
-        "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
-        "actual_text_chars": 48,
-        "actual_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
-        "required_token_count": 3,
-        "required_token_sha256": [
-          "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
-          "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
-          "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
-        ],
-        "text_redacted": true
+      "captured_candidate_binding": {},
+      "provider_upload_authorization": {
+        "full_runtime": true,
+        "shadow": true,
+        "onemin_sample": true
       },
       "full_runtime": {
         "status": "transcribed",
         "ms": 0.2,
-        "transcriber": "memorial_known_audio_fingerprint",
-        "detail": "",
         "wer": 0.0,
         "token_f1": 1.0,
+        "min_token_f1": 0.65,
+        "max_wer": 0.45,
+        "expected_text_chars": 48,
+        "actual_text_chars": 48,
+        "required_token_count": 3,
         "intent_correct": true,
         "usable": true,
         "passed": true,
-        "min_token_f1": 0.65,
-        "max_wer": 0.45,
-        "text_mode": "redacted",
-        "expected_text_chars": 48,
+        "text_redacted": true,
         "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
-        "actual_text_chars": 48,
         "actual_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
-        "required_token_count": 3,
         "required_token_sha256": [
           "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
           "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
           "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
         ],
-        "text_redacted": true
+        "provider_evidence_status": "eligible",
+        "provider_evidence_failed_codes": [],
+        "scored_text_source": "primary_transcript_text",
+        "transcriber": {
+          "family": "memorial",
+          "identifier_sha256": "c0ef897f5d79f9c095885e3cd6a07ba89d9583ded6dd3f3bcb9e3946e588396e"
+        },
+        "text_mode": "redacted"
+      },
+      "shadow": {
+        "status": "error",
+        "detail": {
+          "contract_name": "ea.memorial_stt_provider_error_detail.v1",
+          "category": "http_error",
+          "code": "provider_http_error",
+          "detail_sha256": "3dd56c119406f43e14cf9ad117fa7e288547b0b13b6d4ea2aee17a5d45916993"
+        },
+        "ms": 828.4,
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "min_token_f1": 0.65,
+        "max_wer": 0.45,
+        "expected_text_chars": 48,
+        "actual_text_chars": 0,
+        "required_token_count": 3,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "text_redacted": true,
+        "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_sha256": [
+          "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+          "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+          "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+        ],
+        "provider_evidence_status": "blocked",
+        "provider_evidence_failed_codes": [
+          "provider_status_not_successful"
+        ],
+        "text_mode": "redacted"
+      },
+      "onemin_sample": {
+        "status": "ok",
+        "ms": 2802.4,
+        "wer": 0.0,
+        "token_f1": 1.0,
+        "min_token_f1": 0.65,
+        "max_wer": 0.45,
+        "expected_text_chars": 48,
+        "actual_text_chars": 48,
+        "required_token_count": 3,
+        "intent_correct": true,
+        "usable": true,
+        "passed": true,
+        "text_redacted": true,
+        "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "actual_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "required_token_sha256": [
+          "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+          "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+          "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+        ],
+        "provider_evidence_status": "eligible",
+        "provider_evidence_failed_codes": [],
+        "text_mode": "redacted"
       }
     },
     {
       "sample": "contact_opening_hostile",
       "variant": "hostile",
       "fixture": "contact_opening_captured.wav",
-      "fixture_sha256": "a5589abeb9b81ab6fb991d280e285d3416ec1c29a92013bc5e47fee3d2198d88",
+      "fixture_sha256": "605fc13f2614911590e2c040d783095d47ed6931e35269299fc5bafc8c7fa05b",
+      "source_fixture_sha256": "a5589abeb9b81ab6fb991d280e285d3416ec1c29a92013bc5e47fee3d2198d88",
       "fixture_quality": {
         "status": "pass",
         "failed_codes": [],
         "audio_duration_seconds": 2.9,
-        "expected_min_duration_seconds": 2.24
+        "expected_min_duration_seconds": 2.24,
+        "max_duration_seconds": 120.0,
+        "wav_format": {
+          "audio_format": 1,
+          "channels": 1,
+          "sample_rate_hz": 44100,
+          "sample_width_bytes": 2
+        }
+      },
+      "source_fixture_quality": {
+        "status": "pass",
+        "failed_codes": [],
+        "audio_duration_seconds": 2.9,
+        "expected_min_duration_seconds": 2.24,
+        "max_duration_seconds": 120.0,
+        "wav_format": {
+          "audio_format": 1,
+          "channels": 1,
+          "sample_rate_hz": 44100,
+          "sample_width_bytes": 2
+        }
+      },
+      "transformation": {
+        "contract_name": "ea.memorial_stt_audio_transformation_receipt.v1",
+        "canonicalization": "json_utf8_sorted_keys_compact_v1",
+        "sha256": "fdc83b700aefa6971cba2bbcec3fae57f25ef5cd40d9aececc746fd3e5f5548d",
+        "payload": {
+          "contract_name": "ea.memorial_stt_audio_transformation_receipt.v1",
+          "transformation_id": "hostile_room_v1",
+          "transformation_version": 1,
+          "source_audio_sha256": "a5589abeb9b81ab6fb991d280e285d3416ec1c29a92013bc5e47fee3d2198d88",
+          "output_audio_sha256": "605fc13f2614911590e2c040d783095d47ed6931e35269299fc5bafc8c7fa05b",
+          "source_duration_seconds": 2.9,
+          "output_duration_seconds": 2.9,
+          "duration_preserved": true,
+          "parameters": {
+            "gain": 1.18,
+            "echo_delay_ms": 76,
+            "echo_mix": 0.22,
+            "noise_cycle_pcm16": [
+              132,
+              -132,
+              66,
+              -66
+            ],
+            "speed_factor": 1.0
+          }
+        }
       },
       "provenance": {
-        "origin": "Synthetic German speech generated through EA Unmixr TTS from the exact expected text after the previous captured fixture proved truncated.",
-        "speaker_consent": "synthetic_voice_provider_output_no_human_speaker",
+        "origin": "governed_synthetic_stt_fixture",
+        "speaker_consent": "synthetic_fixture_no_human_speaker",
         "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
-        "retention": "private_repo_synthetic_regression_fixture",
+        "retention": "repo_synthetic_regression_fixture",
         "synthetic": true,
-        "accent": "synthetic German voice"
+        "accent": "synthetic",
+        "provider_upload_authorization": {
+          "full_runtime": true,
+          "shadow": true,
+          "onemin_sample": true
+        }
       },
-      "shadow": {
-        "status": null,
-        "ms": 0.0,
-        "reason": "provider_cooldown_active",
-        "wer": 1.0,
-        "token_f1": 0.0,
-        "intent_correct": false,
-        "usable": false,
-        "passed": false,
-        "min_token_f1": 0.65,
-        "max_wer": 0.45,
-        "text_mode": "redacted",
-        "expected_text_chars": 48,
-        "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
-        "actual_text_chars": 0,
-        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "required_token_count": 3,
-        "required_token_sha256": [
-          "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
-          "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
-          "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
-        ],
-        "text_redacted": true
-      },
-      "onemin_sample": {
-        "status": "ok",
-        "ms": 4619.7,
-        "wer": 0.0,
-        "token_f1": 1.0,
-        "intent_correct": true,
-        "usable": true,
-        "passed": true,
-        "min_token_f1": 0.65,
-        "max_wer": 0.45,
-        "text_mode": "redacted",
-        "expected_text_chars": 48,
-        "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
-        "actual_text_chars": 48,
-        "actual_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
-        "required_token_count": 3,
-        "required_token_sha256": [
-          "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
-          "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
-          "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
-        ],
-        "text_redacted": true
+      "captured_candidate_binding": {},
+      "provider_upload_authorization": {
+        "full_runtime": true,
+        "shadow": true,
+        "onemin_sample": true
       },
       "full_runtime": {
         "status": "transcribed",
-        "ms": 1595.8,
-        "transcriber": "cartesia/ink-whisper+enhanced_wav",
-        "detail": "",
+        "ms": 6724.9,
         "wer": 0.0,
         "token_f1": 1.0,
+        "min_token_f1": 0.65,
+        "max_wer": 0.45,
+        "expected_text_chars": 48,
+        "actual_text_chars": 48,
+        "required_token_count": 3,
         "intent_correct": true,
         "usable": true,
         "passed": true,
-        "min_token_f1": 0.65,
-        "max_wer": 0.45,
-        "text_mode": "redacted",
-        "expected_text_chars": 48,
+        "text_redacted": true,
         "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
-        "actual_text_chars": 48,
         "actual_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
-        "required_token_count": 3,
         "required_token_sha256": [
           "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
           "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
           "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
         ],
-        "text_redacted": true
+        "provider_evidence_status": "eligible",
+        "provider_evidence_failed_codes": [],
+        "scored_text_source": "primary_transcript_text",
+        "transcriber": {
+          "family": "unknown",
+          "identifier_sha256": "c3987baec6689fb560d28b210e435b46d73ccb9ba829d04055623be407790041"
+        },
+        "text_mode": "redacted"
+      },
+      "shadow": {
+        "status": "unknown",
+        "detail": {
+          "contract_name": "ea.memorial_stt_provider_error_detail.v1",
+          "category": "provider_error",
+          "code": "provider_error",
+          "detail_sha256": "55624f516b5b95829647769136a7188defdf3c9d1b82cb0b6f28b7814d736fb8"
+        },
+        "ms": 0.0,
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "min_token_f1": 0.65,
+        "max_wer": 0.45,
+        "expected_text_chars": 48,
+        "actual_text_chars": 0,
+        "required_token_count": 3,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "text_redacted": true,
+        "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_sha256": [
+          "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+          "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+          "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+        ],
+        "provider_evidence_status": "blocked",
+        "provider_evidence_failed_codes": [
+          "provider_status_not_successful"
+        ],
+        "text_mode": "redacted"
+      },
+      "onemin_sample": {
+        "status": "ok",
+        "ms": 2286.0,
+        "wer": 0.0,
+        "token_f1": 1.0,
+        "min_token_f1": 0.65,
+        "max_wer": 0.45,
+        "expected_text_chars": 48,
+        "actual_text_chars": 48,
+        "required_token_count": 3,
+        "intent_correct": true,
+        "usable": true,
+        "passed": true,
+        "text_redacted": true,
+        "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "actual_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "required_token_sha256": [
+          "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+          "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+          "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+        ],
+        "provider_evidence_status": "eligible",
+        "provider_evidence_failed_codes": [],
+        "text_mode": "redacted"
       }
     },
     {
@@ -276,177 +419,316 @@
       "variant": "synthetic",
       "fixture": "rescue_stt_retry_captured.wav",
       "fixture_sha256": "844ffb440ad0dd2ee30f75ddef046c982f183f196009004ba0d28fece72c3d2d",
+      "source_fixture_sha256": "844ffb440ad0dd2ee30f75ddef046c982f183f196009004ba0d28fece72c3d2d",
       "fixture_quality": {
         "status": "pass",
         "failed_codes": [],
         "audio_duration_seconds": 3.579,
-        "expected_min_duration_seconds": 2.52
+        "expected_min_duration_seconds": 2.52,
+        "max_duration_seconds": 120.0,
+        "wav_format": {
+          "audio_format": 1,
+          "channels": 1,
+          "sample_rate_hz": 44100,
+          "sample_width_bytes": 2
+        }
+      },
+      "source_fixture_quality": {
+        "status": "pass",
+        "failed_codes": [],
+        "audio_duration_seconds": 3.579,
+        "expected_min_duration_seconds": 2.52,
+        "max_duration_seconds": 120.0,
+        "wav_format": {
+          "audio_format": 1,
+          "channels": 1,
+          "sample_rate_hz": 44100,
+          "sample_width_bytes": 2
+        }
+      },
+      "transformation": {
+        "contract_name": "ea.memorial_stt_audio_transformation_receipt.v1",
+        "canonicalization": "json_utf8_sorted_keys_compact_v1",
+        "sha256": "738b4aeeb70b1f301b5fdb081b50dd45c233df95b9cd60008f81ccddd35823d8",
+        "payload": {
+          "contract_name": "ea.memorial_stt_audio_transformation_receipt.v1",
+          "transformation_id": "identity_v1",
+          "transformation_version": 1,
+          "source_audio_sha256": "844ffb440ad0dd2ee30f75ddef046c982f183f196009004ba0d28fece72c3d2d",
+          "output_audio_sha256": "844ffb440ad0dd2ee30f75ddef046c982f183f196009004ba0d28fece72c3d2d",
+          "source_duration_seconds": 3.579,
+          "output_duration_seconds": 3.579,
+          "duration_preserved": true,
+          "parameters": {}
+        }
       },
       "provenance": {
-        "origin": "Synthetic German speech generated through EA Unmixr TTS from the exact expected text after the previous captured fixture proved truncated.",
-        "speaker_consent": "synthetic_voice_provider_output_no_human_speaker",
+        "origin": "governed_synthetic_stt_fixture",
+        "speaker_consent": "synthetic_fixture_no_human_speaker",
         "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
-        "retention": "private_repo_synthetic_regression_fixture",
+        "retention": "repo_synthetic_regression_fixture",
         "synthetic": true,
-        "accent": "synthetic German voice"
+        "accent": "synthetic",
+        "provider_upload_authorization": {
+          "full_runtime": true,
+          "shadow": true,
+          "onemin_sample": true
+        }
       },
-      "shadow": {
-        "status": null,
-        "ms": 0.0,
-        "reason": "provider_cooldown_active",
-        "wer": 1.0,
-        "token_f1": 0.0,
-        "intent_correct": false,
-        "usable": false,
-        "passed": false,
-        "min_token_f1": 0.55,
-        "max_wer": 0.55,
-        "text_mode": "redacted",
-        "expected_text_chars": 43,
-        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
-        "actual_text_chars": 0,
-        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "required_token_count": 2,
-        "required_token_sha256": [
-          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
-          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
-        ],
-        "text_redacted": true
-      },
-      "onemin_sample": {
-        "status": "ok",
-        "ms": 2360.4,
-        "wer": 0.1111,
-        "token_f1": 0.8889,
-        "intent_correct": false,
-        "usable": true,
-        "passed": false,
-        "min_token_f1": 0.55,
-        "max_wer": 0.55,
-        "text_mode": "redacted",
-        "expected_text_chars": 43,
-        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
-        "actual_text_chars": 43,
-        "actual_text_sha256": "fa84ea621e8902472b29c592ce20469d3b3d31743c2bbd5a234e3dba145b969a",
-        "required_token_count": 2,
-        "required_token_sha256": [
-          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
-          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
-        ],
-        "text_redacted": true
+      "captured_candidate_binding": {},
+      "provider_upload_authorization": {
+        "full_runtime": true,
+        "shadow": true,
+        "onemin_sample": true
       },
       "full_runtime": {
         "status": "transcribed",
-        "ms": 303.9,
-        "transcriber": "cartesia/ink-whisper+enhanced_wav",
-        "detail": "",
-        "wer": 0.0,
-        "token_f1": 1.0,
-        "intent_correct": true,
-        "usable": true,
-        "passed": true,
+        "ms": 2382.4,
+        "wer": 0.1111,
+        "token_f1": 0.8889,
         "min_token_f1": 0.55,
         "max_wer": 0.55,
-        "text_mode": "redacted",
         "expected_text_chars": 43,
-        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
         "actual_text_chars": 43,
-        "actual_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
         "required_token_count": 2,
+        "intent_correct": false,
+        "usable": true,
+        "passed": false,
+        "text_redacted": true,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_sha256": "fa84ea621e8902472b29c592ce20469d3b3d31743c2bbd5a234e3dba145b969a",
         "required_token_sha256": [
           "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
           "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
         ],
-        "text_redacted": true
+        "provider_evidence_status": "eligible",
+        "provider_evidence_failed_codes": [],
+        "scored_text_source": "primary_transcript_text",
+        "transcriber": {
+          "family": "unknown",
+          "identifier_sha256": "c3987baec6689fb560d28b210e435b46d73ccb9ba829d04055623be407790041"
+        },
+        "text_mode": "redacted"
+      },
+      "shadow": {
+        "status": "unknown",
+        "detail": {
+          "contract_name": "ea.memorial_stt_provider_error_detail.v1",
+          "category": "provider_error",
+          "code": "provider_error",
+          "detail_sha256": "55624f516b5b95829647769136a7188defdf3c9d1b82cb0b6f28b7814d736fb8"
+        },
+        "ms": 0.0,
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55,
+        "expected_text_chars": 43,
+        "actual_text_chars": 0,
+        "required_token_count": 2,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "text_redacted": true,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "provider_evidence_status": "blocked",
+        "provider_evidence_failed_codes": [
+          "provider_status_not_successful"
+        ],
+        "text_mode": "redacted"
+      },
+      "onemin_sample": {
+        "status": "ok",
+        "ms": 3210.6,
+        "wer": 0.1111,
+        "token_f1": 0.8889,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55,
+        "expected_text_chars": 43,
+        "actual_text_chars": 43,
+        "required_token_count": 2,
+        "intent_correct": false,
+        "usable": true,
+        "passed": false,
+        "text_redacted": true,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_sha256": "fa84ea621e8902472b29c592ce20469d3b3d31743c2bbd5a234e3dba145b969a",
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "provider_evidence_status": "eligible",
+        "provider_evidence_failed_codes": [],
+        "text_mode": "redacted"
       }
     },
     {
       "sample": "stt_retry_hostile",
       "variant": "hostile",
       "fixture": "rescue_stt_retry_captured.wav",
-      "fixture_sha256": "844ffb440ad0dd2ee30f75ddef046c982f183f196009004ba0d28fece72c3d2d",
+      "fixture_sha256": "4578bb4f31a143ed200d29cc8b31867c209a0f2a1a98b02db0243f4b6190e2c5",
+      "source_fixture_sha256": "844ffb440ad0dd2ee30f75ddef046c982f183f196009004ba0d28fece72c3d2d",
       "fixture_quality": {
         "status": "pass",
         "failed_codes": [],
         "audio_duration_seconds": 3.579,
-        "expected_min_duration_seconds": 2.52
+        "expected_min_duration_seconds": 2.52,
+        "max_duration_seconds": 120.0,
+        "wav_format": {
+          "audio_format": 1,
+          "channels": 1,
+          "sample_rate_hz": 44100,
+          "sample_width_bytes": 2
+        }
+      },
+      "source_fixture_quality": {
+        "status": "pass",
+        "failed_codes": [],
+        "audio_duration_seconds": 3.579,
+        "expected_min_duration_seconds": 2.52,
+        "max_duration_seconds": 120.0,
+        "wav_format": {
+          "audio_format": 1,
+          "channels": 1,
+          "sample_rate_hz": 44100,
+          "sample_width_bytes": 2
+        }
+      },
+      "transformation": {
+        "contract_name": "ea.memorial_stt_audio_transformation_receipt.v1",
+        "canonicalization": "json_utf8_sorted_keys_compact_v1",
+        "sha256": "03890b9e64b40efbdffd8ed78fb2cfa3fb95ce9a08590f745ba669a11aca440d",
+        "payload": {
+          "contract_name": "ea.memorial_stt_audio_transformation_receipt.v1",
+          "transformation_id": "hostile_room_v1",
+          "transformation_version": 1,
+          "source_audio_sha256": "844ffb440ad0dd2ee30f75ddef046c982f183f196009004ba0d28fece72c3d2d",
+          "output_audio_sha256": "4578bb4f31a143ed200d29cc8b31867c209a0f2a1a98b02db0243f4b6190e2c5",
+          "source_duration_seconds": 3.579,
+          "output_duration_seconds": 3.579,
+          "duration_preserved": true,
+          "parameters": {
+            "gain": 1.18,
+            "echo_delay_ms": 76,
+            "echo_mix": 0.22,
+            "noise_cycle_pcm16": [
+              132,
+              -132,
+              66,
+              -66
+            ],
+            "speed_factor": 1.0
+          }
+        }
       },
       "provenance": {
-        "origin": "Synthetic German speech generated through EA Unmixr TTS from the exact expected text after the previous captured fixture proved truncated.",
-        "speaker_consent": "synthetic_voice_provider_output_no_human_speaker",
+        "origin": "governed_synthetic_stt_fixture",
+        "speaker_consent": "synthetic_fixture_no_human_speaker",
         "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
-        "retention": "private_repo_synthetic_regression_fixture",
+        "retention": "repo_synthetic_regression_fixture",
         "synthetic": true,
-        "accent": "synthetic German voice"
+        "accent": "synthetic",
+        "provider_upload_authorization": {
+          "full_runtime": true,
+          "shadow": true,
+          "onemin_sample": true
+        }
       },
-      "shadow": {
-        "status": null,
-        "ms": 0.0,
-        "reason": "provider_cooldown_active",
-        "wer": 1.0,
-        "token_f1": 0.0,
-        "intent_correct": false,
-        "usable": false,
-        "passed": false,
-        "min_token_f1": 0.55,
-        "max_wer": 0.55,
-        "text_mode": "redacted",
-        "expected_text_chars": 43,
-        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
-        "actual_text_chars": 0,
-        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "required_token_count": 2,
-        "required_token_sha256": [
-          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
-          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
-        ],
-        "text_redacted": true
-      },
-      "onemin_sample": {
-        "status": "ok",
-        "ms": 2465.5,
-        "wer": 0.1111,
-        "token_f1": 0.8889,
-        "intent_correct": false,
-        "usable": true,
-        "passed": false,
-        "min_token_f1": 0.55,
-        "max_wer": 0.55,
-        "text_mode": "redacted",
-        "expected_text_chars": 43,
-        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
-        "actual_text_chars": 43,
-        "actual_text_sha256": "fa84ea621e8902472b29c592ce20469d3b3d31743c2bbd5a234e3dba145b969a",
-        "required_token_count": 2,
-        "required_token_sha256": [
-          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
-          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
-        ],
-        "text_redacted": true
+      "captured_candidate_binding": {},
+      "provider_upload_authorization": {
+        "full_runtime": true,
+        "shadow": true,
+        "onemin_sample": true
       },
       "full_runtime": {
         "status": "transcribed",
-        "ms": 321.8,
-        "transcriber": "cartesia/ink-whisper+enhanced_wav",
-        "detail": "",
+        "ms": 2214.4,
         "wer": 0.1111,
         "token_f1": 0.8889,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55,
+        "expected_text_chars": 43,
+        "actual_text_chars": 43,
+        "required_token_count": 2,
         "intent_correct": false,
         "usable": true,
         "passed": false,
-        "min_token_f1": 0.55,
-        "max_wer": 0.55,
-        "text_mode": "redacted",
-        "expected_text_chars": 43,
+        "text_redacted": true,
         "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
-        "actual_text_chars": 43,
         "actual_text_sha256": "fa84ea621e8902472b29c592ce20469d3b3d31743c2bbd5a234e3dba145b969a",
-        "required_token_count": 2,
         "required_token_sha256": [
           "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
           "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
         ],
-        "text_redacted": true
+        "provider_evidence_status": "eligible",
+        "provider_evidence_failed_codes": [],
+        "scored_text_source": "primary_transcript_text",
+        "transcriber": {
+          "family": "unknown",
+          "identifier_sha256": "c3987baec6689fb560d28b210e435b46d73ccb9ba829d04055623be407790041"
+        },
+        "text_mode": "redacted"
+      },
+      "shadow": {
+        "status": "unknown",
+        "detail": {
+          "contract_name": "ea.memorial_stt_provider_error_detail.v1",
+          "category": "provider_error",
+          "code": "provider_error",
+          "detail_sha256": "55624f516b5b95829647769136a7188defdf3c9d1b82cb0b6f28b7814d736fb8"
+        },
+        "ms": 0.0,
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55,
+        "expected_text_chars": 43,
+        "actual_text_chars": 0,
+        "required_token_count": 2,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "text_redacted": true,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "provider_evidence_status": "blocked",
+        "provider_evidence_failed_codes": [
+          "provider_status_not_successful"
+        ],
+        "text_mode": "redacted"
+      },
+      "onemin_sample": {
+        "status": "ok",
+        "ms": 2269.9,
+        "wer": 0.1111,
+        "token_f1": 0.8889,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55,
+        "expected_text_chars": 43,
+        "actual_text_chars": 43,
+        "required_token_count": 2,
+        "intent_correct": false,
+        "usable": true,
+        "passed": false,
+        "text_redacted": true,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_sha256": "fa84ea621e8902472b29c592ce20469d3b3d31743c2bbd5a234e3dba145b969a",
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "provider_evidence_status": "eligible",
+        "provider_evidence_failed_codes": [],
+        "text_mode": "redacted"
       }
     }
   ]

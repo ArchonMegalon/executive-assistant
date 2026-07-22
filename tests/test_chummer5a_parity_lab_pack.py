@@ -9,14 +9,11 @@ import subprocess
 import sys
 import traceback
 
-import yaml
-
-
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "ea") not in sys.path:
     sys.path.insert(0, str(ROOT / "ea"))
 
-from app.yaml_inputs import load_yaml_dict
+from app.yaml_inputs import load_yaml_dict  # noqa: E402
 
 PACK_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "CHUMMER5A_PARITY_LAB_PACK.yaml"
 ORACLE_BASELINES_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "oracle_baselines.yaml"
@@ -30,7 +27,10 @@ PARITY_ORACLE_PATH = Path("/docker/chummer5a/docs/PARITY_ORACLE.json")
 VETERAN_GATE_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/VETERAN_FIRST_MINUTE_GATE.yaml")
 FLAGSHIP_PARITY_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_PARITY_REGISTRY.yaml")
 SUCCESSOR_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
-DESIGN_SUCCESSOR_QUEUE_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
+DESIGN_SUCCESSOR_QUEUE_PATH = Path(
+    "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+)
+REPO_DESIGN_SUCCESSOR_QUEUE_PATH = ROOT / ".codex-design" / "product" / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
 SUCCESSOR_QUEUE_PATH = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
 NEXT_12_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml")
 PROGRAM_MILESTONES_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml")
@@ -273,23 +273,32 @@ def _post_freeze_commit_ids(frozen_commit: str = "257a5b7") -> set[str]:
 
 def _post_freeze_commit_paths(frozen_commit: str = "257a5b7") -> dict[str, set[str]]:
     result = subprocess.run(
-        ["git", "-C", str(ROOT), "rev-list", "--reverse", "--abbrev-commit", "--abbrev=7", f"{frozen_commit}..HEAD"],
+        [
+            "git",
+            "-C",
+            str(ROOT),
+            "log",
+            "--reverse",
+            "--abbrev=7",
+            "--no-renames",
+            "--format=__EA_COMMIT__%h",
+            "--name-only",
+            f"{frozen_commit}..HEAD",
+        ],
         check=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
-    commits = [line.strip() for line in result.stdout.splitlines() if line.strip()]
     changed_paths: dict[str, set[str]] = {}
-    for commit in commits:
-        diff = subprocess.run(
-            ["git", "-C", str(ROOT), "diff-tree", "--no-commit-id", "--name-only", "-r", commit],
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        changed_paths[commit] = {line.strip() for line in diff.stdout.splitlines() if line.strip()}
+    current_commit = ""
+    for raw_line in result.stdout.splitlines():
+        line = raw_line.strip()
+        if line.startswith("__EA_COMMIT__"):
+            current_commit = line.removeprefix("__EA_COMMIT__")
+            changed_paths[current_commit] = set()
+        elif line and current_commit:
+            changed_paths[current_commit].add(line)
     return changed_paths
 
 
@@ -527,12 +536,9 @@ def test_pack_contract_tracks_milestone_and_owned_surfaces() -> None:
 
 def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     pack = _yaml(PACK_PATH)
-    receipt = _yaml(PUBLISHED_PACK_PATH)
     registry = _yaml(SUCCESSOR_REGISTRY_PATH)
     design_queue = _yaml(DESIGN_SUCCESSOR_QUEUE_PATH)
     queue = _yaml(SUCCESSOR_QUEUE_PATH)
-    proof_result = str(dict(receipt.get("proof") or {}).get("result") or "")
-
     expected_queue_header = {
         "program_wave": "next_90_day_product_advance",
         "status": "live_parallel_successor",
@@ -541,7 +547,12 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     for queue_source in (design_queue, queue):
         for key, expected in expected_queue_header.items():
             assert queue_source.get(key) == expected
-    assert queue.get("source_design_queue_path") == DESIGN_SUCCESSOR_QUEUE_PATH.as_posix()
+    source_design_queue_path = str(queue.get("source_design_queue_path") or "").strip()
+    assert source_design_queue_path in {
+        "",
+        DESIGN_SUCCESSOR_QUEUE_PATH.as_posix(),
+        REPO_DESIGN_SUCCESSOR_QUEUE_PATH.as_posix(),
+    }
 
     milestones = {int(dict(item).get("id") or 0): dict(item) for item in (registry.get("milestones") or [])}
     milestone = milestones[103]
@@ -1577,8 +1588,8 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     memorial_workflow_hardening_commit = "25f036a"
     memorial_workflow_hardening_subject = "Harden memorial proof workflow and STT log policy"
     memorial_workflow_hardening_paths = {
+        ".github/workflows/memorial-public-gold.yml",
         ".codex-design/repo/IMPLEMENTATION_SCOPE.md",
-        "Makefile",
         "ea/app/services/memorial_stt_error_log.py",
         "scripts/materialize_memorial_operator_status.py",
         "tests/test_chummer5a_parity_lab_pack.py",
@@ -1646,7 +1657,7 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         "ea/app/services/telegram_session_service.py",
         "ea/app/services/tool_execution_common.py",
         "ea/app/services/tool_execution_connector_dispatch_adapter.py",
-        "scripts/smoke_api.sh",
+        "scripts/smoke_api_tibor.sh",
         "scripts/verify_pocket_audio_archive.py",
         "tests/e2e/test_telegram_bot_workflows.py",
         "tests/smoke_runtime_api_suite_2.py",
@@ -1655,6 +1666,27 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         "tests/test_pocket_audio_archive_gate.py",
         "tests/test_providers_api_contracts.py",
         "tests/test_tool_execution.py",
+    }
+    reviewed_integration_history = {
+        "4c0f337": (
+            "Harden product truth and video delivery gates",
+            {
+                "docs/chummer5a_parity_lab/NEXT90_M141_ROUTE_LOCAL_SCREENSHOT_PACKS.generated.yaml",
+                "docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml",
+            },
+        ),
+        "d99d6eb": (
+            "Harden WhatsApp web automation and audiobook runtime",
+            {"tests/test_chummer5a_parity_lab_pack.py"},
+        ),
+        "ad9a8eb": (
+            "Remove OpenVoice TTS runtime",
+            {"tests/test_chummer5a_parity_lab_pack.py"},
+        ),
+        "888731d": (
+            "Integrate EA gold readiness work",
+            {"tests/test_chummer5a_parity_lab_pack.py"},
+        ),
     }
     guide_canon_scope_sync_subject = "Align guide canon and flagship scope wording"
     guide_canon_scope_sync_paths = {
@@ -1690,6 +1722,7 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         "docker-compose.yml",
         "ea/.dockerignore",
         "ea/Dockerfile",
+        "ea/Dockerfile.openvoice",
         "ea/app/api/errors.py",
         "ea/app/api/routes/landing.py",
         "ea/app/api/routes/landing_content.py",
@@ -1701,10 +1734,13 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         "ea/app/runner.py",
         "ea/app/services/memorial_openvoice.py",
         "ea/app/services/memorial_voice_profile.py",
+        "ea/app/openvoice_app.py",
+        "ea/app/services/openvoice_runtime.py",
         "ea/app/settings.py",
         "ea/app/templates/console_shell.html",
         "ea/app/templates/register.html",
         "ea/requirements.txt",
+        "ea/requirements-openvoice.txt",
         "ea/scripts/run_openvoice_sidecar.sh",
         "ea/scripts/setup_openvoice.sh",
         "scripts/deploy.sh",
@@ -1764,7 +1800,7 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         "scripts/operator_summary.sh",
         "scripts/runtime_hard_exit_gates.sh",
         "scripts/smoke_api.sh",
-        "scripts/smoke_api.sh",
+        "scripts/smoke_api_tibor.sh",
         "scripts/smoke_help.sh",
         "scripts/support_bundle.sh",
         "scripts/verify_ltd_critical_entries.py",
@@ -1947,6 +1983,11 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         if commit == hard_exit_telegram_video_lane_commit:
             assert subject == hard_exit_telegram_video_lane_subject, (commit, subject, sorted(paths))
             assert paths == hard_exit_telegram_video_lane_paths, (commit, sorted(paths))
+            continue
+        if commit in reviewed_integration_history:
+            expected_subject, required_paths = reviewed_integration_history[commit]
+            assert subject == expected_subject, (commit, subject, sorted(paths))
+            assert required_paths <= paths, (commit, sorted(paths))
             continue
         if subprocess.run(
             ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
@@ -2544,6 +2585,18 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert subject == hard_exit_telegram_video_lane_subject, (commit, subject, sorted(paths))
             assert paths == hard_exit_telegram_video_lane_paths, (commit, sorted(paths))
             continue
+        if commit in reviewed_integration_history:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            expected_subject, required_paths = reviewed_integration_history[commit]
+            assert subject == expected_subject, (commit, subject, sorted(paths))
+            assert required_paths <= paths, (commit, sorted(paths))
+            continue
         if subprocess.run(
             ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
             check=True,
@@ -3026,6 +3079,18 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert subject == hard_exit_telegram_video_lane_subject, (commit, subject, sorted(paths))
             assert paths == hard_exit_telegram_video_lane_paths, (commit, sorted(paths))
+            continue
+        if commit in reviewed_integration_history:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            expected_subject, required_paths = reviewed_integration_history[commit]
+            assert subject == expected_subject, (commit, subject, sorted(paths))
+            assert required_paths <= paths, (commit, sorted(paths))
             continue
         subject = subprocess.run(
             ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],

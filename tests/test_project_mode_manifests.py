@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from scripts import source_state_head
-from scripts.materialize_project_mode_manifests import _fresh_enough, _git_head as _source_state_head, _receipt_passes, _recorded_source_head, _room_receipt_passes
+from scripts.materialize_project_mode_manifests import _fresh_enough, _git_head as _source_state_head, _receipt_passes, _recorded_source_head, _room_receipt_passes, _source_fingerprint, _spatial_receipt_passes
 from scripts.materialize_project_mode_manifests import main as materialize_project_modes
 from scripts.materialize_project_mode_manifests import project_modes, show_surface_manifest
 from scripts.verify_project_mode_manifests import main as verify_project_modes
@@ -39,18 +38,25 @@ def test_project_modes_name_each_repo_plane_and_first_value_gate() -> None:
         ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
         ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
         ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+        ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json",
     ]
     assert modes["MEMORIAL"]["local_release_gate"] == ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
     assert ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json" in modes["MEMORIAL"]["public_gold_gates"]
     assert ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json" in modes["MEMORIAL"]["public_gold_gates"]
     assert ".codex-studio/published/memorial_room_audio_public_origin.generated.json" in modes["MEMORIAL"]["public_gold_gates"]
+    assert ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json" in modes["MEMORIAL"]["public_gold_gates"]
     public_gold_gate_paths = [ROOT / path for path in modes["MEMORIAL"]["public_gold_gates"]]
-    public_voice_path, public_browser_path, room_path = public_gold_gate_paths
+    public_voice_path, public_browser_path, room_path, spatial_path = public_gold_gate_paths
     expected_public_gold_status = (
         "public_origin_gold_pass"
         if _receipt_passes(public_voice_path, current_head=current_head)
         and _receipt_passes(public_browser_path, current_head=current_head)
         and _room_receipt_passes(room_path, current_head=current_head)
+        and _spatial_receipt_passes(
+            spatial_path,
+            current_head=current_head,
+            current_fingerprint=_source_fingerprint(),
+        )
         else "public_origin_gold_blocked"
     )
     assert modes["MEMORIAL"]["public_gold_status"] == expected_public_gold_status

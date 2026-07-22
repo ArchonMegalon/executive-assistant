@@ -18,9 +18,10 @@ MARKDOWN_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "NEXT90_M142_FAMILY_LOC
 FEEDBACK_PATH = ROOT / "feedback" / "2026-05-06-next90-m142-ea-family-local-screenshot-and-interaction-packs.md"
 MATERIALIZER_PATH = ROOT / "scripts" / "materialize_next90_m142_ea_family_local_screenshot_and_interaction_packs.py"
 VERIFY_PATH = ROOT / "scripts" / "verify_next90_m142_ea_family_local_screenshot_and_interaction_packs.py"
-QUEUE_STAGING_PATH = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
-DESIGN_QUEUE_STAGING_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
-SUCCESSOR_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
+DESIGN_PRODUCT_ROOT = ROOT / ".codex-design" / "product"
+QUEUE_STAGING_PATH = DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+DESIGN_QUEUE_STAGING_PATH = DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+SUCCESSOR_REGISTRY_PATH = DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
 
 
 def _yaml(path: Path) -> dict:
@@ -215,14 +216,20 @@ def test_generated_packet_pins_queue_uniqueness_and_current_feedback_boundary() 
     assert dict(source_inputs.get("design_queue") or {}).get("unique_match") is True
     assert dict(source_inputs.get("fleet_queue") or {}).get("match_count") == 1
     assert dict(source_inputs.get("fleet_queue") or {}).get("unique_match") is True
-    assert dict(source_inputs.get("local_mirror_queue") or {}).get("path") == "/docker/EA/.codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+    assert dict(source_inputs.get("local_mirror_queue") or {}).get("path") == ".codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
     assert dict(source_inputs.get("local_mirror_queue") or {}).get("match_count") == 1
     assert dict(source_inputs.get("local_mirror_queue") or {}).get("unique_match") is True
     assert dict(source_inputs.get("registry") or {}).get("match_count") == 1
     assert dict(source_inputs.get("registry") or {}).get("unique_match") is True
-    assert dict(source_inputs.get("local_mirror_registry") or {}).get("path") == "/docker/EA/.codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
+    assert dict(source_inputs.get("local_mirror_registry") or {}).get("path") == ".codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
     assert dict(source_inputs.get("local_mirror_registry") or {}).get("match_count") == 1
     assert dict(source_inputs.get("local_mirror_registry") or {}).get("unique_match") is True
+    assert all(not str(dict(value).get("path") or "").startswith("/") for value in source_inputs.values())
+    assert all(
+        not str(path).startswith("/")
+        for row in (payload.get("family_local_packs") or [])
+        for path in (dict(row).get("evidence_paths") or [])
+    )
     assert queue_alignment.get("design_queue_unique") is True
     assert queue_alignment.get("fleet_queue_unique") is True
     assert queue_alignment.get("local_mirror_queue_unique") is True

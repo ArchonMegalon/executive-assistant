@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import socket
 import threading
 import time
@@ -16,12 +15,17 @@ import pytest
 
 uvicorn = pytest.importorskip("uvicorn")
 pytest.importorskip("playwright.sync_api")
-from playwright.sync_api import Browser, Page, sync_playwright
+from playwright.sync_api import Browser, Page, sync_playwright  # noqa: E402
 
 Config = uvicorn.Config
 Server = uvicorn.Server
 
-from app.api.app import create_app
+from app.api.app import create_app  # noqa: E402
+from tests.browser_test_support import (  # noqa: E402
+    BrowserRuntimeRoot,
+    browser_ephemeral_runtime_root,
+    launch_installed_chromium,
+)
 
 
 def _free_port() -> int:
@@ -61,6 +65,8 @@ PRIVATE_MEMORY_SENTINEL = "PRIVATE_MEMORY_MUST_NOT_ESCAPE"
 PRIVATE_SOURCE_SENTINEL = "PRIVATE_SOURCE_MUST_NOT_ESCAPE"
 PRIVATE_FAMILY_SENTINEL = "PRIVATE_FAMILY_NOTE_MUST_NOT_ESCAPE"
 PRIVATE_AUDIO_RELPATH = "audio/private-family-recording.mp3"
+MEMORIAL_NAVIGATION_TIMEOUT_MS = 30_000
+MEMORIAL_CONTRIBUTION_STATUS_TIMEOUT_MS = 7_000
 
 
 def _source_first_memorial_payload(slug: str) -> dict[str, object]:
@@ -143,9 +149,22 @@ def _wav_bytes() -> bytes:
 
 
 @pytest.fixture()
-def memorial_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[dict[str, object]]:
+def memorial_browser_runtime_root(
+    tmp_path: Path,
+) -> Iterator[BrowserRuntimeRoot]:
+    with browser_ephemeral_runtime_root(tmp_path) as runtime:
+        yield runtime
+
+
+@pytest.fixture()
+def memorial_browser_server(
+    memorial_browser_runtime_root: BrowserRuntimeRoot,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[dict[str, object]]:
     from app.api.routes import public_memorials
     from app.services import memorial_archive_registry
+
+    runtime_tmp = memorial_browser_runtime_root.path
 
     monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
     monkeypatch.setenv("EA_API_TOKEN", "")
@@ -157,10 +176,10 @@ def memorial_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     monkeypatch.delenv("EA_OPERATOR_PRINCIPAL_IDS", raising=False)
 
     slug = "manfred"
-    public_root = tmp_path / "public"
-    private_root = tmp_path / "private"
-    artifacts_root = tmp_path / "artifacts"
-    registry_root = tmp_path / "public_registry"
+    public_root = runtime_tmp / "public"
+    private_root = runtime_tmp / "private"
+    artifacts_root = runtime_tmp / "artifacts"
+    registry_root = runtime_tmp / "public_registry"
 
     _write_public_memorial(
         public_root,
@@ -203,11 +222,23 @@ def memorial_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
         "EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR",
         str(artifacts_root / "family_contributions" / "private"),
     )
-    public_memorials._PERSONAL_MEMORY_ROOT = artifacts_root / "memorial_user_memory"
-    public_memorials._VOICE_AB_ROOT = artifacts_root / "memorial_voice_ab"
-    public_memorials._PUBLIC_MEMORIAL_RATE_DB = artifacts_root / "memorial_rate_limits.sqlite3"
-    memorial_archive_registry.PUBLIC_MEMORIAL_ROOT = registry_root
-    memorial_archive_registry.ARCHIVE_ROOT = tmp_path / "archive"
+    monkeypatch.setattr(
+        public_memorials,
+        "_PERSONAL_MEMORY_ROOT",
+        artifacts_root / "memorial_user_memory",
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_VOICE_AB_ROOT",
+        artifacts_root / "memorial_voice_ab",
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_PUBLIC_MEMORIAL_RATE_DB",
+        artifacts_root / "memorial_rate_limits.sqlite3",
+    )
+    monkeypatch.setattr(memorial_archive_registry, "PUBLIC_MEMORIAL_ROOT", registry_root)
+    monkeypatch.setattr(memorial_archive_registry, "ARCHIVE_ROOT", runtime_tmp / "archive")
 
     monkeypatch.setattr(
         public_memorials,
@@ -309,34 +340,58 @@ def memorial_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
 
     app = create_app()
     port = _free_port()
-    config = Config(app=app, host="127.0.0.1", port=port, log_level="warning")
+    config = Config(
+        app=app,
+        host="127.0.0.1",
+        port=port,
+        log_level="warning",
+        timeout_graceful_shutdown=2,
+    )
     server = Server(config)
     server.install_signal_handlers = lambda: None  # type: ignore[method-assign]
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
+    thread = threading.Thread(
+        target=server.run,
+        name=f"memorial-browser-uvicorn-{port}",
+        daemon=True,
+    )
     base_url = f"http://127.0.0.1:{port}"
-    _wait_for_http(base_url)
+    thread_started = False
     try:
+        thread.start()
+        thread_started = True
+        _wait_for_http(base_url)
         yield {"base_url": base_url, "slug": slug}
     finally:
-        server.should_exit = True
-        thread.join(timeout=10.0)
+        try:
+            server.should_exit = True
+            if thread_started:
+                thread.join(timeout=10.0)
+                if thread.is_alive():
+                    server.force_exit = True
+                    thread.join(timeout=5.0)
+                if thread.is_alive():
+                    memorial_browser_runtime_root.retain = True
+                    pytest.fail(
+                        "memorial browser Uvicorn thread did not stop; "
+                        "runtime root retained for diagnostics "
+                        f"at {memorial_browser_runtime_root.path}: {thread.name}",
+                        pytrace=False,
+                    )
+        finally:
+            public_memorials._memorial_runtime_readiness_cache_invalidate(slug)
 
 
 @pytest.fixture(scope="module")
 def browser() -> Iterator[Browser]:
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
-            headless=True,
-            executable_path=os.getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH") or None,
-            args=[
+        browser = launch_installed_chromium(
+            playwright,
+            args=(
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--disable-software-rasterizer",
                 "--no-proxy-server",
-            ],
+            ),
         )
         try:
             yield browser
@@ -448,7 +503,7 @@ def _await_realtime_turn_complete(page: Page, slug: str, action, timeout_ms: int
                 if not isinstance(parsed, dict):
                     continue
                 turn_id = str(parsed.get("turn_id", "") or "")
-                if turn_id and slug and f"turn_" not in turn_id and not state.get("turn_id"):
+                if turn_id and slug and "turn_" not in turn_id and not state.get("turn_id"):
                     continue
                 event_type = str(parsed.get("type", "")).strip()
                 if event_type == "turn_complete":
@@ -492,7 +547,7 @@ def _await_conversation_ready(page: Page, *, timeout_ms: int = 12000) -> None:
         raise AssertionError(f"conversation readiness timeout: {json.dumps(diagnostics, ensure_ascii=False)}") from exc
 
 
-def test_memorial_public_page_is_source_first_accessible_and_private_by_default(
+def test_memorial_public_page_is_conversation_only_accessible_and_private_by_default(
     browser: Browser,
     memorial_browser_server: dict[str, object],
 ) -> None:
@@ -500,71 +555,53 @@ def test_memorial_public_page_is_source_first_accessible_and_private_by_default(
     slug = str(memorial_browser_server["slug"])
     context = browser.new_context(viewport={"width": 1440, "height": 1100})
     page: Page = context.new_page()
+    page_errors: list[str] = []
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         conversation_button = page.locator("#memorial-conversation")
         assert conversation_button.count() == 1
-        initial_label = (conversation_button.text_content() or "").strip()
-        assert initial_label in {"Gespräch wird vorbereitet …", "Gespräch beginnen"}
-        assert conversation_button.get_attribute("aria-label") == initial_label
-        assert conversation_button.get_attribute("title") == initial_label
+        button_labels = conversation_button.evaluate(
+            """button => ({
+              text: String(button.textContent || "").trim(),
+              aria: String(button.getAttribute("aria-label") || "").trim(),
+              title: String(button.getAttribute("title") || "").trim(),
+            })"""
+        )
+        initial_label = str(button_labels["text"])
+        assert initial_label in {"Gespräch wird vorbereitet …", "Gespräch starten"}
+        assert button_labels["aria"] == initial_label
+        assert button_labels["title"] == initial_label
 
-        assert page.locator("header + main#memorial-story").count() == 1
-        assert page.locator("main#memorial-story + aside#memorial-conversation-region").count() == 1
+        assert page.locator("body[data-public-memorial-surface='conversation-only']").count() == 1
+        assert page.locator("body > main").count() == 1
+        assert page.locator("header + main#memorial-conversation-region").count() == 1
+        assert page.locator("main#memorial-story").count() == 0
+        assert page.locator("aside#memorial-conversation-region").count() == 0
         for viewport in ({"width": 1440, "height": 1100}, {"width": 390, "height": 844}):
             page.set_viewport_size(viewport)
-            story_box = page.locator("main#memorial-story").bounding_box()
-            conversation_box = page.locator(
-                "aside#memorial-conversation-region"
-            ).bounding_box()
-            assert story_box is not None
+            conversation_box = page.locator("main#memorial-conversation-region").bounding_box()
             assert conversation_box is not None
-            assert page.locator("aside#memorial-conversation-region").evaluate(
+            assert page.locator("main#memorial-conversation-region").evaluate(
                 "element => getComputedStyle(element).position"
             ) not in {"fixed", "sticky"}
-            assert conversation_box["y"] >= story_box["y"] + story_box["height"] - 1
         page.set_viewport_size({"width": 1440, "height": 1100})
-        assert page.locator("main#memorial-story").get_attribute("tabindex") == "-1"
-        assert page.locator("aside#memorial-conversation-region").get_attribute("tabindex") == "-1"
-        assert page.locator("aside#memorial-conversation-region").get_attribute("aria-label") == (
-            "Quellengebundener Gedenkbegleiter für Manfred Hoza"
-        )
+        conversation_main = page.locator("main#memorial-conversation-region")
+        assert conversation_main.get_attribute("tabindex") == "-1"
+        assert conversation_main.get_attribute("aria-label") == "KI-Gespräch über Manfred Hoza"
         assert page.locator("a.skip-link").evaluate_all(
             "links => links.map((link) => link.getAttribute('href'))"
-        ) == ["#memorial-story", "#memorial-conversation-region"]
-        contribution_disclosure = page.locator("#memorial-contribution")
-        contribution_form = page.locator("#memorial-contribution-form")
-        contribution_summary = contribution_disclosure.locator("> summary")
-        assert contribution_disclosure.get_attribute("open") is None
-        assert contribution_summary.is_visible()
-        assert not contribution_form.is_visible()
-        contribution_summary.click()
-        assert contribution_disclosure.get_attribute("open") is not None
-        protected_forms = (
-            (
-                contribution_form,
-                f"/memorials/{slug}/contributions",
-            ),
-            (page.locator("#memorial-text-turn-form"), f"/memorials/{slug}/chat"),
-        )
-        for protected_form, expected_action in protected_forms:
-            assert protected_form.get_attribute("method") == "post"
-            assert protected_form.get_attribute("action") == expected_action
-            assert protected_form.get_attribute("data-js-ready") == "true"
-            assert protected_form.get_attribute("hidden") is None
-            assert protected_form.get_attribute("inert") is None
-            assert protected_form.get_attribute("aria-hidden") is None
-            assert protected_form.get_attribute("aria-disabled") is None
-            assert protected_form.is_visible()
-        page.locator('a.skip-link[href="#memorial-story"]').focus()
-        page.keyboard.press("Enter")
-        assert page.evaluate("() => document.activeElement && document.activeElement.id") == "memorial-story"
-        main_focus_style = page.locator("main#memorial-story").evaluate(
-            "element => ({ style: getComputedStyle(element).outlineStyle, width: getComputedStyle(element).outlineWidth })"
-        )
-        assert main_focus_style["style"] != "none"
-        assert main_focus_style["width"] != "0px"
+        ) == ["#memorial-conversation-region"]
+        text_form = page.locator("#memorial-text-turn-form")
+        assert text_form.get_attribute("method") == "post"
+        assert text_form.get_attribute("action") == f"/memorials/{slug}/chat"
+        assert text_form.get_attribute("data-js-ready") == "true"
+        assert text_form.get_attribute("hidden") is None
+        assert text_form.get_attribute("inert") is None
+        assert text_form.get_attribute("aria-hidden") is None
+        assert text_form.get_attribute("aria-disabled") is None
+        assert text_form.is_visible()
         page.locator('a.skip-link[href="#memorial-conversation-region"]').focus()
         page.keyboard.press("Enter")
         assert page.evaluate("() => document.activeElement && document.activeElement.id") == "memorial-conversation-region"
@@ -575,26 +612,52 @@ def test_memorial_public_page_is_source_first_accessible_and_private_by_default(
         assert page.locator("#memorial-speech-note").get_attribute("role") is None
         assert page.locator("#memorial-speech-note").get_attribute("aria-live") is None
         assert page.locator("#memorial-speech-transcript-shell").get_attribute("aria-live") is None
-        assert page.locator("#memorial-chat-answer").get_attribute("aria-live") == "polite"
+        assert page.locator("#memorial-chat-answer").get_attribute("aria-live") is None
+        assert page.locator("#memorial-speech-transcript").get_attribute("role") == "log"
+        assert page.locator("#memorial-speech-transcript").get_attribute("aria-live") == "polite"
         assert page.locator("#memorial-speech-audio").get_attribute("aria-hidden") == "true"
         assert page.locator("#memorial-speech-audio").get_attribute("controls") is None
 
-        assert page.get_by_role("heading", name="Erinnerungen und belegte Quellen", exact=True).count() == 1
-        assert page.get_by_role("heading", name="Behutsam bewahrte Spuren", exact=True).count() == 1
-        assert page.get_by_role("heading", name="Öffentliche Quellen", exact=True).count() == 1
-        assert page.get_by_role("heading", name="Fragen an den Gedenkbegleiter", exact=True).count() == 1
-        assert page.locator("article.memory-card").count() == 6
-        assert page.locator(".source-list a").count() == 8
-        assert page.locator(".prompt-list li").count() == 4
+        assert page.get_by_role("heading", name="Erinnerungen an Manfred", exact=True).count() == 1
+        assert page.get_by_text("Ein ruhiger Ort für ein Gespräch über Manfred Hoza.", exact=True).count() == 1
+        assert page.locator("article.memory-card").count() == 0
+        assert page.locator(".source-list a").count() == 0
+        assert page.locator(".prompt-list li").count() == 0
         assert page.locator("[data-memorial-archive-audio]").count() == 0
         assert page.locator("#memorial-archive-title").count() == 0
-        source_hrefs = page.locator(".source-list a").evaluate_all(
-            "links => links.map((link) => link.getAttribute('href'))"
-        )
-        assert all(str(href).startswith("https://") for href in source_hrefs)
-        assert page.locator(".source-list a").evaluate_all(
-            "links => links.every((link) => !link.hasAttribute('target'))"
-        )
+        assert page.locator("a[href*='/memory-room']").count() == 0
+        assert page.locator("a[href*='/tours/']").count() == 0
+        assert page.locator("header nav").count() == 0
+        assert page.locator("#memorial-contribution").count() == 0
+        assert page.locator("#memorial-contribution-form").count() == 0
+        assert page.locator("#memorial-contribution-management").count() == 0
+        privacy_settings = conversation_main.locator("details.conversation-settings")
+        assert privacy_settings.count() == 1
+        assert page.locator("details.conversation-settings").count() == 1
+        privacy_summary = privacy_settings.locator("summary")
+        assert privacy_summary.is_visible()
+        assert privacy_summary.inner_text().strip() == "Datenschutz und Gespräch"
+        privacy_summary.click()
+        personal_memory_optin = privacy_settings.locator("#memorial-personal-memory-optin")
+        personal_memory_status = privacy_settings.locator("#memorial-personal-memory-status")
+        personal_memory_forget = privacy_settings.locator("#memorial-personal-memory-forget")
+        assert personal_memory_optin.count() == 1
+        assert personal_memory_optin.is_visible()
+        assert personal_memory_optin.is_enabled()
+        assert personal_memory_optin.get_attribute("aria-disabled") == "false"
+        assert personal_memory_optin.is_checked() is False
+        assert personal_memory_status.count() == 1
+        assert personal_memory_status.is_visible()
+        assert personal_memory_status.inner_text().strip() == "Gastmodus · Gedächtnis aus."
+        assert personal_memory_forget.count() == 1
+        assert personal_memory_forget.is_visible()
+        assert personal_memory_forget.is_disabled()
+        assert personal_memory_forget.get_attribute("aria-disabled") == "true"
+        optin_target = personal_memory_optin.locator("xpath=..").bounding_box()
+        forget_target = personal_memory_forget.bounding_box()
+        assert optin_target is not None and float(optin_target["height"]) >= 44
+        assert forget_target is not None and float(forget_target["height"]) >= 44
+        assert page.locator("#memorial-install-hint").count() == 0
 
         public_payload = page.evaluate(
             """async (currentSlug) => {
@@ -627,17 +690,19 @@ def test_memorial_public_page_is_source_first_accessible_and_private_by_default(
             f"/memorials/files/{slug}/{PRIVATE_AUDIO_RELPATH}",
         )
         assert private_audio_status == 404
-        assert "Optional: Am Handy/Desktop installieren." in page_html
+        assert "Optional: Am Handy/Desktop installieren." not in page_html
         assert page.locator("#memorial-video-call").count() == 0
         assert page.locator("#memorial-voice-config-form").count() == 0
         assert page.locator("#memorial-voice-ab-wrap").count() == 0
         assert page.get_by_text("Tippen, sprechen, kurz warten, einfach weiterreden.").count() == 0
         assert page.get_by_text("Manfred Hennig").count() == 0
+        page.wait_for_timeout(250)
+        assert page_errors == []
     finally:
         context.close()
 
 
-def test_memorial_no_javascript_forms_fail_closed_without_leaking_private_text(
+def test_memorial_no_javascript_conversation_fails_closed_without_leaking_private_text(
     browser: Browser,
     memorial_browser_server: dict[str, object],
 ) -> None:
@@ -649,50 +714,57 @@ def test_memorial_no_javascript_forms_fail_closed_without_leaking_private_text(
     )
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         assert page.url == f"{base_url}/memorials/{slug}"
+        assert page.locator("html").get_attribute("lang") == "de-AT"
 
-        notice = page.get_by_role(
-            "region",
-            name="Private Eingaben sind geschützt",
-            exact=True,
-        )
+        notice = page.locator("main#memorial-conversation-region noscript p")
         assert notice.count() == 1
         assert notice.is_visible()
-        assert "Formulare für private Erinnerungen und Fragen deaktiviert" in notice.inner_text()
-        assert "es wurde nichts gesendet" in notice.inner_text()
-        assert "Aktiviere JavaScript" in notice.inner_text()
+        assert "Sprachgespräch und die schriftliche Alternative" in notice.inner_text()
+        assert "nichts aufgenommen oder gesendet" in notice.inner_text()
 
-        protected_forms = (
-            (
-                page.locator("#memorial-contribution-form"),
-                f"/memorials/{slug}/contributions",
-            ),
-            (page.locator("#memorial-text-turn-form"), f"/memorials/{slug}/chat"),
+        protected_form = page.locator("#memorial-text-turn-form")
+        assert protected_form.get_attribute("method") == "post"
+        assert protected_form.get_attribute("action") == f"/memorials/{slug}/chat"
+        assert protected_form.get_attribute("data-js-ready") == "false"
+        assert protected_form.get_attribute("hidden") == ""
+        assert protected_form.get_attribute("inert") == ""
+        assert protected_form.get_attribute("aria-hidden") == "true"
+        assert protected_form.get_attribute("aria-disabled") == "true"
+        assert protected_form.is_hidden()
+        assert protected_form.locator("input, button").evaluate_all(
+            """controls => controls.every((control) => {
+              control.focus();
+              return document.activeElement !== control;
+            })"""
         )
-        for protected_form, expected_action in protected_forms:
-            assert protected_form.get_attribute("method") == "post"
-            assert protected_form.get_attribute("action") == expected_action
-            assert protected_form.get_attribute("data-js-ready") == "false"
-            assert protected_form.get_attribute("hidden") == ""
-            assert protected_form.get_attribute("inert") == ""
-            assert protected_form.get_attribute("aria-hidden") == "true"
-            assert protected_form.get_attribute("aria-disabled") == "true"
-            assert protected_form.is_hidden()
-            assert protected_form.locator("input, textarea, button").evaluate_all(
-                """controls => controls.every((control) => {
-                  control.focus();
-                  return document.activeElement !== control;
-                })"""
-            )
-        protected_management = page.locator("#memorial-contribution-management")
-        assert protected_management.get_attribute("data-js-ready") == "false"
-        assert protected_management.get_attribute("hidden") == ""
-        assert protected_management.get_attribute("inert") == ""
-        assert protected_management.get_attribute("aria-hidden") == "true"
-        assert protected_management.get_attribute("aria-disabled") == "true"
-        assert protected_management.is_hidden()
+        assert page.locator("#memorial-contribution-form").count() == 0
+        assert page.locator("#memorial-contribution-management").count() == 0
+        assert page.locator("#memorial-install-hint").count() == 0
+        assert page.locator("#memorial-speech-note").is_hidden()
+        assert page.locator("#memorial-speech-message").is_hidden()
+        privacy_settings = page.locator(
+            "main#memorial-conversation-region details.conversation-settings"
+        )
+        assert privacy_settings.count() == 1
+        personal_memory_optin = privacy_settings.locator(
+            "#memorial-personal-memory-optin"
+        )
+        assert personal_memory_optin.count() == 1
+        assert personal_memory_optin.is_checked() is False
+        assert personal_memory_optin.is_disabled()
+        assert personal_memory_optin.get_attribute("aria-disabled") == "true"
+        personal_memory_optin.focus()
+        assert page.evaluate("() => document.activeElement?.id || ''") != (
+            "memorial-personal-memory-optin"
+        )
+        assert privacy_settings.locator("#memorial-personal-memory-status").count() == 1
+        personal_memory_forget = privacy_settings.locator("#memorial-personal-memory-forget")
+        assert personal_memory_forget.count() == 1
+        assert personal_memory_forget.is_disabled()
+        assert personal_memory_forget.get_attribute("aria-disabled") == "true"
         assert page.url == f"{base_url}/memorials/{slug}"
     finally:
         context.close()
@@ -707,7 +779,7 @@ def test_memorial_page_exposes_single_active_voice_config_without_service_worker
     context = browser.new_context(viewport={"width": 1280, "height": 960})
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         _await_conversation_ready(page)
 
@@ -765,7 +837,7 @@ def test_memorial_public_page_finishes_one_browser_turn_without_followup_overlap
     _install_fake_audio_runtime(context)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         _await_conversation_ready(page)
         _await_realtime_turn_complete(
@@ -775,9 +847,9 @@ def test_memorial_public_page_finishes_one_browser_turn_without_followup_overlap
             timeout_ms=12000,
         )
         active_button = page.locator("#memorial-conversation")
-        assert "Gespräch stoppen" in ((active_button.text_content() or "").strip())
-        assert active_button.get_attribute("aria-label") == "Gespräch stoppen"
-        assert active_button.get_attribute("title") == "Gespräch stoppen"
+        assert "Gespräch beenden" in ((active_button.text_content() or "").strip())
+        assert active_button.get_attribute("aria-label") == "Gespräch beenden"
+        assert active_button.get_attribute("title") == "Gespräch beenden"
         assert active_button.get_attribute("aria-pressed") == "true"
         default_memory = page.evaluate(
             """async (currentSlug) => {
@@ -808,16 +880,16 @@ def test_memorial_public_page_finishes_one_browser_turn_without_followup_overlap
                 button &&
                 button.getAttribute("aria-pressed") === "false" &&
                 button.textContent &&
-                button.textContent.includes("Gespräch beginnen")
+                button.textContent.includes("Gespräch starten")
               );
             }""",
             timeout=7000,
         )
         assert page.locator("#memorial-retry-button").is_hidden()
         stopped_button = page.locator("#memorial-conversation")
-        assert "Gespräch beginnen" in ((stopped_button.text_content() or "").strip())
-        assert stopped_button.get_attribute("aria-label") == "Gespräch beginnen"
-        assert stopped_button.get_attribute("title") == "Gespräch beginnen"
+        assert "Gespräch starten" in ((stopped_button.text_content() or "").strip())
+        assert stopped_button.get_attribute("aria-label") == "Gespräch starten"
+        assert stopped_button.get_attribute("title") == "Gespräch starten"
         assert stopped_button.get_attribute("aria-pressed") == "false"
         phase_text = page.locator("#memorial-speech-phase").text_content() or ""
         assert phase_text in {"Ich bin da.", "Bereit"}
@@ -825,49 +897,107 @@ def test_memorial_public_page_finishes_one_browser_turn_without_followup_overlap
         context.close()
 
 
-def test_memorial_browser_persists_turn_only_after_personal_memory_opt_in(
+def test_memorial_personal_memory_route_persists_only_with_explicit_opt_in(
     browser: Browser,
     memorial_browser_server: dict[str, object],
 ) -> None:
     base_url = str(memorial_browser_server["base_url"])
     slug = str(memorial_browser_server["slug"])
     context = browser.new_context(viewport={"width": 430, "height": 932})
-    _install_fake_audio_runtime(context)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
-        _await_conversation_ready(page)
-        page.locator("details.conversation-settings > summary").click()
-        page.locator("#memorial-personal-memory-optin").check()
-        _await_realtime_turn_complete(
-            page,
-            slug,
-            lambda: page.locator("#memorial-conversation").click(),
-            timeout_ms=12000,
+        privacy_settings = page.locator(
+            "main#memorial-conversation-region details.conversation-settings"
         )
-        opted_in_memory = page.evaluate(
-            """async (currentSlug) => {
-              const response = await fetch(`/memorials/${currentSlug}/personal-memory`, {
-                headers: {"x-memorial-personal-memory": "1"},
-              });
-              return response.json();
-            }""",
-            slug,
-        )
-        assert opted_in_memory["enabled"] is True
-        assert opted_in_memory["item_count"] == 1
-        realtime_urls = page.evaluate("() => window.__memorialRealtimeUrls.slice()")
-        assert realtime_urls
-        assert all("personal_memory=1" in str(url) for url in realtime_urls)
-        page.locator("#memorial-conversation").click()
+        assert privacy_settings.count() == 1
+        personal_memory_optin = privacy_settings.locator("#memorial-personal-memory-optin")
+        personal_memory_status = privacy_settings.locator("#memorial-personal-memory-status")
+        personal_memory_forget = privacy_settings.locator("#memorial-personal-memory-forget")
+        assert personal_memory_optin.count() == 1
+        assert personal_memory_optin.is_checked() is False
+        assert personal_memory_status.count() == 1
+        privacy_settings.locator("summary").click()
+        assert personal_memory_status.is_visible()
+        assert personal_memory_status.inner_text().strip() == "Gastmodus · Gedächtnis aus."
+        assert personal_memory_forget.count() == 1
+        assert personal_memory_forget.is_disabled()
+        assert personal_memory_forget.get_attribute("aria-disabled") == "true"
+        personal_memory_optin.check()
         page.wait_for_function(
             """() => {
-              const button = document.getElementById("memorial-conversation");
-              return Boolean(button && button.getAttribute("aria-pressed") === "false");
+              const status = document.getElementById("memorial-personal-memory-status");
+              return Boolean(status && status.textContent.includes("Gedächtnis aktiv"));
             }""",
-            timeout=7000,
+            timeout=5000,
         )
+
+        opted_out = context.request.get(
+            f"{base_url}/memorials/{slug}/personal-memory",
+            headers={"x-memorial-personal-memory": "0"},
+        )
+        assert opted_out.ok
+        assert opted_out.json()["enabled"] is False
+        assert opted_out.json()["item_count"] == 0
+
+        chat = context.request.post(
+            f"{base_url}/memorials/{slug}/chat",
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "x-memorial-personal-memory": "1",
+            },
+            data={"question": "Woran soll ich mich heute erinnern?"},
+        )
+        assert chat.ok
+        assert str(chat.json().get("answer") or "").strip()
+
+        opted_in = context.request.get(
+            f"{base_url}/memorials/{slug}/personal-memory",
+            headers={"x-memorial-personal-memory": "1"},
+        )
+        assert opted_in.ok
+        assert opted_in.json()["enabled"] is True
+        assert opted_in.json()["item_count"] == 1
+
+        privacy_settings.locator("summary").click()
+        privacy_settings.locator("summary").click()
+        page.wait_for_function(
+            """() => {
+              const button = document.getElementById("memorial-personal-memory-forget");
+              return Boolean(button && !button.disabled && button.getAttribute("aria-disabled") === "false");
+            }""",
+            timeout=5000,
+        )
+        personal_memory_forget.click()
+        page.wait_for_function(
+            """() => {
+              const optin = document.getElementById("memorial-personal-memory-optin");
+              const status = document.getElementById("memorial-personal-memory-status");
+              const forget = document.getElementById("memorial-personal-memory-forget");
+              return Boolean(
+                optin && !optin.checked &&
+                status && status.textContent.includes("Gedächtnis aus") &&
+                forget && forget.disabled && forget.getAttribute("aria-disabled") === "true"
+              );
+            }""",
+            timeout=5000,
+        )
+        storage_value = page.evaluate(
+            """(currentSlug) => window.localStorage.getItem(
+              `memorial_personal_memory_enabled_${currentSlug}_v2`
+            )""",
+            slug,
+        )
+        assert storage_value == "0"
+
+        forgotten = context.request.get(
+            f"{base_url}/memorials/{slug}/personal-memory",
+            headers={"x-memorial-personal-memory": "0"},
+        )
+        assert forgotten.ok
+        assert forgotten.json()["item_count"] == 0
     finally:
         context.close()
 
@@ -882,7 +1012,7 @@ def test_memorial_browser_keyboard_text_turn_does_not_request_microphone(
     _install_fake_audio_runtime(context)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         _await_conversation_ready(page)
         text_input = page.locator("#memorial-text-turn-input")
@@ -890,15 +1020,16 @@ def test_memorial_browser_keyboard_text_turn_does_not_request_microphone(
         text_input.press("Enter")
         page.wait_for_function(
             """() => {
-              const answer = document.getElementById("memorial-chat-answer");
+              const answer = document.querySelector("#memorial-speech-transcript > .speech-turn.assistant:last-child p");
               const input = document.getElementById("memorial-text-turn-input");
-              return Boolean(answer && !answer.hidden && answer.textContent.trim() && input && !input.disabled);
+              return Boolean(answer && answer.textContent.trim() && input && !input.disabled);
             }""",
             timeout=12000,
         )
         assert int(page.evaluate("() => window.__memorialGetUserMediaCalls || 0")) == 0
         assert page.locator("#memorial-conversation").get_attribute("aria-pressed") == "false"
-        assert page.locator("#memorial-chat-answer").text_content()
+        assert page.locator("#memorial-speech-transcript > .speech-turn.assistant:last-child p").text_content()
+        assert page.locator("#memorial-chat-answer").is_hidden()
     finally:
         context.close()
 
@@ -924,7 +1055,7 @@ def test_memorial_browser_explains_microphone_permission_denial_and_keeps_text_f
     )
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         _await_conversation_ready(page)
         page.locator("#memorial-conversation").click()
@@ -979,27 +1110,27 @@ def test_memorial_browser_voice_warmup_failure_reaches_retry_and_text_fallback(
     _install_fake_audio_runtime(context)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         page.wait_for_function(
             """() => {
               const message = document.getElementById("memorial-speech-message");
               const retry = document.getElementById("memorial-retry-button");
               return Boolean(
-                message && message.textContent.includes("Stimme ist gerade nicht verfügbar") &&
-                retry && !retry.hidden && retry.textContent.includes("Stimme erneut prüfen")
+                message && message.textContent.includes("Sprechen ist gerade nicht möglich") &&
+                retry && !retry.hidden && retry.textContent.includes("Sprachfunktion erneut versuchen")
               );
             }""",
             timeout=7000,
         )
         assert page.locator("#memorial-conversation").is_disabled()
         assert page.locator("#memorial-text-turn-input").is_enabled()
-        assert "Frage eintippen" in (page.locator("#memorial-speech-detail").text_content() or "")
+        assert "Du kannst schreiben" in (page.locator("#memorial-speech-detail").text_content() or "")
     finally:
         context.close()
 
 
-def test_memorial_browser_family_contributions_have_portable_exact_review_control(
+def test_memorial_family_contribution_routes_keep_portable_exact_review_control(
     browser: Browser,
     memorial_browser_server: dict[str, object],
 ) -> None:
@@ -1009,49 +1140,64 @@ def test_memorial_browser_family_contributions_have_portable_exact_review_contro
     page: Page = context.new_page()
     private_sentinel = "BROWSER_PRIVATE_FAMILY_MEMORY_MUST_NOT_ESCAPE"
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
-        page.locator("#memorial-contribution > summary").click()
+        assert page.locator("#memorial-contribution").count() == 0
+        assert page.locator("#memorial-contribution-form").count() == 0
+        assert page.locator("#memorial-contribution-management").count() == 0
 
-        def submit(title: str, body: str) -> None:
-            page.locator("#memorial-contribution-title-input").fill(title)
-            page.locator("#memorial-contribution-body").fill(body)
-            page.locator("#memorial-contribution-name").fill("Familienmitglied")
-            page.locator("#memorial-contribution-relationship").fill("Familie")
-            page.locator("#memorial-contribution-consent").check()
-            page.locator("#memorial-contribution-submit").click()
-            page.wait_for_function(
-                """() => {
-                  const status = document.getElementById("memorial-contribution-status");
-                  return Boolean(status && status.textContent.includes("Der Beitrag bleibt privat"));
-                }""",
-                timeout=7000,
+        def submit(title: str, body: str) -> dict[str, object]:
+            submission = context.request.post(
+                f"{base_url}/memorials/{slug}/contributions",
+                headers={"Accept": "application/json", "Content-Type": "application/json"},
+                data={
+                    "title": title,
+                    "body": body,
+                    "contributor_name": "Familienmitglied",
+                    "relationship": "Familie",
+                    "publication_consent": True,
+                },
             )
+            assert submission.ok
+            return dict(submission.json())
 
-        submit("Ein ruhiger Familienmoment", private_sentinel)
-        submit("Noch eine Erinnerung", "SECOND_BROWSER_PRIVATE_MEMORY_MUST_NOT_ESCAPE")
-        stored_receipt = page.evaluate(
-            """() => {
-              const key = Object.keys(localStorage).find((item) => item.startsWith("memorial_contribution_receipt_"));
-              return key ? JSON.parse(localStorage.getItem(key)) : null;
-            }"""
+        first = submit("Ein ruhiger Familienmoment", private_sentinel)
+        second = submit(
+            "Noch eine Erinnerung",
+            "SECOND_BROWSER_PRIVATE_MEMORY_MUST_NOT_ESCAPE",
         )
-        assert len(stored_receipt) == 2
-        assert all(
-            row["schema_version"]
-            == "ea.memorial_family_contribution.recovery_receipt.v1"
-            for row in stored_receipt
+        for submission in (first, second):
+            receipt = dict(submission["recovery_receipt"])
+            receipt.update(
+                {
+                    "slug": slug,
+                    "contribution_id": submission["contribution_id"],
+                    "manage_token": submission["manage_token"],
+                }
+            )
+            assert receipt["schema_version"] == "ea.memorial_family_contribution.recovery_receipt.v1"
+            assert receipt["slug"] == slug
+            assert receipt["status_path"].endswith("/status")
+            assert submission["contribution_id"]
+            assert submission["manage_token"]
+            assert str(submission["manage_token"]) not in page.locator("body").inner_text()
+
+        contribution_id = str(first["contribution_id"])
+        manage_token = str(first["manage_token"])
+        contribution_path = f"{base_url}/memorials/{slug}/contributions/{contribution_id}"
+        manage_headers = {
+            "Accept": "application/json",
+            "x-memorial-contribution-token": manage_token,
+        }
+        unauthorized = context.request.get(f"{contribution_path}/manage")
+        assert unauthorized.status == 403
+        managed = context.request.get(
+            f"{contribution_path}/manage",
+            headers=manage_headers,
         )
-        assert all(row["slug"] == slug for row in stored_receipt)
-        assert all(row["status_path"].endswith("/status") for row in stored_receipt)
-        assert stored_receipt[0]["contribution_id"]
-        assert stored_receipt[0]["manage_token"]
-        first_receipt = stored_receipt[0]
-        assert first_receipt["manage_token"] not in page.locator("body").inner_text()
-        assert page.locator("#memorial-contribution-recovery-panel").is_visible()
-        assert page.locator("#memorial-contribution-recovery-download").is_enabled()
-        assert page.locator("#memorial-contribution-recovery-copy").is_enabled()
-        assert page.locator(".contribution-management-card").count() == 2
+        assert managed.ok
+        assert managed.json()["submission"]["body"] == private_sentinel
+
         public_payload = page.evaluate(
             """async (currentSlug) => {
               const response = await fetch(`/memorials/${currentSlug}.json`);
@@ -1067,7 +1213,7 @@ def test_memorial_browser_family_contributions_have_portable_exact_review_contro
 
         proposed = propose_family_contribution_public_version(
             slug=slug,
-            contribution_id=str(first_receipt["contribution_id"]),
+            contribution_id=contribution_id,
             payload={
                 "reviewer": "Browser curator",
                 "title": "Exakt geprüfte öffentliche Überschrift",
@@ -1076,88 +1222,73 @@ def test_memorial_browser_family_contributions_have_portable_exact_review_contro
             },
         )
         proposal_sha256 = proposed["public_proposal_binding"]["sha256"]
-        decision_requests: list[dict[str, object]] = []
-
-        def remember_decision(request) -> None:  # type: ignore[no-untyped-def]
-            if "/proposal/" not in request.url or request.method != "POST":
-                return
-            decision_requests.append(request.post_data_json)
-
-        page.on("request", remember_decision)
-        page.locator("#memorial-contribution-management-jump").click()
-        first_card = page.locator(".contribution-management-card").filter(
-            has_text="Ein ruhiger Familienmoment"
+        approved = context.request.post(
+            f"{contribution_path}/proposal/approve",
+            headers={**manage_headers, "Content-Type": "application/json"},
+            data={"proposal_sha256": proposal_sha256},
         )
-        first_card.get_by_text("Exakt geprüfte öffentliche Überschrift", exact=True).wait_for()
-        assert "Exakt geprüfter öffentlicher Text." in first_card.inner_text()
-        first_card.get_by_role("button", name="Genau diese Fassung freigeben").click()
-        first_card.get_by_text("Von dir zur Veröffentlichung freigegeben", exact=True).wait_for()
-        assert decision_requests[-1] == {"proposal_sha256": proposal_sha256}
-        first_card = page.locator(".contribution-management-card").filter(
-            has_text="Ein ruhiger Familienmoment"
+        assert approved.ok
+        assert approved.json()["status"] == "approved_for_publication"
+        rejected = context.request.post(
+            f"{contribution_path}/proposal/reject",
+            headers={**manage_headers, "Content-Type": "application/json"},
+            data={"proposal_sha256": proposal_sha256},
         )
-        first_card.get_by_role("button", name="Änderungen wünschen").click()
-        first_card.get_by_text("Änderungswunsch gesendet", exact=True).wait_for()
-        assert decision_requests[-1] == {"proposal_sha256": proposal_sha256}
+        assert rejected.ok
+        assert rejected.json()["status"] == "proposal_rejected"
 
-        first_card = page.locator(".contribution-management-card").filter(
-            has_text="Ein ruhiger Familienmoment"
-        )
-        first_card.get_by_text("Einreichung korrigieren", exact=True).click()
         corrected_body = "PRIVATE_CORRECTED_BROWSER_MEMORY_MUST_NOT_ESCAPE"
-        first_card.locator('textarea[name="body"]').fill(corrected_body)
-        first_card.get_by_role("button", name="Korrektur privat speichern").click()
-        first_card.get_by_text("Korrektur wird geprüft", exact=True).wait_for()
+        corrected = context.request.post(
+            f"{contribution_path}/correct",
+            headers={**manage_headers, "Content-Type": "application/json"},
+            data={
+                "title": "Ein ruhiger Familienmoment",
+                "body": corrected_body,
+                "contributor_name": "Familienmitglied",
+                "relationship": "Familie",
+                "publication_consent": True,
+                "correction_reason": "Browser route contract",
+            },
+        )
+        assert corrected.ok
+        assert corrected.json()["status"] == "correction_pending"
 
-        first_card = page.locator(".contribution-management-card").filter(
-            has_text="Ein ruhiger Familienmoment"
+        withdrawn = context.request.post(
+            f"{contribution_path}/withdraw",
+            headers={**manage_headers, "Content-Type": "application/json"},
+            data={"reason": "Von der beitragenden Person zurückgezogen."},
         )
-        page.once("dialog", lambda dialog: dialog.accept())
-        first_card.get_by_role("button", name="Einreichung zurückziehen").click()
-        first_card.get_by_text("Zurückgezogen · nicht öffentlich", exact=True).wait_for()
-        retained_receipts = page.evaluate(
-            """() => {
-              const key = Object.keys(localStorage).find((item) => item.startsWith("memorial_contribution_receipt_"));
-              return key ? JSON.parse(localStorage.getItem(key)) : [];
-            }"""
-        )
-        assert len(retained_receipts) == 2
-        assert any(
-            item["contribution_id"] == first_receipt["contribution_id"]
-            for item in retained_receipts
-        )
-        assert first_receipt["manage_token"] not in page.locator("body").inner_text()
+        assert withdrawn.ok
+        assert withdrawn.json()["status"] == "withdrawn"
+        assert withdrawn.json()["visibility"] == "private"
 
-        first_card = page.locator(".contribution-management-card").filter(
-            has_text="Ein ruhiger Familienmoment"
+        refreshed_public_payload = context.request.get(
+            f"{base_url}/memorials/{slug}.json"
         )
-        page.once("dialog", lambda dialog: dialog.accept())
-        first_card.get_by_role(
-            "button", name="Beleg nur von diesem Gerät entfernen"
-        ).click()
-        page.wait_for_function(
-            """() => {
-              const key = Object.keys(localStorage).find((item) => item.startsWith("memorial_contribution_receipt_"));
-              const receipts = key ? JSON.parse(localStorage.getItem(key)) : [];
-              return Array.isArray(receipts) && receipts.length === 1;
-            }""",
-            timeout=7000,
-        )
+        assert refreshed_public_payload.ok
+        serialized_public = json.dumps(refreshed_public_payload.json())
+        assert private_sentinel not in serialized_public
+        assert corrected_body not in serialized_public
+        assert manage_token not in page.locator("body").inner_text()
     finally:
         context.close()
 
 
-def test_memorial_browser_recovery_import_and_storage_failure_keep_token_portable(
+def test_memorial_recovery_receipts_remain_portable_without_public_management_ui(
     browser: Browser,
     memorial_browser_server: dict[str, object],
 ) -> None:
     base_url = str(memorial_browser_server["base_url"])
     slug = str(memorial_browser_server["slug"])
     context = browser.new_context(viewport={"width": 430, "height": 932})
+    page_errors: list[str] = []
+    page: Page = context.new_page()
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
 
     def submit_direct(title: str) -> dict[str, object]:
         response = context.request.post(
             f"{base_url}/memorials/{slug}/contributions",
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
             data={
                 "title": title,
                 "body": f"Private recovery body for {title}",
@@ -1167,182 +1298,109 @@ def test_memorial_browser_recovery_import_and_storage_failure_keep_token_portabl
         assert response.ok
         return dict(response.json())
 
-    def portable_receipt(submission: dict[str, object]) -> dict[str, object]:
-        receipt = dict(submission["recovery_receipt"])
-        receipt.update(
-            {
-                "slug": slug,
-                "contribution_id": submission["contribution_id"],
-                "manage_token": submission["manage_token"],
-            }
-        )
-        return receipt
-
-    first = submit_direct("Importierter Beleg eins")
-    second = submit_direct("Importierter Altbeleg")
-    third = submit_direct("Importierte JSON-Datei")
-    page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(
+            f"{base_url}/memorials/{slug}",
+            wait_until="domcontentloaded",
+            timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS,
+        )
         assert response is not None and response.ok
-        page.locator("#memorial-contribution > summary").click()
-        page.locator("#memorial-contribution-recovery-import > summary").click()
-        code_input = page.locator("#memorial-contribution-recovery-code")
-        import_button = page.locator("#memorial-contribution-recovery-import-button")
-        invalid = portable_receipt(first)
-        invalid["slug"] = "another-memorial"
-        code_input.fill(json.dumps(invalid))
-        import_button.click()
-        page.get_by_text(
-            "Dieser Beleg ist ungültig oder gehört nicht zu dieser Gedenkseite. Es wurde nichts gespeichert.",
-            exact=True,
-        ).wait_for()
-        assert page.evaluate(
-            """() => !Object.keys(localStorage).some((key) => key.startsWith("memorial_contribution_receipt_"))"""
-        )
+        assert page.locator("#memorial-contribution").count() == 0
+        assert page.locator("#memorial-contribution-recovery-import").count() == 0
+        assert page.locator("#memorial-contribution-management").count() == 0
 
-        first_portable = portable_receipt(first)
-        code_input.fill(json.dumps(first_portable))
-        import_button.click()
-        page.get_by_text(
-            "Der Rücknahmebeleg wurde geprüft und auf diesem Gerät hinzugefügt.",
-            exact=True,
-        ).wait_for()
-        page.get_by_role("heading", name="Importierter Beleg eins", exact=True).wait_for()
+        submissions = [
+            submit_direct("Portabler Beleg eins"),
+            submit_direct("Portabler Beleg zwei"),
+            submit_direct("Portabler Beleg drei"),
+        ]
+        body_text = page.locator("body").inner_text()
+        for submission in submissions:
+            portable = dict(submission["recovery_receipt"])
+            portable.update(
+                {
+                    "slug": slug,
+                    "contribution_id": submission["contribution_id"],
+                    "manage_token": submission["manage_token"],
+                }
+            )
+            restored = json.loads(json.dumps(portable))
+            assert restored == portable
+            assert restored["schema_version"] == "ea.memorial_family_contribution.recovery_receipt.v1"
+            assert restored["slug"] == slug
+            assert restored["status_path"].endswith("/status")
+            assert restored["manage_token_header"] == "x-memorial-contribution-token"
+            assert restored["token_recoverable"] is False
+            token = str(restored["manage_token"])
+            assert token not in body_text
+            managed = context.request.get(
+                f"{base_url}/memorials/{slug}/contributions/{restored['contribution_id']}/manage",
+                headers={"x-memorial-contribution-token": token},
+            )
+            assert managed.ok
+            assert managed.json()["contribution_id"] == restored["contribution_id"]
 
-        legacy = {
-            "contribution_id": second["contribution_id"],
-            "manage_token": second["manage_token"],
-        }
-        code_input.fill(json.dumps(legacy))
-        import_button.click()
-        page.wait_for_function(
-            """() => {
-              const key = Object.keys(localStorage).find((item) => item.startsWith("memorial_contribution_receipt_"));
-              const receipts = key ? JSON.parse(localStorage.getItem(key)) : [];
-              return Array.isArray(receipts)
-                && receipts.length === 2
-                && receipts.every((receipt) => receipt.schema_version === "ea.memorial_family_contribution.recovery_receipt.v1");
-            }""",
-            timeout=7000,
+        denied = context.request.get(
+            f"{base_url}/memorials/{slug}/contributions/{submissions[0]['contribution_id']}/manage",
+            headers={"x-memorial-contribution-token": "invalid-portable-token-value-00000000"},
         )
-
-        third_portable = portable_receipt(third)
-        page.locator("#memorial-contribution-recovery-file").set_input_files(
-            {
-                "name": "manfred-ruecknahmebeleg.json",
-                "mimeType": "application/json",
-                "buffer": json.dumps(third_portable).encode("utf-8"),
-            }
-        )
-        import_button.click()
-        page.wait_for_function(
-            """() => {
-              const key = Object.keys(localStorage).find((item) => item.startsWith("memorial_contribution_receipt_"));
-              const receipts = key ? JSON.parse(localStorage.getItem(key)) : [];
-              return Array.isArray(receipts) && receipts.length === 3;
-            }""",
-            timeout=7000,
-        )
-        for submission in (first, second, third):
-            assert str(submission["manage_token"]) not in page.locator("body").inner_text()
+        assert denied.status == 403
+        page.wait_for_timeout(200)
+        assert page_errors == []
     finally:
         context.close()
 
-    volatile_context = browser.new_context(
-        viewport={"width": 430, "height": 932},
-        accept_downloads=True,
-    )
-    volatile_context.add_init_script(
+    storage_blocked_context = browser.new_context(viewport={"width": 430, "height": 932})
+    storage_blocked_context.add_init_script(
         """
         (() => {
-          const originalGet = Storage.prototype.getItem;
-          const originalSet = Storage.prototype.setItem;
-          const originalRemove = Storage.prototype.removeItem;
           const guarded = (key) => String(key || "").startsWith("memorial_contribution_receipt_");
-          Storage.prototype.getItem = function(key) {
-            if (guarded(key)) throw new DOMException("storage blocked", "SecurityError");
-            return originalGet.call(this, key);
-          };
-          Storage.prototype.setItem = function(key, value) {
-            if (guarded(key)) throw new DOMException("storage blocked", "SecurityError");
-            return originalSet.call(this, key, value);
-          };
-          Storage.prototype.removeItem = function(key) {
-            if (guarded(key)) throw new DOMException("storage blocked", "SecurityError");
-            return originalRemove.call(this, key);
-          };
-          Object.defineProperty(navigator, "clipboard", {
-            configurable: true,
-            value: {
-              writeText: async (value) => { window.__memorialCopiedRecoveryReceipt = String(value || ""); },
-            },
-          });
+          for (const method of ["getItem", "setItem", "removeItem"]) {
+            const original = Storage.prototype[method];
+            Storage.prototype[method] = function(key, ...args) {
+              if (guarded(key)) throw new DOMException("storage blocked", "SecurityError");
+              return original.call(this, key, ...args);
+            };
+          }
         })();
         """
     )
-    volatile_page: Page = volatile_context.new_page()
-    captured_submission: dict[str, object] = {}
-
-    def capture_submission(response) -> None:  # type: ignore[no-untyped-def]
-        if response.request.method != "POST" or not response.url.endswith(
-            f"/memorials/{slug}/contributions"
-        ):
-            return
-        if response.ok:
-            captured_submission.update(response.json())
-
-    volatile_page.on("response", capture_submission)
+    storage_page_errors: list[str] = []
+    storage_page: Page = storage_blocked_context.new_page()
+    storage_page.on("pageerror", lambda error: storage_page_errors.append(str(error)))
     try:
-        response = volatile_page.goto(
-            f"{base_url}/memorials/{slug}", wait_until="domcontentloaded"
+        response = storage_page.goto(
+            f"{base_url}/memorials/{slug}",
+            wait_until="domcontentloaded",
+            timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS,
         )
         assert response is not None and response.ok
-        volatile_page.locator("#memorial-contribution > summary").click()
-        volatile_page.locator("#memorial-contribution-title-input").fill(
-            "Beleg ohne Browserspeicher"
+        assert storage_page.locator("#memorial-contribution").count() == 0
+        assert storage_page.locator("#memorial-text-turn-form").is_visible()
+        direct = storage_blocked_context.request.post(
+            f"{base_url}/memorials/{slug}/contributions",
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+            data={
+                "title": "Beleg ohne Browserspeicher",
+                "body": "PRIVATE_VOLATILE_RECOVERY_BODY",
+                "publication_consent": True,
+            },
         )
-        volatile_page.locator("#memorial-contribution-body").fill(
-            "PRIVATE_VOLATILE_RECOVERY_BODY"
+        assert direct.ok
+        direct_payload = dict(direct.json())
+        direct_token = str(direct_payload["manage_token"])
+        assert direct_token not in storage_page.locator("body").inner_text()
+        managed = storage_blocked_context.request.get(
+            f"{base_url}/memorials/{slug}/contributions/{direct_payload['contribution_id']}/manage",
+            headers={"x-memorial-contribution-token": direct_token},
         )
-        volatile_page.locator("#memorial-contribution-submit").click()
-        volatile_page.get_by_text(
-            "Der Beitrag wurde privat gespeichert. Sichere den Rücknahmebeleg jetzt, weil dieser Browser ihn nicht dauerhaft speichern konnte.",
-            exact=True,
-        ).wait_for()
-        assert captured_submission["manage_token"]
-        token = str(captured_submission["manage_token"])
-        assert token not in volatile_page.locator("body").inner_text()
-        assert volatile_page.locator("#memorial-contribution-recovery-panel").is_visible()
-
-        with volatile_page.expect_download() as download_info:
-            volatile_page.locator("#memorial-contribution-recovery-download").click()
-        download = download_info.value
-        assert download.suggested_filename.startswith(f"{slug}-ruecknahmebeleg-")
-        downloaded_receipt = json.loads(Path(download.path()).read_text(encoding="utf-8"))
-        assert downloaded_receipt["manage_token"] == token
-        assert downloaded_receipt["slug"] == slug
-
-        volatile_page.locator("#memorial-contribution-recovery-copy").click()
-        volatile_page.wait_for_function(
-            "() => Boolean(window.__memorialCopiedRecoveryReceipt)", timeout=7000
-        )
-        copied_receipt = json.loads(
-            volatile_page.evaluate("() => window.__memorialCopiedRecoveryReceipt")
-        )
-        assert copied_receipt["manage_token"] == token
-        assert volatile_page.evaluate(
-            """() => {
-              try {
-                localStorage.getItem("memorial_contribution_receipt_manfred_v1");
-                return false;
-              } catch (error) {
-                return true;
-              }
-            }"""
-        )
+        assert managed.ok
+        storage_page.wait_for_timeout(200)
+        assert storage_page_errors == []
     finally:
-        volatile_context.close()
+        storage_blocked_context.close()
+
+
 
 
 def test_memorial_browser_reduced_motion_avoids_smooth_answer_scroll(
@@ -1367,7 +1425,7 @@ def test_memorial_browser_reduced_motion_avoids_smooth_answer_scroll(
     )
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         page.evaluate(
             """() => {
@@ -1405,6 +1463,7 @@ def test_memorial_browser_can_defer_all_provider_warmup_until_user_action(
         response = page.goto(
             f"{memorial_browser_server['base_url']}/memorials/{memorial_browser_server['slug']}",
             wait_until="domcontentloaded",
+            timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS,
         )
         assert response is not None and response.status == 200
         page.wait_for_timeout(700)
@@ -1421,7 +1480,7 @@ def test_memorial_browser_can_defer_all_provider_warmup_until_user_action(
         ]
         conversation = page.locator("#memorial-conversation")
         assert conversation.is_enabled()
-        assert conversation.inner_text().strip() == "Gespräch beginnen"
-        assert page.locator("#memorial-speech-message").inner_text().strip() == "Bereit."
+        assert conversation.inner_text().strip() == "Gespräch starten"
+        assert page.locator("#memorial-speech-message").inner_text().strip() == "Bereit für deine Frage."
     finally:
         context.close()

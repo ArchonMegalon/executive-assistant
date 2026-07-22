@@ -24,7 +24,9 @@ def _public_list(
     for item in list_of_dicts(items):
         if not _is_public_item(item, text=text):
             continue
-        public_items.append({key: value for key, value in item.items() if key in allowed_keys})
+        public_items.append(
+            {key: value for key, value in item.items() if key in allowed_keys}
+        )
     return public_items
 
 
@@ -66,7 +68,9 @@ def _public_memorial_payload(
         relationship = story_text(payload.get("relationship"), max_chars=120)
         if relationship:
             public_payload["relationship"] = relationship
-    if "voice_profile_ready" in safe_json_keys and isinstance(payload.get("voice_profile_ready"), bool):
+    if "voice_profile_ready" in safe_json_keys and isinstance(
+        payload.get("voice_profile_ready"), bool
+    ):
         public_payload["voice_profile_ready"] = payload["voice_profile_ready"]
 
     public_audio: list[dict[str, object]] = []
@@ -82,7 +86,9 @@ def _public_memorial_payload(
             "title": story_text(item.get("title"), max_chars=180),
             "description": story_text(item.get("description"), max_chars=600),
             "asset_relpath": relpath,
-            "public_transcript": story_text(item.get("public_transcript"), max_chars=3000),
+            "public_transcript": story_text(
+                item.get("public_transcript"), max_chars=3000
+            ),
         }
         public_audio.append({key: value for key, value in clip.items() if value})
     public_payload["audio_clips"] = public_audio
@@ -100,8 +106,11 @@ def _public_memorial_payload(
         memory = {
             "source_label": story_text(item.get("source_label"), max_chars=160),
             "title": story_text(item.get("title"), max_chars=180),
-            "body": curated_excerpt or censored_memory_preview(item.get("body") or item.get("title")),
-            "curation_status": "approved_public_excerpt" if curated_excerpt else "strongly_redacted_preview",
+            "body": curated_excerpt
+            or censored_memory_preview(item.get("body") or item.get("title")),
+            "curation_status": "approved_public_excerpt"
+            if curated_excerpt
+            else "strongly_redacted_preview",
         }
         public_memories.append({key: value for key, value in memory.items() if value})
     public_payload["memory_cards"] = public_memories
@@ -116,7 +125,9 @@ def _public_memorial_payload(
             "recorded_at": story_text(item.get("recorded_at"), max_chars=80),
             "status": story_text(item.get("status"), max_chars=360),
         }
-        public_candidates.append({key: value for key, value in candidate.items() if value})
+        public_candidates.append(
+            {key: value for key, value in candidate.items() if value}
+        )
     if public_candidates:
         public_payload["candidate_recordings"] = public_candidates
     raw_prompts = payload.get("suggested_prompts")
@@ -136,7 +147,9 @@ def _public_memorial_payload(
             if not isinstance(raw_item, dict):
                 continue
             audience = story_text(raw_item.get("audience"), max_chars=40).lower()
-            review_status = story_text(raw_item.get("review_status"), max_chars=40).lower()
+            review_status = story_text(
+                raw_item.get("review_status"), max_chars=40
+            ).lower()
             if audience != "public" or review_status not in {"approved", "published"}:
                 continue
             publication_id = story_text(raw_item.get("id"), max_chars=160)
@@ -144,7 +157,14 @@ def _public_memorial_payload(
             raw_url = story_text(raw_item.get("url"), max_chars=2048)
             internal_prefix = f"/memorials/{slug}/archive/"
             if raw_url.startswith(internal_prefix):
-                url = raw_url if not any(token in raw_url for token in ("\\", "?", "#", "%", "/../", "/./")) else ""
+                url = (
+                    raw_url
+                    if not any(
+                        token in raw_url
+                        for token in ("\\", "?", "#", "%", "/../", "/./")
+                    )
+                    else ""
+                )
             else:
                 url = safe_external_url(raw_url)
             publication = {
@@ -159,13 +179,17 @@ def _public_memorial_payload(
                 "sensitivity": story_text(raw_item.get("sensitivity"), max_chars=80),
                 "review_status": review_status,
                 "version": story_text(raw_item.get("version"), max_chars=80),
-                "publication_id": story_text(raw_item.get("publication_id"), max_chars=180),
+                "publication_id": story_text(
+                    raw_item.get("publication_id"), max_chars=180
+                ),
                 "slug": publication_slug,
                 "noindex": raw_item.get("noindex") is True,
             }
             if not publication_id or not publication["title"] or not url:
                 continue
-            public_publications.append({key: value for key, value in publication.items() if value != ""})
+            public_publications.append(
+                {key: value for key, value in publication.items() if value != ""}
+            )
             public_publication_ids.add(publication_id)
         public_payload["fliplink_publications"] = public_publications
 
@@ -173,16 +197,22 @@ def _public_memorial_payload(
         for raw_section in list(archive_registry.get("archive_sections") or [])[:12]:
             if not isinstance(raw_section, dict):
                 continue
-            if story_text(raw_section.get("audience"), max_chars=40).lower() != "public":
+            if (
+                story_text(raw_section.get("audience"), max_chars=40).lower()
+                != "public"
+            ):
                 continue
             item_ids = [
                 item_id
                 for raw_item_id in list(raw_section.get("items") or [])[:24]
-                if (item_id := story_text(raw_item_id, max_chars=160)) in public_publication_ids
+                if (item_id := story_text(raw_item_id, max_chars=160))
+                in public_publication_ids
             ]
             title = story_text(raw_section.get("title"), max_chars=220)
             if title and item_ids:
-                public_sections.append({"title": title, "audience": "public", "items": item_ids})
+                public_sections.append(
+                    {"title": title, "audience": "public", "items": item_ids}
+                )
         public_payload["archive_sections"] = public_sections
     else:
         public_payload["archive_sections"] = []
@@ -198,7 +228,9 @@ def _public_memorial_payload(
             "confidence": story_text(item.get("confidence"), max_chars=120),
             "evidence": story_text(item.get("evidence"), max_chars=1200),
         }
-        public_profile.append({key: value for key, value in profile_item.items() if value})
+        public_profile.append(
+            {key: value for key, value in profile_item.items() if value}
+        )
     public_payload["source_grounded_profile"] = public_profile
 
     public_sources: list[dict[str, object]] = []
@@ -212,9 +244,12 @@ def _public_memorial_payload(
         if not url:
             continue
         source = {
+            "approved": True,
             "label": story_text(item.get("label"), max_chars=220),
+            "public": True,
             "url": url,
             "status": story_text(item.get("status"), max_chars=160),
+            "visibility": "public",
         }
         public_sources.append({key: value for key, value in source.items() if value})
     public_payload["external_sources"] = public_sources
@@ -225,7 +260,9 @@ def _public_memorial_payload(
         if (note := story_text(item.get("note"), max_chars=900))
     ][:12]
     conversation_style = payload.get("conversation_style")
-    if isinstance(conversation_style, dict) and _is_public_item(conversation_style, text=text):
+    if isinstance(conversation_style, dict) and _is_public_item(
+        conversation_style, text=text
+    ):
         public_style = {
             key: value
             for key in ("reasoning_frame", "conflict_style", "social_tone")
@@ -239,21 +276,30 @@ def _public_memorial_payload(
         public_payload["conversation_style"] = public_style
     else:
         public_payload["conversation_style"] = {}
-    public_avatar = memorial_video_call_avatar(payload, slug) if slug else memorial_video_call_avatar(payload, "")
+    public_avatar = (
+        memorial_video_call_avatar(payload, slug)
+        if slug
+        else memorial_video_call_avatar(payload, "")
+    )
     if not isinstance(public_avatar, dict):
         public_avatar = {}
     avatar_enabled = public_avatar.get("enabled") is True
     public_payload["video_call_avatar"] = {
         "enabled": avatar_enabled,
         "kind": story_text(public_avatar.get("kind"), max_chars=80) or "portrait",
-        "provider_label": story_text(public_avatar.get("provider_label"), max_chars=180) or "VidBoard noch nicht live",
+        "provider_label": story_text(public_avatar.get("provider_label"), max_chars=180)
+        or "VidBoard noch nicht live",
         "title": story_text(public_avatar.get("title"), max_chars=220)
         or story_text(payload.get("person_name"), max_chars=180)
         or "Manfred",
         "detail": story_text(public_avatar.get("detail"), max_chars=600)
         or "Der Video-Avatar ist noch nicht freigegeben.",
-        "asset_url": story_text(public_avatar.get("asset_url"), max_chars=1024) if avatar_enabled else "",
-        "poster_url": story_text(public_avatar.get("poster_url"), max_chars=1024) if avatar_enabled else "",
+        "asset_url": story_text(public_avatar.get("asset_url"), max_chars=1024)
+        if avatar_enabled
+        else "",
+        "poster_url": story_text(public_avatar.get("poster_url"), max_chars=1024)
+        if avatar_enabled
+        else "",
     }
     raw_meeting = public_video_meeting_payload(
         slug=slug,
@@ -312,10 +358,19 @@ def _public_voice_config_payload(
     else:
         notes = []
     voice_profile_summary = public_voice_profile_summary(slug)
-    tts_options = tts_plugin_options(payload=payload, voice_profile_ready=bool(voice_profile_summary.get("voice_profile_ready")))
-    selected_plugin_id = safe_tts_plugin_id(payload.get("tts_plugin")) or tts_plugin_default_id
+    tts_options = tts_plugin_options(
+        payload=payload,
+        voice_profile_ready=bool(voice_profile_summary.get("voice_profile_ready")),
+    )
+    selected_plugin_id = (
+        safe_tts_plugin_id(payload.get("tts_plugin")) or tts_plugin_default_id
+    )
     selected_option = next(
-        (option for option in tts_options if safe_tts_plugin_id(option.get("tts_plugin")) == selected_plugin_id),
+        (
+            option
+            for option in tts_options
+            if safe_tts_plugin_id(option.get("tts_plugin")) == selected_plugin_id
+        ),
         {},
     )
     safe_options = [
@@ -326,7 +381,9 @@ def _public_voice_config_payload(
             "tts_plugin_enabled": bool(option.get("tts_plugin_enabled")),
             "tts_plugin_clone_capable": bool(option.get("tts_plugin_clone_capable")),
             "tts_plugin_needs_clone": bool(option.get("tts_plugin_needs_clone")),
-            "tts_plugin_requires_voice_id": bool(option.get("tts_plugin_requires_voice_id")),
+            "tts_plugin_requires_voice_id": bool(
+                option.get("tts_plugin_requires_voice_id")
+            ),
         }
         for option in ([selected_option] if selected_option else [])
         if safe_tts_plugin_id(option.get("tts_plugin"))
@@ -335,17 +392,29 @@ def _public_voice_config_payload(
         "slug": slug,
         "tts_plugin": selected_plugin_id,
         "tts_mode": selected_plugin_id,
-        "tts_base_voice_variant": text(payload.get("tts_base_voice_variant"), "default"),
+        "tts_base_voice_variant": text(
+            payload.get("tts_base_voice_variant"), "default"
+        ),
         "voice_label": text(payload.get("voice_label"), "Manfreds Stimme"),
         "voice_profile_ready": bool(voice_profile_summary.get("voice_profile_ready")),
-        "voice_profile_generated_at": text(voice_profile_summary.get("voice_profile_generated_at"), ""),
-        "voice_profile_policy": dict(voice_profile_summary.get("voice_profile_policy") or {}),
-        "voice_profile_sources": dict(voice_profile_summary.get("voice_profile_sources") or {}),
+        "voice_profile_generated_at": text(
+            voice_profile_summary.get("voice_profile_generated_at"), ""
+        ),
+        "voice_profile_policy": dict(
+            voice_profile_summary.get("voice_profile_policy") or {}
+        ),
+        "voice_profile_sources": dict(
+            voice_profile_summary.get("voice_profile_sources") or {}
+        ),
         "lang": text(payload.get("lang"), "de-AT"),
         "rate": payload.get("rate"),
         "pitch": payload.get("pitch"),
         "volume": payload.get("volume"),
-        "voice_name_hints": [str(item).strip() for item in list(payload.get("voice_name_hints") or [])[:8] if str(item or "").strip()],
+        "voice_name_hints": [
+            str(item).strip()
+            for item in list(payload.get("voice_name_hints") or [])[:8]
+            if str(item or "").strip()
+        ],
         "tts_plugin_options": safe_options,
         "synthetic_voice_clone_of_memorial_person": payload.get(
             "synthetic_voice_clone_of_memorial_person"
@@ -355,7 +424,9 @@ def _public_voice_config_payload(
     }
 
 
-def _public_voice_ab_variant_payload(variant: dict[str, object], *, text: Callable[[object, str], str]) -> dict[str, object]:
+def _public_voice_ab_variant_payload(
+    variant: dict[str, object], *, text: Callable[[object, str], str]
+) -> dict[str, object]:
     return {
         "id": text(variant.get("id"), ""),
         "label": text(variant.get("label"), "Stimme"),
@@ -363,7 +434,9 @@ def _public_voice_ab_variant_payload(variant: dict[str, object], *, text: Callab
     }
 
 
-def _public_voice_profile_payload(summary: dict[str, object], *, text: Callable[[object, str], str]) -> dict[str, object]:
+def _public_voice_profile_payload(
+    summary: dict[str, object], *, text: Callable[[object, str], str]
+) -> dict[str, object]:
     public_summary = dict(summary)
     assets: list[dict[str, object]] = []
     for raw_item in list(summary.get("voice_profile_sample_assets") or [])[:4]:
@@ -394,7 +467,11 @@ def _resolved_voice_consent(
     text: Callable[[object, str], str],
     load_voice_config: Callable[[str], dict[str, object]],
 ) -> dict[str, object]:
-    explicit = dict(payload.get("voice_consent") or {}) if isinstance(payload.get("voice_consent"), dict) else {}
+    explicit = (
+        dict(payload.get("voice_consent") or {})
+        if isinstance(payload.get("voice_consent"), dict)
+        else {}
+    )
     if explicit:
         return explicit
     slug = text(payload.get("slug"), "")
@@ -403,7 +480,11 @@ def _resolved_voice_consent(
             voice_payload = load_voice_config(slug)
         except Exception:
             voice_payload = {}
-        explicit = dict(voice_payload.get("voice_consent") or {}) if isinstance(voice_payload.get("voice_consent"), dict) else {}
+        explicit = (
+            dict(voice_payload.get("voice_consent") or {})
+            if isinstance(voice_payload.get("voice_consent"), dict)
+            else {}
+        )
         if explicit:
             return explicit
     return {}
@@ -419,7 +500,11 @@ def _require_voice_consent(
     consent = resolved_voice_consent(payload)
     if consent.get("status") != "approved" or bool(consent.get("revoked")):
         raise http_exception_cls(status_code=403, detail="voice_consent_required")
-    scope = {str(item).strip() for item in list(consent.get("scope") or []) if str(item or "").strip()}
+    scope = {
+        str(item).strip()
+        for item in list(consent.get("scope") or [])
+        if str(item or "").strip()
+    }
     if action not in scope:
         raise http_exception_cls(status_code=403, detail="voice_consent_scope_missing")
 

@@ -194,6 +194,15 @@ class Report:
         return {"slug": self.slug, "status": self.status, "findings": [asdict(item) for item in self.findings]}
 
 
+@dataclass(frozen=True)
+class RouteGatedArchiveProof:
+    live_binding: str
+
+
+_ARCHIVE_GATE_SCHEMA = "ea.memorial_archive_gate.v1"
+_ARCHIVE_GATE_STATE = "intentionally_unpublished"
+
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -338,34 +347,40 @@ def _check_voice_consent(slug: str, public_payload: dict[str, object], report: R
     report.add("pass", "voice_consent_ok")
 
 
-def _check_archive_registry(slug: str, report: Report) -> None:
+def _check_archive_registry(
+    slug: str,
+    report: Report,
+) -> dict[str, object] | None:
     if not _valid_slug(slug):
         if not any(item.code == "slug_invalid" for item in report.findings):
             report.add("fail", "slug_invalid")
-        return
+        return None
     registry = public_registry_path(slug)
     if not registry.exists():
         report.add("fail", "archive_registry_missing")
-        return
+        return None
     if registry.is_symlink() or not registry.is_file():
         report.add("fail", "archive_registry_invalid")
-        return
+        return None
     try:
         registry_payload = load_registry_json(registry)
     except (OSError, TypeError, ValueError):
         report.add("fail", "archive_registry_invalid")
-        return
+        return None
     if not isinstance(registry_payload, dict):
         report.add("fail", "archive_registry_invalid")
-        return
+        return None
+    if str(registry_payload.get("slug") or "").strip() != slug:
+        report.add("fail", "archive_registry_slug_mismatch")
+        return None
     raw_sections = registry_payload.get("archive_sections")
     raw_publications = registry_payload.get("fliplink_publications")
     if not isinstance(raw_sections, list) or not isinstance(raw_publications, list):
         report.add("fail", "archive_registry_invalid")
-        return
+        return None
     if any(not isinstance(item, dict) for item in raw_sections + raw_publications):
         report.add("fail", "archive_registry_invalid")
-        return
+        return None
 
     publications: dict[str, dict[str, object]] = {}
     for raw_publication in raw_publications:
@@ -373,7 +388,7 @@ def _check_archive_registry(slug: str, report: Report) -> None:
         publication_id = publication.get("id")
         if not isinstance(publication_id, str) or not publication_id.strip() or publication_id in publications:
             report.add("fail", "archive_registry_invalid")
-            return
+            return None
         publications[publication_id] = publication
 
     public_ids: set[str] = set()
@@ -384,7 +399,7 @@ def _check_archive_registry(slug: str, report: Report) -> None:
         items = section.get("items")
         if not isinstance(items, list) or any(not isinstance(item, str) or not item.strip() for item in items):
             report.add("fail", "archive_registry_invalid")
-            return
+            return None
         public_ids.update(item.strip() for item in items)
 
     registry_is_public = (
@@ -395,15 +410,103 @@ def _check_archive_registry(slug: str, report: Report) -> None:
         )
         and set(publications) == public_ids
         and all(
-            str(publication.get("audience") or "") == "public"
+            publication.get("approved") is True
+            and str(publication.get("audience") or "") == "public"
+            and str(publication.get("sensitivity") or "").upper() == "PUBLIC"
             and str(publication.get("review_status") or "") == "published"
             for publication in publications.values()
         )
     )
     if not registry_is_public:
         report.add("fail", "archive_registry_not_public")
-        return
+        return None
     report.add("pass", "archive_registry_public_only")
+    return registry_payload
+
+
+def _route_gated_archive_projection(
+    *,
+    slug: str,
+    public_json_status: int,
+    public_page_status: int,
+    public_json_body: str,
+    archive_status: int,
+    archive_body: str,
+) -> RouteGatedArchiveProof | None:
+    """Verify that an exact archive 404 represents intentional route gating.
+
+    The archive route deliberately conceals unpublished archives behind the same
+    ``memorial_not_found`` response used by the public surface.  Treat that exact
+    response as route gating only after the memorial's public JSON and page are
+    live, their slug matches, and the live application declares the exact digest
+    of the independently valid registry it loaded.  The local registry validates
+    that deployment declaration but never substitutes for live archive evidence.
+    """
+
+    if (
+        public_json_status != 200
+        or public_page_status != 200
+        or archive_status != 404
+    ):
+        return None
+    try:
+        error_payload = json.loads(archive_body)
+    except (TypeError, ValueError):
+        return None
+    try:
+        live_public_payload = json.loads(public_json_body)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(live_public_payload, dict):
+        return None
+    if str(live_public_payload.get("slug") or "").strip() != slug:
+        return None
+    validation_report = Report(slug=slug)
+    registry_payload = _check_archive_registry(slug, validation_report)
+    if validation_report.failed or registry_payload is None:
+        return None
+    registry_path = public_registry_path(slug)
+    if not registry_path.is_file():
+        return None
+    expected_gate_payload = {
+        "detail": "memorial_not_found",
+        "archive_gate": {
+            "schema": _ARCHIVE_GATE_SCHEMA,
+            "state": _ARCHIVE_GATE_STATE,
+            "slug": slug,
+            "registry_sha256": _sha256(registry_path),
+        },
+    }
+    if error_payload != expected_gate_payload:
+        return None
+    raw_live_sources = live_public_payload.get("external_sources") or []
+    if not isinstance(raw_live_sources, list):
+        return None
+    raw_publications = registry_payload.get("fliplink_publications") or []
+    registry_publication_urls = {
+        str(item.get("url") or "").strip()
+        for item in raw_publications
+        if isinstance(item, dict)
+        and item.get("approved") is True
+        and str(item.get("audience") or "").strip().lower() == "public"
+        and str(item.get("sensitivity") or "").strip().upper() == "PUBLIC"
+        and str(item.get("review_status") or "").strip().lower()
+        == "published"
+        and str(item.get("url") or "").strip()
+    }
+    for item in raw_live_sources:
+        if not isinstance(item, dict):
+            continue
+        source_url = str(item.get("url") or "").strip()
+        if source_url not in registry_publication_urls:
+            continue
+        is_public = (
+            item.get("public") is True
+            and str(item.get("visibility") or "").strip().lower() == "public"
+        )
+        if not is_public or item.get("approved") is not True:
+            return None
+    return RouteGatedArchiveProof(live_binding="deployed_registry_sha256")
 
 
 def _check_private_context(
@@ -634,7 +737,7 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
             "live_raw_manifest_access_policy_failed",
             http_status=raw_manifest_status,
         )
-    for route_name in ("public_json", "public_page", "voice_config", "archive_json"):
+    for route_name in ("public_json", "public_page", "voice_config"):
         route_status = payloads[route_name][0]
         if route_status not in {0, 200}:
             report.add(
@@ -643,6 +746,30 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
                 route=route_name,
                 http_status=route_status,
             )
+    route_gated_archive = _route_gated_archive_projection(
+        slug=slug,
+        public_json_status=payloads["public_json"][0],
+        public_page_status=payloads["public_page"][0],
+        public_json_body=payloads["public_json"][1],
+        archive_status=payloads["archive_json"][0],
+        archive_body=payloads["archive_json"][1],
+    )
+    archive_status = payloads["archive_json"][0]
+    if route_gated_archive is not None:
+        report.add(
+            "pass",
+            "live_archive_json_route_gated",
+            http_status=archive_status,
+            projection_source="verified_public_registry_not_live_evidence",
+            live_binding=route_gated_archive.live_binding,
+        )
+    elif archive_status not in {0, 200}:
+        report.add(
+            "fail",
+            "live_endpoint_http_status_failed",
+            route="archive_json",
+            http_status=archive_status,
+        )
     rejected_override_fields: list[str] = []
     for field_name, (speech_status, speech_body) in speech_probe_results.items():
         if speech_status == 0:
@@ -665,7 +792,7 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
     if report.failed:
         return
     decoded_payloads: dict[str, dict[str, object]] = {}
-    for route_name in ("public_json", "voice_config", "archive_json"):
+    for route_name in ("public_json", "voice_config"):
         try:
             decoded = json.loads(payloads[route_name][1])
         except (TypeError, ValueError):
@@ -685,10 +812,42 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
             )
             continue
         decoded_payloads[route_name] = decoded
+    if route_gated_archive is not None:
+        decoded_payloads["archive_json"] = {
+            "archive_sections": [],
+            "fliplink_publications": [],
+        }
+    else:
+        try:
+            decoded_archive = json.loads(payloads["archive_json"][1])
+        except (TypeError, ValueError):
+            report.add(
+                "fail",
+                "live_endpoint_json_invalid",
+                route="archive_json",
+                http_status=payloads["archive_json"][0],
+            )
+        else:
+            if not isinstance(decoded_archive, dict):
+                report.add(
+                    "fail",
+                    "live_endpoint_json_invalid",
+                    route="archive_json",
+                    http_status=payloads["archive_json"][0],
+                )
+            else:
+                decoded_payloads["archive_json"] = decoded_archive
     if report.failed:
         return
     public_json = decoded_payloads["public_json"]
     voice_config = decoded_payloads["voice_config"]
+    if str(public_json.get("slug") or "").strip() != slug:
+        report.add(
+            "fail",
+            "live_public_json_slug_mismatch",
+            expected_slug=slug,
+        )
+        return
     empty_private_shape_count = 0
     for route_name, decoded in (
         ("public_json", public_json),
@@ -797,7 +956,7 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
     public_source_evidence_ok = bool(
         public_sources or approved_archive_publications or approved_public_profiles
     )
-    source_first_page_ok = all(
+    legacy_source_first_page_ok = all(
         marker in public_page
         for marker in (
             '<main id="memorial-story" tabindex="-1">',
@@ -808,6 +967,21 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
             "memorial-retry-button",
         )
     )
+    conversation_only_page_ok = (
+        all(
+            marker in public_page
+            for marker in (
+                'data-public-memorial-surface="conversation-only"',
+                'id="memorial-conversation-region" tabindex="-1"',
+                'id="memorial-conversation"',
+                'id="memorial-text-turn-form"',
+                'id="memorial-retry-button"',
+                "freigegebener Erinnerungen und Quellen",
+            )
+        )
+        and 'id="memorial-story"' not in public_page
+    )
+    source_first_page_ok = legacy_source_first_page_ok or conversation_only_page_ok
     source_first_payload_ok = (
         bool(public_memories)
         and public_source_evidence_ok
@@ -830,6 +1004,11 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
             public_archive_source_count=len(approved_archive_publications),
             public_profile_source_count=len(approved_public_profiles),
             public_prompt_count=len(public_prompts),
+            public_page_surface=(
+                "conversation_only"
+                if conversation_only_page_ok
+                else "legacy_source_first"
+            ),
         )
     else:
         report.add(

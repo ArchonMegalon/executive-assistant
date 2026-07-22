@@ -255,8 +255,9 @@ def test_operator_approval_publishes_only_explicit_curated_excerpt(
     assert "RAW_PRIVATE" not in serialized
     page = client.get("/memorials/manfred")
     assert page.status_code == 200
-    assert "A carefully curated memory" in page.text
-    assert "Manfred made time for a patient conversation." in page.text
+    assert 'data-public-memorial-surface="conversation-only"' in page.text
+    assert "A carefully curated memory" not in page.text
+    assert "Manfred made time for a patient conversation." not in page.text
     assert "RAW_PRIVATE" not in page.text
 
     projection_text = (
@@ -429,6 +430,112 @@ def test_correction_and_withdrawal_remove_public_memory_until_reapproved(
     final_public = json.dumps(client.get("/memorials/manfred.json").json())
     assert "The corrected public memory" not in final_public
     assert "CORRECTED_PRIVATE_SENTINEL" not in final_public
+
+
+def test_authenticated_withdrawal_retry_recovers_after_commit_response_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client, _public_root, _private_root = _memorial_client(monkeypatch, tmp_path)
+    submission = _submit(client).json()
+    other_submission = _submit(
+        client,
+        body="A second private record must not accept a replayed capability.",
+    ).json()
+    contribution_id = submission["contribution_id"]
+    manage_token = submission["manage_token"]
+    assert (
+        _approve(client, contribution_id, manage_token=manage_token).status_code
+        == 200
+    )
+
+    from app.services import memorial_family_contributions
+
+    real_save_private_ledger = memorial_family_contributions._save_private_ledger
+    fault_injected = False
+
+    def commit_then_fail(slug: str, ledger: dict[str, object]) -> None:
+        nonlocal fault_injected
+        real_save_private_ledger(slug, ledger)
+        committed = any(
+            isinstance(row, dict)
+            and row.get("contribution_id") == contribution_id
+            and row.get("status") == "withdrawn"
+            for row in list(ledger.get("contributions") or [])
+        )
+        if committed and not fault_injected:
+            fault_injected = True
+            raise OSError("simulated response loss after withdrawal commit")
+
+    monkeypatch.setattr(
+        memorial_family_contributions,
+        "_save_private_ledger",
+        commit_then_fail,
+    )
+    withdraw_path = f"/memorials/manfred/contributions/{contribution_id}/withdraw"
+    headers = {"x-memorial-contribution-token": manage_token}
+
+    # The service commit succeeds, but the first caller observes only a failure.
+    first_attempt = client.post(
+        withdraw_path,
+        headers=headers,
+        json={"reason": "Candidate restart durability proof completed"},
+    )
+    assert first_attempt.status_code == 503
+    assert _error_code(first_attempt) == "memorial_contribution_store_unavailable"
+    assert fault_injected is True
+
+    ledger_path = memorial_family_contributions.private_contribution_path("manfred")
+    takedown_path = memorial_family_contributions.public_takedown_path("manfred")
+    committed_ledger = ledger_path.read_bytes()
+    committed_takedown = takedown_path.read_bytes()
+    committed_payload = json.loads(committed_ledger)
+    committed_record = next(
+        row
+        for row in committed_payload["contributions"]
+        if row["contribution_id"] == contribution_id
+    )
+    assert committed_record["status"] == "withdrawn"
+    assert sum(
+        event.get("action") == "contributor_withdrew"
+        for event in committed_record["history"]
+    ) == 1
+
+    expected_terminal = {
+        "contribution_id": contribution_id,
+        "status": "withdrawn",
+        "visibility": "private",
+        "public_removed": True,
+    }
+    retry = client.post(
+        withdraw_path,
+        headers=headers,
+        json={"reason": "A retry must not replace the committed reason."},
+    )
+    assert retry.status_code == 200
+    assert retry.json() == expected_terminal
+    assert ledger_path.read_bytes() == committed_ledger
+    assert takedown_path.read_bytes() == committed_takedown
+
+    exact_retry = client.post(withdraw_path, headers=headers, json={"reason": ""})
+    assert exact_retry.status_code == 200
+    assert exact_retry.json() == expected_terminal
+    assert ledger_path.read_bytes() == committed_ledger
+    assert takedown_path.read_bytes() == committed_takedown
+
+    for target_id, replayed_token in (
+        (contribution_id, other_submission["manage_token"]),
+        (other_submission["contribution_id"], manage_token),
+    ):
+        denied = client.post(
+            f"/memorials/manfred/contributions/{target_id}/withdraw",
+            headers={"x-memorial-contribution-token": replayed_token},
+            json={"reason": "cross-record replay"},
+        )
+        assert denied.status_code == 403
+        assert _error_code(denied) == "memorial_contribution_unauthorized"
+        assert ledger_path.read_bytes() == committed_ledger
+        assert takedown_path.read_bytes() == committed_takedown
 
 
 def test_contribution_mutations_are_json_only_bounded_and_require_publication_consent(

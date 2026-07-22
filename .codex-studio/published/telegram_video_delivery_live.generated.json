@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.telegram_video_delivery_live_receipt",
-  "generated_at": "2026-07-07T12:56:29Z",
+  "generated_at": "2026-07-22T14:29:12Z",
   "generated_by": "scripts/materialize_telegram_video_delivery_live_receipt.py",
-  "source_git_head": "bb575cc976c55adb1de1ef9734d15f2db0acfb4e",
+  "source_git_head": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
   "head_semantics": "source_state",
   "output_path": ".codex-studio/published/telegram_video_delivery_live.generated.json",
   "status": "blocked",
@@ -14,7 +14,7 @@
       ".env",
       ".env.local"
     ],
-    "loaded_count": 435,
+    "loaded_count": 443,
     "storage_backend_present": true,
     "database_url_present": true,
     "docker_postgres_fallback": {
@@ -27,42 +27,42 @@
       "row_count": 0,
       "diagnostics": {
         "status": "pass",
-        "telegram_observation_count": 415,
-        "telegram_video_related_observation_count": 88,
+        "telegram_observation_count": 442,
+        "telegram_video_related_observation_count": 92,
         "telegram_video_delivery_receipt_count": 0,
         "telegram_video_sent_text_ack_count": 1,
         "telegram_event_type_counts": [
           {
             "event_type": "telegram.reply_sent",
-            "count": 94
+            "count": 96
           },
           {
             "event_type": "telegram.message",
-            "count": 81
+            "count": 88
           },
           {
             "event_type": "telegram.callback_query",
-            "count": 64
+            "count": 65
           },
           {
             "event_type": "telegram.reply_async_processing",
-            "count": 36
+            "count": 39
           },
           {
             "event_type": "telegram.reply_async_started",
-            "count": 33
+            "count": 36
           },
           {
             "event_type": "telegram.reply_async_sent",
-            "count": 25
+            "count": 26
           },
           {
             "event_type": "office_signal_telegram_message",
-            "count": 21
+            "count": 22
           },
           {
             "event_type": "telegram.proactive_ooda_task_staged",
-            "count": 21
+            "count": 22
           },
           {
             "event_type": "telegram.processing_ack_sent",
@@ -70,17 +70,25 @@
           },
           {
             "event_type": "telegram.reply_async_failed",
-            "count": 11
+            "count": 14
           },
           {
             "event_type": "telegram.callback_processed",
-            "count": 9
+            "count": 10
+          },
+          {
+            "event_type": "telegram.reply_suppressed",
+            "count": 3
+          },
+          {
+            "event_type": "telegram.audiobook_epub_recovered",
+            "count": 1
           }
         ],
         "telegram_video_related_event_type_counts": [
           {
             "event_type": "telegram.message",
-            "count": 22
+            "count": 23
           },
           {
             "event_type": "telegram.reply_async_started",
@@ -105,6 +113,18 @@
           {
             "event_type": "telegram.reply_sent",
             "count": 2
+          },
+          {
+            "event_type": "office_signal_telegram_message",
+            "count": 1
+          },
+          {
+            "event_type": "telegram.proactive_ooda_task_staged",
+            "count": 1
+          },
+          {
+            "event_type": "telegram.reply_suppressed",
+            "count": 1
           }
         ],
         "delivery_outbox_table": true,
@@ -117,7 +137,7 @@
           {
             "channel": "telegram",
             "status": "sent",
-            "count": 72
+            "count": 77
           },
           {
             "channel": "telegram",

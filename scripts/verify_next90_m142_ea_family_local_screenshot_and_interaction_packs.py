@@ -29,8 +29,17 @@ def _env_path(name: str, default: Path) -> Path:
     return Path(os.environ.get(name) or default)
 
 
+def _source_provenance(path: Path) -> str:
+    resolved = path.expanduser().resolve(strict=False)
+    try:
+        return resolved.relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        return f"external:{path.name}"
+
+
 DESIGN_PRODUCT_ROOT = _env_path("CHUMMER6_DESIGN_PRODUCT_ROOT", ROOT / ".codex-design" / "product")
-FLEET_COMPLETION_ROOT = _env_path("EA_FLEET_COMPLETION_ROOT", ROOT / "ea" / "_completion" / "fleet")
+SOURCE_PROJECTION_ROOT = ROOT / "docs" / "chummer5a_parity_lab" / "source_projections"
+FLEET_COMPLETION_ROOT = _env_path("EA_FLEET_COMPLETION_ROOT", SOURCE_PROJECTION_ROOT / "fleet")
 QUEUE_STAGING_PATH = _env_path("EA_NEXT90_QUEUE_STAGING_PATH", DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
 LOCAL_MIRROR_QUEUE_PATH = DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
 LOCAL_MIRROR_REGISTRY_PATH = DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
@@ -159,7 +168,7 @@ def main() -> int:
     if not str(fleet_queue.get("row_fingerprint") or "").strip():
         issues.append("fleet_queue row_fingerprint missing")
     local_mirror_queue = dict(source_inputs.get("local_mirror_queue") or {})
-    if local_mirror_queue.get("path") != str(LOCAL_MIRROR_QUEUE_PATH):
+    if local_mirror_queue.get("path") != _source_provenance(LOCAL_MIRROR_QUEUE_PATH):
         issues.append("local_mirror_queue source path drifted")
     if int(local_mirror_queue.get("match_count") or 0) != 1:
         issues.append("local_mirror_queue match_count drifted")
@@ -181,7 +190,7 @@ def main() -> int:
     if not str(registry_input.get("row_fingerprint") or "").strip():
         issues.append("registry row_fingerprint missing")
     local_mirror_registry = dict(source_inputs.get("local_mirror_registry") or {})
-    if local_mirror_registry.get("path") != str(LOCAL_MIRROR_REGISTRY_PATH):
+    if local_mirror_registry.get("path") != _source_provenance(LOCAL_MIRROR_REGISTRY_PATH):
         issues.append("local_mirror_registry source path drifted")
     if int(local_mirror_registry.get("match_count") or 0) != 1:
         issues.append("local_mirror_registry match_count drifted")
@@ -192,7 +201,7 @@ def main() -> int:
     if not str(local_mirror_registry.get("row_fingerprint") or "").strip():
         issues.append("local_mirror_registry row_fingerprint missing")
     readiness_input = dict(source_inputs.get("flagship_readiness") or {})
-    if readiness_input.get("path") != str(FLAGSHIP_READINESS_PATH):
+    if readiness_input.get("path") != _source_provenance(FLAGSHIP_READINESS_PATH):
         issues.append("flagship_readiness source path drifted")
     if readiness_input.get("coverage_key") != "desktop_client":
         issues.append("flagship_readiness coverage key drifted")
@@ -249,6 +258,10 @@ def main() -> int:
         issues.append("queue_alignment registry_local_mirror_task_fingerprint_matches drifted")
 
     rows = [dict(row) for row in (payload.get("family_local_packs") or [])]
+    for source_name, source in source_inputs.items():
+        source_path = str(dict(source or {}).get("path") or "")
+        if source_path.startswith("/"):
+            issues.append(f"{source_name}: source path must be repo-relative or logical")
     family_ids = {str(row.get("family_id") or "") for row in rows}
     if family_ids != EXPECTED_FAMILIES:
         issues.append(f"family ids drifted: {sorted(family_ids)}")
@@ -256,6 +269,8 @@ def main() -> int:
     for row in rows:
         if not list(row.get("evidence_paths") or []):
             issues.append(f"{row.get('family_id')}: evidence_paths missing")
+        if any(str(path).startswith("/") for path in (row.get("evidence_paths") or [])):
+            issues.append(f"{row.get('family_id')}: evidence_paths must be repo-relative or logical")
         if not list(row.get("required_screenshots") or []):
             issues.append(f"{row.get('family_id')}: required_screenshots missing")
         if list(row.get("workflow_task_ids") or []) != EXPECTED_WORKFLOW_TASK_IDS.get(str(row.get("family_id") or "")):

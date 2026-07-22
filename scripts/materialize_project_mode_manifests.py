@@ -8,9 +8,21 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from scripts.source_state_head import resolve_source_state_head
+    from scripts.memorial_spatial_public_origin_contract import (
+        validate_memorial_spatial_public_origin_receipt,
+    )
+    from scripts.source_state_head import (
+        resolve_source_state_head,
+        resolve_source_worktree_fingerprint,
+    )
 except ModuleNotFoundError:  # pragma: no cover - script execution path
-    from source_state_head import resolve_source_state_head
+    from memorial_spatial_public_origin_contract import (
+        validate_memorial_spatial_public_origin_receipt,
+    )
+    from source_state_head import (
+        resolve_source_state_head,
+        resolve_source_worktree_fingerprint,
+    )
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +32,7 @@ MEMORIAL_VOICE_GATE = ROOT / ".codex-studio/published/memorial_voice_roundtrip_e
 MEMORIAL_PUBLIC_VOICE_GATE = ROOT / ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json"
 MEMORIAL_PUBLIC_BROWSER_GATE = ROOT / ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
 MEMORIAL_PUBLIC_ROOM_GATE = ROOT / ".codex-studio/published/memorial_room_audio_public_origin.generated.json"
+MEMORIAL_SPATIAL_PUBLIC_ORIGIN_GATE = ROOT / ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json"
 GENERATED_RECEIPT_PATHS = {
     ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
     ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json",
@@ -34,6 +47,7 @@ GENERATED_RECEIPT_PATHS = {
     ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
     ".codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json",
     ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+    ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json",
 }
 
 
@@ -43,6 +57,10 @@ def _utc_now() -> str:
 
 def _git_head() -> str:
     return resolve_source_state_head(ROOT)
+
+
+def _source_fingerprint() -> str:
+    return resolve_source_worktree_fingerprint(ROOT)
 
 
 def _recorded_source_head(payload: dict[str, Any]) -> str:
@@ -128,11 +146,37 @@ def _room_receipt_passes(path: Path, *, current_head: str) -> bool:
     return _fresh_enough(_recorded_source_head(receipt), current_head=current_head)
 
 
-def _memorial_public_gold_status(*, current_head: str) -> str:
+def _spatial_receipt_passes(
+    path: Path,
+    *,
+    current_head: str,
+    current_fingerprint: str,
+) -> bool:
+    try:
+        receipt = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    return not validate_memorial_spatial_public_origin_receipt(
+        receipt,
+        current_head=current_head,
+        current_fingerprint=current_fingerprint,
+    )
+
+
+def _memorial_public_gold_status(
+    *,
+    current_head: str,
+    current_fingerprint: str,
+) -> str:
     if (
         _receipt_passes(MEMORIAL_PUBLIC_VOICE_GATE, current_head=current_head)
         and _receipt_passes(MEMORIAL_PUBLIC_BROWSER_GATE, current_head=current_head)
         and _room_receipt_passes(MEMORIAL_PUBLIC_ROOM_GATE, current_head=current_head)
+        and _spatial_receipt_passes(
+            MEMORIAL_SPATIAL_PUBLIC_ORIGIN_GATE,
+            current_head=current_head,
+            current_fingerprint=current_fingerprint,
+        )
     ):
         return "public_origin_gold_pass"
     return "public_origin_gold_blocked"
@@ -140,6 +184,7 @@ def _memorial_public_gold_status(*, current_head: str) -> str:
 
 def project_modes() -> dict[str, Any]:
     source_git_head = _git_head()
+    source_fingerprint = _source_fingerprint()
     return {
         "contract_name": "ea.project_modes",
         "generated_at": _utc_now(),
@@ -158,7 +203,10 @@ def project_modes() -> dict[str, Any]:
             {
                 "key": "MEMORIAL",
                 "status": _memorial_mode_status(current_head=source_git_head),
-                "public_gold_status": _memorial_public_gold_status(current_head=source_git_head),
+                "public_gold_status": _memorial_public_gold_status(
+                    current_head=source_git_head,
+                    current_fingerprint=source_fingerprint,
+                ),
                 "claim_labels": {
                     "local": "Memorial local release candidate",
                     "public": "Memorial public-origin gold",
@@ -170,12 +218,14 @@ def project_modes() -> dict[str, Any]:
                     ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
                     ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
                     ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+                    ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json",
                 ],
                 "local_release_gate": ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
                 "public_gold_gates": [
                     ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
                     ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
                     ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+                    ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json",
                 ],
                 "design_language": "quiet, source-bound, emotionally safe",
             },

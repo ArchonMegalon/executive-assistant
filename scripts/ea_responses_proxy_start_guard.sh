@@ -1,10 +1,8 @@
 #!/bin/sh
 set -eu
 
-# A checkout/image skew previously made app.main fail at import time. Docker's
-# unless-stopped policy then created an unbounded restart storm. Keep the
-# container alive with capped exponential backoff until the mounted checkout is
-# internally consistent, then hand over to the real proxy process.
+# Avoid an unbounded restart storm if an image is internally inconsistent.
+# Retry the import with capped backoff, then replace this guard with the proxy.
 delay_seconds=5
 attempt=0
 error_log=/tmp/ea-responses-proxy-import.err

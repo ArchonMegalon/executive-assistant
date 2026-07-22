@@ -27,10 +27,22 @@ def _trusted_lock_directory_owner(path: Path, status: os.stat_result) -> bool:
     )
 
 
-def _open_validated_lock(path: Path) -> tuple[int, int]:
-    path = Path(path)
-    if not path.is_absolute() or path.name != FLEET_LOCK_PATH.name:
+def _normalized_lock_path(path: Path) -> Path:
+    candidate = Path(path).expanduser()
+    if not candidate.is_absolute() or candidate.name != FLEET_LOCK_PATH.name:
         raise RuntimeError(FLEET_LOCK_INVALID)
+    try:
+        parent = candidate.parent.resolve(strict=True)
+    except OSError as exc:
+        raise RuntimeError(FLEET_LOCK_UNAVAILABLE) from exc
+    normalized = parent / candidate.name
+    if normalized != candidate:
+        raise RuntimeError(FLEET_LOCK_INVALID)
+    return normalized
+
+
+def _open_validated_lock(path: Path) -> tuple[int, int]:
+    path = _normalized_lock_path(path)
     directory_descriptor = -1
     lock_descriptor = -1
     try:
@@ -43,7 +55,7 @@ def _open_validated_lock(path: Path) -> tuple[int, int]:
             not stat.S_ISDIR(directory_status.st_mode)
             or not _trusted_lock_directory_owner(path, directory_status)
             or (
-                directory_status.st_mode & stat.S_IWOTH
+                directory_status.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
                 and not directory_status.st_mode & stat.S_ISVTX
             )
         ):
@@ -87,7 +99,7 @@ def hold_candidate_fleet_lock(
     skip_if_busy: bool = False,
     lock_path: Path | None = None,
 ) -> Iterator[dict[str, object] | None]:
-    """Hold the cross-project proof/retention lock without ever waiting."""
+    """Hold the cross-project candidate lock without ever waiting."""
 
     path = Path(lock_path or FLEET_LOCK_PATH)
     directory_descriptor, lock_descriptor = _open_validated_lock(path)

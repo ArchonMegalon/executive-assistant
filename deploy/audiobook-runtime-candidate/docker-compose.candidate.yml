@@ -1,0 +1,364 @@
+# Inert configuration overlay only. The candidate profile and zero replicas are
+# mandatory; this file grants no deployment or promotion authority.
+name: ea-audiobook-runtime-candidate-configuration
+
+x-audiobook-inert-service: &audiobook-inert-service
+  profiles: !override
+    - audiobook-candidate-configuration-only
+  deploy: !override
+    replicas: 0
+  restart: "no"
+  container_name: !reset null
+
+x-audiobook-runtime-environment: &audiobook-runtime-environment
+  EA_SOURCE_REVISION: ${EA_AUDIOBOOK_CANDIDATE_REVISION:?set the exact 40-character source revision}
+  EA_DEPLOY_COMMIT_SHA: ${EA_AUDIOBOOK_CANDIDATE_REVISION:?set the exact 40-character source revision}
+  EA_AUDIOBOOK_RUNTIME_CANDIDATE_REVISION: ${EA_AUDIOBOOK_CANDIDATE_REVISION:?set the exact 40-character source revision}
+  EA_AUDIOBOOK_RUNTIME_CANDIDATE_IMAGE_DIGEST: ${EA_AUDIOBOOK_CANDIDATE_IMAGE_DIGEST:?set the exact sha256 image digest}
+  EA_RELEASE_LABEL: audiobook-candidate-${EA_AUDIOBOOK_CANDIDATE_REVISION:?set the exact 40-character source revision}
+  EA_AUDIOBOOK_RUNTIME_CANDIDATE_ONLY: "1"
+  EA_AUDIOBOOK_CANDIDATE_DEPLOYMENT_AUTHORITY: "0"
+  EA_AUDIOBOOK_DURABLE_STORAGE_ROOT: /data/audiobooks
+  EA_AUDIOBOOK_JOBS_ROOT: /data/audiobooks/jobs
+  EA_AUDIOBOOKSHELF_IMPORT_ROOT: /data/audiobooks/audiobookshelf
+  EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED: "1"
+  EA_AUDIOBOOK_UNMIXR_AUTO_RENDER: "1"
+  EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST: "1800"
+  EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS: "0"
+  EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST: "1800"
+  EA_AUDIOBOOK_PUBLICATION_STT_GATE_REQUIRED: "1"
+  EA_AUDIOBOOK_PUBLICATION_STT_GATE_ENABLED: "1"
+  EA_AUDIOBOOKSHELF_AUTO_IMPORT: "1"
+  EA_AUDIOBOOKSHELF_PUBLIC_SHARE_ENABLED: "1"
+  EA_AUDIOBOOKSHELF_API_BASE_URL: ${EA_AUDIOBOOKSHELF_API_BASE_URL:?set the private Audiobookshelf API base URL}
+  EA_AUDIOBOOKSHELF_PUBLIC_BASE_URL: ${EA_AUDIOBOOKSHELF_PUBLIC_BASE_URL:?set the public Audiobookshelf base URL}
+  EA_AUDIOBOOKSHELF_API_TOKEN: ${EA_AUDIOBOOKSHELF_API_TOKEN:?set the Audiobookshelf API token}
+  EA_AUDIOBOOKSHELF_LIBRARY_ID: ${EA_AUDIOBOOKSHELF_LIBRARY_ID:?set the Audiobookshelf library ID}
+  EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL: ${EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL:?set the public audiobook player access base URL}
+  EA_AUDIOBOOK_ACCESS_SIGNING_SECRET: ${EA_AUDIOBOOK_ACCESS_SIGNING_SECRET:?set the audiobook access signing secret}
+  EA_AUDIOBOOK_CANARY_RECEIPT_HMAC_KEY: ${EA_AUDIOBOOK_CANARY_RECEIPT_HMAC_KEY:?set the audiobook canary receipt HMAC key}
+  EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_FILE: /run/secrets/whatsapp_audiobook_callback_secret
+  PYTHONPATH: /app
+
+x-audiobook-runtime-labels: &audiobook-runtime-labels
+  org.opencontainers.image.revision: ${EA_AUDIOBOOK_CANDIDATE_REVISION:?set the exact 40-character source revision}
+  com.archonmegalon.ea.audiobook-runtime.contract: ea.audiobook_runtime_candidate_configuration.v1
+  com.archonmegalon.ea.audiobook-runtime.source-revision: ${EA_AUDIOBOOK_CANDIDATE_REVISION:?set the exact 40-character source revision}
+  com.archonmegalon.ea.audiobook-runtime.image-digest: ${EA_AUDIOBOOK_CANDIDATE_IMAGE_DIGEST:?set the exact sha256 image digest}
+  com.archonmegalon.ea.audiobook-runtime.deployment-authority: denied
+
+x-audiobook-candidate-service: &audiobook-candidate-service
+  <<: *audiobook-inert-service
+  entrypoint:
+    - /usr/local/bin/docker-entrypoint.sh
+  working_dir: /app
+  user: "10001:10001"
+  privileged: false
+  cap_add: !reset []
+  cap_drop: !override
+    - ALL
+  read_only: true
+  security_opt: !override
+    - no-new-privileges:true
+  tmpfs: !override
+    - /tmp
+    - /run
+  configs: !reset []
+  secrets: !reset []
+  devices: !reset []
+  group_add: !reset []
+  volumes_from: !reset []
+
+services:
+  ea-api:
+    <<: *audiobook-candidate-service
+    group_add: !override []
+    container_name: ea-audiobook-candidate-api
+    image: ${EA_AUDIOBOOK_CANDIDATE_IMAGE:?set an immutable image reference ending in @sha256:<digest>}
+    build: !reset null
+    pull_policy: never
+    ports: !reset []
+    command:
+      - python
+      - -m
+      - app.runner
+    environment:
+      <<: *audiobook-runtime-environment
+      EA_CODEXEA_AUTHENTICATED_PRINCIPAL_ID: !reset null
+    labels:
+      <<: *audiobook-runtime-labels
+      com.archonmegalon.ea.audiobook-runtime.live-owner-handoff: required
+    volumes: !override
+      - type: bind
+        source: ${EA_AUDIOBOOK_CONFIG_HOST_DIR:?set the validated runtime config directory}
+        target: /config
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_AUDIOBOOK_CONFIG_HOST_DIR:?set the validated runtime config directory}
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_RUNTIME_FILE:?set the validated callback secret file}
+        target: /run/secrets/whatsapp_audiobook_callback_secret
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_GEMINI_VORTEX_CONFIG_HOST_DIR:?set the validated Gemini CLI config directory}
+        target: /run/ea-gemini-cli-config
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:?set the durable OneDrive attachment root}
+        target: /data/onedrive_attachments
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT:?set the durable pocket audio archive root}
+        target: /data/pocket-ai-audio
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_DURABLE_AUDIOBOOK_HOST_ROOT:?set the durable audiobook root}
+        target: /data/audiobooks
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_AUDIOBOOK_JOBS_HOST_ROOT:?set the durable audiobook jobs root}
+        target: /data/audiobooks/jobs
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_AUDIOBOOKSHELF_IMPORT_HOST_ROOT:?set the durable Audiobookshelf import root}
+        target: /data/audiobooks/audiobookshelf
+        bind:
+          create_host_path: false
+      - ea_artifacts:/data/artifacts
+      - ea_public_tours:/data/public_property_tours
+      - ea_provider_ledger:/data/provider-ledger
+      - ea_whatsapp_web_actions:/data/whatsapp-actions
+
+  ea-worker:
+    <<: *audiobook-candidate-service
+    group_add: !override []
+    container_name: ea-audiobook-candidate-worker
+    image: ${EA_AUDIOBOOK_CANDIDATE_IMAGE:?set an immutable image reference ending in @sha256:<digest>}
+    build: !reset null
+    pull_policy: never
+    mem_limit: !reset null
+    mem_reservation: !reset null
+    command:
+      - python
+      - -m
+      - app.runner
+    environment:
+      <<: *audiobook-runtime-environment
+    labels: *audiobook-runtime-labels
+    volumes: !override
+      - type: bind
+        source: ${EA_AUDIOBOOK_CONFIG_HOST_DIR:?set the validated runtime config directory}
+        target: /config
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_AUDIOBOOK_CONFIG_HOST_DIR:?set the validated runtime config directory}
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_RUNTIME_FILE:?set the validated callback secret file}
+        target: /run/secrets/whatsapp_audiobook_callback_secret
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:?set the durable OneDrive attachment root}
+        target: /data/onedrive_attachments
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT:?set the durable pocket audio archive root}
+        target: /data/pocket-ai-audio
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_DURABLE_AUDIOBOOK_HOST_ROOT:?set the durable audiobook root}
+        target: /data/audiobooks
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_AUDIOBOOK_JOBS_HOST_ROOT:?set the durable audiobook jobs root}
+        target: /data/audiobooks/jobs
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_AUDIOBOOKSHELF_IMPORT_HOST_ROOT:?set the durable Audiobookshelf import root}
+        target: /data/audiobooks/audiobookshelf
+        bind:
+          create_host_path: false
+      - ea_artifacts:/data/artifacts
+      - ea_public_tours:/data/public_property_tours
+      - ea_provider_ledger:/data/provider-ledger
+
+  ea-scheduler:
+    <<: *audiobook-candidate-service
+    group_add: !override []
+    container_name: ea-audiobook-candidate-scheduler
+    image: ${EA_AUDIOBOOK_CANDIDATE_IMAGE:?set an immutable image reference ending in @sha256:<digest>}
+    build: !reset null
+    pull_policy: never
+    mem_limit: !reset null
+    mem_reservation: !reset null
+    command:
+      - python
+      - -m
+      - app.runner
+    environment:
+      <<: *audiobook-runtime-environment
+    labels: *audiobook-runtime-labels
+    volumes: !override
+      - type: bind
+        source: ${EA_AUDIOBOOK_CONFIG_HOST_DIR:?set the validated runtime config directory}
+        target: /config
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_AUDIOBOOK_CONFIG_HOST_DIR:?set the validated runtime config directory}
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_RUNTIME_FILE:?set the validated callback secret file}
+        target: /run/secrets/whatsapp_audiobook_callback_secret
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:?set the durable OneDrive attachment root}
+        target: /data/onedrive_attachments
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT:?set the durable pocket audio archive root}
+        target: /data/pocket-ai-audio
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_DURABLE_AUDIOBOOK_HOST_ROOT:?set the durable audiobook root}
+        target: /data/audiobooks
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_AUDIOBOOK_JOBS_HOST_ROOT:?set the durable audiobook jobs root}
+        target: /data/audiobooks/jobs
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_AUDIOBOOKSHELF_IMPORT_HOST_ROOT:?set the durable Audiobookshelf import root}
+        target: /data/audiobooks/audiobookshelf
+        bind:
+          create_host_path: false
+      - ea_artifacts:/data/artifacts
+      - ea_provider_ledger:/data/provider-ledger
+
+  ea-whatsapp-web-action-processor:
+    <<: *audiobook-candidate-service
+    group_add: !override []
+    container_name: ea-audiobook-candidate-whatsapp-web-action-processor
+    image: ${EA_AUDIOBOOK_CANDIDATE_IMAGE:?set an immutable image reference ending in @sha256:<digest>}
+    build: !reset null
+    pull_policy: never
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        if [ "$${EA_WHATSAPP_WEB_ACTION_PROCESSOR_ENABLED:-1}" != "1" ]; then
+          echo '{"enabled":false,"event":"whatsapp_web_action_processor_idle","ok":true}';
+          while :; do sleep 3600; done;
+        fi
+        if command -v ionice >/dev/null 2>&1; then
+          lowprio='nice -n 10 ionice -c 3';
+        else
+          lowprio='nice -n 10';
+        fi
+        while :; do
+          $${lowprio} python /app/scripts/process_whatsapp_web_session_actions.py || true;
+          sleep "$${EA_WHATSAPP_WEB_ACTION_POLL_INTERVAL_SECONDS:-30}";
+        done
+    environment:
+      <<: *audiobook-runtime-environment
+    labels: *audiobook-runtime-labels
+    volumes: !override
+      - type: bind
+        source: ${EA_AUDIOBOOK_CONFIG_HOST_DIR:?set the validated runtime config directory}
+        target: /config
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_AUDIOBOOK_CONFIG_HOST_DIR:?set the validated runtime config directory}
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_RUNTIME_FILE:?set the validated callback secret file}
+        target: /run/secrets/whatsapp_audiobook_callback_secret
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_DURABLE_AUDIOBOOK_HOST_ROOT:?set the durable audiobook root}
+        target: /data/audiobooks
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_AUDIOBOOK_JOBS_HOST_ROOT:?set the durable audiobook jobs root}
+        target: /data/audiobooks/jobs
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EA_AUDIOBOOKSHELF_IMPORT_HOST_ROOT:?set the durable Audiobookshelf import root}
+        target: /data/audiobooks/audiobookshelf
+        bind:
+          create_host_path: false
+      - ea_whatsapp_web_actions:/data/whatsapp-actions
+
+  # Every inherited service is made inert as part of this project. This prevents
+  # a plain project-level Compose action from starting unrelated dependencies.
+  ea-whatsapp-web-session:
+    <<: *audiobook-inert-service
+    container_name: ea-audiobook-candidate-whatsapp-web-session
+  ea-whatsapp-web-activator:
+    <<: *audiobook-inert-service
+    container_name: ea-audiobook-candidate-whatsapp-web-activator
+  ea-whatsapp-web-teable-sync:
+    <<: *audiobook-inert-service
+    container_name: ea-audiobook-candidate-whatsapp-web-teable-sync
+  ea-db:
+    <<: *audiobook-inert-service
+    container_name: ea-audiobook-candidate-db
+  ea-proactive-ooda:
+    <<: *audiobook-inert-service
+    container_name: ea-audiobook-candidate-proactive-ooda
+  ea-responses-proxy:
+    <<: *audiobook-inert-service
+    container_name: ea-audiobook-candidate-responses-proxy
+  ea-teable-relay:
+    <<: *audiobook-inert-service
+    container_name: ea-audiobook-candidate-teable-relay
+  ea-telegram-teable-sync:
+    <<: *audiobook-inert-service
+    container_name: ea-audiobook-candidate-telegram-teable-sync
+  ea-redis:
+    <<: *audiobook-inert-service
+    container_name: ea-audiobook-candidate-redis

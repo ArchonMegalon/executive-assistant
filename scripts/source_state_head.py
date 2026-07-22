@@ -5,6 +5,7 @@ import hashlib
 import os
 import subprocess
 from pathlib import Path
+from typing import Callable
 
 
 GENERATED_ONLY_PREFIXES = (
@@ -63,22 +64,42 @@ FALLBACK_SOURCE_EXACT = {
 }
 
 
-def resolve_source_state_head(repo_root: Path, *, generated_only_prefixes: tuple[str, ...] = GENERATED_ONLY_PREFIXES) -> str:
-    head = _git_stdout(repo_root, "rev-parse", "HEAD")
+def resolve_source_state_head(
+    repo_root: Path,
+    *,
+    generated_only_prefixes: tuple[str, ...] = GENERATED_ONLY_PREFIXES,
+    git_stdout: Callable[..., str] | None = None,
+) -> str:
+    read_git = git_stdout or _git_stdout
+    head = read_git(repo_root, "rev-parse", "HEAD")
     if not head:
         return _read_git_head_from_files(repo_root)
 
-    commits = [line.strip() for line in _git_stdout(repo_root, "rev-list", "--max-count=128", "HEAD").splitlines() if line.strip()]
+    commits = [
+        line.strip()
+        for line in read_git(
+            repo_root, "rev-list", "--max-count=128", "HEAD"
+        ).splitlines()
+        if line.strip()
+    ]
     if not commits:
         return head
 
     for commit in commits:
-        parent_line = _git_stdout(repo_root, "rev-list", "--parents", "-n", "1", commit)
+        parent_line = read_git(
+            repo_root, "rev-list", "--parents", "-n", "1", commit
+        )
         parts = [part.strip() for part in parent_line.split() if part.strip()]
         parents = parts[1:]
         if not parents:
             return commit
-        changed = [line.strip() for line in _git_stdout(repo_root, "diff", "--name-only", f"{parents[0]}..{commit}").splitlines() if line.strip()]
+        changed = [
+            line.strip()
+            for line in read_git(
+                repo_root, "diff", "--name-only", f"{parents[0]}..{commit}"
+            ).splitlines()
+            if line.strip()
+        ]
         if not changed:
             return commit
         if any(not _is_generated_only_path(path, prefixes=generated_only_prefixes) for path in changed):
@@ -154,8 +175,12 @@ def source_worktree_metadata(
     *,
     generated_only_prefixes: tuple[str, ...] = GENERATED_ONLY_PREFIXES,
     dirty_path_limit: int = 40,
+    git_stdout_raw: Callable[..., str] | None = None,
 ) -> dict[str, object]:
-    raw_status = _git_stdout_raw(repo_root, "status", "--porcelain=v1", "--untracked-files=all")
+    read_git_raw = git_stdout_raw or _git_stdout_raw
+    raw_status = read_git_raw(
+        repo_root, "status", "--porcelain=v1", "--untracked-files=all"
+    )
     source_entries: list[tuple[str, str]] = []
     for line in raw_status.splitlines():
         if not line.strip():

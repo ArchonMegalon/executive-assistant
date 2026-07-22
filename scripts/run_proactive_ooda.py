@@ -14,7 +14,6 @@ from contextlib import contextmanager
 from datetime import datetime, time as datetime_time, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
-import urllib.request
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -79,12 +78,15 @@ from app.services.proactive_ooda_stage_packets import (  # noqa: E402
     default_stage_packet_dir,
     persist_stage_packets,
 )
-from app.services.proactive_ooda_telegram_approval import (
+from app.services.proactive_ooda_telegram_approval import (  # noqa: E402
     build_reversible_execution_approval_prompt,
     execute_proactive_ooda_action,
     expire_stale_proactive_ooda_telegram_approval_callbacks,
 )
-from app.services.proactive_ooda_context_grounding import ground_digest_for_principal, ground_digest_with_context  # noqa: E402
+from app.services.proactive_ooda_context_grounding import (  # noqa: E402
+    ground_digest_for_principal,
+    ground_digest_with_context as ground_digest_with_context,
+)
 from app.services.proactive_ooda_delivery import (  # noqa: E402
     resolve_proactive_ooda_delivery_status,
     send_proactive_ooda_notification,
@@ -1313,7 +1315,10 @@ def _safe_work_result_dir(args: argparse.Namespace, *, stage_packet_dir: Path) -
 
 
 def _runtime_artifact_work_allowed(error_code: str) -> bool:
-    return not str(error_code or "").strip().startswith("deferred_by_")
+    normalized = str(error_code or "").strip()
+    return normalized == "deferred_by_unarmed_send" or not normalized.startswith(
+        "deferred_by_"
+    )
 
 
 def _safe_float(value: Any, *, default: float) -> float:
@@ -2187,7 +2192,7 @@ def _load_signals(
         return _filter_hidden_property_rows(
             _apply_recent_topic_suppressions(rows + [_workspace_source_error_signal(exc, cooldown_state=cooldown_state)])
         )
-    for signal in packet.signals:
+    for signal in getattr(packet, "signals", ()) or ():
         if hasattr(signal, "__dict__"):
             rows.append(dict(signal.__dict__))
     return _filter_hidden_property_rows(_apply_recent_topic_suppressions(rows))
@@ -2538,6 +2543,7 @@ def _workspace_source_error_signal(
         cooldown_seconds_remaining=int(cooldown.get("seconds_remaining") or 0),
         last_observed_at=str(cooldown.get("last_observed_at") or "").strip(),
         cooldown_active=cooldown_active if cooldown else None,
+        action_owner="operator",
     )
     return {
         "source_ref": f"proactive_source_error:google_workspace:{_short_hash(error_text or error_name)}",
@@ -2570,6 +2576,7 @@ def _source_health_issue_payload(
     cooldown_seconds_remaining: int | None = None,
     last_observed_at: str = "",
     cooldown_active: bool | None = None,
+    action_owner: str = "",
 ) -> dict[str, Any]:
     issue = {
         "schema": "ea.proactive_ooda.source_health.v1",
@@ -2585,6 +2592,9 @@ def _source_health_issue_payload(
         "raw_payload_exposed": False,
         "raw_credential_exposed": False,
     }
+    normalized_action_owner = str(action_owner or "").strip().lower()
+    if normalized_action_owner:
+        issue["action_owner"] = normalized_action_owner[:40]
     if str(recovery_mode or "").strip():
         issue["recovery_mode"] = str(recovery_mode or "").strip()[:80]
     if str(blocked_until or "").strip():
@@ -2675,6 +2685,9 @@ def _compact_source_health_issue(issue: Mapping[str, Any]) -> dict[str, Any]:
         "raw_payload_exposed": False,
         "raw_credential_exposed": False,
     }
+    action_owner = str(issue.get("action_owner") or "").strip().lower()
+    if action_owner:
+        normalized["action_owner"] = action_owner[:40]
     recovery_mode = str(issue.get("recovery_mode") or "").strip()
     blocked_until = str(issue.get("blocked_until") or issue.get("cooldown_until") or "").strip()
     last_observed_at = str(issue.get("last_observed_at") or "").strip()

@@ -24,8 +24,17 @@ def _env_path(name: str, default: Path) -> Path:
     return Path(os.environ.get(name) or default)
 
 
+def _source_provenance(path: Path) -> str:
+    resolved = path.expanduser().resolve(strict=False)
+    try:
+        return resolved.relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        return f"external:{path.name}"
+
+
 DESIGN_PRODUCT_ROOT = _env_path("CHUMMER6_DESIGN_PRODUCT_ROOT", ROOT / ".codex-design" / "product")
-FLEET_COMPLETION_ROOT = _env_path("EA_FLEET_COMPLETION_ROOT", ROOT / "ea" / "_completion" / "fleet")
+SOURCE_PROJECTION_ROOT = ROOT / "docs" / "chummer5a_parity_lab" / "source_projections"
+FLEET_COMPLETION_ROOT = _env_path("EA_FLEET_COMPLETION_ROOT", SOURCE_PROJECTION_ROOT / "fleet")
 DESIGN_QUEUE_PATH = _env_path("EA_NEXT90_DESIGN_QUEUE_STAGING_PATH", DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
 FLEET_QUEUE_PATH = _env_path("EA_NEXT90_QUEUE_STAGING_PATH", DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
 LOCAL_MIRROR_QUEUE_PATH = DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
@@ -83,12 +92,12 @@ def main() -> int:
         issues.append("owned_surfaces drifted")
     source_inputs = dict(payload.get("source_inputs") or {})
     for source_key, expected_path in (
-        ("design_queue", str(DESIGN_QUEUE_PATH)),
-        ("fleet_queue", str(FLEET_QUEUE_PATH)),
-        ("local_mirror_queue", str(LOCAL_MIRROR_QUEUE_PATH)),
-        ("registry", str(SUCCESSOR_REGISTRY_PATH)),
-        ("local_mirror_registry", str(LOCAL_MIRROR_REGISTRY_PATH)),
-        ("fleet_m143_gate", str(FLEET_M143_GATE_PATH)),
+        ("design_queue", _source_provenance(DESIGN_QUEUE_PATH)),
+        ("fleet_queue", _source_provenance(FLEET_QUEUE_PATH)),
+        ("local_mirror_queue", _source_provenance(LOCAL_MIRROR_QUEUE_PATH)),
+        ("registry", _source_provenance(SUCCESSOR_REGISTRY_PATH)),
+        ("local_mirror_registry", _source_provenance(LOCAL_MIRROR_REGISTRY_PATH)),
+        ("fleet_m143_gate", _source_provenance(FLEET_M143_GATE_PATH)),
     ):
         if dict(source_inputs.get(source_key) or {}).get("path") != expected_path:
             issues.append(f"{source_key} source path drifted")
@@ -115,7 +124,7 @@ def main() -> int:
         if not str(source_row.get("row_fingerprint") or "").strip():
             issues.append(f"{source_key} row_fingerprint missing")
     readiness_input = dict(source_inputs.get("flagship_readiness") or {})
-    if readiness_input.get("path") != str(FLAGSHIP_READINESS_PATH):
+    if readiness_input.get("path") != _source_provenance(FLAGSHIP_READINESS_PATH):
         issues.append("flagship_readiness source path drifted")
     if readiness_input.get("coverage_key") != "desktop_client":
         issues.append("flagship_readiness coverage key drifted")
@@ -177,6 +186,10 @@ def main() -> int:
         issues.append("desktop_client_readiness reason_count drifted")
 
     rows = [dict(row) for row in (payload.get("family_route_compare_packs") or [])]
+    for source_name, source in source_inputs.items():
+        source_path = str(dict(source or {}).get("path") or "")
+        if source_path.startswith("/"):
+            issues.append(f"{source_name}: source path must be repo-relative or logical")
     family_ids = {str(row.get("family_id") or "") for row in rows}
     if family_ids != EXPECTED_FAMILIES:
         issues.append(f"family ids drifted: {sorted(family_ids)}")
@@ -184,6 +197,8 @@ def main() -> int:
     for row in rows:
         if not list(row.get("evidence_paths") or []):
             issues.append(f"{row.get('family_id')}: evidence_paths missing")
+        if any(str(path).startswith("/") for path in (row.get("evidence_paths") or [])):
+            issues.append(f"{row.get('family_id')}: evidence_paths must be repo-relative or logical")
         route_receipts = [dict(receipt) for receipt in (row.get("route_receipts") or [])]
         if not route_receipts:
             issues.append(f"{row.get('family_id')}: route_receipts missing")

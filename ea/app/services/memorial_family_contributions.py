@@ -1573,20 +1573,25 @@ def withdraw_family_contribution(
     reason: object = "",
 ) -> dict[str, object]:
     safe_slug = _safe_slug(slug)
-    withdrawal_reason = _bounded_text(
-        reason, field="withdrawal_reason", max_chars=MAX_NOTE_CHARS
-    )
     with _contribution_lock(safe_slug):
         ledger = _load_private_ledger(safe_slug)
         records = _records(ledger)
         index, current = _find_record(records, contribution_id)
         _verify_manage_token(current, manage_token)
+        # A caller can lose the first response after the private withdrawal
+        # commit.  Authenticate before recognizing that terminal state, then
+        # return it without appending a second history event or rewriting any
+        # ledger.  This lets the holder of this record's capability retry while
+        # tokens for other records still fail closed.
+        if current.get("status") == "withdrawn":
+            return _private_operator_projection(current)
         if _stored_erasure_request(current):
             raise MemorialContributionError(
                 "memorial_contribution_erasure_pending"
             )
-        if current.get("status") == "withdrawn":
-            raise MemorialContributionError("memorial_contribution_withdrawn")
+        withdrawal_reason = _bounded_text(
+            reason, field="withdrawal_reason", max_chars=MAX_NOTE_CHARS
+        )
         now = _utc_now_iso()
         _record_takedown(
             slug=safe_slug,

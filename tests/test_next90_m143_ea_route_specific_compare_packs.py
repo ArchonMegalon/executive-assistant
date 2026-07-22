@@ -15,9 +15,10 @@ MARKDOWN_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "NEXT90_M143_ROUTE_SPEC
 FEEDBACK_PATH = ROOT / "feedback" / "2026-05-05-next90-m143-ea-route-specific-compare-packs.md"
 MATERIALIZER_PATH = ROOT / "scripts" / "materialize_next90_m143_ea_route_specific_compare_packs.py"
 VERIFY_PATH = ROOT / "scripts" / "verify_next90_m143_ea_route_specific_compare_packs.py"
-QUEUE_STAGING_PATH = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
-DESIGN_QUEUE_STAGING_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
-SUCCESSOR_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
+DESIGN_PRODUCT_ROOT = ROOT / ".codex-design" / "product"
+QUEUE_STAGING_PATH = DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+DESIGN_QUEUE_STAGING_PATH = DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+SUCCESSOR_REGISTRY_PATH = DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
 
 
 def _yaml(path: Path) -> dict:
@@ -95,6 +96,8 @@ def test_packet_identity_and_scope() -> None:
 
 def test_family_rows_keep_direct_route_receipts_and_desktop_dependency() -> None:
     payload = _yaml(PACK_PATH)
+    source_inputs = dict(payload.get("source_inputs") or {})
+    assert all(not str(dict(value).get("path") or "").startswith("/") for value in source_inputs.values())
     desktop_readiness = dict(payload.get("desktop_client_readiness") or {})
     rows = [dict(row) for row in (payload.get("family_route_compare_packs") or [])]
     blockers = [str(item) for item in dict(payload.get("closeout") or {}).get("blockers") or []]
@@ -104,6 +107,7 @@ def test_family_rows_keep_direct_route_receipts_and_desktop_dependency() -> None
     }
     for row in rows:
         assert row.get("evidence_paths")
+        assert all(not str(path).startswith("/") for path in (row.get("evidence_paths") or []))
         dependency = dict(row.get("desktop_client_dependency") or {})
         assert dependency.get("coverage_key") == "desktop_client"
         assert dependency.get("coverage_status") == desktop_readiness.get("status")

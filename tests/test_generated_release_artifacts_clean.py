@@ -48,6 +48,103 @@ def test_generated_release_artifact_normalizer_ignores_host_runner_execution_fie
     assert module._normalize(head) == module._normalize(hosted)
 
 
+def test_generated_release_artifact_normalizer_ignores_raw_junit_timing_not_outcomes() -> None:
+    module = _load_module()
+    before = {
+        "status": "pass",
+        "source_backed_journey_proof": {
+            "status": "pass",
+            "terminal_summary": "4 passed in 9.20s",
+            "junit_xml": (
+                '<testsuite name="pytest" tests="4" failures="0" time="9.20" '
+                'timestamp="2026-07-17T14:49:50Z" hostname="runner-a">'
+                '<testcase classname="tests.test_journeys" name="test_memorial" time="3.20" />'
+                "</testsuite>"
+            ),
+            "junit_xml_sha256": "a" * 64,
+            "passed_count": 4,
+            "failed_count": 0,
+        },
+    }
+    after = {
+        "status": "pass",
+        "source_backed_journey_proof": {
+            "status": "pass",
+            "terminal_summary": "4 passed in 9.41s",
+            "junit_xml": (
+                '<testsuite name="pytest" tests="4" failures="0" time="9.41" '
+                'timestamp="2026-07-17T14:51:12Z" hostname="runner-b">'
+                '<testcase classname="tests.test_journeys" name="test_memorial" time="3.41" />'
+                "</testsuite>"
+            ),
+            "junit_xml_sha256": "b" * 64,
+            "passed_count": 4,
+            "failed_count": 0,
+        },
+    }
+
+    assert module._normalize(before) == module._normalize(after)
+    after["source_backed_journey_proof"]["status"] = "blocked"
+    assert module._normalize(before) != module._normalize(after)
+    after["source_backed_journey_proof"]["status"] = "pass"
+    after["source_backed_journey_proof"]["passed_count"] = 3
+    assert module._normalize(before) != module._normalize(after)
+    after["source_backed_journey_proof"]["passed_count"] = 4
+    after["source_backed_journey_proof"]["junit_xml"] = str(
+        after["source_backed_journey_proof"]["junit_xml"]
+    ).replace('name="test_memorial"', 'name="test_different_journey"')
+    assert module._normalize(before) != module._normalize(after)
+    after["source_backed_journey_proof"]["junit_xml"] = str(
+        before["source_backed_journey_proof"]["junit_xml"]
+    ).replace(
+        ' time="3.20" />',
+        ' time="3.20"><failure message="page unreachable">HTTP 404</failure></testcase>',
+    )
+    assert module._normalize(before) != module._normalize(after)
+    after["source_backed_journey_proof"]["junit_xml"] = before["source_backed_journey_proof"]["junit_xml"]
+    after["source_backed_journey_proof"]["terminal_summary"] = "3 passed, 1 skipped in 9.41s"
+    assert module._normalize(before) != module._normalize(after)
+
+
+def test_generated_release_artifact_normalizer_ignores_live_followthrough_catchup_not_other_errors() -> None:
+    module = _load_module()
+    missing_followthrough = {
+        "status": "ready_with_recovery_action",
+        "live_receipt": {
+            "ok": False,
+            "errors": ["receipt_not_sent", "followthrough_artifacts_missing"],
+            "delivery_next_action": "repair_proactive_operator_runtime_posture",
+            "followthrough_status": "",
+            "followthrough_source": "",
+            "followthrough_run_receipt_path": "",
+            "followthrough_goal_posture_queue_count": 0,
+        },
+    }
+    caught_up = {
+        "status": "ready_with_recovery_action",
+        "live_receipt": {
+            "ok": False,
+            "errors": ["receipt_not_sent"],
+            "delivery_next_action": "",
+            "followthrough_status": "ok",
+            "followthrough_source": "latest_receipt",
+            "followthrough_run_receipt_path": "/runtime/followthrough.json",
+            "followthrough_goal_posture_queue_count": 8,
+        },
+    }
+
+    assert module._normalize(missing_followthrough) == module._normalize(caught_up)
+    caught_up["live_receipt"]["errors"] = ["receipt_signature_invalid"]
+    assert module._normalize(missing_followthrough) != module._normalize(caught_up)
+    caught_up["live_receipt"]["errors"] = ["receipt_not_sent"]
+    caught_up["live_receipt"]["delivery_next_action"] = "reauthorize_delivery_binding"
+    assert module._normalize(missing_followthrough) != module._normalize(caught_up)
+    caught_up["live_receipt"]["delivery_next_action"] = ""
+    caught_up["live_receipt"]["followthrough_integrity_status"] = "failed"
+    caught_up["live_receipt"]["errors"] = ["receipt_not_sent", "followthrough_signature_invalid"]
+    assert module._normalize(missing_followthrough) != module._normalize(caught_up)
+
+
 def test_generated_release_artifact_normalizer_ignores_current_head_provenance_field() -> None:
     module = _load_module()
     before = {

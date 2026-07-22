@@ -34,7 +34,7 @@ from html import escape as html_escape
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Sequence
 from uuid import uuid4
 
 import requests
@@ -72,6 +72,7 @@ from app.services.assistant_property_lane import (
     assistant_property_lane_enabled,
     assistant_property_signal_present,
     assistant_property_task_hidden_from_ea,
+    propertyquarry_request_active,
 )
 from app.services.operator_access import (
     OPERATOR_ACCESS_ROLES,
@@ -1408,7 +1409,7 @@ def _property_candidate_unknowns_penalty(*, assessment: dict[str, object] | None
     assessment_payload = dict(assessment or {})
     facts = dict(property_facts or {})
     unknowns = [item for item in list(assessment_payload.get("unknowns_json") or []) if str(item or "").strip()]
-    missing_items = _property_missing_fact_items(facts)
+    missing_items = _property_missing_fact_research_items(facts)
     future_research = dict(facts.get("future_change_research") or {}) if isinstance(facts.get("future_change_research"), dict) else {}
     unresolved_future = sum(
         1
@@ -6561,8 +6562,8 @@ def _proactive_ooda_flat_search_enabled() -> bool:
     return _env_flag("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", default=False)
 
 
-def _willhaben_search_agent_auto_create_enabled() -> bool:
-    if not assistant_property_lane_enabled():
+def _willhaben_search_agent_auto_create_enabled(*, property_surface: bool = False) -> bool:
+    if not (property_surface or assistant_property_lane_enabled()):
         return False
     return _env_flag("EA_WILLHABEN_SEARCH_AGENT_AUTO_CREATE_PROPERTY_TOUR", default=False)
 
@@ -6712,8 +6713,9 @@ def _willhaben_search_agent_auto_create_spec(
     external_id: str,
     counterparty: str,
     payload: dict[str, object],
+    property_surface: bool = False,
 ) -> dict[str, str] | None:
-    if not _willhaben_search_agent_auto_create_enabled():
+    if not _willhaben_search_agent_auto_create_enabled(property_surface=property_surface):
         return None
     if not _is_willhaben_search_agent_email(
         title=title,
@@ -6768,8 +6770,9 @@ def _property_alert_auto_create_spec(
     external_id: str,
     counterparty: str,
     payload: dict[str, object],
+    property_surface: bool = False,
 ) -> dict[str, str] | None:
-    if not _willhaben_search_agent_auto_create_enabled():
+    if not _willhaben_search_agent_auto_create_enabled(property_surface=property_surface):
         return None
     if not _is_property_alert_email(
         title=title,
@@ -8327,7 +8330,10 @@ def _property_feedback_inferred_hints(
                 }
             )
 
-    if reaction_key == "like" and district and not any(_normalize_key(row.get("key")) == "preferred_districts" for row in hints):
+    if reaction_key == "like" and district and not any(
+        str(row.get("key") or "").strip().lower() == "preferred_districts"
+        for row in hints
+    ):
         _append_unique(
             {
                 "domain": "willhaben",
@@ -9843,10 +9849,9 @@ def _onemin_asset_upload(*, api_key: str, filename: str, content_type: str, payl
         with urllib.request.urlopen(request, timeout=180) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")
-        raise RuntimeError(f"onemin_asset_http_{exc.code}:{detail[:200]}") from exc
+        raise RuntimeError(f"onemin_asset_http_{exc.code}") from exc
     except urllib.error.URLError as exc:
-        raise RuntimeError(f"onemin_asset_unreachable:{exc.reason}") from exc
+        raise RuntimeError("onemin_asset_unreachable") from exc
 
 
 def _extract_transcript_text(value: object) -> str:
@@ -9881,13 +9886,69 @@ def _extract_transcript_segments(value: object) -> list[dict[str, object]]:
     return []
 
 
+def _onemin_transcript_text(
+    value: object,
+    *,
+    allow_provider_envelope: bool = True,
+) -> str:
+    """Extract only an explicit 1min transcript, never adjacent metadata."""
+    if isinstance(value, str):
+        candidate = value.strip()
+        if not candidate:
+            return ""
+        if candidate.startswith(("{", "[")):
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                return ""
+            return _onemin_transcript_text(
+                parsed,
+                allow_provider_envelope=allow_provider_envelope,
+            )
+        return candidate
+    if isinstance(value, list):
+        # The feature API documents resultObject as an array. A text-format
+        # Whisper result is authoritative only when that array contains one
+        # unambiguous result; joining multiple values can fold metadata or
+        # alternate provider outputs into the transcript.
+        if len(value) != 1:
+            return ""
+        return _onemin_transcript_text(
+            value[0],
+            allow_provider_envelope=False,
+        )
+    if not isinstance(value, dict):
+        return ""
+    for key in ("text", "transcript"):
+        if key not in value:
+            continue
+        transcript = _onemin_transcript_text(
+            value.get(key),
+            allow_provider_envelope=False,
+        )
+        if transcript:
+            return transcript
+    if allow_provider_envelope:
+        for key in ("output", "content"):
+            nested = value.get(key)
+            if isinstance(nested, str) and not nested.strip().startswith(("{", "[")):
+                continue
+            transcript = _onemin_transcript_text(
+                nested,
+                allow_provider_envelope=False,
+            )
+            if transcript:
+                return transcript
+    return ""
+
+
 def _onemin_speech_to_text(*, api_key: str, audio_path: str, language: str) -> dict[str, object]:
     body = {
         "type": "SPEECH_TO_TEXT",
         "model": "whisper-1",
         "promptObject": {
             "audioUrl": str(audio_path or "").strip(),
-            "response_format": "verbose_json",
+            "response_format": "text",
         },
     }
     if str(language or "").strip():
@@ -9907,10 +9968,9 @@ def _onemin_speech_to_text(*, api_key: str, audio_path: str, language: str) -> d
         with urllib.request.urlopen(request, timeout=180) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")
-        raise RuntimeError(f"onemin_transcribe_http_{exc.code}:{detail[:200]}") from exc
+        raise RuntimeError(f"onemin_transcribe_http_{exc.code}") from exc
     except urllib.error.URLError as exc:
-        raise RuntimeError(f"onemin_transcribe_unreachable:{exc.reason}") from exc
+        raise RuntimeError("onemin_transcribe_unreachable") from exc
 
 
 def _pocket_retranscribe_with_onemin(
@@ -9948,19 +10008,33 @@ def _pocket_retranscribe_with_onemin(
                 audio_path=audio_path,
                 language=str(language or "").strip(),
             )
+            ai_record = (
+                dict(transcribed.get("aiRecord") or {})
+                if isinstance(transcribed.get("aiRecord"), dict)
+                else {}
+            )
+            ai_detail = (
+                dict(ai_record.get("aiRecordDetail") or {})
+                if isinstance(ai_record.get("aiRecordDetail"), dict)
+                else {}
+            )
+            record_status = str(ai_record.get("status") or "").strip().upper()
+            if record_status != "SUCCESS":
+                safe_status = (
+                    record_status.lower()
+                    if record_status in {"PROCESSING", "FAILURE"}
+                    else "missing" if not record_status else "other"
+                )
+                raise RuntimeError(f"onemin_transcribe_status_{safe_status}")
+            result_object = ai_detail.get("resultObject")
+            response_object = ai_detail.get("responseObject")
+            text = _onemin_transcript_text(response_object) or _onemin_transcript_text(result_object)
+            segments = _extract_transcript_segments(response_object) or _extract_transcript_segments(result_object)
+            if not text:
+                raise RuntimeError("onemin_transcribe_empty")
         except RuntimeError as exc:
             last_error = exc
             continue
-        ai_record = dict(transcribed.get("aiRecord") or {}) if isinstance(transcribed.get("aiRecord"), dict) else {}
-        ai_detail = dict(ai_record.get("aiRecordDetail") or {}) if isinstance(ai_record.get("aiRecordDetail"), dict) else {}
-        result_object = ai_detail.get("resultObject")
-        response_object = ai_detail.get("responseObject")
-        text = _extract_transcript_text(response_object) or _extract_transcript_text(result_object)
-        segments = _extract_transcript_segments(response_object) or _extract_transcript_segments(result_object)
-        if not text and isinstance(response_object, dict) and response_object.get("text"):
-            text = str(response_object.get("text") or "").strip()
-        if not text:
-            raise RuntimeError("onemin_transcribe_empty")
         return {
             "transcript_text": text,
             "transcript_segment_count": len(segments),
@@ -10623,6 +10697,19 @@ def _release_authority_status_path() -> Path:
     return _resolve_repo_path(
         str(os.getenv("EA_RELEASE_AUTHORITY_STATUS_PATH") or "").strip(),
         default=_repo_root() / ".codex-studio/published/release_authority_status.generated.json",
+    )
+
+
+def _published_release_authority_status_is_authoritative() -> bool:
+    if str(os.getenv("EA_RELEASE_AUTHORITY_STATUS_PATH") or "").strip():
+        return True
+    return not any(
+        str(os.getenv(name) or "").strip()
+        for name in (
+            "EA_RELEASE_MANIFEST_PATH",
+            "EA_DEPLOY_CONTEXT_PATH",
+            "EA_PROJECT_MODES_MANIFEST_PATH",
+        )
     )
 
 
@@ -13572,9 +13659,17 @@ def _property_profile_detect_features(value: str) -> list[str]:
 
 
 class ProductService:
-    def __init__(self, container: AppContainer) -> None:
+    def __init__(self, container: AppContainer, *, property_surface: bool | None = None) -> None:
         self._container = container
         self._preference_profiles = container.preference_profiles
+        self._property_surface = (
+            propertyquarry_request_active()
+            if property_surface is None
+            else bool(property_surface)
+        )
+
+    def _property_work_enabled(self) -> bool:
+        return self._property_surface or assistant_property_lane_enabled()
 
     def get_preference_profile(
         self,
@@ -19018,7 +19113,7 @@ class ProductService:
         ]
         dedupe_key = "|".join(part for part in dedupe_parts if part)
         resolved_signal_source_id = str(source_ref or external_id or dedupe_key).strip()
-        if is_willhaben_search_agent and not assistant_property_lane_enabled():
+        if is_willhaben_search_agent and not self._property_work_enabled():
             existing_event = self._existing_office_signal_event(
                 principal_id=principal_id,
                 dedupe_key=dedupe_key,
@@ -19664,7 +19759,7 @@ class ProductService:
         payload: dict[str, object],
         actor: str,
     ) -> dict[str, object] | None:
-        if not assistant_property_lane_enabled():
+        if not self._property_work_enabled():
             return None
         if str(signal_type or "").strip().lower() != "email_thread":
             return None
@@ -19687,6 +19782,7 @@ class ProductService:
             external_id=external_id,
             counterparty=counterparty,
             payload=payload,
+            property_surface=self._property_surface,
         )
         if auto_create_spec is not None:
             return None
@@ -20580,6 +20676,7 @@ class ProductService:
             external_id=external_id,
             counterparty=counterparty,
             payload=payload,
+            property_surface=self._property_surface,
         )
         if not wants_tour and auto_create_spec is not None:
             wants_tour = True
@@ -22876,7 +22973,7 @@ class ProductService:
         account_email: str = "",
         email_limit: int = 10,
     ) -> dict[str, object]:
-        if not assistant_property_lane_enabled():
+        if not self._property_work_enabled():
             normalized_account_email = str(account_email or "").strip().lower()
             return {
                 "generated_at": _now_iso(),
@@ -25676,7 +25773,7 @@ class ProductService:
         principal_id: str,
         actor: str,
     ) -> dict[str, object]:
-        if assistant_property_lane_enabled():
+        if self._property_work_enabled():
             return {
                 "generated_at": _now_iso(),
                 "closed_total": 0,
@@ -26997,7 +27094,10 @@ class ProductService:
     def release_authority_summary(self) -> dict[str, object]:
         status_path = _release_authority_status_path()
         status_payload = _load_json_dict(status_path)
-        if str(status_payload.get("contract_name") or "").strip() == "ea.release_authority_status.v1":
+        if (
+            _published_release_authority_status_is_authoritative()
+            and str(status_payload.get("contract_name") or "").strip() == "ea.release_authority_status.v1"
+        ):
             gate_payload = dict(status_payload.get("gate") or {})
             if not gate_payload:
                 gate_payload = {
@@ -35277,7 +35377,7 @@ class ProductService:
         )
 
     def _assistant_visible_human_task(self, task: object) -> bool:
-        if assistant_property_lane_enabled():
+        if self._property_work_enabled():
             return True
         return not assistant_property_task_hidden_from_ea(str(getattr(task, "task_type", "") or "").strip())
 
@@ -35289,7 +35389,7 @@ class ProductService:
         source_id: str,
         external_id: str,
     ) -> bool:
-        if assistant_property_lane_enabled():
+        if self._property_work_enabled():
             return True
         normalized_event_type = str(event_type or "").strip().lower()
         if normalized_event_type.startswith("property_"):
@@ -38078,5 +38178,9 @@ class ProductService:
         )
 
 
-def build_product_service(container: AppContainer) -> ProductService:
-    return ProductService(container)
+def build_product_service(
+    container: AppContainer,
+    *,
+    property_surface: bool | None = None,
+) -> ProductService:
+    return ProductService(container, property_surface=property_surface)

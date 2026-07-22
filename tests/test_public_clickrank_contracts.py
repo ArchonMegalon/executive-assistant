@@ -71,6 +71,7 @@ def test_request_hostname_uses_public_base_host_for_proxied_opaque_origin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    monkeypatch.setenv("PROPERTYQUARRY_TRUST_X_FORWARDED_FOR", "1")
     request = SimpleNamespace(
         headers={
             "host": "opaque-origin.internal",

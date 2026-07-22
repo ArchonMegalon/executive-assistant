@@ -24,6 +24,8 @@ SOURCE_HEALTH_USER_ACTION_NEXT_ACTIONS = frozenset(
 
 def source_health_issue_requires_user_action(issue: Mapping[str, Any] | None) -> bool:
     row = dict(issue or {})
+    if str(row.get("action_owner") or "").strip().lower() == "operator":
+        return False
     if bool(row.get("user_action_required")):
         return True
     source_key = str(row.get("source_key") or "").strip()

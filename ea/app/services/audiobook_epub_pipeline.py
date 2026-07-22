@@ -44,6 +44,12 @@ from app.services.memorial_openvoice import (
     unmixr_speaking_volume,
     unmixr_synthesize_request,
 )
+from app.services.audiobook_tts import (
+    AudiobookProviderRouter,
+    ProviderVoiceRef,
+    SpeechSynthesisRequest,
+)
+from app.services.audiobook_tts.providers import UnmixrProvider
 from app.services.audiobook_narration_planner import (
     BOUNDARY_POLICY_NAME,
     PLANNER_CONTRACT_NAME,
@@ -901,6 +907,10 @@ def _build_exact_narration_plan(
             cache_path=cache_path,
             planner_chapters=planner_chapters,
             cache_binding_sha256=cache_key,
+            render_language=render_language,
+            max_chars=max_chars,
+            batch_paragraphs_with_natural_pauses=batch_paragraphs,
+            pause_policy=pause_policy,
         )
         if cached:
             cached["planner_cache"] = {
@@ -937,6 +947,10 @@ def _load_validated_exact_narration_plan_cache(
     cache_path: Path,
     planner_chapters: tuple[PlannerChapter, ...],
     cache_binding_sha256: str,
+    render_language: str,
+    max_chars: int,
+    batch_paragraphs_with_natural_pauses: bool,
+    pause_policy: dict[str, float],
 ) -> dict[str, object]:
     try:
         if not cache_path.is_file() or cache_path.stat().st_mode & 0o077:
@@ -957,7 +971,32 @@ def _load_validated_exact_narration_plan_cache(
         return {}
     if not re.fullmatch(r"[0-9a-f]{64}", str(payload.get("plan_sha256") or "")):
         return {}
+
+    # The filename binding proves only the source and planner inputs. Recompute
+    # the deterministic plan to prove that every cached structural field still
+    # belongs to those inputs, including passage text, passage fingerprints,
+    # span fingerprints, and the aggregate plan hash. A cache-local digest
+    # alone would let coherent or partial tampering be mistaken for authority.
+    try:
+        authoritative_plan = plan_narration(
+            planner_chapters,
+            language=render_language,
+            max_chars=max_chars,
+            batch_paragraphs_with_natural_pauses=(
+                batch_paragraphs_with_natural_pauses
+            ),
+            pause_policy=pause_policy,
+        )
+    except (TypeError, ValueError):
+        return {}
+    cached_plan = dict(payload)
+    cached_plan.pop("cache_binding_sha256", None)
+    cached_plan.pop("planner_cache", None)
+    if cached_plan != authoritative_plan:
+        return {}
+
     spans = [dict(row) for row in list(payload.get("spans") or []) if isinstance(row, dict)]
+    chapters_by_index = {chapter.index: chapter for chapter in planner_chapters}
     for chapter in planner_chapters:
         chapter_spans = [
             row
@@ -980,6 +1019,27 @@ def _load_validated_exact_narration_plan_cache(
             reconstructed.append(source_text)
             cursor = end
         if cursor != len(chapter.text) or "".join(reconstructed) != chapter.text:
+            return {}
+    passages = list(payload.get("passages") or [])
+    if not all(isinstance(row, dict) for row in passages):
+        return {}
+    for row in passages:
+        chapter_index = int(row.get("source_chapter_index") or 0)
+        chapter = chapters_by_index.get(chapter_index)
+        start = int(row.get("char_start") or 0)
+        end = int(row.get("char_end") or 0)
+        text = row.get("text")
+        if (
+            chapter is None
+            or not isinstance(text, str)
+            or start < 0
+            or end <= start
+            or end > len(chapter.text)
+            or chapter.text[start:end] != text
+            or str(row.get("text_sha256") or "")
+            != _sha256_bytes(text.encode("utf-8"))
+            or int(row.get("char_count") or 0) != len(text)
+        ):
             return {}
     payload.pop("cache_binding_sha256", None)
     return payload
@@ -1237,6 +1297,14 @@ def _discover_or_build_cinematic_master_audio(
         or not cinematic_signature_cached
         or cinematic_signature_cached != cinematic_signature_expected
     ):
+        return None
+
+    cinematic_output_binding = _load_validated_audio_cache_output_binding(
+        audio_path=cinematic_master,
+        cache_kind="cinematic_master",
+        render_fingerprint=cinematic_signature_expected,
+    )
+    if not cinematic_output_binding:
         return None
 
     cinematic_timeline = _load_validated_cinematic_chapter_timeline(
@@ -6592,6 +6660,40 @@ def _audio_inputs_ready(
     return True
 
 
+def _signed_chapter_master_output_bindings_ready(
+    *,
+    job_dir: Path,
+    chapters: tuple[EpubChapter, ...],
+) -> bool:
+    audio_dir = job_dir / "audio"
+    for chapter in chapters:
+        audio_path = _chapter_audio_path(audio_dir, chapter)
+        if audio_path is None:
+            return False
+        expected_path = audio_dir / chapter.audio_filename
+        signature_path = expected_path.with_suffix(
+            expected_path.suffix + ".narration.signature"
+        )
+        if not signature_path.is_file():
+            # Unsigned operator-supplied chapter audio remains the bounded
+            # external-audio lane; a renderer-published signature opts the
+            # track into exact output provenance and may never be downgraded.
+            continue
+        try:
+            render_fingerprint = signature_path.read_text(
+                encoding="utf-8"
+            ).strip()
+        except OSError:
+            return False
+        if not _load_validated_audio_cache_output_binding(
+            audio_path=audio_path,
+            cache_kind="chapter_master",
+            render_fingerprint=render_fingerprint,
+        ):
+            return False
+    return True
+
+
 def _chapter_audio_path(audio_dir: Path, chapter: EpubChapter) -> Path | None:
     expected = audio_dir / chapter.audio_filename
     if expected.is_file() and expected.stat().st_size > 0:
@@ -6856,6 +6958,105 @@ _STRUCTURAL_CACHED_WAV_FAILURE_REASONS = {
     "audio_wav_metadata_invalid",
     "audio_wav_read_failed",
 }
+
+_AUDIO_CACHE_OUTPUT_BINDING_CONTRACT = (
+    "ea.audiobook_audio_cache_output_binding.v1"
+)
+
+
+def _audio_cache_output_binding_path(audio_path: Path) -> Path:
+    return audio_path.with_suffix(audio_path.suffix + ".render-output.json")
+
+
+def _audio_cache_output_binding_sha256(payload: dict[str, object]) -> str:
+    normalized = dict(payload)
+    normalized.pop("record_sha256", None)
+    return _sha256_bytes(
+        json.dumps(
+            normalized,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    )
+
+
+def _write_audio_cache_output_binding(
+    *,
+    audio_path: Path,
+    cache_kind: str,
+    render_fingerprint: str,
+) -> dict[str, object]:
+    fingerprint = str(render_fingerprint or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
+        raise ValueError("audio_cache_render_fingerprint_invalid")
+    normalized_kind = str(cache_kind or "").strip()
+    if not normalized_kind or not audio_path.is_file():
+        raise ValueError("audio_cache_output_binding_inputs_invalid")
+    audio_size_bytes = int(audio_path.stat().st_size)
+    if audio_size_bytes <= 0:
+        raise ValueError("audio_cache_output_empty")
+    payload: dict[str, object] = {
+        "contract_name": _AUDIO_CACHE_OUTPUT_BINDING_CONTRACT,
+        "cache_kind": normalized_kind,
+        "render_fingerprint": fingerprint,
+        "audio_sha256": _sha256_file(audio_path),
+        "audio_size_bytes": audio_size_bytes,
+    }
+    payload["record_sha256"] = _audio_cache_output_binding_sha256(payload)
+    _write_private_json(_audio_cache_output_binding_path(audio_path), payload)
+    return payload
+
+
+def _load_validated_audio_cache_output_binding(
+    *,
+    audio_path: Path,
+    cache_kind: str,
+    render_fingerprint: str,
+) -> dict[str, object]:
+    binding_path = _audio_cache_output_binding_path(audio_path)
+    expected_fingerprint = str(render_fingerprint or "").strip().lower()
+    expected_kind = str(cache_kind or "").strip()
+    try:
+        if (
+            not audio_path.is_file()
+            or not binding_path.is_file()
+            or binding_path.stat().st_mode & 0o777 != 0o600
+        ):
+            return {}
+        payload = json.loads(binding_path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    audio_sha256 = payload.get("audio_sha256")
+    record_sha256 = payload.get("record_sha256")
+    audio_size_bytes = payload.get("audio_size_bytes")
+    if (
+        payload.get("contract_name") != _AUDIO_CACHE_OUTPUT_BINDING_CONTRACT
+        or not expected_kind
+        or payload.get("cache_kind") != expected_kind
+        or not re.fullmatch(r"[0-9a-f]{64}", expected_fingerprint)
+        or payload.get("render_fingerprint") != expected_fingerprint
+        or not isinstance(audio_sha256, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", audio_sha256)
+        or not isinstance(record_sha256, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", record_sha256)
+        or isinstance(audio_size_bytes, bool)
+        or not isinstance(audio_size_bytes, int)
+        or audio_size_bytes <= 0
+        or record_sha256 != _audio_cache_output_binding_sha256(payload)
+    ):
+        return {}
+    try:
+        if (
+            audio_path.stat().st_size != audio_size_bytes
+            or _sha256_file(audio_path) != audio_sha256
+        ):
+            return {}
+    except OSError:
+        return {}
+    return payload
 
 
 def _cached_wav_quality_report(path: Path) -> dict[str, object]:
@@ -7635,19 +7836,72 @@ def _synthesize_unmixr_with_retries(
 ) -> tuple[bytes, str, list[str]]:
     attempts = _env_int("EA_AUDIOBOOK_UNMIXR_RETRY_COUNT", 3, minimum=1, maximum=8)
     base_sleep = _env_int("EA_AUDIOBOOK_UNMIXR_RETRY_BACKOFF_SECONDS", 4, minimum=0, maximum=120)
+    source_text_sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    voice_id_sha256 = hashlib.sha256(voice_id.encode("utf-8")).hexdigest()
+    idempotency_key = hashlib.sha256(
+        json.dumps(
+            {
+                "contract_name": "ea.audiobook_tts_segment_identity.v2",
+                "provider": "unmixr",
+                "model": "short-tts",
+                "source_text_sha256": source_text_sha256,
+                "voice_id_sha256": voice_id_sha256,
+                "language": lang,
+                "speaking_rate": speaking_rate or "",
+                "speaking_pitch": speaking_pitch or "",
+                "speaking_volume": speaking_volume or "",
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    provider_request = SpeechSynthesisRequest(
+        # This Phase-1 compatibility helper predates job/chapter context in its
+        # signature.  Keep unknown authority fields empty instead of inventing
+        # identity or rights truth; the existing narration plan remains owner.
+        job_id="",
+        chapter_id="",
+        segment_id=source_text_sha256,
+        source_text=text,
+        source_text_sha256=source_text_sha256,
+        language=lang,
+        speaker_id="",
+        speaker_role="",
+        voice=ProviderVoiceRef(
+            provider="unmixr",
+            provider_voice_id=voice_id,
+            voice_id_sha256=voice_id_sha256,
+            safe_label="Unmixr audiobook voice",
+            language=lang,
+            supported_languages=(lang,) if lang else (),
+            rights_class="legacy_unclassified",
+            rights_receipt_id="",
+        ),
+        model="short-tts",
+        speed=1.0,
+        temperature=0.0,
+        output_format="mp3",
+        sample_rate=44100,
+        performance_direction="",
+        external_processing_authorization_id="",
+        idempotency_key=idempotency_key,
+    )
     errors: list[str] = []
     for attempt in range(1, attempts + 1):
         try:
-            audio_bytes, content_type = unmixr_synthesize_request(
-                text=text,
-                voice_id=voice_id,
-                lang=lang,
+            provider = UnmixrProvider(
+                # Preserve the long-standing module monkeypatch seam used by
+                # the EPUB regression suite while memorial callers remain
+                # entirely on memorial_openvoice.
+                synthesize_request=unmixr_synthesize_request,
                 speaking_rate=speaking_rate,
                 speaking_pitch=speaking_pitch,
                 speaking_volume=speaking_volume,
                 pronunciation_dict=unmixr_pronunciation_dict(),
+                legacy_error_compatibility=True,
             )
-            return audio_bytes, content_type, errors
+            result = AudiobookProviderRouter((provider,)).synthesize(provider_request)
+            return result.audio_bytes, result.content_type, errors
         except Exception as exc:
             errors.append(f"attempt_{attempt}:{_public_unmixr_error_reason(exc)}")
             if attempt >= attempts or not _unmixr_retryable_error(exc):
@@ -10941,34 +11195,46 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                     "speaker_cast": dict(cinematic_speaker_cast.get("public") or {}),
                 }
             if cinematic_master.is_file():
-                cached_master_quality = _cached_wav_quality_report(cinematic_master)
-                if _cached_wav_heuristic_quality_failed(cached_master_quality):
-                    return {
-                        "status": "blocked",
-                        "reason": "cached_cinematic_master_audio_quality_failed",
-                        "audio_quality": cached_master_quality,
-                        "narration_plan": cached_narration_plan,
-                        "voice_selection": dict(resolved_voice_selection.get("public") or {}),
-                        "dialogue_voice_selection": _public_dialogue_voice_selection_from_cast(
-                            cinematic_speaker_cast
-                        ),
-                        "speaker_cast": dict(cinematic_speaker_cast.get("public") or {}),
-                    }
-                if _cached_wav_structurally_invalid(cached_master_quality):
+                cached_master_output_binding = (
+                    _load_validated_audio_cache_output_binding(
+                        audio_path=cinematic_master,
+                        cache_kind="cinematic_master",
+                        render_fingerprint=cinematic_track_signature,
+                    )
+                )
+                if not cached_master_output_binding:
                     cinematic_master_rebuild_required = True
                 else:
-                    cached_timeline = _load_validated_cinematic_chapter_timeline(
-                        timeline_path=_cinematic_chapter_timeline_path(audio_dir),
-                        master_path=cinematic_master,
-                        chapters=chapters,
-                        render_signature=cinematic_track_signature,
+                    cached_master_quality = _cached_wav_quality_report(
+                        cinematic_master
                     )
-                    if not cached_timeline:
+                    if _cached_wav_heuristic_quality_failed(cached_master_quality):
+                        return {
+                            "status": "blocked",
+                            "reason": "cached_cinematic_master_audio_quality_failed",
+                            "audio_quality": cached_master_quality,
+                            "narration_plan": cached_narration_plan,
+                            "voice_selection": dict(resolved_voice_selection.get("public") or {}),
+                            "dialogue_voice_selection": _public_dialogue_voice_selection_from_cast(
+                                cinematic_speaker_cast
+                            ),
+                            "speaker_cast": dict(cinematic_speaker_cast.get("public") or {}),
+                        }
+                    if _cached_wav_structurally_invalid(cached_master_quality):
                         cinematic_master_rebuild_required = True
-                        cached_master_quality = {}
                     else:
-                        cinematic_master_rebuild_required = False
-                        continue_cached_cinematic_master = True
+                        cached_timeline = _load_validated_cinematic_chapter_timeline(
+                            timeline_path=_cinematic_chapter_timeline_path(audio_dir),
+                            master_path=cinematic_master,
+                            chapters=chapters,
+                            render_signature=cinematic_track_signature,
+                        )
+                        if not cached_timeline:
+                            cinematic_master_rebuild_required = True
+                            cached_master_quality = {}
+                        else:
+                            cinematic_master_rebuild_required = False
+                            continue_cached_cinematic_master = True
                 if not cinematic_master_rebuild_required and continue_cached_cinematic_master:
                     rendered = []
                     for chapter in chapters:
@@ -11018,6 +11284,12 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                                         {
                                             "track": "cinematic_master",
                                             "signature": cinematic_track_signature,
+                                            "audio_sha256": str(
+                                                cached_master_output_binding.get(
+                                                    "audio_sha256"
+                                                )
+                                                or ""
+                                            ),
                                         }
                                     ],
                                     sort_keys=True,
@@ -11249,8 +11521,21 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                     else part_dir / f"passage-{segment_render_hash}.wav"
                 )
                 if segment_target.is_file():
-                    cached_audio_quality = _cached_wav_quality_report(segment_target)
-                    if _cached_wav_structurally_invalid(cached_audio_quality):
+                    cached_output_binding = (
+                        _load_validated_audio_cache_output_binding(
+                            audio_path=segment_target,
+                            cache_kind="passage",
+                            render_fingerprint=segment_render_hash,
+                        )
+                    )
+                    cached_audio_quality = (
+                        _cached_wav_quality_report(segment_target)
+                        if cached_output_binding
+                        else {}
+                    )
+                    if not cached_output_binding or _cached_wav_structurally_invalid(
+                        cached_audio_quality
+                    ):
                         invalid_cached_passage_count += 1
                         total_invalid_cached_passage_count += 1
                         if source_chapter_cache is not None:
@@ -11440,6 +11725,28 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                         "cache": _cache_summary(),
                         "voice_selection": dict(voice_selection.get("public") or {}),
                     }
+                if not single_pass_render:
+                    try:
+                        _write_audio_cache_output_binding(
+                            audio_path=rendered_segment,
+                            cache_kind="passage",
+                            render_fingerprint=segment_render_hash,
+                        )
+                    except (OSError, RuntimeError, ValueError) as exc:
+                        return {
+                            "status": "blocked",
+                            "reason": "passage_audio_cache_binding_failed",
+                            "provider": "unmixr",
+                            "chapter_index": source_chapter_index
+                            or cinematic_track_chapters[0][0].index,
+                            "segment_index": segment_index,
+                            "segment_count": len(segment_rows),
+                            "error_type": type(exc).__name__,
+                            "cache": _cache_summary(),
+                            "voice_selection": dict(
+                                voice_selection.get("public") or {}
+                            ),
+                        }
                 segments_rendered_this_run += 1
                 regenerated_segment_count += 1
                 total_regenerated_passage_count += 1
@@ -11582,6 +11889,26 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                 "cache": _cache_summary(),
             }
         try:
+            cinematic_master_output_binding = _write_audio_cache_output_binding(
+                audio_path=cinematic_master,
+                cache_kind="cinematic_master",
+                render_fingerprint=cinematic_track_signature,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            return {
+                "status": "blocked",
+                "reason": "cinematic_master_output_binding_publication_failed",
+                "error_type": type(exc).__name__,
+                "mastering": {
+                    "status": "blocked_output_binding",
+                    "contract_sha256": _audiobook_mastering_contract(),
+                    "segment_mastering": False,
+                    "signature_published": False,
+                },
+                "audio_quality": cinematic_audio_quality,
+                "cache": _cache_summary(),
+            }
+        try:
             _write_atomic_private_text(cinematic_mode_path, cinematic_render_mode)
             cinematic_signature_path = _cinematic_master_audio_signature_path(audio_dir)
             _write_atomic_private_text(
@@ -11706,6 +12033,12 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                             {
                                 "track": "cinematic_master",
                                 "signature": cinematic_track_signature,
+                                "audio_sha256": str(
+                                    cinematic_master_output_binding.get(
+                                        "audio_sha256"
+                                    )
+                                    or ""
+                                ),
                             }
                         ],
                         sort_keys=True,
@@ -11820,44 +12153,60 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
             if existing_signature != chapter_master_signature:
                 existing_master_stale = True
             else:
-                cached_master_quality = _cached_wav_quality_report(target)
-                if _cached_wav_structurally_invalid(cached_master_quality):
+                cached_master_output_binding = (
+                    _load_validated_audio_cache_output_binding(
+                        audio_path=target,
+                        cache_kind="chapter_master",
+                        render_fingerprint=chapter_master_signature,
+                    )
+                )
+                if not cached_master_output_binding:
                     existing_master_stale = True
-                elif _cached_wav_heuristic_quality_failed(cached_master_quality):
-                    return {
-                        "status": "blocked",
-                        "reason": "cached_chapter_master_audio_quality_failed",
-                        "provider": "unmixr",
-                        "chapter_index": chapter.index,
-                        "audio_quality": cached_master_quality,
-                        "cache": _cache_summary(),
-                        "voice_selection": dict(voice_selection.get("public") or {}),
-                    }
                 else:
-                    final_track_ready_count += 1
-                    final_track_signature_count += 1
-                    final_track_signatures.append(
-                        {
+                    cached_master_quality = _cached_wav_quality_report(target)
+                    if _cached_wav_structurally_invalid(cached_master_quality):
+                        existing_master_stale = True
+                    elif _cached_wav_heuristic_quality_failed(cached_master_quality):
+                        return {
+                            "status": "blocked",
+                            "reason": "cached_chapter_master_audio_quality_failed",
+                            "provider": "unmixr",
                             "chapter_index": chapter.index,
-                            "signature": chapter_master_signature,
-                        }
-                    )
-                    final_track_quality.append(
-                        {
-                            "chapter_index": chapter.index,
-                            **cached_master_quality,
-                        }
-                    )
-                    rendered.append(
-                        {
-                            "chapter": chapter.index,
-                            "status": "already_present",
-                            "path": target.name,
                             "audio_quality": cached_master_quality,
-                            "cache_reused": True,
+                            "cache": _cache_summary(),
+                            "voice_selection": dict(voice_selection.get("public") or {}),
                         }
-                    )
-                    continue
+                    else:
+                        final_track_ready_count += 1
+                        final_track_signature_count += 1
+                        final_track_signatures.append(
+                            {
+                                "chapter_index": chapter.index,
+                                "signature": chapter_master_signature,
+                                "audio_sha256": str(
+                                    cached_master_output_binding.get(
+                                        "audio_sha256"
+                                    )
+                                    or ""
+                                ),
+                            }
+                        )
+                        final_track_quality.append(
+                            {
+                                "chapter_index": chapter.index,
+                                **cached_master_quality,
+                            }
+                        )
+                        rendered.append(
+                            {
+                                "chapter": chapter.index,
+                                "status": "already_present",
+                                "path": target.name,
+                                "audio_quality": cached_master_quality,
+                                "cache_reused": True,
+                            }
+                        )
+                        continue
         source_text = (job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8")
         normalized_source_text = str(source_text or "").strip()
         if not normalized_source_text:
@@ -11919,8 +12268,19 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
             if existing_segment is None and segment_target.is_file():
                 existing_segment = segment_target
             if existing_segment is not None:
-                cached_audio_quality = _cached_wav_quality_report(existing_segment)
-                if _cached_wav_structurally_invalid(cached_audio_quality):
+                cached_output_binding = _load_validated_audio_cache_output_binding(
+                    audio_path=existing_segment,
+                    cache_kind="passage",
+                    render_fingerprint=segment_render_hash,
+                )
+                cached_audio_quality = (
+                    _cached_wav_quality_report(existing_segment)
+                    if cached_output_binding
+                    else {}
+                )
+                if not cached_output_binding or _cached_wav_structurally_invalid(
+                    cached_audio_quality
+                ):
                     invalid_cached_passage_count += 1
                     total_invalid_cached_passage_count += 1
                 elif _cached_wav_heuristic_quality_failed(cached_audio_quality):
@@ -12056,6 +12416,24 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                     "cache": _cache_summary(),
                     "voice_selection": dict(voice_selection.get("public") or {}),
                 }
+            try:
+                _write_audio_cache_output_binding(
+                    audio_path=rendered_segment,
+                    cache_kind="passage",
+                    render_fingerprint=segment_render_hash,
+                )
+            except (OSError, RuntimeError, ValueError) as exc:
+                return {
+                    "status": "blocked",
+                    "reason": "passage_audio_cache_binding_failed",
+                    "provider": "unmixr",
+                    "chapter_index": chapter.index,
+                    "segment_index": segment_index,
+                    "segment_count": len(segment_rows),
+                    "error_type": type(exc).__name__,
+                    "cache": _cache_summary(),
+                    "voice_selection": dict(voice_selection.get("public") or {}),
+                }
             segments_rendered_this_run += 1
             regenerated_segment_count += 1
             total_regenerated_passage_count += 1
@@ -12144,6 +12522,27 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                 "cache": _cache_summary(),
             }
         try:
+            chapter_master_output_binding = _write_audio_cache_output_binding(
+                audio_path=target,
+                cache_kind="chapter_master",
+                render_fingerprint=chapter_master_signature,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            return {
+                "status": "blocked",
+                "reason": "chapter_master_output_binding_publication_failed",
+                "chapter_index": chapter.index,
+                "error_type": type(exc).__name__,
+                "audio_quality": chapter_audio_quality,
+                "mastering": {
+                    "status": "blocked_output_binding",
+                    "contract_sha256": _audiobook_mastering_contract(),
+                    "segment_mastering": False,
+                    "signature_published": False,
+                },
+                "cache": _cache_summary(),
+            }
+        try:
             _write_atomic_private_text(
                 target_signature_path,
                 chapter_master_signature,
@@ -12170,6 +12569,9 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
             {
                 "chapter_index": chapter.index,
                 "signature": chapter_master_signature,
+                "audio_sha256": str(
+                    chapter_master_output_binding.get("audio_sha256") or ""
+                ),
             }
         )
         final_track_quality.append(
@@ -16176,6 +16578,19 @@ def _merge_m4b_with_ffmpeg(
             render_signature = signature_path.read_text(encoding="utf-8").strip()
         except OSError:
             render_signature = ""
+        cinematic_output_binding = _load_validated_audio_cache_output_binding(
+            audio_path=cinematic_track_path,
+            cache_kind="cinematic_master",
+            render_fingerprint=render_signature,
+        )
+        if not cinematic_output_binding:
+            return {
+                "status": "m4b_merge_failed",
+                "provider": "ffmpeg",
+                "stage": "cinematic_output_provenance",
+                "reason": "cinematic_master_output_binding_missing_or_invalid",
+                "raw_paths_exposed": False,
+            }
         cinematic_timeline = _load_validated_cinematic_chapter_timeline(
             timeline_path=_cinematic_chapter_timeline_path(
                 cinematic_track_path.parent
@@ -16194,6 +16609,17 @@ def _merge_m4b_with_ffmpeg(
             }
     else:
         audio_dir = job_dir / "audio"
+        if not _signed_chapter_master_output_bindings_ready(
+            job_dir=job_dir,
+            chapters=chapters,
+        ):
+            return {
+                "status": "m4b_merge_failed",
+                "provider": "ffmpeg",
+                "stage": "chapter_output_provenance",
+                "reason": "chapter_master_output_binding_missing_or_invalid",
+                "raw_paths_exposed": False,
+            }
         for chapter in chapters:
             audio_path = _chapter_audio_path(audio_dir, chapter)
             if audio_path is None:
@@ -16412,6 +16838,19 @@ def _merge_m4b_if_ready(
         cinematic_track_path=cinematic_track_path,
     ):
         return {"status": "waiting_for_unmixr_export", "command": command, "output_file": str(output_file)}
+    if (
+        cinematic_track_path is None
+        and not _signed_chapter_master_output_bindings_ready(
+            job_dir=job_dir,
+            chapters=chapters,
+        )
+    ):
+        return {
+            "status": "waiting_for_unmixr_export",
+            "command": command,
+            "output_file": str(output_file),
+            "reason": "chapter_master_output_binding_missing_or_invalid",
+        }
     if not m4b_auto_merge_enabled():
         return {"status": "waiting_for_operator_merge", "command": command, "output_file": str(output_file)}
     if cinematic_track_path is not None and cinematic_track_path.is_file() and cinematic_track_path.stat().st_size > 0:
@@ -16445,11 +16884,46 @@ def _merge_m4b_if_ready(
             "returncode": completed.returncode,
             "stderr_tail": str(completed.stderr or "")[-1200:],
         }
+    output_probe = _probe_audio_publication_file(output_file)
+    output_chapters = (
+        list(output_probe.get("chapters") or [])
+        if isinstance(output_probe.get("chapters"), list)
+        else []
+    )
+    expected_chapter_count = len(
+        [chapter for chapter in chapters if int(chapter.char_count) > 0]
+    )
+    actual_chapter_count = len(output_chapters)
+    output_file_sha256 = _sha256_file(output_file)
+    if (
+        expected_chapter_count <= 0
+        or actual_chapter_count != expected_chapter_count
+    ):
+        output_file.unlink(missing_ok=True)
+        return {
+            "status": "m4b_merge_failed",
+            "provider": "m4b-tool",
+            "stage": "chapter_metadata_verification",
+            "reason": "m4b_chapter_count_mismatch",
+            "expected_chapter_count": expected_chapter_count,
+            "actual_chapter_count": actual_chapter_count,
+            "output_file_sha256": output_file_sha256,
+            "raw_paths_exposed": False,
+        }
     cover_path = _m4b_cover_image_path(job_dir, metadata)
     return {
         "status": "m4b_ready",
+        "provider": "m4b-tool",
         "output_file": str(output_file),
+        "output_file_sha256": output_file_sha256,
+        "output_file_size": int(output_file.stat().st_size),
         "command": command,
+        "chapter_count": actual_chapter_count,
+        "expected_chapter_count": expected_chapter_count,
+        "actual_chapter_count": actual_chapter_count,
+        "chapter_count_matches": (
+            actual_chapter_count == expected_chapter_count
+        ),
         "cover_embedded": cover_path is not None,
         "cover_filename": cover_path.name if cover_path is not None else "",
     }
@@ -16878,10 +17352,9 @@ def _audiobook_cartesia_api_key() -> str:
 
 
 def _audiobook_cartesia_language(language: str) -> str:
-    normalized = str(language or "").strip().lower()
-    if normalized.startswith("de"):
-        return "de"
-    return normalized or "de"
+    normalized = str(language or "").strip().lower().replace("_", "-")
+    primary = normalized.split("-", 1)[0].strip()
+    return primary if len(primary) == 2 and primary.isalpha() else "de"
 
 
 def _audiobook_cartesia_transcript_text(payload: object) -> str:
@@ -16981,6 +17454,7 @@ def _transcribe_audiobook_publication_stt_sample(*, sample_path: Path, language:
         result = public_memorials._memorial_transcribe_audio_blob(  # noqa: SLF001
             payload=sample_path.read_bytes(),
             content_type="audio/wav",
+            language=language,
         )
     except Exception as exc:
         return {"status": "failed", "reason": type(exc).__name__, "transcriber": "runtime"}

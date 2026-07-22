@@ -18,7 +18,9 @@ def _tts_plugin_options(
     unmixr_memorial_voice_id: Callable[[], str],
     voicewave_memorial_voice_label: Callable[[], str],
 ) -> list[dict[str, object]]:
-    configured_voice_id = runtime_secret_placeholder(text(payload.get("tts_plugin_voice_id"), ""))
+    configured_voice_id = runtime_secret_placeholder(
+        text(payload.get("tts_plugin_voice_id"), "")
+    )
     unmixr_voice_id = configured_voice_id or unmixr_memorial_voice_id()
     voicewave_voice_id = configured_voice_id or voicewave_memorial_voice_label()
     return [
@@ -87,8 +89,12 @@ def _resolve_server_tts_plugin(
     browser_speech_tts_plugin_id: str,
     tts_plugin_default_id: str,
 ) -> tuple[str, dict[str, object]]:
-    selected_plugin, selected_option = resolve_tts_plugin(payload=payload, options=options)
-    if selected_plugin != browser_speech_tts_plugin_id and bool(selected_option.get("tts_plugin_enabled")):
+    selected_plugin, selected_option = resolve_tts_plugin(
+        payload=payload, options=options
+    )
+    if selected_plugin != browser_speech_tts_plugin_id and bool(
+        selected_option.get("tts_plugin_enabled")
+    ):
         return selected_plugin, selected_option
     for option in options:
         option_plugin = safe_tts_plugin_id(option.get("tts_plugin"))
@@ -111,7 +117,11 @@ def _display_tts_plugin_label(
     plugin_id = safe_tts_plugin_id(option.get("tts_plugin"))
     friendly_voice_label = str(voice_label or "").strip() or "Manfred"
     if plugin_id == unmixr_tts_plugin_id:
-        return "Manfreds Stimme" if friendly_voice_label.lower().startswith("manfred") else f"{friendly_voice_label}s Stimme"
+        return (
+            "Manfreds Stimme"
+            if friendly_voice_label.lower().startswith("manfred")
+            else f"{friendly_voice_label}s Stimme"
+        )
     if plugin_id == piper_fast_tts_plugin_id:
         return "Schnelle Gesprächsstimme"
     if plugin_id == browser_speech_tts_plugin_id:
@@ -188,33 +198,64 @@ def _load_voice_config(
         except Exception:
             payload = {}
         if isinstance(payload, dict):
-            persisted_tts_plugin = safe_tts_plugin_id(text(payload.get("tts_plugin"), text(payload.get("tts_mode"))))
+            persisted_tts_plugin = safe_tts_plugin_id(
+                text(payload.get("tts_plugin"), text(payload.get("tts_mode")))
+            )
             if not persisted_tts_plugin:
                 persisted_tts_plugin = tts_plugin_default_id
             default_config.update(
                 {
                     "tts_plugin": persisted_tts_plugin,
-                    "tts_plugin_voice_id": runtime_secret_placeholder(text(payload.get("tts_plugin_voice_id"), str(default_config["tts_plugin_voice_id"]))),
-                    "voice_profile_id": runtime_secret_placeholder(text(payload.get("voice_profile_id"), str(default_config["voice_profile_id"]))),
-                    "voice_label": text(payload.get("voice_label"), str(default_config["voice_label"])),
+                    "tts_plugin_voice_id": runtime_secret_placeholder(
+                        text(
+                            payload.get("tts_plugin_voice_id"),
+                            str(default_config["tts_plugin_voice_id"]),
+                        )
+                    ),
+                    "voice_profile_id": runtime_secret_placeholder(
+                        text(
+                            payload.get("voice_profile_id"),
+                            str(default_config["voice_profile_id"]),
+                        )
+                    ),
+                    "voice_label": text(
+                        payload.get("voice_label"), str(default_config["voice_label"])
+                    ),
                     "lang": text(payload.get("lang"), str(default_config["lang"])),
-                    "rate": float_between(payload.get("rate"), fallback=0.92, minimum=0.45, maximum=1.5),
-                    "pitch": float_between(payload.get("pitch"), fallback=0.92, minimum=0.5, maximum=1.5),
-                    "volume": float_between(payload.get("volume"), fallback=1.0, minimum=0.0, maximum=1.0),
+                    "rate": float_between(
+                        payload.get("rate"), fallback=0.92, minimum=0.45, maximum=1.5
+                    ),
+                    "pitch": float_between(
+                        payload.get("pitch"), fallback=0.92, minimum=0.5, maximum=1.5
+                    ),
+                    "volume": float_between(
+                        payload.get("volume"), fallback=1.0, minimum=0.0, maximum=1.0
+                    ),
                     "voice_name_hints": [
                         str(item).strip()
                         for item in (payload.get("voice_name_hints") or [])
                         if str(item).strip()
                     ][:8],
-                    "tts_base_voice_variant": text(payload.get("tts_base_voice_variant"), text(default_config.get("tts_base_voice_variant"), "high")) or "high",
-                    "tts_postprocess_profile": text(payload.get("tts_postprocess_profile"), ""),
-                    "consent_basis": text(payload.get("consent_basis"), str(default_config["consent_basis"])),
+                    "tts_base_voice_variant": text(
+                        payload.get("tts_base_voice_variant"),
+                        text(default_config.get("tts_base_voice_variant"), "high"),
+                    )
+                    or "high",
+                    "tts_postprocess_profile": text(
+                        payload.get("tts_postprocess_profile"), ""
+                    ),
+                    "consent_basis": text(
+                        payload.get("consent_basis"),
+                        str(default_config["consent_basis"]),
+                    ),
                     "notes": text(payload.get("notes"), str(default_config["notes"])),
                     "synthetic_voice_clone_of_memorial_person": payload.get(
                         "synthetic_voice_clone_of_memorial_person"
                     )
                     is True,
-                    "voice_consent": dict(payload.get("voice_consent") or {}) if isinstance(payload.get("voice_consent"), dict) else dict(default_config.get("voice_consent") or {}),
+                    "voice_consent": dict(payload.get("voice_consent") or {})
+                    if isinstance(payload.get("voice_consent"), dict)
+                    else dict(default_config.get("voice_consent") or {}),
                 }
             )
     voice_profile_summary = public_voice_profile_summary(slug)
@@ -223,10 +264,17 @@ def _load_voice_config(
         payload=default_config,
         voice_profile_ready=bool(voice_profile_summary.get("voice_profile_ready")),
     )
-    selected_plugin, selected_option = resolve_tts_plugin(payload=default_config, options=options)
+    selected_plugin, selected_option = resolve_tts_plugin(
+        payload=default_config, options=options
+    )
     default_config["tts_plugin"] = selected_plugin or tts_plugin_default_id
     default_config["tts_mode"] = default_config["tts_plugin"]
-    default_config["tts_plugin_voice_id"] = runtime_secret_placeholder(text(selected_option.get("tts_plugin_voice_id"), str(default_config["tts_plugin_voice_id"])))
+    default_config["tts_plugin_voice_id"] = runtime_secret_placeholder(
+        text(
+            selected_option.get("tts_plugin_voice_id"),
+            str(default_config["tts_plugin_voice_id"]),
+        )
+    )
     if not default_config["tts_plugin_voice_id"]:
         default_config["tts_plugin_voice_id"] = text(unmixr_memorial_voice_id(), "")
     default_config["tts_plugin_options"] = options
@@ -242,20 +290,35 @@ def _voice_config_to_public_payload(
     float_between: Callable[..., float],
     tts_plugin_default_id: str,
 ) -> dict[str, object]:
-    selected_plugin = safe_tts_plugin_id(text(payload.get("tts_plugin"), tts_plugin_default_id))
+    selected_plugin = safe_tts_plugin_id(
+        text(payload.get("tts_plugin"), tts_plugin_default_id)
+    )
     if not selected_plugin:
         selected_plugin = tts_plugin_default_id
     safe_config = {
         "tts_plugin": selected_plugin,
         "voice_profile_id": text(payload.get("voice_profile_id"), f"tts-{slug}"),
-        "voice_label": text(payload.get("voice_label"), "Austauschbare synthetische Stimme"),
+        "voice_label": text(
+            payload.get("voice_label"), "Austauschbare synthetische Stimme"
+        ),
         "lang": text(payload.get("lang"), "de-AT")[:16] or "de-AT",
-        "rate": float_between(payload.get("rate"), fallback=0.92, minimum=0.45, maximum=1.5),
-        "pitch": float_between(payload.get("pitch"), fallback=0.92, minimum=0.5, maximum=1.5),
-        "volume": float_between(payload.get("volume"), fallback=1.0, minimum=0.0, maximum=1.0),
-        "voice_name_hints": [str(item).strip() for item in list(payload.get("voice_name_hints") or [])[:8] if str(item or "").strip()],
+        "rate": float_between(
+            payload.get("rate"), fallback=0.92, minimum=0.45, maximum=1.5
+        ),
+        "pitch": float_between(
+            payload.get("pitch"), fallback=0.92, minimum=0.5, maximum=1.5
+        ),
+        "volume": float_between(
+            payload.get("volume"), fallback=1.0, minimum=0.0, maximum=1.0
+        ),
+        "voice_name_hints": [
+            str(item).strip()
+            for item in list(payload.get("voice_name_hints") or [])[:8]
+            if str(item or "").strip()
+        ],
         "tts_plugin_voice_id": text(payload.get("tts_plugin_voice_id"), ""),
-        "tts_base_voice_variant": text(payload.get("tts_base_voice_variant"), "high") or "high",
+        "tts_base_voice_variant": text(payload.get("tts_base_voice_variant"), "high")
+        or "high",
         "notes": text(payload.get("notes"), ""),
         "synthetic_voice_clone_of_memorial_person": payload.get(
             "synthetic_voice_clone_of_memorial_person"
@@ -263,7 +326,9 @@ def _voice_config_to_public_payload(
         is True,
     }
     safe_config["tts_mode"] = selected_plugin
-    safe_config["consent_basis"] = text(payload.get("consent_basis"), "generic_or_owner_consented_voice")
+    safe_config["consent_basis"] = text(
+        payload.get("consent_basis"), "generic_or_owner_consented_voice"
+    )
     if isinstance(payload.get("voice_consent"), dict):
         safe_config["voice_consent"] = dict(payload.get("voice_consent") or {})
     return safe_config
@@ -288,7 +353,12 @@ def _normalize_voice_config_payload(
     tts_plugin_default_id: str,
     unmixr_memorial_voice_id: Callable[[], str],
 ) -> dict[str, object]:
-    requested_plugin = safe_tts_plugin_id(text(payload.get("tts_plugin"), text(payload.get("tts_mode"), tts_plugin_default_id)))
+    requested_plugin = safe_tts_plugin_id(
+        text(
+            payload.get("tts_plugin"),
+            text(payload.get("tts_mode"), tts_plugin_default_id),
+        )
+    )
     if not requested_plugin:
         requested_plugin = tts_plugin_default_id
     default_config = {
@@ -311,23 +381,72 @@ def _normalize_voice_config_payload(
     default_config["tts_plugin"] = requested_plugin
     return {
         "tts_plugin": requested_plugin,
-        "tts_plugin_voice_id": text(payload.get("tts_plugin_voice_id"), str(default_config["tts_plugin_voice_id"])),
-        "voice_profile_id": text(payload.get("voice_profile_id") if isinstance(payload, dict) else None, str(default_config["voice_profile_id"])),
-        "voice_label": text(payload.get("voice_label") if isinstance(payload, dict) else None, str(default_config["voice_label"])),
-        "lang": text(payload.get("lang") if isinstance(payload, dict) else None, str(default_config["lang"]))[:16] or "de-AT",
-        "rate": float_between(payload.get("rate") if isinstance(payload, dict) else None, fallback=0.92, minimum=0.45, maximum=1.5),
-        "pitch": float_between(payload.get("pitch") if isinstance(payload, dict) else None, fallback=0.92, minimum=0.5, maximum=1.5),
-        "volume": float_between(payload.get("volume") if isinstance(payload, dict) else None, fallback=1.0, minimum=0.0, maximum=1.0),
-        "voice_name_hints": _normalize_voice_name_hints_csv(payload.get("voice_name_hints") if isinstance(payload, dict) else None),
-        "tts_base_voice_variant": text(payload.get("tts_base_voice_variant") if isinstance(payload, dict) else None, str(default_config["tts_base_voice_variant"])) or "high",
-        "tts_postprocess_profile": text(payload.get("tts_postprocess_profile") if isinstance(payload, dict) else None, ""),
-        "consent_basis": text(payload.get("consent_basis") if isinstance(payload, dict) else None, str(default_config["consent_basis"])),
-        "notes": text(payload.get("notes") if isinstance(payload, dict) else None, str(default_config["notes"])),
+        "tts_plugin_voice_id": text(
+            payload.get("tts_plugin_voice_id"),
+            str(default_config["tts_plugin_voice_id"]),
+        ),
+        "voice_profile_id": text(
+            payload.get("voice_profile_id") if isinstance(payload, dict) else None,
+            str(default_config["voice_profile_id"]),
+        ),
+        "voice_label": text(
+            payload.get("voice_label") if isinstance(payload, dict) else None,
+            str(default_config["voice_label"]),
+        ),
+        "lang": text(
+            payload.get("lang") if isinstance(payload, dict) else None,
+            str(default_config["lang"]),
+        )[:16]
+        or "de-AT",
+        "rate": float_between(
+            payload.get("rate") if isinstance(payload, dict) else None,
+            fallback=0.92,
+            minimum=0.45,
+            maximum=1.5,
+        ),
+        "pitch": float_between(
+            payload.get("pitch") if isinstance(payload, dict) else None,
+            fallback=0.92,
+            minimum=0.5,
+            maximum=1.5,
+        ),
+        "volume": float_between(
+            payload.get("volume") if isinstance(payload, dict) else None,
+            fallback=1.0,
+            minimum=0.0,
+            maximum=1.0,
+        ),
+        "voice_name_hints": _normalize_voice_name_hints_csv(
+            payload.get("voice_name_hints") if isinstance(payload, dict) else None
+        ),
+        "tts_base_voice_variant": text(
+            payload.get("tts_base_voice_variant")
+            if isinstance(payload, dict)
+            else None,
+            str(default_config["tts_base_voice_variant"]),
+        )
+        or "high",
+        "tts_postprocess_profile": text(
+            payload.get("tts_postprocess_profile")
+            if isinstance(payload, dict)
+            else None,
+            "",
+        ),
+        "consent_basis": text(
+            payload.get("consent_basis") if isinstance(payload, dict) else None,
+            str(default_config["consent_basis"]),
+        ),
+        "notes": text(
+            payload.get("notes") if isinstance(payload, dict) else None,
+            str(default_config["notes"]),
+        ),
         "synthetic_voice_clone_of_memorial_person": payload.get(
             "synthetic_voice_clone_of_memorial_person"
         )
         is True,
-        "voice_consent": dict(payload.get("voice_consent") or {}) if isinstance(payload.get("voice_consent"), dict) else {},
+        "voice_consent": dict(payload.get("voice_consent") or {})
+        if isinstance(payload.get("voice_consent"), dict)
+        else {},
         "tts_mode": requested_plugin,
     }
 
@@ -339,15 +458,21 @@ def _save_voice_config_payload(
     text: Callable[[object, str], str],
     load_voice_config: Callable[[str], dict[str, object]],
     normalize_voice_config_payload: Callable[[dict[str, object]], dict[str, object]],
-    voice_config_to_public_payload: Callable[[dict[str, object], str], dict[str, object]],
+    voice_config_to_public_payload: Callable[
+        [dict[str, object], str], dict[str, object]
+    ],
     tts_plugin_options: Callable[..., list[dict[str, object]]],
     public_voice_profile_summary: Callable[[str], dict[str, object]],
     resolve_tts_plugin: Callable[..., tuple[str, dict[str, object]]],
     tts_plugin_default_id: str,
     voice_config_path: Callable[[str], Path],
     write_json_atomic: Callable[[Path, dict[str, object]], None],
+    trusted_clone_activation: bool = False,
 ) -> None:
     existing_config = load_voice_config(slug)
+    existing_trusted_clone = (
+        existing_config.get("synthetic_voice_clone_of_memorial_person") is True
+    )
     merged_payload = {
         "tts_plugin": existing_config.get("tts_plugin"),
         "tts_mode": existing_config.get("tts_mode"),
@@ -369,18 +494,38 @@ def _save_voice_config_payload(
         is True,
         "voice_consent": dict(existing_config.get("voice_consent") or {}),
     }
-    merged_payload.update(dict(payload or {}))
+    mutable_payload = dict(payload or {})
+    # Clone identity is trusted state, not a client-editable preference.  An
+    # ordinary edit may neither forge nor clear it; only the governed clone
+    # lane can activate it after the provider has returned a real clone ID.
+    mutable_payload.pop("synthetic_voice_clone_of_memorial_person", None)
+    merged_payload.update(mutable_payload)
+    merged_payload["synthetic_voice_clone_of_memorial_person"] = bool(
+        existing_trusted_clone or trusted_clone_activation
+    )
     normalized_config = normalize_voice_config_payload(merged_payload)
     stored = voice_config_to_public_payload(normalized_config, slug)
     if text(normalized_config.get("tts_postprocess_profile"), ""):
-        stored["tts_postprocess_profile"] = text(normalized_config.get("tts_postprocess_profile"), "")
-    options = tts_plugin_options(payload=stored, voice_profile_ready=bool(public_voice_profile_summary(slug=slug).get("voice_profile_ready")))
-    selected_plugin, selected_option = resolve_tts_plugin(payload=stored, options=options)
+        stored["tts_postprocess_profile"] = text(
+            normalized_config.get("tts_postprocess_profile"), ""
+        )
+    options = tts_plugin_options(
+        payload=stored,
+        voice_profile_ready=bool(
+            public_voice_profile_summary(slug=slug).get("voice_profile_ready")
+        ),
+    )
+    selected_plugin, selected_option = resolve_tts_plugin(
+        payload=stored, options=options
+    )
     selected_plugin = selected_plugin or tts_plugin_default_id
     selected_option = dict(selected_option)
     stored["tts_plugin"] = selected_plugin
     stored["tts_mode"] = selected_plugin
-    selected_voice_id = text(selected_option.get("tts_plugin_voice_id"), str(stored.get("tts_plugin_voice_id")))
+    selected_voice_id = text(
+        selected_option.get("tts_plugin_voice_id"),
+        str(stored.get("tts_plugin_voice_id")),
+    )
     if not selected_voice_id:
         selected_voice_id = text(stored.get("tts_plugin_voice_id"), "")
     stored["tts_plugin_voice_id"] = selected_voice_id

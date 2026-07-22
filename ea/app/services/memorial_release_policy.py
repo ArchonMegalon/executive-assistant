@@ -82,21 +82,29 @@ def evaluate_memorial_voice_release(
 
     receipt_status = str(payload.get("status") or "").strip()
     if payload.get("contract_name") != MANFRED_REALTIME_READINESS_CONTRACT:
-        return _blocked("release_receipt_contract_mismatch", receipt_status=receipt_status)
+        return _blocked(
+            "release_receipt_contract_mismatch", receipt_status=receipt_status
+        )
     if payload.get("generated_by") != MANFRED_REALTIME_READINESS_GENERATOR:
-        return _blocked("release_receipt_generator_mismatch", receipt_status=receipt_status)
+        return _blocked(
+            "release_receipt_generator_mismatch", receipt_status=receipt_status
+        )
     if str(payload.get("memorial_slug") or "").strip().lower() != normalized_slug:
         return _blocked("release_receipt_slug_unbound", receipt_status=receipt_status)
 
     generated_at = _parse_timestamp(payload.get("generated_at"))
     checked_at = time.time() if now is None else float(now)
     if generated_at is None or generated_at > checked_at + 60:
-        return _blocked("release_receipt_timestamp_invalid", receipt_status=receipt_status)
+        return _blocked(
+            "release_receipt_timestamp_invalid", receipt_status=receipt_status
+        )
     if max_age_seconds <= 0 or checked_at - generated_at > max_age_seconds:
         return _blocked("release_receipt_stale", receipt_status=receipt_status)
 
     if payload.get("evidence_source") != "receipt_aggregation":
-        return _blocked("release_receipt_evidence_unverified", receipt_status=receipt_status)
+        return _blocked(
+            "release_receipt_evidence_unverified", receipt_status=receipt_status
+        )
     if receipt_status != "ready_for_realtime_conversation_review":
         return _blocked("release_prerequisites_blocked", receipt_status=receipt_status)
     if payload.get("ready_for_realtime_conversation_review") is not True:
@@ -111,7 +119,9 @@ def evaluate_memorial_voice_release(
         "premium_spoken_claim_allowed",
     )
     if any(payload.get(field) is not True for field in explicit_claims):
-        return _blocked("release_human_acceptance_missing", receipt_status=receipt_status)
+        return _blocked(
+            "release_human_acceptance_missing", receipt_status=receipt_status
+        )
 
     digest_bindings = (
         "operator_acceptance_receipt_sha256",

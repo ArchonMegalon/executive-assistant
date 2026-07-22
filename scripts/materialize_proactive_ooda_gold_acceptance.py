@@ -4973,6 +4973,13 @@ def materialize_proactive_ooda_gold_acceptance(
 
 
 def main() -> int:
+    if any(flag in sys.argv[1:] for flag in ("--help", "-h")):
+        print(
+            "Usage:\n"
+            "  python scripts/materialize_proactive_ooda_gold_acceptance.py [options]\n\n"
+            "Materialize the proactive OODA gold-acceptance receipt."
+        )
+        return 0
     parser = argparse.ArgumentParser(description="Materialize the proactive OODA gold-acceptance receipt.")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--operator-status-receipt", type=Path, default=DEFAULT_OPERATOR_STATUS)

@@ -124,8 +124,11 @@ def verify_audiobook_epub_quality_contract() -> dict[str, object]:
             "_infer_author_gender",
             "author_gender_signal",
             "author_gender_match",
+            "explicit_approved_metadata",
+            "not_available_without_explicit_approved_metadata",
         )
-        and "test_voice_selection_does_not_infer_author_gender_from_name" in tests,
+        and "test_voice_selection_does_not_infer_author_gender_from_name" in tests
+        and "test_voice_audition_does_not_infer_author_gender_from_name" in tests,
         "telegram_voice_sample_status_diagnostic_present": _has(
             pipeline,
             "voice_sample_delivery",

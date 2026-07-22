@@ -6,14 +6,27 @@ import subprocess
 from pathlib import Path
 
 try:
-    from scripts.source_state_head import resolve_source_state_head
+    from scripts.memorial_spatial_public_origin_contract import (
+        validate_memorial_spatial_public_origin_receipt,
+    )
+    from scripts.source_state_head import (
+        resolve_source_state_head,
+        resolve_source_worktree_fingerprint,
+    )
 except ModuleNotFoundError:  # pragma: no cover - script execution path
-    from source_state_head import resolve_source_state_head
+    from memorial_spatial_public_origin_contract import (
+        validate_memorial_spatial_public_origin_receipt,
+    )
+    from source_state_head import (
+        resolve_source_state_head,
+        resolve_source_worktree_fingerprint,
+    )
 
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT_MODES = ROOT / ".codex-design/product/PROJECT_MODES.generated.json"
 SHOW_SURFACE = ROOT / ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json"
+MEMORIAL_SPATIAL_PUBLIC_ORIGIN_GATE = ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json"
 GENERATED_RECEIPT_PATHS = {
     ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
     ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json",
@@ -28,6 +41,7 @@ GENERATED_RECEIPT_PATHS = {
     ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
     ".codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json",
     ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+    MEMORIAL_SPATIAL_PUBLIC_ORIGIN_GATE,
 }
 
 
@@ -40,6 +54,10 @@ def _load(path: Path) -> dict:
 
 def _git_head() -> str:
     return resolve_source_state_head(ROOT)
+
+
+def _source_fingerprint() -> str:
+    return resolve_source_worktree_fingerprint(ROOT)
 
 
 def _recorded_source_head(payload: dict) -> str:
@@ -72,6 +90,7 @@ def main() -> int:
     modes = _load(PROJECT_MODES)
     show = _load(SHOW_SURFACE)
     current_head = _git_head()
+    current_fingerprint = _source_fingerprint()
     if current_head and not _fresh_enough(_recorded_source_head(modes), current_head=current_head):
         raise SystemExit("project_modes_manifest_stale")
     if current_head and not _fresh_enough(_recorded_source_head(show), current_head=current_head):
@@ -93,6 +112,7 @@ def main() -> int:
         ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
         ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
         ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+        MEMORIAL_SPATIAL_PUBLIC_ORIGIN_GATE,
     ]
     if memorial_hard_gates != expected_memorial_hard_gates:
         raise SystemExit("memorial_hard_gates_missing")
@@ -133,24 +153,38 @@ def main() -> int:
         ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
         ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
         ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+        MEMORIAL_SPATIAL_PUBLIC_ORIGIN_GATE,
     }
     if set(public_gold_gates) != expected_public_gates:
         raise SystemExit("memorial_public_gold_gates_missing")
-    public_gate_payloads = []
+    public_gate_payloads: list[tuple[str, dict]] = []
     for public_gate in public_gold_gates:
         path = ROOT / public_gate
         if path.is_file():
             try:
-                public_gate_payloads.append(json.loads(path.read_text(encoding="utf-8")))
+                public_gate_payloads.append(
+                    (public_gate, json.loads(path.read_text(encoding="utf-8")))
+                )
             except Exception:
-                public_gate_payloads.append({})
+                public_gate_payloads.append((public_gate, {}))
     public_gate_pass_count = sum(
         1
-        for payload in public_gate_payloads
-        if str(payload.get("status") or "").strip().lower() == "pass"
-        and (
-            not current_head
-            or _fresh_enough(_recorded_source_head(payload), current_head=current_head)
+        for public_gate, payload in public_gate_payloads
+        if (
+            not validate_memorial_spatial_public_origin_receipt(
+                payload,
+                current_head=current_head,
+                current_fingerprint=current_fingerprint,
+            )
+            if public_gate == MEMORIAL_SPATIAL_PUBLIC_ORIGIN_GATE
+            else str(payload.get("status") or "").strip().lower() == "pass"
+            and (
+                not current_head
+                or _fresh_enough(
+                    _recorded_source_head(payload),
+                    current_head=current_head,
+                )
+            )
         )
     )
     if public_gold_status == "public_origin_gold_pass" and public_gate_pass_count != len(expected_public_gates):

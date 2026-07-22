@@ -123,6 +123,15 @@ def memorial_operator_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
                         "curation_status": "approved_public_excerpt",
                     }
                 ],
+                "external_sources": [
+                    {
+                        "label": "Oeffentliches Archiv",
+                        "url": "https://archive.example/public",
+                        "visibility": "public",
+                        "public": True,
+                        "approved": True,
+                    }
+                ],
                 "suggested_prompts": ["Was ist belegt?"],
                 "pwa_app_name": "Manfred Gedenkseite",
                 "pwa_short_name": "Manfred",
@@ -180,12 +189,14 @@ def memorial_operator_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
                 "archive_sections": [{"title": "Oeffentliches Archiv", "audience": "public", "items": ["doc-public"]}],
                 "fliplink_publications": [
                     {
+                        "approved": True,
                         "id": "doc-public",
                         "title": "Public Doc",
                         "audience": "public",
                         "viewer_type": "smart_document",
                         "url": "https://archive.example/public",
                         "review_status": "published",
+                        "sensitivity": "PUBLIC",
                     },
                 ],
             },

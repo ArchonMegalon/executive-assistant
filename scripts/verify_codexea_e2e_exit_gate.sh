@@ -20,8 +20,8 @@ Spawns real local `codexea` subprocesses inside the pytest harness and fails
 closed unless the worker-lane smoke tasks launch successfully end to end
 through both the repo shim and the installed launcher wrapper, and the
 installed launcher startup-status and compact-pretty status paths render
-successfully too. After that, it runs live spawned `codexea easy exec`
-and `codexea core exec` probes against the current EA runtime. The easy
+successfully too. After that, it runs one live spawned `codexea easy exec`
+and one live spawned `codexea core exec` probe against the current EA runtime. The easy
 probe must return `READY`; the core probe must complete a tiny semantic task
 and return `TASK_OK:12`.
 
@@ -33,6 +33,11 @@ Environment:
       `Reply with exactly READY and nothing else.`
   CODEXEA_E2E_LIVE_PROBE_COMMAND
       Override the live spawned probe command for focused harness testing.
+  CODEXEA_E2E_RUNTIME_ROOT
+      Root of the currently deployed EA runtime. Default: `/docker/EA`.
+  CODEXEA_E2E_RUNTIME_EA_ENV_PATH
+      Credential env file used by the currently deployed EA runtime. Default:
+      `${CODEXEA_E2E_RUNTIME_ROOT}/.env`.
   CODEXEA_E2E_CORE_LIVE_PROMPT
       Override the live spawned core smoke prompt. Default:
       `Reply with exactly TASK_OK:12 and nothing else.`
@@ -56,6 +61,8 @@ TIMEOUT_SECONDS="${TIMEOUT_SECONDS_RAW}"
 PYTEST_K_EXPR="spawned_codexea_exit_gate_runs_smoke_task_through_worker_lane or installed_launcher_spawned_codexea_exit_gate_runs_smoke_task_through_worker_lane or installed_launcher_startup_status_prints_pending_route_instead_of_error or installed_launcher_status_pretty_output_surfaces_onemin_host_hotspots_outside_repo"
 LIVE_PROMPT="${CODEXEA_E2E_LIVE_PROMPT:-Reply with exactly READY and nothing else.}"
 LIVE_PROBE_COMMAND="${CODEXEA_E2E_LIVE_PROBE_COMMAND:-}"
+LIVE_RUNTIME_ROOT="${CODEXEA_E2E_RUNTIME_ROOT:-/docker/EA}"
+LIVE_RUNTIME_ENV_PATH="${CODEXEA_E2E_RUNTIME_EA_ENV_PATH:-${LIVE_RUNTIME_ROOT}/.env}"
 CORE_LIVE_PROMPT="${CODEXEA_E2E_CORE_LIVE_PROMPT:-Reply with exactly TASK_OK:12 and nothing else.}"
 CORE_LIVE_PROBE_COMMAND="${CODEXEA_E2E_CORE_LIVE_PROBE_COMMAND:-}"
 
@@ -112,11 +119,14 @@ if [[ -n "${LIVE_PROBE_COMMAND}" ]]; then
   )"
 else
   live_output="$(
-    timeout --foreground "${TIMEOUT_SECONDS}s" \
+    EA_API_TOKEN= \
+      EA_MCP_API_TOKEN= \
+      CODEXEA_RUNTIME_EA_ENV_PATH="${LIVE_RUNTIME_ENV_PATH}" \
+      timeout --foreground "${TIMEOUT_SECONDS}s" \
       bash /docker/fleet/scripts/codex-shims/codexea \
         easy exec \
         --json \
-        -C /docker/EA/ea \
+        -C "${LIVE_RUNTIME_ROOT}/ea" \
         --skip-git-repo-check \
         --dangerously-bypass-approvals-and-sandbox \
         --color never \
@@ -142,6 +152,10 @@ fi
 
 printf '%s\n' "${live_output}"
 
+if [[ -n "${LIVE_PROBE_COMMAND}" && -z "${CORE_LIVE_PROBE_COMMAND}" ]]; then
+  exit 0
+fi
+
 set +e
 if [[ -n "${CORE_LIVE_PROBE_COMMAND}" ]]; then
   core_output="$(
@@ -150,11 +164,14 @@ if [[ -n "${CORE_LIVE_PROBE_COMMAND}" ]]; then
   )"
 else
   core_output="$(
-    timeout --foreground "${TIMEOUT_SECONDS}s" \
+    EA_API_TOKEN= \
+      EA_MCP_API_TOKEN= \
+      CODEXEA_RUNTIME_EA_ENV_PATH="${LIVE_RUNTIME_ENV_PATH}" \
+      timeout --foreground "${TIMEOUT_SECONDS}s" \
       bash /docker/fleet/scripts/codex-shims/codexea \
         core exec \
         --json \
-        -C /docker/EA/ea \
+        -C "${LIVE_RUNTIME_ROOT}/ea" \
         --skip-git-repo-check \
         --dangerously-bypass-approvals-and-sandbox \
         --color never \

@@ -61,6 +61,8 @@ services:
     cpus: ${EA_WHATSAPP_WEB_ACTIVATOR_CPUS:-0.25}
     environment:
       - EA_WHATSAPP_WEB_ACTIVATOR_ENABLED=${EA_WHATSAPP_WEB_ACTIVATOR_ENABLED:-0}
+      - VOCALLAB_API_KEY=
+      - VOCALLAB_API_KEY_FILE=
       - EA_WHATSAPP_WEB_DEFAULT_BINDING_ID=${EA_WHATSAPP_WEB_DEFAULT_BINDING_ID:-ea-whatsapp-web-session}
       - EA_WHATSAPP_WEB_DEFAULT_BROWSER_PROFILE_REF=${EA_WHATSAPP_WEB_DEFAULT_BROWSER_PROFILE_REF:-docker-volume://ea_whatsapp_web_session}
       - EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID=${EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID:-principal-default}
@@ -78,6 +80,41 @@ services:
       - TZ=Europe/Vienna
     volumes:
       - ./:/app:ro
+      - type: bind
+        source: /dev/null
+        target: /app/.env
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: tmpfs
+        target: /app/config
+        tmpfs:
+          size: 65536
+          mode: 365
+      - type: bind
+        source: ./config/onemin_api_keys.example.json
+        target: /app/config/onemin_api_keys.example.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/onemin_slot_owners.json
+        target: /app/config/onemin_slot_owners.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/places.yml
+        target: /app/config/places.yml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/tenants.yml
+        target: /app/config/tenants.yml
+        read_only: true
+        bind:
+          create_host_path: false
     command:
       - /bin/sh
       - -ec
@@ -145,6 +182,36 @@ services:
       - EA_AUDIOBOOK_CANARY_RECEIPT_HMAC_KEY=${EA_AUDIOBOOK_CANARY_RECEIPT_HMAC_KEY:-}
       - EA_AUDIOBOOK_UNMIXR_AUTO_RENDER=${EA_AUDIOBOOK_UNMIXR_AUTO_RENDER:-1}
       - EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST:-1800}
+      - VOCALLAB_API_KEY=${VOCALLAB_API_KEY:-}
+      - VOCALLAB_API_KEY_FILE=${VOCALLAB_API_KEY_FILE:-config/vocallab_api_key}
+      - EA_AUDIOBOOK_VOCALLAB_ENABLED=${EA_AUDIOBOOK_VOCALLAB_ENABLED:-0}
+      - EA_AUDIOBOOK_VOCALLAB_AUTO_RENDER=${EA_AUDIOBOOK_VOCALLAB_AUTO_RENDER:-0}
+      - EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_ROTATION_REQUIRED=${EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_ROTATION_REQUIRED:-1}
+      - EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_PRODUCTION_ELIGIBLE=${EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_PRODUCTION_ELIGIBLE:-0}
+      - EA_AUDIOBOOK_VOCALLAB_BASE_URL=${EA_AUDIOBOOK_VOCALLAB_BASE_URL:-https://api.vocallab.ai}
+      - EA_AUDIOBOOK_VOCALLAB_MODEL=${EA_AUDIOBOOK_VOCALLAB_MODEL:-v-pro}
+      - EA_AUDIOBOOK_VOCALLAB_EXPRESSIVE_MODEL=${EA_AUDIOBOOK_VOCALLAB_EXPRESSIVE_MODEL:-v-studio}
+      - EA_AUDIOBOOK_VOCALLAB_DRAFT_MODEL=${EA_AUDIOBOOK_VOCALLAB_DRAFT_MODEL:-v-lite}
+      - EA_AUDIOBOOK_VOCALLAB_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_VOCALLAB_MAX_CHARS_PER_REQUEST:-1800}
+      - EA_AUDIOBOOK_VOCALLAB_REQUESTS_PER_MINUTE=${EA_AUDIOBOOK_VOCALLAB_REQUESTS_PER_MINUTE:-30}
+      - EA_AUDIOBOOK_VOCALLAB_MAX_IN_FLIGHT=${EA_AUDIOBOOK_VOCALLAB_MAX_IN_FLIGHT:-1}
+      - EA_AUDIOBOOK_VOCALLAB_MAX_SEGMENTS_PER_RUN=${EA_AUDIOBOOK_VOCALLAB_MAX_SEGMENTS_PER_RUN:-10}
+      - EA_AUDIOBOOK_VOCALLAB_TIMEOUT_SECONDS=${EA_AUDIOBOOK_VOCALLAB_TIMEOUT_SECONDS:-120}
+      - EA_AUDIOBOOK_VOCALLAB_POLL_INTERVAL_SECONDS=${EA_AUDIOBOOK_VOCALLAB_POLL_INTERVAL_SECONDS:-2}
+      - EA_AUDIOBOOK_VOCALLAB_POLL_TIMEOUT_SECONDS=${EA_AUDIOBOOK_VOCALLAB_POLL_TIMEOUT_SECONDS:-180}
+      - EA_AUDIOBOOK_VOCALLAB_OUTPUT_FORMAT=${EA_AUDIOBOOK_VOCALLAB_OUTPUT_FORMAT:-WAV}
+      - EA_AUDIOBOOK_VOCALLAB_SAMPLE_RATE=${EA_AUDIOBOOK_VOCALLAB_SAMPLE_RATE:-44100}
+      - EA_AUDIOBOOK_VOCALLAB_MAX_AUDIO_BYTES=${EA_AUDIOBOOK_VOCALLAB_MAX_AUDIO_BYTES:-33554432}
+      - EA_AUDIOBOOK_VOCALLAB_MIN_REMAINING_POINTS=${EA_AUDIOBOOK_VOCALLAB_MIN_REMAINING_POINTS:-3000}
+      - EA_AUDIOBOOK_VOCALLAB_MAX_POINTS_PER_JOB=${EA_AUDIOBOOK_VOCALLAB_MAX_POINTS_PER_JOB:-6000}
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_TOPUP_POINTS=${EA_AUDIOBOOK_VOCALLAB_ALLOW_TOPUP_POINTS:-0}
+      - EA_AUDIOBOOK_VOCALLAB_ALLOWED_VOICE_CLASSES=${EA_AUDIOBOOK_VOCALLAB_ALLOWED_VOICE_CLASSES:-professional,consented_clone}
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES=${EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES:-0}
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES=${EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES:-0}
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL=${EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL:-0}
+      - EA_AUDIOBOOK_VOCALLAB_VOICE_CATALOG_FILE=${EA_AUDIOBOOK_VOCALLAB_VOICE_CATALOG_FILE:-config/vocallab_voice_catalog.local.json}
+      - EA_AUDIOBOOK_TTS_PROVIDER_ORDER=${EA_AUDIOBOOK_TTS_PROVIDER_ORDER:-unmixr,vocallab,piper_local}
+      - EA_AUDIOBOOK_TTS_ALLOW_CROSS_PROVIDER_FALLBACK=${EA_AUDIOBOOK_TTS_ALLOW_CROSS_PROVIDER_FALLBACK:-0}
       - EA_AUDIOBOOK_CINEMATIC_NARRATION=${EA_AUDIOBOOK_CINEMATIC_NARRATION:-1}
       - EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS=${EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS:-0}
       - EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST:-1800}
@@ -227,6 +294,8 @@ services:
     cpus: ${EA_WHATSAPP_WEB_TEABLE_SYNC_CPUS:-0.50}
     environment:
       - EA_WHATSAPP_WEB_TEABLE_SYNC_ENABLED=${EA_WHATSAPP_WEB_TEABLE_SYNC_ENABLED:-0}
+      - VOCALLAB_API_KEY=
+      - VOCALLAB_API_KEY_FILE=
       - EA_WHATSAPP_WEB_TEABLE_SYNC_INTERVAL_SECONDS=${EA_WHATSAPP_WEB_TEABLE_SYNC_INTERVAL_SECONDS:-30}
       - EA_WHATSAPP_WEB_TEABLE_BASE_ID=${EA_WHATSAPP_WEB_TEABLE_BASE_ID:-}
       - EA_WHATSAPP_WEB_MESSAGES_TEABLE_TABLE_ID=${EA_WHATSAPP_WEB_MESSAGES_TEABLE_TABLE_ID:-}
@@ -260,6 +329,41 @@ services:
       - TZ=Europe/Vienna
     volumes:
       - ./:/app:ro
+      - type: bind
+        source: /dev/null
+        target: /app/.env
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: tmpfs
+        target: /app/config
+        tmpfs:
+          size: 65536
+          mode: 365
+      - type: bind
+        source: ./config/onemin_api_keys.example.json
+        target: /app/config/onemin_api_keys.example.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/onemin_slot_owners.json
+        target: /app/config/onemin_slot_owners.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/places.yml
+        target: /app/config/places.yml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/tenants.yml
+        target: /app/config/tenants.yml
+        read_only: true
+        bind:
+          create_host_path: false
       - ea_whatsapp_web_teable_sync:/data/whatsapp-teable-sync
     extra_hosts:
       - "host.docker.internal:host-gateway"

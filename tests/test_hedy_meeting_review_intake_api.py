@@ -166,6 +166,37 @@ def test_hedy_webhook_rejects_bad_signature(monkeypatch: pytest.MonkeyPatch) -> 
     assert response.json()["error"]["code"] == "webhook_signature_mismatch"
 
 
+def test_hedy_webhook_requires_a_json_object(monkeypatch: pytest.MonkeyPatch) -> None:
+    _enable_hedy(monkeypatch)
+    client = _client(monkeypatch)
+    body = b"[]"
+
+    response = client.post(
+        "/v1/integrations/hedy/webhook",
+        content=body,
+        headers=_headers(body),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "hedy_payload_object_required"
+
+
+def test_hedy_webhook_rejects_oversized_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    _enable_hedy(monkeypatch)
+    monkeypatch.setenv("EA_HEDY_WEBHOOK_MAX_BODY_BYTES", "64")
+    client = _client(monkeypatch)
+    body = _body(_sample_payload())
+
+    response = client.post(
+        "/v1/integrations/hedy/webhook",
+        content=body,
+        headers=_headers(body),
+    )
+
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "hedy_payload_too_large"
+
+
 def test_hedy_webhook_blocks_unconsented_transcript_without_review_task(monkeypatch: pytest.MonkeyPatch) -> None:
     _enable_hedy(monkeypatch)
     client = _client(monkeypatch)

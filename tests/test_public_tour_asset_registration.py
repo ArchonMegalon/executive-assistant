@@ -68,7 +68,10 @@ def test_generated_preview_registration_is_digest_bound_and_deduplicated(
     }
     payload = json.loads((bundle / "tour.json").read_text(encoding="utf-8"))
     assert payload["title"] == "Preserved title"
-    assert [row["path"] for row in payload["public_assets"]] == ["existing.jpg", "telegram-preview.png"]
+    assert [row["path"] for row in payload["public_assets"]] == [
+        "existing.jpg",
+        "telegram-preview.png",
+    ]
 
     preview.write_bytes(b"replacement-preview")
     service._register_hosted_public_tour_asset(
@@ -78,9 +81,13 @@ def test_generated_preview_registration_is_digest_bound_and_deduplicated(
         purpose="telegram_delivery_preview",
     )
     payload = json.loads((bundle / "tour.json").read_text(encoding="utf-8"))
-    preview_rows = [row for row in payload["public_assets"] if row["path"] == "telegram-preview.png"]
+    preview_rows = [
+        row for row in payload["public_assets"] if row["path"] == "telegram-preview.png"
+    ]
     assert len(preview_rows) == 1
-    assert preview_rows[0]["sha256"] == hashlib.sha256(b"replacement-preview").hexdigest()
+    assert (
+        preview_rows[0]["sha256"] == hashlib.sha256(b"replacement-preview").hexdigest()
+    )
 
 
 def test_generated_asset_registration_rejects_escape_symlink_and_unsupported_type(
@@ -156,7 +163,10 @@ def test_magicfit_manifest_registration_resets_attestation_to_pending_review(
     assert registrations["tour.mp4"]["sha256"] == hashlib.sha256(video).hexdigest()
     assert registrations["tour.mp4"]["size_bytes"] == len(video)
     assert registrations["tour.mp4"]["mime_type"] == "video/mp4"
-    assert registrations["tour.magicfit.json"]["sha256"] == hashlib.sha256(sidecar).hexdigest()
+    assert (
+        registrations["tour.magicfit.json"]["sha256"]
+        == hashlib.sha256(sidecar).hexdigest()
+    )
     assert registrations["tour.magicfit.json"]["mime_type"] == "application/json"
     assert registrations["tour.magicfit.json"]["privacy_class"] == "internal"
 
@@ -178,7 +188,9 @@ def test_magicfit_manifest_registration_resets_attestation_to_pending_review(
     assert evaluate_public_tour_video_release(updated)["released"] is False
     monkeypatch.setattr(public_tours, "_tour_dir", lambda: root)
     assert "tour.mp4" not in public_tours._public_tour_allowed_asset_paths(updated)
-    assert "tour.magicfit.json" not in public_tours._public_tour_allowed_asset_paths(updated)
+    assert "tour.magicfit.json" not in public_tours._public_tour_allowed_asset_paths(
+        updated
+    )
 
     pending_only = json.loads(json.dumps(updated))
     pending_only["video_release"]["revoked"] = False
@@ -187,17 +199,19 @@ def test_magicfit_manifest_registration_resets_attestation_to_pending_review(
     reviewed = json.loads(json.dumps(pending_only))
     reviewed["video_release"].update(
         {
-                "status": "ready",
-                "review_receipt_sha256": "c" * 64,
-                "publication_authority_receipt_sha256": "d" * 64,
-                "provider_output_verified": True,
-                "quality_review_passed": True,
-                "publication_authority_verified": True,
-                "release_revision": "video-release-2026-07-13.1",
+            "status": "ready",
+            "review_receipt_sha256": "c" * 64,
+            "publication_authority_receipt_sha256": "d" * 64,
+            "provider_output_verified": True,
+            "quality_review_passed": True,
+            "publication_authority_verified": True,
+            "release_revision": "video-release-2026-07-13.1",
         }
     )
     assert "tour.mp4" in public_tours._public_tour_allowed_asset_paths(reviewed)
-    assert "tour.magicfit.json" not in public_tours._public_tour_allowed_asset_paths(reviewed)
+    assert "tour.magicfit.json" not in public_tours._public_tour_allowed_asset_paths(
+        reviewed
+    )
 
 
 def test_magicfit_missing_sidecar_fails_before_manifest_write(

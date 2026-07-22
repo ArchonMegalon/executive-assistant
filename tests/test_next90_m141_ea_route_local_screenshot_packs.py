@@ -18,9 +18,10 @@ FEEDBACK_PATH = ROOT / "feedback" / "2026-05-06-next90-m141-ea-route-local-scree
 MATERIALIZER_PATH = ROOT / "scripts" / "materialize_next90_m141_ea_route_local_screenshot_packs.py"
 VERIFY_PATH = ROOT / "scripts" / "verify_next90_m141_ea_route_local_screenshot_packs.py"
 PARITY_LAB_PACK_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "CHUMMER5A_PARITY_LAB_PACK.yaml"
-QUEUE_STAGING_PATH = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
-DESIGN_QUEUE_STAGING_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
-SUCCESSOR_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
+DESIGN_PRODUCT_ROOT = ROOT / ".codex-design" / "product"
+QUEUE_STAGING_PATH = DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+DESIGN_QUEUE_STAGING_PATH = DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+SUCCESSOR_REGISTRY_PATH = DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
 
 
 def _yaml(path: Path) -> dict:
@@ -236,7 +237,7 @@ def test_canonical_monitors_distinguish_unspecified_registry_status_from_missing
     queue_closeout = dict(dict(payload.get("canonical_monitors") or {}).get("queue_closeout") or {})
     fleet_gate_monitor = dict(dict(payload.get("canonical_monitors") or {}).get("fleet_m141_gate") or {})
     assert design_queue.get("status") == "not_started"
-    assert design_queue.get("path") == "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+    assert design_queue.get("path") == ".codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
     assert int(design_queue.get("match_count") or 0) == 1
     assert design_queue.get("unique_match") is True
     assert design_queue.get("work_task_id") == "141.4"
@@ -246,7 +247,7 @@ def test_canonical_monitors_distinguish_unspecified_registry_status_from_missing
     assert design_queue.get("repo") == "executive-assistant"
     assert design_queue.get("row_fingerprint")
     assert fleet_queue.get("status") == "not_started"
-    assert fleet_queue.get("path") == "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+    assert fleet_queue.get("path") == ".codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
     assert int(fleet_queue.get("match_count") or 0) == 1
     assert fleet_queue.get("unique_match") is True
     assert fleet_queue.get("work_task_id") == "141.4"
@@ -257,7 +258,7 @@ def test_canonical_monitors_distinguish_unspecified_registry_status_from_missing
     assert fleet_queue.get("row_fingerprint")
     assert design_queue.get("row_fingerprint") == fleet_queue.get("row_fingerprint")
     assert int(local_mirror_queue.get("match_count") or 0) == 1
-    assert local_mirror_queue.get("path") == "/docker/EA/.codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+    assert local_mirror_queue.get("path") == ".codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
     assert local_mirror_queue.get("unique_match") is True
     assert local_mirror_queue.get("status") == "not_started"
     assert local_mirror_queue.get("work_task_id") == "141.4"
@@ -267,7 +268,7 @@ def test_canonical_monitors_distinguish_unspecified_registry_status_from_missing
     assert local_mirror_queue.get("repo") == "executive-assistant"
     assert local_mirror_queue.get("row_fingerprint")
     assert registry_input.get("work_task_id") == "141.4"
-    assert registry_input.get("path") == "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
+    assert registry_input.get("path") == ".codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
     assert int(registry_input.get("milestone_id") or 0) == 141
     assert registry_input.get("owner") == "executive-assistant"
     assert registry_input.get("title") == payload.get("title")
@@ -275,7 +276,7 @@ def test_canonical_monitors_distinguish_unspecified_registry_status_from_missing
     assert registry_input.get("unique_match") is True
     assert registry_input.get("row_fingerprint")
     assert int(local_mirror_registry.get("match_count") or 0) == 1
-    assert local_mirror_registry.get("path") == "/docker/EA/.codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
+    assert local_mirror_registry.get("path") == ".codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
     assert local_mirror_registry.get("unique_match") is True
     assert local_mirror_registry.get("work_task_id") == "141.4"
     assert int(local_mirror_registry.get("milestone_id") or 0) == 141
@@ -283,7 +284,7 @@ def test_canonical_monitors_distinguish_unspecified_registry_status_from_missing
     assert local_mirror_registry.get("owner") == "executive-assistant"
     assert local_mirror_registry.get("title") == payload.get("title")
     assert local_mirror_registry.get("row_fingerprint")
-    assert readiness_input.get("path") == "/docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json"
+    assert readiness_input.get("path") == "docs/chummer5a_parity_lab/source_projections/fleet/FLAGSHIP_PRODUCT_READINESS.generated.json"
     assert readiness_input.get("coverage_key") == "desktop_client"
     assert readiness_input.get("status") == dict(payload.get("desktop_client_readiness") or {}).get("status")
     assert readiness_input.get("summary") == dict(payload.get("desktop_client_readiness") or {}).get("summary")
@@ -298,6 +299,12 @@ def test_canonical_monitors_distinguish_unspecified_registry_status_from_missing
         )
     )
     assert readiness_input.get("row_fingerprint") == expected_readiness_fingerprint
+    assert all(not str(dict(value).get("path") or "").startswith("/") for value in source_inputs.values())
+    assert all(
+        not str(path).startswith("/")
+        for row in (payload.get("route_local_screenshot_packs") or []) + (payload.get("family_compare_packets") or [])
+        for path in (dict(row).get("evidence_paths") or [])
+    )
     assert guide_markers == {"wave": True, "milestone": True, "exit": True}
     assert queue_alignment.get("design_queue_unique") is True
     assert queue_alignment.get("fleet_queue_unique") is True

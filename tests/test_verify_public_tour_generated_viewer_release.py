@@ -45,7 +45,10 @@ def _payload() -> dict[str, object]:
             "text/javascript",
             "viewer_module",
         ),
-        "generated-reconstruction/photos/living-room.jpg": ("image/jpeg", "photo_texture"),
+        "generated-reconstruction/photos/living-room.jpg": (
+            "image/jpeg",
+            "photo_texture",
+        ),
     }
     return {
         "slug": "generated-viewer-tour",
@@ -115,7 +118,9 @@ def _write_bundle(tmp_path: Path) -> Path:
 
 def _remote_headers(path: str, size_bytes: int, digest: str) -> dict[str, str]:
     binding = next(
-        row for row in _payload()["generated_viewer_release"]["asset_bindings"] if row["path"] == path
+        row
+        for row in _payload()["generated_viewer_release"]["asset_bindings"]
+        if row["path"] == path
     )
     headers = {
         "content-type": str(binding["mime_type"]),
@@ -137,7 +142,9 @@ def _remote_headers(path: str, size_bytes: int, digest: str) -> dict[str, str]:
     return headers
 
 
-def test_verifier_passes_complete_local_release_with_stable_receipt(tmp_path: Path) -> None:
+def test_verifier_passes_complete_local_release_with_stable_receipt(
+    tmp_path: Path,
+) -> None:
     bundle = _write_bundle(tmp_path)
 
     first = verifier.verify_bundle(bundle)
@@ -157,7 +164,38 @@ def test_verifier_passes_complete_local_release_with_stable_receipt(tmp_path: Pa
     }
 
 
-def test_verifier_fails_closed_for_mode_digest_and_symlink_drift(tmp_path: Path) -> None:
+def test_verifier_passes_explicit_layout_only_release(tmp_path: Path) -> None:
+    bundle = _write_bundle(tmp_path)
+    photo_relpath = "generated-reconstruction/photos/living-room.jpg"
+    (bundle / photo_relpath).unlink()
+    payload = json.loads((bundle / "tour.json").read_text(encoding="utf-8"))
+    generated = payload["generated_reconstruction"]
+    generated.pop("photo_relpaths")
+    generated["photo_reference_panel_count"] = 0
+    payload["generated_viewer_release"]["asset_bindings"] = [
+        row
+        for row in payload["generated_viewer_release"]["asset_bindings"]
+        if row["path"] != photo_relpath
+    ]
+    (bundle / "tour.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    receipt = verifier.verify_bundle(bundle)
+
+    assert receipt["status"] == "pass"
+    assert receipt["pass"] is True
+    assert receipt["blockers"] == []
+    assert receipt["checks"] == {
+        "policy_released": True,
+        "binding_count": 5,
+        "serveable_binding_count": 4,
+        "proof_only_binding_count": 1,
+        "http_verified": False,
+    }
+
+
+def test_verifier_fails_closed_for_mode_digest_and_symlink_drift(
+    tmp_path: Path,
+) -> None:
     bundle = _write_bundle(tmp_path)
     viewer = bundle / "generated-reconstruction/viewer.html"
     viewer.chmod(0o664)
@@ -235,7 +273,10 @@ def test_verifier_checks_get_and_head_but_never_fetches_proof_manifest(
     assert receipt["checks"]["http_verified"] is True
     assert len(requested) == 10
     assert {method for method, _path in requested} == {"GET", "HEAD"}
-    assert all(path != "generated-reconstruction/reconstruction.json" for _method, path in requested)
+    assert all(
+        path != "generated-reconstruction/reconstruction.json"
+        for _method, path in requested
+    )
 
 
 def test_verifier_blocks_remote_header_and_body_drift(

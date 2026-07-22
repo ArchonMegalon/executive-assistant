@@ -122,15 +122,10 @@ def test_whole_project_gold_map_is_conservative_and_complete() -> None:
     assert not any("poppy_draft_workbench" in item for item in ltd_plane["missing_evidence"])
     if planes["memorial_public_origin_gold"]["status"] == "blocked":
         assert any("room/device audio intelligibility" in item for item in receipt["required_next_receipts"])
-        assert any(
-            "memorial public-origin deploy next action:" in item
-            or "memorial public-origin access next action:" in item
-            for item in receipt["required_next_receipts"]
-        )
     memorial_public_plane = planes["memorial_public_origin_gold"]
     if memorial_public_plane["status"] == "blocked":
         assert "public-origin room/device audio intelligibility receipt with manual attestation" in memorial_public_plane["missing_evidence"]
-    assert ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json" in memorial_public_plane["evidence"]
+    assert ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json" not in memorial_public_plane["evidence"]
     assert all(not str(path).startswith("/tmp/") for path in planes["memorial_voice_demo"]["evidence"])
     assert all(not str(path).startswith("/tmp/") for path in memorial_public_plane["evidence"])
     assert all(str(path).startswith(".codex-studio/") for path in planes["memorial_voice_demo"]["evidence"])
@@ -271,50 +266,45 @@ def test_whole_project_gold_map_verifier_rejects_tmp_evidence_paths(tmp_path: Pa
     assert any("memorial public-origin evidence paths must be repo-relative" in issue for issue in issues)
 
 
-def test_whole_project_gold_map_surfaces_public_origin_access_block(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_whole_project_gold_map_does_not_consume_memorial_operator_projection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import scripts.materialize_whole_project_gold_map as materialize
     import scripts.verify_whole_project_gold_map as verify_module
 
-    operator_status_path = tmp_path / ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json"
-    operator_status_path.parent.mkdir(parents=True, exist_ok=True)
-    operator_status_path.write_text(
-        json.dumps(
-            {
-                "public_runtime_mode": "blocked",
-                "public_runtime_mode_detail": {
-                    "reason": "public_origin_not_deployed_in_memorial_mode",
-                    "next_action": "deploy_ea_memorial",
-                },
-                "public_origin_access": "access_blocked",
-                "public_origin_access_detail": {
-                    "next_action": "allow_anonymous_public_memorial_origin_access",
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
+    operator_status_path = (
+        ROOT / ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json"
+    ).resolve()
+    materializer_reads: list[Path] = []
+    original_materializer_json = materialize._json
 
-    receipt = materialize.build_gold_map(
-        generated_at="2026-06-12T00:00:00Z",
-        memorial_operator_status_path=operator_status_path,
-    )
+    def tracked_materializer_json(path: Path) -> dict[str, object]:
+        assert path.resolve() != operator_status_path
+        materializer_reads.append(path)
+        return original_materializer_json(path)
+
+    monkeypatch.setattr(materialize, "_json", tracked_materializer_json)
+    receipt = materialize.build_gold_map(generated_at="2026-06-12T00:00:00Z")
     plane = next(plane for plane in receipt["planes"] if plane["key"] == "memorial_public_origin_gold")
-    assert plane["status"] == "blocked"
-    assert any("public origin is still deployed in EA_CORE mode instead of MEMORIAL mode" in item for item in plane["missing_evidence"])
-    assert any("public_runtime_mode=blocked" in item for item in plane["design_notes"])
-    assert not any("public memorial origin access blocked" in item for item in plane["missing_evidence"])
-    assert not any("public_origin_access=" in item for item in plane["design_notes"])
-    assert any(str(item).endswith(".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json") for item in plane["evidence"])
-    assert any("memorial public-origin deploy next action: deploy_ea_memorial" == item for item in receipt["required_next_receipts"])
+    assert materializer_reads
+    assert not any(
+        str(item).endswith(
+            ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json"
+        )
+        for item in plane["evidence"]
+    )
 
     path = tmp_path / "gold-map.json"
     path.write_text(json.dumps(receipt), encoding="utf-8")
-    monkeypatch.setattr(verify_module, "ROOT", tmp_path)
-    issues = verify_module.verify(path)
-    assert any("configured public origin is not deployed in MEMORIAL mode" in issue for issue in issues)
-    assert any("memorial public-origin deploy next action: deploy_ea_memorial" in issue for issue in issues)
-    assert not any("memorial public-origin plane must be blocked while public origin access is access_blocked" in issue for issue in issues)
-    assert not any("memorial public-origin page or manifest is missing at the configured edge" in issue for issue in issues)
+    original_verifier_json = verify_module._json
+
+    def guarded_verifier_json(candidate: Path) -> dict[str, object]:
+        assert candidate.resolve() != operator_status_path
+        return original_verifier_json(candidate)
+
+    monkeypatch.setattr(verify_module, "_json", guarded_verifier_json)
+    verify_module.verify(path)
 
 
 def test_whole_project_gold_map_source_head_skips_generated_only_head_commit(monkeypatch: pytest.MonkeyPatch) -> None:

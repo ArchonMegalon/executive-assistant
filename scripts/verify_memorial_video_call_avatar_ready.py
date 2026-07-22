@@ -77,7 +77,13 @@ def run_check(*, base_url: str, slug: str) -> AvatarReadinessReport:
     avatar = dict(payload.get("video_call_avatar") or {})
     if avatar.get("enabled") is not True:
         provider_label = str(avatar.get("provider_label") or "").strip()
-        if provider_label and provider_label in html:
+        if 'data-public-memorial-surface="conversation-only"' in html:
+            report.add(
+                "warn",
+                "avatar_video_not_published",
+                public_page_surface="conversation_only",
+            )
+        elif provider_label and provider_label in html:
             report.add("warn", "avatar_video_not_published", provider_label=provider_label)
         else:
             report.add("warn", "avatar_disabled_label_missing")

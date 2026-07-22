@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
@@ -15,15 +16,20 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
     from source_state_head import resolve_source_state_head, source_worktree_metadata
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / ".codex-design" / "product" / "MEMORIAL_OPERATOR_STATUS.generated.json"
+DEFAULT_OUTPUT = ROOT / ".codex-design" / "product" / "MEMORIAL_OPERATOR_STATUS.generated.json"
 WHOLE_PROJECT_GOLD_MAP = ROOT / ".codex-design" / "product" / "WHOLE_PROJECT_GOLD_MAP.generated.json"
-DEPLOY_CONTEXT = ROOT / ".codex-studio" / "published" / "deploy_context.generated.json"
-RELEASE_MANIFEST = ROOT / ".codex-studio" / "published" / "release_manifest.generated.json"
-RELEASE_AUTHORITY_STATUS = ROOT / ".codex-studio" / "published" / "release_authority_status.generated.json"
+DEFAULT_DEPLOY_CONTEXT = ROOT / ".codex-studio" / "published" / "deploy_context.generated.json"
+DEFAULT_RELEASE_MANIFEST = ROOT / ".codex-studio" / "published" / "release_manifest.generated.json"
+DEFAULT_RELEASE_AUTHORITY_STATUS = ROOT / ".codex-studio" / "published" / "release_authority_status.generated.json"
+OUTPUT = DEFAULT_OUTPUT
+DEPLOY_CONTEXT = DEFAULT_DEPLOY_CONTEXT
+RELEASE_MANIFEST = DEFAULT_RELEASE_MANIFEST
+RELEASE_AUTHORITY_STATUS = DEFAULT_RELEASE_AUTHORITY_STATUS
 MEANINGFUL_BROWSER_RECEIPT = ROOT / ".codex-studio" / "published" / "memorial_realtime_browser_meaningful_public_origin.generated.json"
 PUBLIC_VOICE_RECEIPT = ROOT / ".codex-studio" / "published" / "memorial_voice_roundtrip_public_origin.generated.json"
 PUBLIC_BROWSER_RECEIPT = ROOT / ".codex-studio" / "published" / "memorial_realtime_browser_public_origin.generated.json"
 ROOM_AUDIO_RECEIPT = ROOT / ".codex-studio" / "published" / "memorial_room_audio_public_origin.generated.json"
+SPATIAL_TOUR_RECEIPT = ROOT / ".codex-studio" / "published" / "memorial_spatial_tour_public_origin.generated.json"
 ROOM_AUDIO_ATTESTATION_PACKET = ROOT / ".codex-studio" / "published" / "memorial_room_audio_attestation_packet.generated.json"
 STT_PROVIDER_BENCHMARK_RECEIPT = ROOT / ".codex-studio" / "published" / "memorial_stt_provider_benchmark.generated.json"
 STT_FIXTURE_CANDIDATE_RECEIPT = ROOT / ".codex-studio" / "published" / "memorial_stt_fixture_candidate.generated.json"
@@ -436,7 +442,17 @@ def _memorial_public_runtime_status() -> dict[str, object]:
 def _release_authority_status() -> dict[str, object]:
     payload = _load_json(RELEASE_AUTHORITY_STATUS)
     if not payload:
-        payload = _run_json(["scripts/materialize_release_authority_status.py", "--output", str(RELEASE_AUTHORITY_STATUS)])
+        payload = _run_json(
+            [
+                "scripts/materialize_release_authority_status.py",
+                "--output",
+                str(RELEASE_AUTHORITY_STATUS),
+                "--release-manifest",
+                str(RELEASE_MANIFEST),
+                "--deploy-context",
+                str(DEPLOY_CONTEXT),
+            ]
+        )
     if not isinstance(payload, dict):
         return {
             "status": "missing",
@@ -454,7 +470,7 @@ def _release_authority_status() -> dict[str, object]:
         if str(item).strip()
     ]
     next_action = str(payload.get("next_action") or "").strip()
-    status = "pass" if state == "pass" and not issues else "blocked"
+    status = "pass" if state in {"clear", "pass"} and not issues else "blocked"
     return {
         "status": status,
         "state": state,
@@ -1129,13 +1145,13 @@ def _memorial_next_command_for_action(action: str) -> str:
     }:
         return "GET /memorials/manfred and /memorials/manfred.json on the configured public origin"
     if normalized == "refresh_memorial_public_auto_receipts_clean":
-        return "scripts/materialize_memorial_public_auto_receipts_clean.py"
+        return "make materialize-memorial-public-auto-receipts-clean"
     if normalized in {
         "refresh_public_memorial_voice_receipt",
         "refresh_public_memorial_browser_receipt",
         "refresh_meaningful_memorial_browser_receipt",
     }:
-        return "scripts/materialize_memorial_public_auto_receipts_clean.py"
+        return "make materialize-memorial-public-auto-receipts-clean"
     if normalized == "refresh_local_memorial_voice_receipt":
         return "make materialize-memorial-public-voice-gold"
     if normalized == "collect_real_room_audio_attestation":
@@ -1145,7 +1161,32 @@ def _memorial_next_command_for_action(action: str) -> str:
     return ""
 
 
-def main() -> int:
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Materialize the Manfred memorial operator-status projection."
+    )
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--deploy-context", type=Path, default=DEFAULT_DEPLOY_CONTEXT)
+    parser.add_argument("--release-manifest", type=Path, default=DEFAULT_RELEASE_MANIFEST)
+    parser.add_argument(
+        "--release-authority-status",
+        type=Path,
+        default=DEFAULT_RELEASE_AUTHORITY_STATUS,
+    )
+    return parser.parse_args(argv)
+
+
+def _configure_paths(args: argparse.Namespace) -> None:
+    global OUTPUT, DEPLOY_CONTEXT, RELEASE_MANIFEST, RELEASE_AUTHORITY_STATUS
+    OUTPUT = Path(args.output).expanduser().resolve()
+    DEPLOY_CONTEXT = Path(args.deploy_context).expanduser().resolve()
+    RELEASE_MANIFEST = Path(args.release_manifest).expanduser().resolve()
+    RELEASE_AUTHORITY_STATUS = Path(args.release_authority_status).expanduser().resolve()
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
+    _configure_paths(args)
     source_head = resolve_source_state_head(ROOT)
     source_worktree = source_worktree_metadata(ROOT, dirty_path_limit=SOURCE_DIRTY_FILE_LIMIT)
     source_dirty_summary = _source_dirty_summary(source_worktree)
@@ -1174,12 +1215,17 @@ def main() -> int:
         or list(readiness.get("public_meaningful_browser_gold_issues") or [])
         or list(readiness.get("memorial_surface_contract_issues") or [])
         or list(readiness.get("room_audio_issues") or [])
+        or list(readiness.get("public_spatial_tour_issues") or [])
+        or list(readiness.get("receipt_set_binding_issues") or [])
     )
-    memorial_public_gold_claim_allowed = (
+    spatial_readiness_present = bool(
+        isinstance(readiness.get("public_spatial_tour_issues"), list)
+        and str(readiness.get("public_spatial_tour_receipt") or "").strip()
+    )
+    memorial_public_gold_claim_allowed = spatial_readiness_present and not has_any_readiness_issues and (
         readiness_status == "pass"
         or (
             readiness.get("memorial_voice_gold_claim_allowed") is True
-            and not has_any_readiness_issues
         )
     )
     memorial_public_gold_allowed = memorial_public_gold_claim_allowed
@@ -1195,7 +1241,35 @@ def main() -> int:
         PUBLIC_BROWSER_RECEIPT,
         MEANINGFUL_BROWSER_RECEIPT,
         ROOM_AUDIO_RECEIPT,
+        SPATIAL_TOUR_RECEIPT,
     )
+    spatial_tour_payload = _load_json(SPATIAL_TOUR_RECEIPT)
+    spatial_tour_issues = [
+        str(item).strip()
+        for item in list(readiness.get("public_spatial_tour_issues") or [])
+        if str(item).strip()
+    ]
+    spatial_tour_detail = {
+        "status": "pass"
+        if spatial_readiness_present and not spatial_tour_issues
+        else "missing_or_blocked",
+        "receipt_path": _display_path(SPATIAL_TOUR_RECEIPT),
+        "contract_name": str(spatial_tour_payload.get("contract_name") or "").strip(),
+        "tour_slug": str(spatial_tour_payload.get("tour_slug") or "").strip(),
+        "public_base_url": str(spatial_tour_payload.get("public_base_url") or "").strip(),
+        "runtime_revision": str(spatial_tour_payload.get("runtime_revision") or "").strip(),
+        "package_sha256": str(
+            dict(spatial_tour_payload.get("package_binding") or {}).get(
+                "package_sha256"
+            )
+            or ""
+        ).strip(),
+        "publication_authority": dict(
+            spatial_tour_payload.get("publication_authority") or {}
+        ),
+        "deploy_binding": dict(spatial_tour_payload.get("deploy_binding") or {}),
+        "issues": spatial_tour_issues,
+    }
     public_voice_semantics = _public_voice_receipt_semantics()
     spoken_stt_status = _spoken_stt_provider_benchmark_status()
     stt_fixture_candidate = _stt_fixture_candidate_status()
@@ -1306,13 +1380,15 @@ def main() -> int:
         "public_origin_access": str(public_origin_access.get("status") or "missing_or_blocked").strip(),
         "memorial_surface_contract": "pass" if str(memorial_surface_contract.get("status") or "").strip().lower() == "pass" else "missing_or_blocked",
         "room_audio_receipt": "pass" if not list(readiness.get("room_audio_issues") or []) else "missing_or_blocked",
+        "public_spatial_tour_receipt": spatial_tour_detail["status"],
         "whole_project_gold": whole_project_gold,
         "memorial_public_gold_next_action": memorial_public_gold_next_action,
         "memorial_public_gold_next_command": memorial_public_gold_next_command,
         "memorial_public_gold_blocker_summary": memorial_public_gold_blocker_summary,
         "operator_notes": [
             "Use labels only: Memorial local release candidate / Memorial public-origin gold: blocked|pass.",
-            "Public-origin gold requires voice, browser, and room receipts at current HEAD/public origin.",
+            "Public-origin gold requires voice, browser, room, and exact-byte 3D-tour receipts at the current clean source state and public origin.",
+            "The public 3D-tour receipt must bind the pinned PropertyQuarry authority/package, polished v5 candidate-browser interactions, deploy receipt, and all 16 GET/HEAD public route observations; status-only or candidate-only evidence cannot pass.",
             "If public_runtime_mode is blocked, the configured public origin is not currently deployed in MEMORIAL mode; use make deploy-ea-memorial before treating public memorial routes as publishable.",
             "If release_authority.status is blocked while public_runtime_mode is blocked, clear release authority first; memorial deploy claims must not be refreshed from a dirty tree or stale deploy context.",
             "If local/public/browser memorial receipts are stale or missing, refresh the non-manual proof set first with scripts/materialize_memorial_public_auto_receipts_clean.py before asking for a fresh room/device attestation.",
@@ -1346,6 +1422,7 @@ def main() -> int:
             "public_origin_probe": "GET /memorials/manfred and /memorials/manfred.json on the configured public origin",
             "memorial_surface_contract": "scripts/verify_project_mode_runtime.py --mode memorial",
             "room_audio_receipt": _display_path(ROOT / ".codex-studio/published/memorial_room_audio_public_origin.generated.json"),
+            "public_spatial_tour_receipt": _display_path(SPATIAL_TOUR_RECEIPT),
             "room_audio_attestation_packet": _display_path(ROOM_AUDIO_ATTESTATION_PACKET),
             "spoken_stt_provider_benchmark": _display_path(STT_PROVIDER_BENCHMARK_RECEIPT),
             "stt_fixture_candidate": _display_path(STT_FIXTURE_CANDIDATE_RECEIPT),
@@ -1360,6 +1437,7 @@ def main() -> int:
             "public_browser_receipt": _receipt_git_head(PUBLIC_BROWSER_RECEIPT),
             "public_meaningful_browser_receipt": _receipt_git_head(MEANINGFUL_BROWSER_RECEIPT),
             "room_audio_receipt": _receipt_git_head(ROOM_AUDIO_RECEIPT),
+            "public_spatial_tour_receipt": _receipt_git_head(SPATIAL_TOUR_RECEIPT),
         },
         "workflow_backing": workflow_backing,
         "release_authority": release_authority_status,
@@ -1368,6 +1446,7 @@ def main() -> int:
         "memorial_surface_contract_detail": memorial_surface_contract,
         "public_voice_receipt_semantics": public_voice_semantics,
         "room_audio_receipt_detail": room_audio_receipt_detail,
+        "public_spatial_tour_receipt_detail": spatial_tour_detail,
         "room_audio_attestation_packet": room_attestation_packet,
         "spoken_conversation_stt": spoken_stt_status,
         "stt_fixture_candidate": stt_fixture_candidate,

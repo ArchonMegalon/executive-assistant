@@ -233,8 +233,9 @@ def test_builtin_w3_gm_ops_contract_projects_lane_memory_metadata() -> None:
     )
     assert runtime_policy.skill_catalog.memory_writes == ("gm_ops_brief_fact",)
     assert runtime_policy.skill_catalog.provider_hints_json["primary"] == [
-        "Gemini Vortex",
+        "1min.AI",
         "AI Magicx",
+        "Gemini Vortex",
         "BrowserAct",
     ]
 

@@ -804,6 +804,11 @@ def test_proactive_ooda_operator_status_verifier_accepts_provider_cost_recovery(
             "next_action_method": "get",
             "operator_action_state": "recovery_required",
             "provider_cost_pressure": _provider_cost_pressure_recovery(),
+            "approval_capture_surface": {
+                "callback_hygiene_ready": False,
+                "callback_hygiene_blocking_reason": "approval_callback_noncurrent_pending",
+                "callback_hygiene_next_action": "cleanup_proactive_approval_callbacks",
+            },
         }
     )
     _write_receipt(receipt, **payload)

@@ -349,7 +349,16 @@ def verify(path: Path = DEFAULT_OUTPUT, *, now: datetime | None = None) -> list[
         receipt.get("real_user_playback_acceptance_verified") is True
     )
     machine_verified = receipt.get("machine_playback_e2e_verified") is True
+    human_claim = receipt.get("human_playback_acceptance_claim_allowed") is True
     canary_claim = receipt.get("canary_completion_claim_allowed") is True
+    if human_claim != canary_claim:
+        issues.append(
+            "human_playback_acceptance_claim_allowed must equal canary_completion_claim_allowed"
+        )
+    if (human_claim or canary_claim) and not real_user_accepted:
+        issues.append(
+            "human acceptance claims require real_user_playback_acceptance_verified=true"
+        )
     canary_blocked_fields_value = receipt.get("canary_completion_blocked_fields")
     if not isinstance(canary_blocked_fields_value, list):
         issues.append("canary_completion_blocked_fields must be an array")

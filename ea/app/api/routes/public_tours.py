@@ -18,10 +18,12 @@ import time
 import unicodedata
 import urllib.parse
 from urllib.parse import urlparse
+import weakref
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 import requests
+from starlette.types import Receive, Scope, Send
 
 from app.api.dependencies import get_container
 from app.api.routes.landing_public_support import _anonymous_onboarding_status, _public_context, templates as public_templates
@@ -852,20 +854,128 @@ def _public_tour_generated_viewer_url(slug: str, relpath: object) -> str:
     return f"/tours/viewer/{urllib.parse.quote(safe_slug, safe='')}/{urllib.parse.quote(safe_relpath, safe='/')}"
 
 
-@lru_cache(maxsize=256)
-def _public_tour_cached_file_sha256(
+def _public_tour_file_stat_identity(
+    value: os.stat_result,
+) -> tuple[int, int, int, int, int, int]:
+    return (
+        int(value.st_dev),
+        int(value.st_ino),
+        int(value.st_mode),
+        int(value.st_size),
+        int(value.st_mtime_ns),
+        int(value.st_ctime_ns),
+    )
+
+
+def _public_tour_open_hashed_file(
     path: str,
     *,
+    device: int,
+    inode: int,
+    mode: int,
+    size_bytes: int,
+    mtime_ns: int,
+    ctime_ns: int,
+    capture_bytes: bool = False,
+) -> tuple[int, str, bytes | None]:
+    expected_identity = (device, inode, mode, size_bytes, mtime_ns, ctime_ns)
+    flags = os.O_RDONLY | os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(path, flags)
+    try:
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or _public_tour_file_stat_identity(before) != expected_identity
+        ):
+            raise OSError("public_tour_asset_identity_changed")
+        digest = hashlib.sha256()
+        captured = bytearray() if capture_bytes else None
+        while chunk := os.read(descriptor, 1024 * 1024):
+            digest.update(chunk)
+            if captured is not None:
+                captured.extend(chunk)
+        after = os.fstat(descriptor)
+        if _public_tour_file_stat_identity(after) != expected_identity:
+            raise OSError("public_tour_asset_changed_during_hash")
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        return descriptor, digest.hexdigest(), bytes(captured) if captured is not None else None
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _public_tour_streamed_file_sha256(
+    path: str,
+    *,
+    device: int,
+    inode: int,
+    mode: int,
     size_bytes: int,
     mtime_ns: int,
     ctime_ns: int,
 ) -> str:
-    del size_bytes, mtime_ns, ctime_ns
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    descriptor, digest, _ = _public_tour_open_hashed_file(
+        path,
+        device=device,
+        inode=inode,
+        mode=mode,
+        size_bytes=size_bytes,
+        mtime_ns=mtime_ns,
+        ctime_ns=ctime_ns,
+    )
+    try:
+        return digest
+    finally:
+        os.close(descriptor)
+
+
+@lru_cache(maxsize=256)
+def _public_tour_cached_file_sha256(
+    path: str,
+    *,
+    device: int,
+    inode: int,
+    mode: int,
+    size_bytes: int,
+    mtime_ns: int,
+    ctime_ns: int,
+) -> str:
+    return _public_tour_streamed_file_sha256(
+        path,
+        device=device,
+        inode=inode,
+        mode=mode,
+        size_bytes=size_bytes,
+        mtime_ns=mtime_ns,
+        ctime_ns=ctime_ns,
+    )
+
+
+def _public_tour_verified_file_sha256(
+    path: Path,
+    *,
+    bundle_dir: Path,
+    candidate_stat: os.stat_result,
+) -> str:
+    current_stat = path.stat(follow_symlinks=False)
+    expected_identity = _public_tour_file_stat_identity(candidate_stat)
+    if (
+        not stat.S_ISREG(current_stat.st_mode)
+        or _public_tour_file_stat_identity(current_stat) != expected_identity
+    ):
+        raise OSError("public_tour_asset_identity_changed")
+    hash_args = {
+        "device": int(candidate_stat.st_dev),
+        "inode": int(candidate_stat.st_ino),
+        "mode": int(candidate_stat.st_mode),
+        "size_bytes": int(candidate_stat.st_size),
+        "mtime_ns": int(candidate_stat.st_mtime_ns),
+        "ctime_ns": int(candidate_stat.st_ctime_ns),
+    }
+    del bundle_dir
+    return _public_tour_streamed_file_sha256(str(path), **hash_args)
 
 
 def _public_tour_path_contains_symlink(bundle_dir: Path, relpath: str) -> bool:
@@ -925,15 +1035,22 @@ def _public_tour_generated_manifest_provenance_verified(
         candidate_stat = candidate.stat()
         if candidate_stat.st_size <= 0 or candidate_stat.st_size > 4 * 1024 * 1024:
             return False
-        actual_sha256 = _public_tour_cached_file_sha256(
+        descriptor, actual_sha256, manifest_bytes = _public_tour_open_hashed_file(
             str(candidate),
+            device=int(candidate_stat.st_dev),
+            inode=int(candidate_stat.st_ino),
+            mode=int(candidate_stat.st_mode),
             size_bytes=int(candidate_stat.st_size),
             mtime_ns=int(candidate_stat.st_mtime_ns),
             ctime_ns=int(candidate_stat.st_ctime_ns),
+            capture_bytes=True,
         )
-        if actual_sha256 != normalized_sha256:
-            return False
-        manifest = json.loads(candidate.read_text(encoding="utf-8"))
+        try:
+            if actual_sha256 != normalized_sha256 or manifest_bytes is None:
+                return False
+            manifest = json.loads(manifest_bytes.decode("utf-8"))
+        finally:
+            os.close(descriptor)
     except (OSError, UnicodeError, json.JSONDecodeError):
         return False
     if not isinstance(manifest, dict):
@@ -1159,8 +1276,14 @@ def _redacted_public_tour_payload(
     return rendered
 
 
-def _asset_file(slug: str, asset_path: str) -> Path:
-    payload = _load_tour(slug)
+def _open_asset_file(
+    slug: str,
+    asset_path: str,
+    *,
+    payload: dict[str, object] | None = None,
+) -> tuple[Path, int, str]:
+    if payload is None:
+        payload = _load_tour(slug)
     _require_public_tour_viewable(payload)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
     configured_video_relpath = _public_tour_safe_asset_relpath(payload.get("video_relpath"))
@@ -1185,39 +1308,54 @@ def _asset_file(slug: str, asset_path: str) -> Path:
         raise HTTPException(status_code=404, detail="tour_file_not_found")
     expected_sha256 = str(video_release.get("expected_sha256") or "").strip().lower()
     expected_size = video_release.get("expected_size_bytes")
-    if expected_sha256 and isinstance(expected_size, int):
-        try:
-            candidate_stat = candidate.stat()
-            digest = _public_tour_cached_file_sha256(
-                str(candidate),
-                size_bytes=int(candidate_stat.st_size),
-                mtime_ns=int(candidate_stat.st_mtime_ns),
-                ctime_ns=int(candidate_stat.st_ctime_ns),
-            )
-        except OSError as exc:
-            raise HTTPException(status_code=404, detail="tour_file_not_found") from exc
-        if candidate_stat.st_size != expected_size or digest != expected_sha256:
+    try:
+        candidate_stat = candidate.stat()
+        descriptor, digest, _ = _public_tour_open_hashed_file(
+            str(candidate),
+            device=int(candidate_stat.st_dev),
+            inode=int(candidate_stat.st_ino),
+            mode=int(candidate_stat.st_mode),
+            size_bytes=int(candidate_stat.st_size),
+            mtime_ns=int(candidate_stat.st_mtime_ns),
+            ctime_ns=int(candidate_stat.st_ctime_ns),
+        )
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="tour_file_not_found") from exc
+    try:
+        if expected_sha256 and isinstance(expected_size, int):
+            if candidate_stat.st_size != expected_size or digest != expected_sha256:
+                raise HTTPException(status_code=410, detail="tour_media_no_longer_available")
+        if (
+            video_release.get("released")
+            and video_release.get("provider") == GENERATED_RECONSTRUCTION_PROVIDER
+            and not _public_tour_generated_video_provenance_verified(bundle_dir, video_release)
+        ):
             raise HTTPException(status_code=410, detail="tour_media_no_longer_available")
-    if (
-        video_release.get("released")
-        and video_release.get("provider") == GENERATED_RECONSTRUCTION_PROVIDER
-        and not _public_tour_generated_video_provenance_verified(bundle_dir, video_release)
-    ):
-        raise HTTPException(status_code=410, detail="tour_media_no_longer_available")
-    if candidate.suffix.lower() == ".pdf":
-        max_bytes = max(int(os.getenv("PROPERTYQUARRY_PUBLIC_PDF_MAX_BYTES") or "15728640"), 1)
-        try:
-            if candidate.stat().st_size > max_bytes:
+        if candidate.suffix.lower() == ".pdf":
+            max_bytes = max(
+                int(os.getenv("PROPERTYQUARRY_PUBLIC_PDF_MAX_BYTES") or "15728640"),
+                1,
+            )
+            if candidate_stat.st_size > max_bytes:
                 raise HTTPException(status_code=404, detail="tour_file_not_found")
-        except OSError as exc:
-            raise HTTPException(status_code=404, detail="tour_file_not_found") from exc
-    return candidate
+        return candidate, descriptor, digest
+    except BaseException:
+        os.close(descriptor)
+        raise
 
 
-def _generated_viewer_file(
+def _asset_file(slug: str, asset_path: str) -> Path:
+    candidate, descriptor, _ = _open_asset_file(slug, asset_path)
+    try:
+        return candidate
+    finally:
+        os.close(descriptor)
+
+
+def _open_generated_viewer_file(
     slug: str,
     asset_path: str,
-) -> tuple[Path, dict[str, object], dict[str, object]]:
+) -> tuple[Path, dict[str, object], dict[str, object], int]:
     payload = _load_tour(slug)
     _require_public_tour_viewable(payload)
     release = evaluate_public_tour_generated_viewer_release(payload)
@@ -1256,28 +1394,54 @@ def _generated_viewer_file(
     expected_size = binding.get("size_bytes")
     try:
         candidate_stat = candidate.stat()
-        actual_sha256 = _public_tour_cached_file_sha256(
+        descriptor, actual_sha256, _ = _public_tour_open_hashed_file(
             str(candidate),
+            device=int(candidate_stat.st_dev),
+            inode=int(candidate_stat.st_ino),
+            mode=int(candidate_stat.st_mode),
             size_bytes=int(candidate_stat.st_size),
             mtime_ns=int(candidate_stat.st_mtime_ns),
             ctime_ns=int(candidate_stat.st_ctime_ns),
         )
     except OSError as exc:
         raise HTTPException(status_code=404, detail="tour_viewer_not_found") from exc
-    if not isinstance(expected_size, int) or candidate_stat.st_size != expected_size or actual_sha256 != expected_sha256:
-        raise HTTPException(status_code=410, detail="tour_viewer_integrity_failed")
-    proof_bindings = [
-        row
-        for row in dict(release.get("bindings") or {}).values()
-        if isinstance(row, dict) and str(row.get("role") or "").strip().lower() == "reconstruction_manifest"
-    ]
-    if len(proof_bindings) != 1 or not _public_tour_generated_manifest_provenance_verified(
-        bundle_dir,
-        relpath=proof_bindings[0].get("path") if proof_bindings else "",
-        expected_sha256=proof_bindings[0].get("sha256") if proof_bindings else "",
-    ):
-        raise HTTPException(status_code=410, detail="tour_viewer_integrity_failed")
-    return candidate, binding, release
+    try:
+        if (
+            not isinstance(expected_size, int)
+            or candidate_stat.st_size != expected_size
+            or actual_sha256 != expected_sha256
+        ):
+            raise HTTPException(status_code=410, detail="tour_viewer_integrity_failed")
+        proof_bindings = [
+            row
+            for row in dict(release.get("bindings") or {}).values()
+            if isinstance(row, dict)
+            and str(row.get("role") or "").strip().lower() == "reconstruction_manifest"
+        ]
+        if len(proof_bindings) != 1 or not _public_tour_generated_manifest_provenance_verified(
+            bundle_dir,
+            relpath=proof_bindings[0].get("path") if proof_bindings else "",
+            expected_sha256=proof_bindings[0].get("sha256") if proof_bindings else "",
+        ):
+            raise HTTPException(status_code=410, detail="tour_viewer_integrity_failed")
+        return candidate, binding, release, descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _generated_viewer_file(
+    slug: str,
+    asset_path: str,
+) -> tuple[Path, dict[str, object], dict[str, object]]:
+    candidate, binding, release, descriptor = _open_generated_viewer_file(
+        slug,
+        asset_path,
+    )
+    try:
+        return candidate, binding, release
+    finally:
+        os.close(descriptor)
 
 
 def _money(value: object) -> str:
@@ -5975,7 +6139,58 @@ def _public_tour_generated_viewer_headers(
     return headers
 
 
+class _PublicTourDescriptorFileResponse(FileResponse):
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        isolated_scope = dict(scope)
+        extensions = dict(scope.get("extensions") or {})
+        extensions.pop("http.response.pathsend", None)
+        isolated_scope["extensions"] = extensions
+        try:
+            await super().__call__(isolated_scope, receive, send)
+        finally:
+            finalizer = getattr(self, "_public_tour_descriptor_finalizer", None)
+            if callable(finalizer):
+                finalizer()
+
+
+def _public_tour_close_descriptor(descriptor: int) -> None:
+    try:
+        os.close(descriptor)
+    except OSError:
+        pass
+
+
+def _public_tour_descriptor_file_response(
+    descriptor: int,
+    *,
+    media_type: str,
+    headers: dict[str, str],
+) -> FileResponse:
+    finalizer: weakref.finalize | None = None
+    try:
+        response = _PublicTourDescriptorFileResponse(
+            f"/proc/self/fd/{descriptor}",
+            media_type=media_type,
+            headers=headers,
+            stat_result=os.fstat(descriptor),
+        )
+        finalizer = weakref.finalize(
+            response,
+            _public_tour_close_descriptor,
+            descriptor,
+        )
+        response._public_tour_descriptor_finalizer = finalizer
+        return response
+    except BaseException:
+        if finalizer is None:
+            _public_tour_close_descriptor(descriptor)
+        else:
+            finalizer()
+        raise
+
+
 @router.get("/tours/{slug}.json", response_class=JSONResponse)
+@router.head("/tours/{slug}.json", response_class=JSONResponse)
 def public_tour_payload(slug: str) -> JSONResponse:
     payload = _load_tour(slug)
     _require_public_tour_viewable(payload)
@@ -5993,20 +6208,28 @@ def public_tour_file(slug: str, asset_path: str) -> FileResponse:
     payload = _load_tour(slug)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
     manifest_row = _public_tour_manifest(payload, only_relpath=safe_relpath).get(safe_relpath, {}) if safe_relpath else {}
-    file_path = _asset_file(slug, asset_path)
-    media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
-    headers = _public_tour_security_headers(cache_control="public, max-age=86400, immutable")
-    configured_video_relpath = _public_tour_safe_asset_relpath(payload.get("video_relpath"))
-    video_release = evaluate_public_tour_video_release(payload) if safe_relpath == configured_video_relpath else {}
-    release_sha256 = str(video_release.get("expected_sha256") or "").strip().lower()
-    if release_sha256 or manifest_row.get("sha256"):
-        headers["X-PropertyQuarry-Asset-SHA256"] = release_sha256 or str(manifest_row["sha256"])
-    if video_release.get("release_revision"):
-        headers["X-PropertyQuarry-Media-Revision"] = str(video_release["release_revision"])
-    if manifest_row.get("privacy_class"):
-        headers["X-PropertyQuarry-Asset-Privacy"] = str(manifest_row["privacy_class"])
-    return FileResponse(
-        file_path,
+    file_path, descriptor, verified_sha256 = _open_asset_file(
+        slug,
+        asset_path,
+        payload=payload,
+    )
+    try:
+        media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+        headers = _public_tour_security_headers(cache_control="public, max-age=86400, immutable")
+        configured_video_relpath = _public_tour_safe_asset_relpath(payload.get("video_relpath"))
+        video_release = evaluate_public_tour_video_release(payload) if safe_relpath == configured_video_relpath else {}
+        release_sha256 = str(video_release.get("expected_sha256") or "").strip().lower()
+        if release_sha256 or manifest_row.get("sha256"):
+            headers["X-PropertyQuarry-Asset-SHA256"] = release_sha256 or verified_sha256
+        if video_release.get("release_revision"):
+            headers["X-PropertyQuarry-Media-Revision"] = str(video_release["release_revision"])
+        if manifest_row.get("privacy_class"):
+            headers["X-PropertyQuarry-Asset-Privacy"] = str(manifest_row["privacy_class"])
+    except BaseException:
+        _public_tour_close_descriptor(descriptor)
+        raise
+    return _public_tour_descriptor_file_response(
+        descriptor,
         media_type=media_type,
         headers=headers,
     )
@@ -6015,18 +6238,23 @@ def public_tour_file(slug: str, asset_path: str) -> FileResponse:
 @router.get("/tours/viewer/{slug}/{asset_path:path}")
 @router.head("/tours/viewer/{slug}/{asset_path:path}")
 def public_tour_generated_viewer_file(slug: str, asset_path: str) -> FileResponse:
-    file_path, binding, release = _generated_viewer_file(slug, asset_path)
-    role = str(binding.get("role") or "").strip().lower()
-    sha256 = str(binding.get("sha256") or "").strip().lower()
-    media_type = str(binding.get("mime_type") or "application/octet-stream").strip().lower()
-    return FileResponse(
-        file_path,
-        media_type=media_type,
-        headers=_public_tour_generated_viewer_headers(
+    _, binding, release, descriptor = _open_generated_viewer_file(slug, asset_path)
+    try:
+        role = str(binding.get("role") or "").strip().lower()
+        sha256 = str(binding.get("sha256") or "").strip().lower()
+        media_type = str(binding.get("mime_type") or "application/octet-stream").strip().lower()
+        headers = _public_tour_generated_viewer_headers(
             role=role,
             sha256=sha256,
             release_revision=str(release.get("release_revision") or ""),
-        ),
+        )
+    except BaseException:
+        _public_tour_close_descriptor(descriptor)
+        raise
+    return _public_tour_descriptor_file_response(
+        descriptor,
+        media_type=media_type,
+        headers=headers,
     )
 
 

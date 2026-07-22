@@ -1,0 +1,15 @@
+{
+  "contract_name": "projection.chummer5a_ui_element_parity_audit",
+  "generated_at": "2026-07-15T00:00:00Z",
+  "projection_redacted": true,
+  "elements": [
+    {"id": "source:translator_route", "present_in_chummer5a": "yes", "present_in_chummer6": "yes", "visual_parity": "yes", "behavioral_parity": "yes", "removable_if_not_in_chummer5a": "no", "reason": "Direct route proof is indexed by the tracked projection.", "evidence": ["m141:translator"]},
+    {"id": "source:xml_amendment_editor_route", "present_in_chummer5a": "yes", "present_in_chummer6": "yes", "visual_parity": "yes", "behavioral_parity": "yes", "removable_if_not_in_chummer5a": "no", "reason": "Direct route proof is indexed by the tracked projection.", "evidence": ["m141:xml-editor"]},
+    {"id": "source:hero_lab_importer_route", "present_in_chummer5a": "yes", "present_in_chummer6": "yes", "visual_parity": "yes", "behavioral_parity": "yes", "removable_if_not_in_chummer5a": "no", "reason": "Direct route proof is indexed by the tracked projection.", "evidence": ["m141:hero-lab"]},
+    {"id": "family:custom_data_xml_and_translator_bridge", "present_in_chummer5a": "yes", "present_in_chummer6": "yes", "visual_parity": "yes", "behavioral_parity": "yes", "removable_if_not_in_chummer5a": "no", "reason": "Direct family proof is indexed by the tracked projection.", "evidence": ["m141:translator-xml-family"]},
+    {"id": "family:legacy_and_adjacent_import_oracles", "present_in_chummer5a": "yes", "present_in_chummer6": "yes", "visual_parity": "yes", "behavioral_parity": "yes", "removable_if_not_in_chummer5a": "no", "reason": "Direct family proof is indexed by the tracked projection.", "evidence": ["m141:import-oracle-family"]},
+    {"id": "family:dense_builder_and_career_workflows", "present_in_chummer5a": "yes", "present_in_chummer6": "yes", "visual_parity": "yes", "behavioral_parity": "yes", "removable_if_not_in_chummer5a": "no", "reason": "Dense workbench parity proof is indexed by the tracked projection.", "evidence": ["m142:dense-workbench"]},
+    {"id": "family:dice_initiative_and_table_utilities", "present_in_chummer5a": "yes", "present_in_chummer6": "yes", "visual_parity": "yes", "behavioral_parity": "yes", "removable_if_not_in_chummer5a": "no", "reason": "Parity exists; the packet independently fails closed on a missing initiative interaction receipt.", "evidence": ["m142:dice-initiative"]},
+    {"id": "family:identity_contacts_lifestyles_history", "present_in_chummer5a": "yes", "present_in_chummer6": "yes", "visual_parity": "yes", "behavioral_parity": "yes", "removable_if_not_in_chummer5a": "no", "reason": "Identity workflow parity proof is indexed by the tracked projection.", "evidence": ["m142:identity-workflows"]}
+  ]
+}

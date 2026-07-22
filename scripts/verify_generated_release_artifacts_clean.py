@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
@@ -21,25 +24,27 @@ GENERATED_ARTIFACTS = (
     Path(".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"),
     Path(".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"),
     Path(".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"),
+    Path(".codex-studio/published/memorial_spatial_tour_public_origin.generated.json"),
     Path(".codex-studio/published/mymedia_alexa_readiness.generated.json"),
     Path(".codex-studio/published/teable_env_recovery_readiness.generated.json"),
     Path(".codex-studio/published/telegram_video_delivery_operator.generated.json"),
     Path(".codex-studio/published/whatsapp_web_action_processor_readiness.generated.json"),
 )
 MATERIALIZER_COMMANDS = (
-    ("scripts/materialize_ea_flagship_release_gate.py",),
-    ("scripts/materialize_memorial_phrase_bank.py",),
+    ("scripts/materialize_ea_browser_workflow_proof.py",),
+    ("scripts/materialize_memorial_spatial_tour_public_origin.py",),
     ("scripts/materialize_project_mode_manifests.py",),
-    ("scripts/materialize_weekly_product_pulse.py",),
-    ("scripts/materialize_whole_project_gold_map.py",),
+    ("scripts/materialize_telegram_video_delivery_receipt.py",),
+    ("scripts/materialize_memorial_phrase_bank.py",),
     ("scripts/materialize_teable_env_recovery_readiness.py",),
     ("scripts/materialize_mymedia_alexa_readiness.py",),
     ("scripts/materialize_whatsapp_web_action_processor_readiness.py",),
     ("scripts/materialize_proactive_ooda_operator_status.py",),
     ("scripts/materialize_proactive_ooda_gold_acceptance.py",),
-    ("scripts/materialize_ea_browser_workflow_proof.py",),
     ("scripts/materialize_continuous_improvement_goal_posture.py",),
-    ("scripts/materialize_telegram_video_delivery_receipt.py",),
+    ("scripts/materialize_ea_flagship_release_gate.py",),
+    ("scripts/materialize_weekly_product_pulse.py",),
+    ("scripts/materialize_whole_project_gold_map.py",),
     ("scripts/materialize_memorial_operator_status.py",),
 )
 VOLATILE_KEYS = {
@@ -63,18 +68,124 @@ VOLATILE_KEYS = {
     "output_excerpt",
     "python_bin",
     "review_due",
+    "run_id",
     "source_tree_fingerprint",
     "state_age_seconds",
     "state_updated_at",
     "sidecar_last_qr_at",
 }
+HOST_RESOURCE_VOLATILE_KEYS = {
+    "available_bytes",
+    "available_gb",
+    "blocking_reason",
+    "triggered_thresholds",
+    "usage_percent",
+}
+JUNIT_VOLATILE_ATTRIBUTES = {"hostname", "time", "timestamp"}
+PYTEST_TERMINAL_DURATION_RE = re.compile(r"(?<=\bin )\d+(?:\.\d+)?s\b")
+LIVE_RECEIPT_FOLLOWTHROUGH_REPAIR_ACTION = "repair_proactive_operator_runtime_posture"
+LIVE_RECEIPT_EVENTUAL_FOLLOWTHROUGH_KEYS = {
+    "followthrough_current_receipt_overlay_applied",
+    "followthrough_current_receipt_overlay_components",
+    "followthrough_digest_item_count",
+    "followthrough_digest_notification_status",
+    "followthrough_digest_status",
+    "followthrough_goal_posture_queue_count",
+    "followthrough_goal_posture_status",
+    "followthrough_gold_acceptance_status",
+    "followthrough_operator_status",
+    "followthrough_run_receipt_path",
+    "followthrough_source",
+    "followthrough_status",
+}
+LIVE_RECEIPT_EVENTUAL_FOLLOWTHROUGH_ERRORS = {
+    "followthrough_artifacts_missing",
+}
 
 
-def _normalize(value: Any) -> Any:
+def _normalize_junit_xml(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    try:
+        root = ET.fromstring(value)
+    except (ET.ParseError, ValueError):
+        return value
+    for element in root.iter():
+        stable_attributes = {
+            key: item
+            for key, item in element.attrib.items()
+            if key.rsplit("}", 1)[-1] not in JUNIT_VOLATILE_ATTRIBUTES
+        }
+        element.attrib.clear()
+        element.attrib.update(sorted(stable_attributes.items()))
+    return ET.tostring(root, encoding="unicode", short_empty_elements=True)
+
+
+def _normalize_junit_sha256(*, declared: Any, junit_xml: Any) -> Any:
+    if not isinstance(junit_xml, str):
+        return declared
+    normalized_xml = _normalize_junit_xml(junit_xml)
+    if not isinstance(normalized_xml, str):
+        return declared
+    raw_sha256 = hashlib.sha256(junit_xml.encode("utf-8")).hexdigest()
+    return {
+        "canonical_sha256": hashlib.sha256(normalized_xml.encode("utf-8")).hexdigest(),
+        "declared_matches_raw": str(declared or "").strip() == raw_sha256,
+    }
+
+
+def _normalize_terminal_summary(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    return PYTEST_TERMINAL_DURATION_RE.sub("<duration>", value)
+
+
+def _normalize(value: Any, *, _path: tuple[str, ...] = ()) -> Any:
     if isinstance(value, dict):
         normalized: dict[str, Any] = {}
         for key, item in value.items():
             key_str = str(key)
+            if _path and _path[-1] == "live_receipt":
+                if key_str in LIVE_RECEIPT_EVENTUAL_FOLLOWTHROUGH_KEYS:
+                    # These fields mirror downstream generated receipts from the
+                    # live runtime container. Their authoritative host artifacts
+                    # are compared separately, so container catch-up is telemetry,
+                    # not release-artifact semantic drift.
+                    continue
+                if key_str == "errors" and isinstance(item, list):
+                    normalized[key] = _normalize(
+                        [
+                            error
+                            for error in item
+                            if str(error).strip()
+                            not in LIVE_RECEIPT_EVENTUAL_FOLLOWTHROUGH_ERRORS
+                        ],
+                        _path=(*_path, key_str),
+                    )
+                    continue
+                if (
+                    key_str == "delivery_next_action"
+                    and str(item or "").strip() == LIVE_RECEIPT_FOLLOWTHROUGH_REPAIR_ACTION
+                    and any(
+                        str(error).strip()
+                        in LIVE_RECEIPT_EVENTUAL_FOLLOWTHROUGH_ERRORS
+                        for error in list(value.get("errors") or [])
+                    )
+                ):
+                    normalized[key] = ""
+                    continue
+            if key_str == "junit_xml":
+                normalized[key] = _normalize_junit_xml(item)
+                continue
+            if key_str == "junit_xml_sha256":
+                normalized[key] = _normalize_junit_sha256(
+                    declared=item,
+                    junit_xml=value.get("junit_xml"),
+                )
+                continue
+            if key_str == "terminal_summary":
+                normalized[key] = _normalize_terminal_summary(item)
+                continue
             if (
                 key in VOLATILE_KEYS
                 or key_str in VOLATILE_KEYS
@@ -87,12 +198,17 @@ def _normalize(value: Any) -> Any:
                 or key_str.endswith("_updated_at")
                 or key_str.endswith("_observed_at")
                 or key_str.endswith("_age_seconds")
+                or (
+                    _path
+                    and _path[-1] == "host_resource_guard"
+                    and key_str in HOST_RESOURCE_VOLATILE_KEYS
+                )
             ):
                 continue
-            normalized[key] = _normalize(item)
+            normalized[key] = _normalize(item, _path=(*_path, key_str))
         return normalized
     if isinstance(value, list):
-        return [_normalize(item) for item in value]
+        return [_normalize(item, _path=_path) for item in value]
     return value
 
 

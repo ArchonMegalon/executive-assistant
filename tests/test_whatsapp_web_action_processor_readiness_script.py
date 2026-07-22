@@ -196,8 +196,12 @@ def test_build_report_reports_stale_or_unreadable_state(tmp_path: Path) -> None:
     assert "state_file_unreadable" in bad_report["reasons"]
 
 
-def test_build_report_ignores_unreadable_env_file_and_uses_defaults(tmp_path: Path, monkeypatch) -> None:
+def test_build_report_ignores_unreadable_env_file_and_fails_closed_without_secret(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     module = _module()
+    monkeypatch.setattr(module, "HOST_SECRET_FILE_CANDIDATES", ())
     env_file = tmp_path / "unreadable.env"
     env_file.write_text("EA_WHATSAPP_WEB_ACTION_PROCESSOR_ENABLED=0\n", encoding="utf-8")
 
@@ -216,8 +220,11 @@ def test_build_report_ignores_unreadable_env_file_and_uses_defaults(tmp_path: Pa
     )
 
     assert report["action_processor_enabled"] is True
-    assert report["ready"] is True
-    assert report["reason"] == "ready"
+    assert report["ready"] is False
+    assert report["reason"] == "callback_secret_missing"
+    assert report["callback_secret_present"] is False
+    assert "callback_secret_missing" in report["reasons"]
+    assert "denied" not in str(report)
 
 
 def test_build_report_checks_runtime_containers_without_leaking_secret_values(tmp_path: Path) -> None:

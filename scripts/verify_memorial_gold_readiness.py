@@ -14,6 +14,9 @@ from typing import Any
 try:
     from scripts.inspect_source_dirty_groups import PRIORITY_CATEGORY_REASONS
     from scripts.materialize_memorial_operator_status import _source_dirty_summary
+    from scripts.memorial_spatial_public_origin_contract import (
+        validate_memorial_spatial_public_origin_receipt,
+    )
     from scripts.source_state_head import (
         resolve_source_state_head,
         resolve_source_worktree_fingerprint,
@@ -23,6 +26,9 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - script execution path
     from inspect_source_dirty_groups import PRIORITY_CATEGORY_REASONS
     from materialize_memorial_operator_status import _source_dirty_summary
+    from memorial_spatial_public_origin_contract import (
+        validate_memorial_spatial_public_origin_receipt,
+    )
     from source_state_head import resolve_source_state_head, resolve_source_worktree_fingerprint, source_worktree_metadata
     from verify_source_dirty_groups import VERIFY_CONTRACT_NAME, _validate_report as _validate_source_dirty_report
 
@@ -34,6 +40,7 @@ PUBLIC_RECEIPT = ROOT / ".codex-studio/published/memorial_voice_roundtrip_public
 BROWSER_RECEIPT = ROOT / ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
 MEANINGFUL_BROWSER_RECEIPT = ROOT / ".codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json"
 ROOM_RECEIPT = ROOT / ".codex-studio/published/memorial_room_audio_public_origin.generated.json"
+SPATIAL_RECEIPT = ROOT / ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json"
 GENERATED_RECEIPT_PATHS = {
     ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
     ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json",
@@ -47,6 +54,7 @@ GENERATED_RECEIPT_PATHS = {
     ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
     ".codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json",
     ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+    ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json",
 }
 SOURCE_STATE_FINGERPRINT_SEMANTICS = "worktree_source_files_sha256_excluding_generated_only_paths"
 
@@ -474,6 +482,19 @@ def _check_room_receipt(
     return issues
 
 
+def _check_spatial_receipt(
+    receipt: dict[str, Any],
+    *,
+    current_head: str,
+    current_fingerprint: str,
+) -> list[str]:
+    return validate_memorial_spatial_public_origin_receipt(
+        receipt,
+        current_head=current_head,
+        current_fingerprint=current_fingerprint,
+    )
+
+
 def _check_memorial_surface_contract(payload: dict[str, Any]) -> list[str]:
     issues: list[str] = []
     if not payload:
@@ -494,6 +515,7 @@ def _blocker_summary(
     memorial_surface_contract_issues: list[str],
     room_issues: list[str],
     receipt_set_issues: list[str] | None = None,
+    spatial_issues: list[str] | None = None,
 ) -> dict[str, Any]:
     blockers: list[dict[str, Any]] = []
     if local_issues:
@@ -548,6 +570,15 @@ def _blocker_summary(
                 "label": "Room audio receipt",
                 "issues": list(room_issues),
                 "next_action": "collect_real_room_audio_attestation",
+            }
+        )
+    if spatial_issues:
+        blockers.append(
+            {
+                "key": "public_spatial_tour_receipt",
+                "label": "Public spatial-tour receipt",
+                "issues": list(spatial_issues),
+                "next_action": "refresh_memorial_public_auto_receipts_clean",
             }
         )
     if receipt_set_issues:
@@ -789,6 +820,7 @@ def _next_action_from_summary(summary: dict[str, Any]) -> str:
         "public_browser_receipt",
         "meaningful_browser_receipt",
         "receipt_set_binding",
+        "public_spatial_tour_receipt",
     }
     blocked_keys = {str(item.get("key") or "").strip() for item in blockers}
     if blocked_keys & auto_receipt_keys:
@@ -809,13 +841,14 @@ def _next_command_for_action(action: str) -> str:
     if normalized == "verify_source_dirty_groups_before_source_cleanup":
         return "make verify-source-dirty-groups"
     if normalized == "refresh_memorial_public_auto_receipts_clean":
-        return "scripts/materialize_memorial_public_auto_receipts_clean.py"
+        return "make materialize-memorial-public-auto-receipts-clean"
     if normalized in {
         "refresh_public_memorial_voice_receipt",
         "refresh_public_memorial_browser_receipt",
         "refresh_meaningful_memorial_browser_receipt",
+        "refresh_public_memorial_spatial_tour_receipt",
     }:
-        return "scripts/materialize_memorial_public_auto_receipts_clean.py"
+        return "make materialize-memorial-public-auto-receipts-clean"
     if normalized == "refresh_local_memorial_voice_receipt":
         return "make materialize-memorial-public-voice-gold"
     if normalized == "collect_real_room_audio_attestation":
@@ -975,10 +1008,27 @@ def main() -> int:
         current_head=current_head,
         current_fingerprint=current_fingerprint,
     )
+    spatial_receipt_path = Path(
+        os.getenv("MEMORIAL_SPATIAL_TOUR_PUBLIC_ORIGIN_RECEIPT")
+        or SPATIAL_RECEIPT
+    )
+    spatial = _json(spatial_receipt_path)
+    spatial_issues = _check_spatial_receipt(
+        spatial,
+        current_head=current_head,
+        current_fingerprint=current_fingerprint,
+    )
     bound_receipts = {
         "public_voice": public,
         "public_browser": browser,
         "room_audio": room,
+        "spatial_tour": {
+            "slug": spatial.get("slug"),
+            "base_url": spatial.get("public_base_url"),
+            "runtime_source_revision": spatial.get("runtime_revision"),
+            "source_git_head": spatial.get("source_git_head"),
+            "source_state_fingerprint": spatial.get("source_state_fingerprint"),
+        },
     }
     if meaningful_browser_required:
         bound_receipts["meaningful_browser"] = meaningful_browser_receipt
@@ -997,6 +1047,7 @@ def main() -> int:
         memorial_surface_contract_issues=memorial_surface_contract_issues,
         room_issues=room_issues,
         receipt_set_issues=receipt_set_issues,
+        spatial_issues=spatial_issues,
     )
     next_action = _next_action_from_summary(blocker_summary)
     source_worktree = dict(source_worktree_metadata(ROOT, dirty_path_limit=SOURCE_DIRTY_FILE_LIMIT))
@@ -1025,6 +1076,7 @@ def main() -> int:
         and not meaningful_browser_issues
         and not memorial_surface_contract_issues
         and not room_issues
+        and not spatial_issues
         and not receipt_set_issues
         else "blocked"
     )
@@ -1058,6 +1110,8 @@ def main() -> int:
         "memorial_surface_contract_issues": memorial_surface_contract_issues,
         "room_audio_receipt": _display_path(room_receipt_path),
         "room_audio_issues": room_issues,
+        "public_spatial_tour_receipt": _display_path(spatial_receipt_path),
+        "public_spatial_tour_issues": spatial_issues,
         "receipt_set_binding_issues": receipt_set_issues,
         "receipt_set_runtime_source_revision": (
             str(public.get("runtime_source_revision") or "").strip()
@@ -1089,6 +1143,7 @@ def main() -> int:
             "browser_receipt": "Memorial public browser realtime proof",
             "surface_contract": "Memorial mounted public surface contract proof",
             "room_receipt": "Memorial public room/device playback proof",
+            "spatial_tour_receipt": "Memorial public 3D-tour origin and exact-byte proof",
         },
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))

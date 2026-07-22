@@ -3,9 +3,11 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT_PATH = ROOT / "ea" / "scripts" / "compare_memorial_ltd_voice_outputs.py"
+SCRIPT_PATH = ROOT / "scripts" / "compare_memorial_ltd_voice_outputs.py"
 
 
 def _load_module():
@@ -14,6 +16,36 @@ def _load_module():
     assert spec and spec.loader
     spec.loader.exec_module(module)
     return module
+
+
+def test_required_unmixr_voice_id_fails_closed_without_runtime_value(monkeypatch) -> None:
+    module = _load_module()
+    monkeypatch.setattr(module, "unmixr_memorial_voice_id", lambda: "")
+
+    with pytest.raises(RuntimeError, match="^unmixr_voice_id_missing$"):
+        module._required_unmixr_voice_id()
+
+
+def test_required_unmixr_voice_id_uses_private_runtime_value(monkeypatch) -> None:
+    module = _load_module()
+    monkeypatch.setattr(module, "unmixr_memorial_voice_id", lambda: "private-runtime-voice")
+
+    assert module._required_unmixr_voice_id() == "private-runtime-voice"
+
+
+def test_reference_audio_path_uses_private_profile_root(monkeypatch, tmp_path: Path) -> None:
+    module = _load_module()
+    monkeypatch.delenv("EA_MEMORIAL_LTD_REFERENCE_AUDIO", raising=False)
+    monkeypatch.setattr(module, "private_profile_dir", lambda: tmp_path)
+
+    assert module._reference_audio_path() == (
+        tmp_path
+        / "manfred"
+        / "voice_profile"
+        / "optimization"
+        / "candidates"
+        / "oSQ9FhFc4YI-01440s-28.wav"
+    )
 
 
 def test_compare_outputs_picks_higher_similarity(monkeypatch, tmp_path: Path) -> None:

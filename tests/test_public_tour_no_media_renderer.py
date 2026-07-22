@@ -102,7 +102,13 @@ def test_scene_removed_by_public_asset_policy_uses_same_safe_fallback(
     slug, _payload = _write_bundle(
         tmp_path,
         monkeypatch,
-        scenes=[{"name": "Unreleased source panorama", "source_url": private_source, "role": "panorama"}],
+        scenes=[
+            {
+                "name": "Unreleased source panorama",
+                "source_url": private_source,
+                "role": "panorama",
+            }
+        ],
     )
 
     response = public_tours.public_tour_page(

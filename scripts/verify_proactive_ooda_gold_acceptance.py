@@ -473,6 +473,13 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
 
 
 def main() -> int:
+    if any(flag in sys.argv[1:] for flag in ("--help", "-h")):
+        print(
+            "Usage:\n"
+            "  python scripts/verify_proactive_ooda_gold_acceptance.py [options]\n\n"
+            "Verify the proactive OODA gold-acceptance receipt."
+        )
+        return 0
     parser = argparse.ArgumentParser(description="Verify the proactive OODA gold-acceptance receipt.")
     parser.add_argument("--receipt", type=Path, default=DEFAULT_RECEIPT)
     parser.add_argument("--pretty", action="store_true")

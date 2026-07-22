@@ -64,7 +64,9 @@ def _request(path: str) -> Request:
         "viewer-probe",
     ],
 )
-def test_operational_slug_quarantine_covers_only_known_artifact_families(slug: str) -> None:
+def test_operational_slug_quarantine_covers_only_known_artifact_families(
+    slug: str,
+) -> None:
     assert public_tours._public_tour_slug_is_quarantined(slug) is True
 
 
@@ -141,9 +143,16 @@ def test_natural_language_listing_slugs_remain_loadable(
 @pytest.mark.parametrize(
     ("facts", "address"),
     [
-        ({"street_address": "Simmeringer Hauptstraße 153-155"}, "Simmeringer Hauptstraße 153-155"),
         (
-            {"listing_research_snapshot": {"exact_address": "Teuffenbachstraße 24/4/15"}},
+            {"street_address": "Simmeringer Hauptstraße 153-155"},
+            "Simmeringer Hauptstraße 153-155",
+        ),
+        (
+            {
+                "listing_research_snapshot": {
+                    "exact_address": "Teuffenbachstraße 24/4/15"
+                }
+            },
             "Teuffenbachstraße 24/4/15",
         ),
         ({"geocoding": {"geocoded_address": "Sparkassegasse 28"}}, "Sparkassegasse 28"),
@@ -162,10 +171,13 @@ def test_nested_credible_exact_address_variants_are_detected(
         "scenes": [],
     }
 
-    assert public_tours._public_tour_has_exact_location_conflict(
-        payload,
-        requested_slug="reviewed-apartment-layout-first-abc123",
-    ) is True
+    assert (
+        public_tours._public_tour_has_exact_location_conflict(
+            payload,
+            requested_slug="reviewed-apartment-layout-first-abc123",
+        )
+        is True
+    )
 
 
 def test_exact_address_street_line_cannot_hide_inside_full_geocoded_value() -> None:
@@ -176,10 +188,13 @@ def test_exact_address_street_line_cannot_hide_inside_full_geocoded_value() -> N
         "scenes": [],
     }
 
-    assert public_tours._public_tour_has_exact_location_conflict(
-        payload,
-        requested_slug=str(payload["slug"]),
-    ) is True
+    assert (
+        public_tours._public_tour_has_exact_location_conflict(
+            payload,
+            requested_slug=str(payload["slug"]),
+        )
+        is True
+    )
 
 
 @pytest.mark.parametrize(
@@ -197,7 +212,9 @@ def test_exact_address_street_line_cannot_hide_inside_full_geocoded_value() -> N
         "source_url",
     ],
 )
-def test_exact_address_conflict_covers_every_public_location_surface(surface: str) -> None:
+def test_exact_address_conflict_covers_every_public_location_surface(
+    surface: str,
+) -> None:
     address = "Simmeringer Hauptstraße 153-155"
     encoded_address = "Simmeringer%20Hauptstra%C3%9Fe%20153-155"
     payload: dict[str, object] = {
@@ -206,7 +223,12 @@ def test_exact_address_conflict_covers_every_public_location_surface(surface: st
         "title": "Reviewed Vienna apartment",
         "tour_title": "Reviewed Vienna apartment",
         "facts": {"street_address": address},
-        "scenes": [{"label": "Living room", "source_url": "https://media.example.test/living-room"}],
+        "scenes": [
+            {
+                "label": "Living room",
+                "source_url": "https://media.example.test/living-room",
+            }
+        ],
         "listing_url": "https://listing.example.test/apartment",
         "hosted_url": "https://tours.example.test/apartment",
         "source_virtual_tour_url": "https://viewer.example.test/apartment",
@@ -221,16 +243,23 @@ def test_exact_address_conflict_covers_every_public_location_surface(surface: st
     elif surface == "scene_label":
         payload["scenes"] = [{"label": address}]
     elif surface == "scene_url":
-        payload["scenes"] = [{"source_url": f"https://media.example.test/{encoded_address}"}]
+        payload["scenes"] = [
+            {"source_url": f"https://media.example.test/{encoded_address}"}
+        ]
     elif surface == "source_url":
-        payload["source_virtual_tour_url"] = f"https://viewer.example.test/{encoded_address}"
+        payload["source_virtual_tour_url"] = (
+            f"https://viewer.example.test/{encoded_address}"
+        )
     else:
         payload[surface] = f"https://listing.example.test/{encoded_address}"
 
-    assert public_tours._public_tour_has_exact_location_conflict(
-        payload,
-        requested_slug=requested_slug,
-    ) is True
+    assert (
+        public_tours._public_tour_has_exact_location_conflict(
+            payload,
+            requested_slug=requested_slug,
+        )
+        is True
+    )
 
 
 def test_exact_location_requires_literal_true_override() -> None:
@@ -242,16 +271,22 @@ def test_exact_location_requires_literal_true_override() -> None:
         "public_exact_location_allowed": "true",
     }
 
-    assert public_tours._public_tour_has_exact_location_conflict(
-        payload,
-        requested_slug=str(payload["slug"]),
-    ) is True
+    assert (
+        public_tours._public_tour_has_exact_location_conflict(
+            payload,
+            requested_slug=str(payload["slug"]),
+        )
+        is True
+    )
 
     payload["public_exact_location_allowed"] = True
-    assert public_tours._public_tour_has_exact_location_conflict(
-        payload,
-        requested_slug=str(payload["slug"]),
-    ) is False
+    assert (
+        public_tours._public_tour_has_exact_location_conflict(
+            payload,
+            requested_slug=str(payload["slug"]),
+        )
+        is False
+    )
 
 
 @pytest.mark.parametrize(
@@ -264,7 +299,9 @@ def test_exact_location_requires_literal_true_override() -> None:
         {"organisation": {"address_line_1": "Examplegasse 42"}},
     ],
 )
-def test_city_only_and_non_property_addresses_do_not_false_positive(facts: dict[str, object]) -> None:
+def test_city_only_and_non_property_addresses_do_not_false_positive(
+    facts: dict[str, object],
+) -> None:
     payload = {
         "slug": "reviewed-apartment-layout-first-abc123",
         "display_title": "Examplegasse 42 apartment in 1010 Vienna",
@@ -272,10 +309,13 @@ def test_city_only_and_non_property_addresses_do_not_false_positive(facts: dict[
         "scenes": [],
     }
 
-    assert public_tours._public_tour_has_exact_location_conflict(
-        payload,
-        requested_slug=str(payload["slug"]),
-    ) is False
+    assert (
+        public_tours._public_tour_has_exact_location_conflict(
+            payload,
+            requested_slug=str(payload["slug"]),
+        )
+        is False
+    )
 
 
 def test_number_first_abbreviated_street_remains_credible() -> None:
@@ -286,10 +326,13 @@ def test_number_first_abbreviated_street_remains_credible() -> None:
         "scenes": [],
     }
 
-    assert public_tours._public_tour_has_exact_location_conflict(
-        payload,
-        requested_slug=str(payload["slug"]),
-    ) is True
+    assert (
+        public_tours._public_tour_has_exact_location_conflict(
+            payload,
+            requested_slug=str(payload["slug"]),
+        )
+        is True
+    )
 
 
 def test_exact_location_conflict_is_enforced_by_common_tour_loader(

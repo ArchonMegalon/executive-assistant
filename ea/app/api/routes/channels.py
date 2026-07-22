@@ -617,6 +617,37 @@ def _telegram_send_message(
     return _telegram_post_json_with_retries(request=request, timeout_seconds=timeout_seconds)
 
 
+def _telegram_transport_effect(
+    receipt: object,
+) -> tuple[str, str]:
+    """Classify one Telegram API receipt without optimistic defaults."""
+
+    if not isinstance(receipt, dict):
+        return "ambiguous", ""
+    result = receipt.get("result")
+    result_dict = dict(result) if isinstance(result, dict) else {}
+    raw_message_id = result_dict.get("message_id")
+    if isinstance(raw_message_id, bool) or not isinstance(
+        raw_message_id, (str, int)
+    ):
+        message_id = ""
+    elif isinstance(raw_message_id, int):
+        message_id = str(raw_message_id) if raw_message_id > 0 else ""
+    else:
+        message_id = raw_message_id.strip()
+        if (
+            not message_id
+            or len(message_id) > 512
+            or any(char.isspace() for char in message_id)
+        ):
+            message_id = ""
+    if receipt.get("ok") is True and message_id:
+        return "confirmed", message_id
+    if receipt.get("ok") is False:
+        return "known_none", ""
+    return "ambiguous", ""
+
+
 def _base36_encode(value: int) -> str:
     alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
     normalized = max(int(value), 0)
@@ -952,12 +983,20 @@ def _telegram_send_audiobook_voice_samples(
                 inline_buttons=button_rows,
             )
         except Exception as exc:
-            receipts.append({"token": token, "status": "failed", "reason": type(exc).__name__})
+            receipts.append(
+                {
+                    "token": token,
+                    "status": "failed",
+                    "reason": type(exc).__name__,
+                    "effect_state": "ambiguous",
+                }
+            )
             continue
-        sent = bool(receipt) and bool(dict(receipt).get("ok", True))
+        effect_state, media_message_id = _telegram_transport_effect(receipt)
+        sent = effect_state == "confirmed"
         reason = str(dict(receipt).get("description") or "").strip() if receipt else "telegram_audio_send_skipped"
-        result = dict(dict(receipt).get("result") or {}) if isinstance(receipt, dict) else {}
-        media_message_id = str(result.get("message_id") or "").strip()
+        if not sent and not reason:
+            reason = "telegram_audio_receipt_unproven"
         controls_ready = bool(use_callback and dismiss_callback)
         button_count = (
             sum(1 for row in button_rows for _label, callback in row if callback)
@@ -969,6 +1008,7 @@ def _telegram_send_audiobook_voice_samples(
                 "token": token,
                 "status": "sent" if sent else "skipped",
                 "reason": "" if sent else reason,
+                "effect_state": effect_state,
                 "media_message_id_sha256": hashlib.sha256(media_message_id.encode("utf-8")).hexdigest()
                 if media_message_id
                 else "",
@@ -5511,7 +5551,6 @@ def _telegram_strip_property_intent_state(intent_state: dict[str, str] | None) -
     }
     if str(sanitized.get("active_intent") or "").strip().lower() in _TELEGRAM_PROPERTY_INTENTS:
         sanitized.pop("active_intent", None)
-        sanitized.pop("active_profile_themes", None)
     return sanitized
 
 
@@ -6690,6 +6729,7 @@ def _telegram_start_approved_audiobook_request(
         deterministic_job_id=deterministic_job_id,
         intake_idempotency_key_sha256=start_identity_sha256,
     )
+    return job
 
 
 def _telegram_deliver_started_audiobook_request(
@@ -6700,12 +6740,31 @@ def _telegram_deliver_started_audiobook_request(
 ) -> dict[str, object]:
     telegram = dict(record.get("telegram") or {})
     requester_chat_id = str(telegram.get("chat_id") or "").strip()
+    expected_effect_count = 0
+    confirmed_effect_count = 0
+    known_no_effect_count = 0
+    ambiguous_effect_count = 0
     if requester_chat_id:
         sample_receipts = _telegram_send_audiobook_voice_samples(
             bot_config=bot_config,
             chat_id=requester_chat_id,
             job=job,
         )
+        expected_effect_count += len(sample_receipts)
+        for receipt in sample_receipts:
+            effect_state = str(receipt.get("effect_state") or "").strip()
+            message_id_sha256 = str(
+                receipt.get("media_message_id_sha256") or ""
+            ).strip().lower()
+            durable_receipt = bool(
+                re.fullmatch(r"[0-9a-f]{64}", message_id_sha256)
+            )
+            if effect_state == "confirmed" and durable_receipt:
+                confirmed_effect_count += 1
+            elif effect_state == "known_none":
+                known_no_effect_count += 1
+            else:
+                ambiguous_effect_count += 1
         if sample_receipts:
             job = record_audiobook_voice_sample_delivery(job=job, sample_receipts=sample_receipts)
         job, inline_buttons = _telegram_audiobook_playback_acceptance_buttons(
@@ -6713,13 +6772,38 @@ def _telegram_deliver_started_audiobook_request(
             chat_id=requester_chat_id,
             job=job,
         )
-        _telegram_send_message(
+        expected_effect_count += 1
+        message_receipt = _telegram_send_message(
             bot_token=str(bot_config.get("token") or "").strip(),
             chat_id=requester_chat_id,
             text=telegram_epub_reply_text(job),
             inline_buttons=inline_buttons or None,
         )
-    return job
+        message_effect_state, _message_id = _telegram_transport_effect(
+            message_receipt
+        )
+        if message_effect_state == "confirmed":
+            confirmed_effect_count += 1
+        elif message_effect_state == "known_none":
+            known_no_effect_count += 1
+        else:
+            ambiguous_effect_count += 1
+    else:
+        expected_effect_count = 1
+        known_no_effect_count = 1
+    return audiobook_access_approval.build_approved_delivery_outcome(
+        channel="telegram",
+        result=job,
+        expected_effect_count=expected_effect_count,
+        confirmed_effect_count=confirmed_effect_count,
+        known_no_effect_count=known_no_effect_count,
+        ambiguous_effect_count=ambiguous_effect_count,
+        reason=(
+            "telegram_delivery_receipts_classified"
+            if requester_chat_id
+            else "telegram_requester_chat_missing"
+        ),
+    )
 
 
 def _telegram_turn_context(
@@ -6877,23 +6961,57 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
             approved = dict(start_result.get("record") or record)
             job = dict(start_result.get("job") or {})
             started_now = bool(start_result.get("started_now"))
-            if started_now:
-                try:
-                    job = _telegram_deliver_started_audiobook_request(
+            try:
+                delivery_result = audiobook_access_approval.run_approved_delivery_once(
+                    approval_id,
+                    channel="telegram",
+                    job=job,
+                    deliverer=lambda: _telegram_deliver_started_audiobook_request(
                         bot_config=bot_config,
                         record=approved,
                         job=job,
+                    ),
+                )
+            except Exception:
+                return _processed_callback_decision(
+                    reply_text=(
+                        "Approved and started the audiobook, but its first delivery is incomplete. "
+                        "The existing job was preserved and will not be started twice."
                     )
-                except Exception:
-                    return _processed_callback_decision(
-                        reply_text=(
-                            "Approved and started the audiobook, but its first delivery is incomplete. "
-                            "The existing job was preserved and will not be started twice."
-                        )
-                    )
+                )
+            if bool(delivery_result.get("delivery_now")):
+                delivered_job = delivery_result.get("result")
+                if isinstance(delivered_job, dict):
+                    job = dict(delivered_job)
             title = str(dict(job.get("metadata") or {}).get("title") or dict(approved.get("source") or {}).get("filename") or "the audiobook").strip()
+            delivery_status = str(delivery_result.get("delivery_status") or "").strip()
+            if delivery_status == "failed_before_effect":
+                return _processed_callback_decision(
+                    reply_text=(
+                        f"Approved and started the audiobook job for {title}, but the first delivery "
+                        "failed before any message was sent. A safe retry remains available."
+                    )
+                )
+            if delivery_status == "outcome_unknown":
+                return _processed_callback_decision(
+                    reply_text=(
+                        f"Approved and started the audiobook job for {title}, but its first delivery "
+                        "outcome is ambiguous. Operator reconciliation is required before any retry."
+                    )
+                )
             if started_now:
                 return _processed_callback_decision(reply_text=f"Approved and started the audiobook job for {title}.")
+            if bool(delivery_result.get("delivery_now")):
+                return _processed_callback_decision(
+                    reply_text=f"Recovered the missing first delivery for the existing audiobook job for {title}."
+                )
+            if delivery_status != "completed":
+                return _processed_callback_decision(
+                    reply_text=(
+                        f"That approval already started the audiobook job for {title}. "
+                        "Its first delivery outcome is still being reconciled, so I did not send it twice."
+                    )
+                )
             return _processed_callback_decision(
                 reply_text=f"That approval already started the audiobook job for {title}; I reused the existing job."
             )

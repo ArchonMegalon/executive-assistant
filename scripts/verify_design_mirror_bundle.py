@@ -18,14 +18,65 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "ea") not in sys.path:
     sys.path.insert(0, str(ROOT / "ea"))
 
-from app.yaml_inputs import load_yaml_dict
+from app.yaml_inputs import load_yaml_dict  # noqa: E402
 
 LOCAL_PRODUCT_ROOT = ROOT / ".codex-design" / "product"
-DEFAULT_DESIGN_ROOT = Path(
-    os.environ.get("EA_DESIGN_ROOT")
-    or os.environ.get("EA_MIRROR_FIXTURE_ROOT")
-    or LOCAL_PRODUCT_ROOT
+MIRROR_MANIFEST_PATH = ROOT / ".codex-design" / "repo" / "DESIGN_MIRROR_MANIFEST.yaml"
+QUEUE_BINDING_KEY = "next_90_day_queue_staging"
+QUEUE_LOCAL_PATH = ".codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+
+
+def _canonical_product_root_from_manifest() -> Path:
+    payload = load_yaml_dict(MIRROR_MANIFEST_PATH)
+    bindings = payload.get("bindings") or []
+    matches = [
+        binding
+        for binding in bindings
+        if isinstance(binding, dict) and str(binding.get("key") or "").strip() == QUEUE_BINDING_KEY
+    ]
+    if len(matches) != 1:
+        raise RuntimeError(f"design mirror manifest must define exactly one {QUEUE_BINDING_KEY!r} binding")
+    binding = matches[0]
+    if (
+        str(binding.get("kind") or "").strip() != "file"
+        or binding.get("required") is not True
+        or str(binding.get("local_path") or "").strip() != QUEUE_LOCAL_PATH
+    ):
+        raise RuntimeError(f"design mirror manifest has an invalid {QUEUE_BINDING_KEY!r} binding")
+    source_path = Path(str(binding.get("source_path") or "").strip()).expanduser()
+    if not source_path.is_absolute() or source_path.name != Path(QUEUE_LOCAL_PATH).name:
+        raise RuntimeError(f"design mirror manifest has an invalid {QUEUE_BINDING_KEY!r} source_path")
+    return source_path.parent
+
+
+def _design_root() -> Path:
+    for env_name in (
+        "EA_DESIGN_ROOT",
+        "EA_MIRROR_FIXTURE_ROOT",
+        "CHUMMER6_DESIGN_PRODUCT_ROOT",
+    ):
+        value = str(os.environ.get(env_name) or "").strip()
+        if value:
+            return Path(value).expanduser()
+    workspace_root = str(os.environ.get("EA_WORKSPACE_ROOT") or "").strip()
+    if workspace_root:
+        return (
+            Path(workspace_root).expanduser()
+            / "chummercomplete"
+            / "chummer-design"
+            / "products"
+            / "chummer"
+        )
+    return _canonical_product_root_from_manifest()
+
+
+_CANONICAL_EA_ROOT_VALUE = str(os.environ.get("EA_CANONICAL_ROOT") or "").strip()
+CANONICAL_EA_ROOT = (
+    Path(_CANONICAL_EA_ROOT_VALUE).expanduser()
+    if _CANONICAL_EA_ROOT_VALUE
+    else None
 )
+DEFAULT_DESIGN_ROOT = _design_root()
 QUEUE_OVERLAY_PATH = ROOT / ".codex-studio" / "published" / "QUEUE.generated.yaml"
 EXPECTED_QUEUE_PACKAGE_ID = "audit-task-4257456"
 EXPECTED_QUEUE_SOURCE_REF = "audit_task_candidates[4257456]"
@@ -69,12 +120,30 @@ def _bindings() -> list[MirrorBinding]:
     ]
 
 
+def _source_is_external(path: Path) -> bool:
+    source = path.resolve(strict=False)
+    repo = ROOT.resolve(strict=False)
+    try:
+        source.relative_to(repo)
+    except ValueError:
+        return True
+    return False
+
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _expected_queue_source_items() -> list[str]:
-    return [(ROOT / binding.local_path.relative_to(ROOT)).as_posix() for binding in _bindings()]
+    if CANONICAL_EA_ROOT is None:
+        return [
+            binding.local_path.relative_to(ROOT).as_posix()
+            for binding in _bindings()
+        ]
+    return [
+        (CANONICAL_EA_ROOT / binding.local_path.relative_to(ROOT)).as_posix()
+        for binding in _bindings()
+    ]
 
 
 def _acceptable_queue_source_items() -> tuple[list[str], ...]:
@@ -83,6 +152,21 @@ def _acceptable_queue_source_items() -> tuple[list[str], ...]:
         [binding.local_path.as_posix() for binding in _bindings()],
         [binding.local_path.relative_to(ROOT).as_posix() for binding in _bindings()],
     )
+
+
+def _queue_source_items_are_acceptable(items: list[object]) -> bool:
+    normalized = [str(item or "").strip() for item in items]
+    if normalized in _acceptable_queue_source_items():
+        return True
+    bindings = _bindings()
+    if len(normalized) != len(bindings):
+        return False
+    for value, binding in zip(normalized, bindings, strict=True):
+        candidate = Path(value)
+        suffix = binding.local_path.relative_to(ROOT).parts
+        if not candidate.is_absolute() or tuple(candidate.parts[-len(suffix) :]) != suffix:
+            return False
+    return True
 
 
 def _load_successor_queue(path: Path) -> dict[str, object]:
@@ -147,7 +231,7 @@ def inspect_queue_overlay() -> dict[str, object]:
         mismatches.append("allowed_paths")
     if list(item.get("owned_surfaces") or []) != EXPECTED_QUEUE_OWNED_SURFACES:
         mismatches.append("owned_surfaces")
-    if list(item.get("source_items") or []) not in _acceptable_queue_source_items():
+    if not _queue_source_items_are_acceptable(list(item.get("source_items") or [])):
         mismatches.append("source_items")
 
     row["mode"] = mode
@@ -165,21 +249,22 @@ def inspect_bundle() -> list[dict[str, object]]:
     for binding in _bindings():
         local_exists = binding.local_path.exists()
         source_exists = binding.source_path.exists()
+        source_is_external = _source_is_external(binding.source_path)
         row: dict[str, object] = {
             "key": binding.key,
             "local_path": binding.local_path.as_posix(),
             "source_path": binding.source_path.as_posix(),
             "local_exists": local_exists,
             "source_exists": source_exists,
+            "source_is_external": source_is_external,
             "status": "ok",
         }
-        if not local_exists and not source_exists:
+        if not source_is_external:
+            row["status"] = "source_not_external"
+        elif not local_exists and not source_exists:
             row["status"] = "missing_local_and_source"
         elif not source_exists:
-            if os.environ.get("EA_DESIGN_MIRROR_REQUIRE_SOURCE") == "1":
-                row["status"] = "missing_source"
-            else:
-                row["source_unavailable"] = True
+            row["status"] = "missing_source"
         elif not local_exists:
             row["status"] = "missing_local"
         else:
@@ -212,7 +297,13 @@ def repair_bundle() -> list[dict[str, object]]:
         result = dict(row)
         if status in {"ok"}:
             result["action"] = "unchanged"
-        elif status in {"missing_source", "missing_local_and_source", "invalid_source_payload"}:
+        elif status == "source_not_external":
+            result["action"] = "blocked_non_external_source"
+        elif status in {
+            "missing_source",
+            "missing_local_and_source",
+            "invalid_source_payload",
+        }:
             result["action"] = "blocked_missing_source"
         else:
             binding.local_path.parent.mkdir(parents=True, exist_ok=True)

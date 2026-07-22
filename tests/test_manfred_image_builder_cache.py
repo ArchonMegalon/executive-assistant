@@ -54,6 +54,30 @@ def _acquired_lock() -> Iterator[None]:
     yield
 
 
+def test_self_test_receipt_uses_policy_free_v2_contract() -> None:
+    receipt = builder._self_test()
+
+    assert receipt == {
+        "schema": "ea.manfred_memorial_image_build.self_test.v2",
+        "status": "pass",
+        "build_root_free_headroom_bytes": builder.BUILD_ROOT_FREE_HEADROOM_BYTES,
+        "minimum_root_free_bytes": builder.MINIMUM_ROOT_FREE_BYTES,
+        "threshold_boundary_verified": True,
+        "manfred_tag_verified": True,
+        "memorial_tag_verified": True,
+        "invalid_tags_rejected": True,
+        "producer_sha256_helper_verified": True,
+        "denial_receipt_schema_verified": True,
+        "denial_receipt_mode_0600_verified": True,
+        "nested_lock_rejected": True,
+        "stale_lock_file_reusable": True,
+        "docker_invoked": False,
+        "git_invoked": False,
+        "network_used": False,
+    }
+    assert receipt["schema"] != "ea.manfred_memorial_image_build.self_test.v1"
+
+
 def test_candidate_build_uses_exact_scoped_buildx_and_prune_argv(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -63,14 +87,15 @@ def test_candidate_build_uses_exact_scoped_buildx_and_prune_argv(
     commit = "b" * 40
     image_tag = f"ea-runtime:manfred-{commit}"
     commands: list[list[str]] = []
+    verified_filesystems: list[str] = []
     image_list_calls = 0
 
     monkeypatch.setattr(builder, "_exclusive_build_lock", lambda: _acquired_lock())
     monkeypatch.setattr(builder, "_commit_for_ref", lambda _root, _ref: commit)
     monkeypatch.setattr(
         builder,
-        "_require_root_disk_capacity",
-        lambda: None,
+        "_root_free_bytes",
+        lambda: builder.MINIMUM_ROOT_FREE_BYTES,
     )
 
     def materialize_context(
@@ -111,7 +136,11 @@ def test_candidate_build_uses_exact_scoped_buildx_and_prune_argv(
             {"RootFS": {"Layers": ["sha256:layer"]}},
         ),
     )
-    monkeypatch.setattr(builder, "_verify_image_filesystem", lambda _tag: None)
+    monkeypatch.setattr(
+        builder,
+        "_verify_image_filesystem",
+        lambda image_reference: verified_filesystems.append(image_reference),
+    )
 
     receipt_path = tmp_path / "receipt.json"
     receipt = builder.build_image(
@@ -176,7 +205,7 @@ def test_candidate_build_uses_exact_scoped_buildx_and_prune_argv(
     assert all(command[:3] != ["docker", "image", "prune"] for command in commands)
     assert all(command[:3] != ["docker", "image", "rm"] for command in commands)
 
-    assert receipt["schema"] == "ea.manfred_memorial_image_build.v2"
+    assert receipt["schema"] == "ea.manfred_memorial_image_build.v3"
     assert receipt["buildx_builder_name"] == builder.BUILDX_BUILDER_NAME
     assert receipt["buildx_builder_driver"] == builder.BUILDX_BUILDER_DRIVER
     assert receipt["buildx_builder_created"] is False
@@ -191,6 +220,272 @@ def test_candidate_build_uses_exact_scoped_buildx_and_prune_argv(
     assert receipt["global_build_cache_pruned"] is False
     assert receipt["live_or_rollback_images_pruned"] is False
     assert receipt_path.is_file()
+    assert verified_filesystems == [IMAGE_ID]
+
+
+def test_durable_fresh_build_receipt_replays_without_mutation_and_rejects_tamper(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "repo"
+    (source_root / ".git").mkdir(parents=True)
+    commit = "7" * 40
+    image_tag = f"ea-runtime:manfred-{commit}"
+    producer_sha256 = "d" * 64
+    receipt_path = tmp_path / "receipt.json"
+    mutation_events: list[str] = []
+    validation_events: list[str] = []
+    root_free_calls = 0
+    image_present = False
+    current_image_id = IMAGE_ID
+    image_created_at = ""
+
+    monkeypatch.setattr(builder, "_exclusive_build_lock", lambda: _acquired_lock())
+    monkeypatch.setattr(builder, "_commit_for_ref", lambda _root, _ref: commit)
+    monkeypatch.setattr(builder, "_producer_sha256", lambda: producer_sha256)
+
+    def root_free_bytes() -> int:
+        nonlocal root_free_calls
+        root_free_calls += 1
+        return builder.MINIMUM_ROOT_FREE_BYTES + 1024
+
+    def materialize_context(
+        *, source_root: Path, commit: str, destination: Path
+    ) -> None:
+        del source_root, commit
+        mutation_events.append("context")
+        dockerfile = destination / "ea" / "Dockerfile"
+        dockerfile.parent.mkdir(parents=True)
+        dockerfile.write_text("FROM scratch\n", encoding="utf-8")
+
+    def ensure_builder() -> bool:
+        mutation_events.append("builder")
+        return True
+
+    def prune_cache() -> None:
+        mutation_events.append("prune")
+
+    def run_build(
+        argv: list[str],
+        *,
+        cwd: Path | None = None,
+        stdout: object | None = subprocess.PIPE,
+    ) -> subprocess.CompletedProcess[bytes]:
+        nonlocal image_present, image_created_at
+        del cwd, stdout
+        command = list(argv)
+        if command[:3] != ["docker", "buildx", "build"]:
+            raise AssertionError(f"unexpected mutating command: {command!r}")
+        mutation_events.append("build")
+        created_label = next(
+            value
+            for value in command
+            if value.startswith("org.opencontainers.image.created=")
+        )
+        image_created_at = created_label.split("=", 1)[1]
+        image_present = True
+        return _completed(command)
+
+    def listed_image_id(_tag: str) -> str | None:
+        return current_image_id if image_present else None
+
+    def inspect_image(
+        _tag: str,
+        *,
+        expected_commit: str,
+    ) -> tuple[str, dict[str, object]]:
+        validation_events.append("inspect")
+        assert expected_commit == commit
+        return current_image_id, {
+            "Config": {
+                "Labels": {
+                    "org.opencontainers.image.revision": commit,
+                    "org.opencontainers.image.created": image_created_at,
+                },
+                "Env": [f"EA_SOURCE_REVISION={commit}", "PATH=/usr/bin"],
+            },
+            "RootFS": {"Layers": ["sha256:layer-a", "sha256:layer-b"]},
+        }
+
+    def verify_filesystem(image_reference: str) -> None:
+        validation_events.append(f"filesystem:{image_reference}")
+
+    monkeypatch.setattr(builder, "_root_free_bytes", root_free_bytes)
+    monkeypatch.setattr(builder, "_materialize_tracked_context", materialize_context)
+    monkeypatch.setattr(builder, "_ensure_dedicated_builder", ensure_builder)
+    monkeypatch.setattr(builder, "_prune_dedicated_builder_cache", prune_cache)
+    monkeypatch.setattr(builder, "_run", run_build)
+    monkeypatch.setattr(builder, "_listed_image_id", listed_image_id)
+    monkeypatch.setattr(builder, "_image_inspection", inspect_image)
+    monkeypatch.setattr(builder, "_verify_image_filesystem", verify_filesystem)
+
+    first = builder.build_image(
+        source_root=source_root,
+        ref="HEAD",
+        tag=image_tag,
+        receipt_path=receipt_path,
+    )
+
+    assert first["image_reused"] is False
+    assert first["buildx_load_completed"] is True
+    assert mutation_events == ["context", "builder", "build", "prune"]
+    assert root_free_calls == 3
+    assert validation_events == ["inspect", f"filesystem:{IMAGE_ID}"]
+    original_bytes = receipt_path.read_bytes()
+    original_inode = receipt_path.stat().st_ino
+    assert original_bytes == builder._build_receipt_bytes(first)
+
+    monkeypatch.setattr(
+        builder,
+        "_atomic_json",
+        lambda *_args, **_kwargs: pytest.fail("replay must not publish a new receipt"),
+    )
+    mutation_events.clear()
+    validation_events.clear()
+    root_free_calls = 0
+    replayed = builder.build_image(
+        source_root=source_root,
+        ref="HEAD",
+        tag=image_tag,
+        receipt_path=receipt_path,
+    )
+
+    assert replayed == first
+    assert mutation_events == []
+    assert validation_events == ["inspect", f"filesystem:{IMAGE_ID}"]
+    assert root_free_calls == 0
+    assert receipt_path.read_bytes() == original_bytes
+    assert receipt_path.stat().st_ino == original_inode
+
+    recovery_temporary = tmp_path / (
+        f".{builder.RECEIPT_TEMP_BASENAME}.1234."
+        "abcdef012345abcdef012345.tmp"
+    )
+    recovery_temporary.hardlink_to(receipt_path)
+    assert receipt_path.stat().st_nlink == 2
+    mutation_events.clear()
+    validation_events.clear()
+    root_free_calls = 0
+
+    recovered = builder.build_image(
+        source_root=source_root,
+        ref="HEAD",
+        tag=image_tag,
+        receipt_path=receipt_path,
+    )
+
+    assert recovered == first
+    assert not recovery_temporary.exists()
+    assert receipt_path.read_bytes() == original_bytes
+    assert receipt_path.stat().st_ino == original_inode
+    assert receipt_path.stat().st_nlink == 1
+    assert mutation_events == []
+    assert validation_events == ["inspect", f"filesystem:{IMAGE_ID}"]
+    assert root_free_calls == 0
+
+    unrelated = tmp_path / "operator-backup.json"
+    unrelated.hardlink_to(receipt_path)
+    mutation_events.clear()
+    validation_events.clear()
+    root_free_calls = 0
+    with pytest.raises(RuntimeError, match=builder.RECEIPT_PATH_ERROR):
+        builder.build_image(
+            source_root=source_root,
+            ref="HEAD",
+            tag=image_tag,
+            receipt_path=receipt_path,
+        )
+    assert unrelated.exists()
+    assert receipt_path.stat().st_nlink == 2
+    assert mutation_events == []
+    assert validation_events == []
+    assert root_free_calls == 0
+    unrelated.unlink()
+
+    second_temporary = tmp_path / (
+        f".{builder.RECEIPT_TEMP_BASENAME}.5678."
+        "012345abcdef012345abcdef.tmp"
+    )
+    recovery_temporary.hardlink_to(receipt_path)
+    second_temporary.write_bytes(b"unrelated staged bytes\n")
+    second_temporary.chmod(0o600)
+    mutation_events.clear()
+    validation_events.clear()
+    root_free_calls = 0
+    with pytest.raises(RuntimeError, match=builder.RECEIPT_PATH_ERROR):
+        builder.build_image(
+            source_root=source_root,
+            ref="HEAD",
+            tag=image_tag,
+            receipt_path=receipt_path,
+        )
+    assert recovery_temporary.exists()
+    assert second_temporary.exists()
+    assert receipt_path.stat().st_nlink == 2
+    assert mutation_events == []
+    assert validation_events == []
+    assert root_free_calls == 0
+    recovery_temporary.unlink()
+    second_temporary.unlink()
+
+    invalid_bytes = b'{"status":"pass"}\n'
+    receipt_path.write_bytes(invalid_bytes)
+    receipt_path.chmod(0o600)
+    recovery_temporary.hardlink_to(receipt_path)
+    mutation_events.clear()
+    validation_events.clear()
+    root_free_calls = 0
+    with pytest.raises(RuntimeError, match=builder.RECEIPT_CONFLICT_ERROR):
+        builder.build_image(
+            source_root=source_root,
+            ref="HEAD",
+            tag=image_tag,
+            receipt_path=receipt_path,
+        )
+    assert not recovery_temporary.exists()
+    assert receipt_path.read_bytes() == invalid_bytes
+    assert receipt_path.stat().st_nlink == 1
+    assert mutation_events == []
+    assert validation_events == []
+    assert root_free_calls == 0
+
+    security_tamper = dict(first)
+    security_tamper["runtime_secrets_baked_in"] = True
+    extra_field_tamper = {**first, "unexpected": True}
+    failure_tamper = {**first, "status": "fail"}
+    legacy_schema_tamper = {
+        **first,
+        "schema": "ea.manfred_memorial_image_build.v2",
+    }
+    alternate_tag = f"ea-runtime:memorial-{commit}"
+    cases = (
+        (builder._build_receipt_bytes(security_tamper), IMAGE_ID, image_tag),
+        (builder._build_receipt_bytes(extra_field_tamper), IMAGE_ID, image_tag),
+        (builder._build_receipt_bytes(failure_tamper), IMAGE_ID, image_tag),
+        (builder._build_receipt_bytes(legacy_schema_tamper), IMAGE_ID, image_tag),
+        (original_bytes.rstrip(b"\n") + b" \n", IMAGE_ID, image_tag),
+        (original_bytes, f"sha256:{'f' * 64}", image_tag),
+        (original_bytes, IMAGE_ID, alternate_tag),
+    )
+    for encoded, replay_image_id, requested_tag in cases:
+        receipt_path.write_bytes(encoded)
+        receipt_path.chmod(0o600)
+        current_image_id = replay_image_id
+        mutation_events.clear()
+        validation_events.clear()
+        root_free_calls = 0
+
+        with pytest.raises(RuntimeError, match=builder.RECEIPT_CONFLICT_ERROR):
+            builder.build_image(
+                source_root=source_root,
+                ref="HEAD",
+                tag=requested_tag,
+                receipt_path=receipt_path,
+            )
+
+        assert mutation_events == []
+        assert root_free_calls == 0
+        assert receipt_path.read_bytes() == encoded
 
 
 def test_missing_builder_is_created_exactly_without_changing_current_builder(
@@ -379,13 +674,14 @@ def test_valid_preexisting_full_revision_image_is_reused_without_overwrite(
     (source_root / ".git").mkdir(parents=True)
     commit = "a" * 40
     commands: list[list[str]] = []
+    verified_filesystems: list[str] = []
 
     monkeypatch.setattr(builder, "_exclusive_build_lock", lambda: _acquired_lock())
     monkeypatch.setattr(builder, "_commit_for_ref", lambda _root, _ref: commit)
     monkeypatch.setattr(
         builder,
-        "_require_root_disk_capacity",
-        lambda: pytest.fail("zero-build reuse reached the disk build gate"),
+        "_root_free_bytes",
+        lambda: builder.MINIMUM_ROOT_FREE_BYTES,
     )
 
     def image_only_run(
@@ -410,7 +706,11 @@ def test_valid_preexisting_full_revision_image_is_reused_without_overwrite(
             {"RootFS": {"Layers": ["sha256:layer"]}},
         ),
     )
-    monkeypatch.setattr(builder, "_verify_image_filesystem", lambda _tag: None)
+    monkeypatch.setattr(
+        builder,
+        "_verify_image_filesystem",
+        lambda image_reference: verified_filesystems.append(image_reference),
+    )
 
     receipt = builder.build_image(
         source_root=source_root,
@@ -428,6 +728,7 @@ def test_valid_preexisting_full_revision_image_is_reused_without_overwrite(
         ["docker", "image", "ls"],
         ["docker", "image", "ls"],
     ]
+    assert verified_filesystems == [IMAGE_ID]
 
 
 def test_mismatched_preexisting_tag_fails_without_overwrite_or_delete(
@@ -441,7 +742,11 @@ def test_mismatched_preexisting_tag_fails_without_overwrite_or_delete(
 
     monkeypatch.setattr(builder, "_exclusive_build_lock", lambda: _acquired_lock())
     monkeypatch.setattr(builder, "_commit_for_ref", lambda _root, _ref: commit)
-    monkeypatch.setattr(builder, "_require_root_disk_capacity", lambda: None)
+    monkeypatch.setattr(
+        builder,
+        "_root_free_bytes",
+        lambda: builder.MINIMUM_ROOT_FREE_BYTES,
+    )
 
     def image_only_run(
         argv: list[str],
@@ -487,7 +792,11 @@ def test_failed_buildx_build_prunes_scoped_cache_and_writes_failure_receipt(
 
     monkeypatch.setattr(builder, "_exclusive_build_lock", lambda: _acquired_lock())
     monkeypatch.setattr(builder, "_commit_for_ref", lambda _root, _ref: commit)
-    monkeypatch.setattr(builder, "_require_root_disk_capacity", lambda: None)
+    monkeypatch.setattr(
+        builder,
+        "_root_free_bytes",
+        lambda: builder.MINIMUM_ROOT_FREE_BYTES,
+    )
 
     def materialize_context(
         *, source_root: Path, commit: str, destination: Path
@@ -552,7 +861,11 @@ def test_post_build_verification_failure_prunes_cache_and_removes_only_new_tag(
 
     monkeypatch.setattr(builder, "_exclusive_build_lock", lambda: _acquired_lock())
     monkeypatch.setattr(builder, "_commit_for_ref", lambda _root, _ref: commit)
-    monkeypatch.setattr(builder, "_require_root_disk_capacity", lambda: None)
+    monkeypatch.setattr(
+        builder,
+        "_root_free_bytes",
+        lambda: builder.MINIMUM_ROOT_FREE_BYTES,
+    )
 
     def materialize_context(
         *, source_root: Path, commit: str, destination: Path
@@ -600,10 +913,15 @@ def test_post_build_verification_failure_prunes_cache_and_removes_only_new_tag(
             {"RootFS": {"Layers": ["sha256:layer"]}},
         ),
     )
+
+    def fail_filesystem_verification(image_reference: str) -> None:
+        assert image_reference == IMAGE_ID
+        raise RuntimeError("filesystem mismatch")
+
     monkeypatch.setattr(
         builder,
         "_verify_image_filesystem",
-        lambda _tag: (_ for _ in ()).throw(RuntimeError("filesystem mismatch")),
+        fail_filesystem_verification,
     )
     receipt_path = tmp_path / "receipt.json"
 
@@ -631,7 +949,7 @@ def test_post_build_verification_failure_prunes_cache_and_removes_only_new_tag(
     assert image_present is False
 
     failure_receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    assert failure_receipt["schema"] == "ea.manfred_memorial_image_build.v2"
+    assert failure_receipt["schema"] == "ea.manfred_memorial_image_build.v3"
     assert failure_receipt["status"] == "fail"
     assert failure_receipt["error"] == builder.POST_BUILD_VERIFY_ERROR
     assert failure_receipt["new_image_cleanup_status"] == "removed"

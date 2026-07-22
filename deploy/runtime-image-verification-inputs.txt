@@ -1,0 +1,5 @@
+# Source-only inputs consumed by the in-image release verifier.
+docker-compose.yml
+docker-compose.host-tools.yml
+docker-compose.fastestvpn.yml
+docker-compose.cloudflared.yml

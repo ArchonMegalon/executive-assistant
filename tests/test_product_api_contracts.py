@@ -9,7 +9,7 @@ import urllib.parse
 import zipfile
 from datetime import timedelta
 from pathlib import Path
-from types import SimpleNamespace
+from types import FunctionType, SimpleNamespace
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -20,7 +20,123 @@ import app.api.routes.product_api_delivery as product_api_delivery_routes
 import app.product.service as product_service
 from app.product.service import ProductService
 from app.services import google_oauth as google_oauth_service
-from tests.product_test_helpers import build_operator_product_client, build_product_client, seed_product_state, start_workspace
+from tests.product_test_helpers import (
+    build_operator_product_client,
+    build_product_client,
+    build_property_client,
+    build_property_operator_client,
+    seed_product_state,
+    start_workspace,
+)
+
+
+# This legacy contract module covers both EA and PropertyQuarry surfaces.  Keep
+# the production boundary enabled and opt only the named PropertyQuarry
+# contracts into the Property-branded test client.  The validation fixture
+# below makes renames/removals fail loudly instead of silently broadening the
+# selection to future tests by prefix.
+_PROPERTY_SURFACE_CLIENT_TESTS = frozenset(
+    {
+        "test_property_scout_route_uses_explicit_preference_person_and_creates_reviews",
+        "test_property_scout_route_deduplicates_duplicate_listings_across_sources",
+        "test_property_scout_route_notifies_high_fit_and_creates_tour_for_existing_review",
+        "test_property_scout_route_sends_client_email_alerts_via_emailit",
+        "test_property_scout_route_notifies_top_watch_hit_when_no_good_fit",
+        "test_property_scout_feedback_buttons_include_reason_suggestions",
+        "test_signal_ingest_email_thread_records_ooda_ltd_recommendations_for_property_workflows",
+        "test_signal_ingest_willhaben_search_agent_mail_skips_commitment_staging_but_keeps_ooda_ltd_review",
+        "test_signal_ingest_immmo_property_alert_mail_uses_property_review_lane",
+        "test_signal_ingest_property_alert_sends_telegram_review_summary",
+        "test_signal_ingest_property_alert_sends_workspace_review_link_for_cf_email_principal",
+        "test_signal_ingest_willhaben_property_alert_review_uses_personal_fit_priority",
+        "test_signal_ingest_property_alert_queue_orders_higher_fit_first",
+        "test_property_alert_preference_scoring_flows_through_queue_and_telegram",
+        "test_signal_ingest_willhaben_search_agent_mail_can_auto_create_and_send_to_tibor",
+        "test_willhaben_property_tour_route_generates_tour_and_sends_email",
+        "test_preference_profile_endpoints_and_willhaben_assessment_flow",
+        "test_willhaben_property_tour_route_uses_personal_fit_assessment_when_profile_exists",
+        "test_willhaben_property_tour_records_video_followup_when_telegram_video_delivery_fails",
+        "test_willhaben_property_tour_route_prefers_panorama_media_and_disables_floorplan_scene_in_360_mode",
+        "test_willhaben_property_tour_route_accepts_external_live_360_source_when_panorama_images_are_absent",
+        "test_willhaben_property_tour_route_publishes_pure_360_bundle_when_crezlo_is_unavailable",
+        "test_willhaben_property_tour_route_blocks_when_only_flat_listing_photos_exist_and_360_is_required",
+        "test_willhaben_property_tour_route_falls_back_to_projected_crezlo_task_when_base_contract_missing",
+        "test_willhaben_property_tour_route_blocks_with_handoff_when_connector_missing",
+        "test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_available",
+        "test_willhaben_property_tour_block_followup_sends_telegram_scout_update",
+        "test_property_market_bootstrap_ready_notification_sends_email",
+        "test_google_willhaben_signal_sync_targets_secondary_account_and_auto_sends_to_tibor",
+        "test_google_property_sync_uses_configured_property_alert_query",
+        "test_google_property_sync_suppresses_telegram_for_weak_digest_alert",
+        "test_google_property_sync_scores_elisabeth_mailbox_against_elisabeth_profile",
+        "test_google_property_sync_splits_digest_into_per_listing_reviews",
+        "test_google_property_sync_reranks_digest_using_learned_feedback_conflicts",
+        "test_google_property_sync_suppresses_high_raw_score_when_learned_conflicts_stack",
+        "test_willhaben_property_tour_route_retries_gmail_delivery_with_fallback_binding",
+        "test_willhaben_property_tour_route_backfills_hosted_url_from_structured_output",
+        "test_willhaben_property_tour_blocks_generated_listing_fallback_payload",
+        "test_office_signal_can_auto_create_willhaben_property_tour",
+        "test_pocket_signal_upload_url_includes_signal_ooda_evaluated",
+        "test_pocket_api_sync_can_use_onemin_audio_fallback_for_profile_evidence",
+        "test_property_search_run_blocks_free_plan_when_limits_exceed_free_tier",
+        "test_property_search_run_allows_free_plan_across_multiple_platforms_when_result_cap_is_respected",
+        "test_property_paypal_checkout_and_capture_updates_property_commercial_state",
+        "test_property_payfunnels_checkout_and_webhook_activate_plus_plan",
+        "test_property_payfunnels_checkout_uses_api_created_link_when_api_key_is_present",
+        "test_property_payfunnels_webhook_accepts_documented_callback_shape",
+        "test_property_payfunnels_webhook_accepts_hidden_additional_fields_shape",
+    }
+)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _validate_property_surface_client_allowlist() -> None:
+    unresolved = sorted(
+        name
+        for name in _PROPERTY_SURFACE_CLIENT_TESTS
+        if not isinstance(globals().get(name), FunctionType)
+    )
+    assert not unresolved, f"unknown PropertyQuarry contract tests: {unresolved}"
+
+
+@pytest.fixture(autouse=True)
+def _select_property_surface_client(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if request.node.name not in _PROPERTY_SURFACE_CLIENT_TESTS:
+        return
+
+    def _build_property_surface_client(
+        *, principal_id: str = "exec-product-api"
+    ):  # type: ignore[no-untyped-def]
+        return build_property_client(
+            principal_id=principal_id,
+            monkeypatch=monkeypatch,
+        )
+
+    monkeypatch.setitem(
+        globals(),
+        "build_product_client",
+        _build_property_surface_client,
+    )
+
+    def _build_property_surface_operator_client(
+        *,
+        principal_id: str = "exec-product-api",
+        operator_id: str = "operator-office",
+    ):  # type: ignore[no-untyped-def]
+        return build_property_operator_client(
+            principal_id=principal_id,
+            operator_id=operator_id,
+            monkeypatch=monkeypatch,
+        )
+
+    monkeypatch.setitem(
+        globals(),
+        "build_operator_product_client",
+        _build_property_surface_operator_client,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -5853,7 +5969,11 @@ def test_preference_profile_teable_sync_can_use_executable_lane_when_available(m
             updated_at="2026-05-25T00:00:00Z",
         ),
     )
-    monkeypatch.setattr(product_service.ProductService, "_teable_sync_runtime_available", lambda self, *, base_url: (True, ""))
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_teable_sync_runtime_available",
+        lambda self, *, base_url, timeout_seconds=None: (True, ""),
+    )
 
     def _execute(invocation):
         assert invocation.tool_name == "provider.teable.table_sync"
@@ -5941,7 +6061,11 @@ def test_preference_profile_teable_sync_can_use_fallback_config_from_env(monkeyp
             updated_at="2026-06-24T00:00:00Z",
         ),
     )
-    monkeypatch.setattr(product_service.ProductService, "_teable_sync_runtime_available", lambda self, *, base_url: (True, ""))
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_teable_sync_runtime_available",
+        lambda self, *, base_url, timeout_seconds=None: (True, ""),
+    )
 
     preview = client.get("/app/api/people/self/preference-profile/teable-sync-preview")
     assert preview.status_code == 200
@@ -6053,7 +6177,10 @@ def test_preference_profile_teable_sync_preview_blocks_when_runtime_is_unreachab
     monkeypatch.setattr(
         product_service.ProductService,
         "_teable_sync_runtime_available",
-        lambda self, *, base_url: (False, "teable_runtime_unreachable"),
+        lambda self, *, base_url, timeout_seconds=None: (
+            False,
+            "teable_runtime_unreachable",
+        ),
     )
 
     preview = client.get("/app/api/people/self/preference-profile/teable-sync-preview")
@@ -6383,7 +6510,7 @@ def test_generic_property_tour_creates_hosted_floorplan_when_crezlo_fails(
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path / "tours"))
     monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
     principal_id = "cf-email:principal.user@example.test"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(principal_id=principal_id, monkeypatch=monkeypatch)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
 
     property_url = "https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/alldoc/9832128b166ce886c1258e060031ed92!OpenDocument"
@@ -10482,7 +10609,10 @@ def test_pocket_recording_deliver_telegram_route_falls_back_to_local_upload_when
         seen.append(audio_ref)
         if audio_ref.startswith("https://"):
             raise RuntimeError("telegram_audio_unreachable")
-        assert Path(audio_ref).is_file()
+        local_audio_path = Path(audio_ref)
+        assert local_audio_path.is_file()
+        assert local_audio_path.name.startswith("ea-pocket-telegram-")
+        assert local_audio_path.suffix == ".mp3"
         return SimpleNamespace(
             chat_id="1354554303",
             bot_key="default",
@@ -10499,7 +10629,7 @@ def test_pocket_recording_deliver_telegram_route_falls_back_to_local_upload_when
     assert body["telegram_message_ids"] == ["tg-audio-2"]
     assert seen[0] == "https://audio.example/rec-telegram-fallback.mp3"
     assert len(seen) == 2
-    assert seen[1].startswith("/tmp/")
+    assert not Path(seen[1]).exists()
 
 
 def test_approving_signal_reply_draft_promotes_linked_commitment_candidate() -> None:
@@ -14228,7 +14358,7 @@ def test_workspace_sign_in_email_links_fall_back_to_google_gmail_when_explicitly
 
 
 def test_google_connect_email_link_carries_expected_google_account(monkeypatch) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:principal.user@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Work Gmail Office")
     product = ProductService(client.app.state.container)
@@ -14243,7 +14373,7 @@ def test_google_connect_email_link_carries_expected_google_account(monkeypatch) 
 
     result = product.send_google_connect_email_link(
         principal_id=principal_id,
-        recipient_email="work.tibor.girschele@gmail.com",
+        recipient_email="work.user@example.test",
         scope_bundle="full_workspace",
         base_url="https://myexternalbrain.com",
     )
@@ -14257,8 +14387,8 @@ def test_google_connect_email_link_carries_expected_google_account(monkeypatch) 
     inner_query = urllib.parse.parse_qs(inner.query)
     assert inner.path == "/app/actions/google/connect"
     assert inner_query["scope_bundle"] == ["full_workspace"]
-    assert inner_query["expected_google_email"] == ["work.tibor.girschele@gmail.com"]
-    assert result["recipient_email"] == "work.tibor.girschele@gmail.com"
+    assert inner_query["expected_google_email"] == ["work.user@example.test"]
+    assert result["recipient_email"] == "work.user@example.test"
     assert result["scope_bundle"] == "full_workspace"
 
 
@@ -14548,10 +14678,7 @@ def test_workspace_invitation_lifecycle_is_seat_aware() -> None:
     assert revoked.json()["invitation_id"] == invite["invitation_id"]
 
 
-def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_ready_links(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("PROPERTYQUARRY_TRUST_X_FORWARDED_HOST", "1")
+def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_ready_links() -> None:
     principal_id = "exec-access-sessions"
     client = build_product_client(principal_id=principal_id)
     seeded = seed_product_state(client, principal_id=principal_id)
@@ -14606,9 +14733,8 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     assert opened_access.headers["location"] == "/app/today"
     assert "ea_workspace_session=" in str(opened_access.headers.get("set-cookie") or "")
     opened_access_secure = client.get(
-        access_body["access_url"],
+        f"https://testserver{access_body['access_url']}",
         follow_redirects=False,
-        headers={"x-forwarded-proto": "https"},
     )
     assert opened_access_secure.status_code == 303
     secure_access_cookie = str(opened_access_secure.headers.get("set-cookie") or "")
@@ -14691,9 +14817,8 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     assert opened_delivery.headers["location"] == "/app/channel-loop/memo"
     assert "ea_workspace_session=" in str(opened_delivery.headers.get("set-cookie") or "")
     opened_delivery_secure = client.get(
-        delivery_body["delivery_url"],
+        f"https://testserver{delivery_body['delivery_url']}",
         follow_redirects=False,
-        headers={"x-forwarded-proto": "https"},
     )
     assert opened_delivery_secure.status_code == 303
     secure_delivery_cookie = str(opened_delivery_secure.headers.get("set-cookie") or "")
@@ -14799,9 +14924,8 @@ def test_workspace_session_cookie_secure_for_proxy_protocol_chain(
     assert access_body["access_url"].startswith("/workspace-access/")
 
     opened_secure = client.get(
-        access_body["access_url"],
+        f"https://testserver{access_body['access_url']}",
         follow_redirects=False,
-        headers={"x-forwarded-proto": "http, https"},
     )
     assert opened_secure.status_code == 303
     secure_cookie = str(opened_secure.headers.get("set-cookie") or "")
@@ -14809,9 +14933,8 @@ def test_workspace_session_cookie_secure_for_proxy_protocol_chain(
     assert "Secure" in secure_cookie
 
     opened_nonsecure = client.get(
-        access_body["access_url"],
+        f"http://testserver{access_body['access_url']}",
         follow_redirects=False,
-        headers={"x-forwarded-proto": "http, http"},
     )
     assert opened_nonsecure.status_code == 303
     nonsecure_cookie = str(opened_nonsecure.headers.get("set-cookie") or "")

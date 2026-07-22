@@ -90,3 +90,28 @@ def test_avatar_readiness_passes_when_public_video_asset_is_live(
     assert report.status == "pass"
     assert any(item.code == "avatar_asset_available" for item in report.findings)
 
+
+def test_avatar_readiness_accepts_conversation_only_page_without_disabled_label(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.verify_memorial_video_call_avatar_ready as avatar_ready
+
+    monkeypatch.setattr(
+        avatar_ready,
+        "_load_public_json",
+        lambda **_kwargs: (200, {"video_call_avatar": {"enabled": False}}),
+    )
+    monkeypatch.setattr(
+        avatar_ready,
+        "_load_page_html",
+        lambda **_kwargs: (
+            200,
+            '<body data-public-memorial-surface="conversation-only"></body>',
+        ),
+    )
+
+    report = avatar_ready.run_check(base_url="https://example.test", slug="manfred")
+
+    assert report.status == "warn"
+    assert [item.code for item in report.findings] == ["avatar_video_not_published"]
+    assert report.findings[0].detail == {"public_page_surface": "conversation_only"}

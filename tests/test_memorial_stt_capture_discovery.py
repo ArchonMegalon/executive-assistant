@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import io
 import json
 import math
 import struct
 import wave
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -40,7 +42,8 @@ def _wav_bytes(*, duration_seconds: float = 3.0) -> bytes:
 def _bundle(tmp_path: Path, *, text: str, duration_seconds: float) -> Path:
     bundle = tmp_path / "manfred" / "2026" / "06" / "16" / "captured"
     bundle.mkdir(parents=True)
-    (bundle / "input.wav").write_bytes(_wav_bytes(duration_seconds=duration_seconds))
+    audio = _wav_bytes(duration_seconds=duration_seconds)
+    (bundle / "input.wav").write_bytes(audio)
     (bundle / "error.json").write_text(
         json.dumps(
             {
@@ -57,6 +60,35 @@ def _bundle(tmp_path: Path, *, text: str, duration_seconds: float) -> Path:
         ),
         encoding="utf-8",
     )
+    review = bundle.parent / f"{bundle.name}.contact_opening.ground-truth-review.json"
+    review.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.memorial_stt_operator_ground_truth_review.v2",
+                "status": "approved",
+                "reviewed_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+                "reviewer_authority": "memorial_operator",
+                "audio_sha256": hashlib.sha256(audio).hexdigest(),
+                "bundle_id": bundle.name,
+                "sample": "contact_opening",
+                "expected_text": text,
+                "required_tokens": ["hallo", "manfred", "sprechen"],
+                "speaker_consent": "operator_attested_for_private_stt_regression",
+                "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
+                "retention": "private_captured_regression_candidate",
+                "language": "de",
+                "accent": "Austrian German",
+                "provider_upload_authorization": {
+                    "full_runtime": True,
+                    "shadow": False,
+                    "onemin_sample": False,
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    review.chmod(0o600)
     return bundle
 
 
@@ -102,8 +134,14 @@ def test_memorial_stt_capture_discovery_blocks_truncated_candidate(tmp_path: Pat
 
     assert payload["status"] == "blocked"
     assert payload["promotable_count"] == 0
-    assert payload["rows"][0]["failed_codes"] == ["audio_too_short_for_expected_text"]
-    assert payload["failed_codes"] == ["audio_too_short_for_expected_text"]
+    assert payload["rows"][0]["failed_codes"] == [
+        "audio_too_short_for_expected_text",
+        "captured_audio_too_short",
+    ]
+    assert payload["failed_codes"] == [
+        "audio_too_short_for_expected_text",
+        "captured_audio_too_short",
+    ]
 
 
 def test_memorial_stt_capture_discovery_ignores_nonmatching_bundle(tmp_path: Path) -> None:

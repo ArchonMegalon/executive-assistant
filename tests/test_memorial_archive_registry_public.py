@@ -4,14 +4,20 @@ from pathlib import Path
 
 
 def test_memorial_archive_defaults_are_repo_local_or_env_driven() -> None:
-    source = (Path(__file__).resolve().parents[1] / "ea" / "app" / "services" / "memorial_archive_registry.py").read_text(
-        encoding="utf-8"
-    )
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "ea"
+        / "app"
+        / "services"
+        / "memorial_archive_registry.py"
+    ).read_text(encoding="utf-8")
 
     assert "EA_MEMORIAL_ARCHIVE_ROOT" in source
     assert "EA_PUBLIC_MEMORIAL_ROOT" in source
+    assert "EA_MEMORIAL_ARCHIVE_CORRECTION_PATH" in source
     assert '_repo_root() / "memorial_archive"' in source
     assert "/docker/" + "EA/memorial_archive" not in source
+    assert "myexternalbrain" + ".com" not in source
 
 
 def test_public_registry_filters_non_public_publications() -> None:
@@ -26,18 +32,22 @@ def test_public_registry_filters_non_public_publications() -> None:
         ],
         "fliplink_publications": [
             {
+                "approved": True,
                 "id": "pub",
                 "title": "Public Doc",
                 "audience": "public",
                 "review_status": "published",
+                "sensitivity": "PUBLIC",
                 "url": "https://archive.example/pub",
                 "secret": "must-not-export",
             },
             {
+                "approved": True,
                 "id": "family",
                 "title": "Family Doc",
                 "audience": "family",
                 "review_status": "published",
+                "sensitivity": "FAMILY",
                 "url": "https://archive.example/family",
             },
         ],
@@ -46,12 +56,17 @@ def test_public_registry_filters_non_public_publications() -> None:
     public = public_registry_payload(registry)
 
     assert [item["id"] for item in public["fliplink_publications"]] == ["pub"]
-    assert public["archive_sections"] == [{"title": "Public", "audience": "public", "items": ["pub"]}]
+    assert public["archive_sections"] == [
+        {"title": "Public", "audience": "public", "items": ["pub"]}
+    ]
     assert "secret" not in public["fliplink_publications"][0]
 
 
 def test_fliplink_manifest_normalization_sets_safe_defaults(tmp_path: Path) -> None:
-    from app.services.memorial_archive_registry import normalize_manifest, publication_from_manifest
+    from app.services.memorial_archive_registry import (
+        normalize_manifest,
+        publication_from_manifest,
+    )
 
     manifest_path = tmp_path / "manfred-life-overview" / "manifest.json"
     manifest_path.parent.mkdir()

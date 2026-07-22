@@ -623,14 +623,16 @@ def test_docs_describe_memorial_runtime_overlay_verifier() -> None:
 
     assert "deploy-ea-memorial:" in makefile
     deploy_alias = makefile.split("deploy-ea-memorial:", 1)[1].split("\n\n", 1)[0]
-    scoped_deploy = makefile.split("deploy-ea-memorial-scoped:\n", 1)[1].split(
+    joint_deploy = makefile.split("deploy-ea-memorial-joint:\n", 1)[1].split(
         "\n\n", 1
     )[0]
     assert "verify-memorial-deploy-readiness:" in makefile
     assert "scripts/verify_memorial_deploy_readiness.py --pretty" in makefile
-    assert "deploy-ea-memorial-scoped" in deploy_alias
-    assert "scripts/deploy_ea_memorial.py" in scoped_deploy
-    assert "scripts/deploy.sh" not in deploy_alias + scoped_deploy
+    assert "deploy-ea-memorial-joint" in deploy_alias
+    assert "scripts/deploy_ea_memorial_joint.py" in joint_deploy
+    assert "EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT" in joint_deploy
+    assert "EA_PUBLIC_APP_BASE_URL" in joint_deploy
+    assert "scripts/deploy.sh" not in deploy_alias + joint_deploy
     assert "make deploy-ea-memorial" in readme
     assert "make verify-memorial-deploy-readiness" in readme
     assert "verify-memorial-runtime-overlay:" in makefile
@@ -1057,6 +1059,38 @@ def test_cloudflared_tunnel_is_only_available_via_override() -> None:
     assert "EA_CF_TUNNEL_TOKEN" in environment_matrix
 
 
+def test_cloudflared_tunnel_uses_stable_least_privilege_proxy_identity() -> None:
+    base_compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    base_payload = yaml.safe_load(base_compose)
+    tunnel_override = (ROOT / "docker-compose.cloudflared.yml").read_text(encoding="utf-8")
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+
+    api_networks = dict(base_payload["services"]["ea-api"]["networks"])
+    assert "public_ingress" in api_networks
+    assert api_networks["public_ingress"]["ipv4_address"] == (
+        "${EA_PUBLIC_INGRESS_API_IPV4:-172.31.254.3}"
+    )
+    assert "name: ${EA_PUBLIC_INGRESS_NETWORK_NAME:-ea_public_ingress}" in base_compose
+    assert "subnet: ${EA_PUBLIC_INGRESS_SUBNET:-172.31.254.0/29}" in base_compose
+    assert "gateway: ${EA_PUBLIC_INGRESS_GATEWAY:-172.31.254.1}" in base_compose
+    assert "EA_TRUST_PROXY_HEADERS=1" in tunnel_override
+    assert (
+        "EA_TRUSTED_PROXY_CIDRS=${EA_PUBLIC_INGRESS_TRUSTED_PROXY_CIDRS:-172.31.254.2/32}"
+        in tunnel_override
+    )
+    assert (
+        "ipv4_address: ${EA_PUBLIC_INGRESS_CLOUDFLARED_IPV4:-172.31.254.2}"
+        in tunnel_override
+    )
+    assert "EA_PUBLIC_INGRESS_CLOUDFLARED_IPV4=172.31.254.2" in env_example
+    assert "EA_PUBLIC_INGRESS_TRUSTED_PROXY_CIDRS=172.31.254.2/32" in env_example
+    for text in (readme, runbook):
+        assert "ea_public_ingress" in text
+        assert "172.31.254.2/32" in text
+
+
 def test_property_stack_docs_describe_loopback_and_runtime_limits() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -1101,23 +1135,14 @@ def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:
         in deploy
     )
     assert 'compose logs --tail 200 "${FAILURE_LOG_SERVICES[@]}"' in deploy
-    assert (
-        "Refusing to deploy with DATABASE_URL pointed at the isolated smoke database."
-        in deploy
-    )
-    assert (
-        "public_origin_line=\"$(grep -E '^(EA_PUBLIC_APP_BASE_URL|PROPERTYQUARRY_PUBLIC_BASE_URL)="
-        in deploy
-    )
-    assert "Refusing to deploy without a public runtime origin." in deploy
-    assert "Refusing to deploy from a source-dirty git worktree." in deploy
-    assert "from source_state_head import source_worktree_metadata" in deploy
-    assert "EA_DEPLOY_ALLOW_DIRTY_WORKTREE" not in deploy
-    assert "Refusing to deploy from a detached or untracked Git worktree." in deploy
-    assert (
-        'export EA_DEPLOYMENT_ID="deploy-$(date -u +%Y%m%dT%H%M%SZ)-${deploy_commit_fragment}"'
-        in deploy
-    )
+    assert 'Refusing to deploy with DATABASE_URL pointed at the isolated smoke database.' in deploy
+    assert 'public_origin_line="$(grep -E \'^(EA_PUBLIC_APP_BASE_URL|PROPERTYQUARRY_PUBLIC_BASE_URL)=' in deploy
+    assert 'Refusing to deploy without a public runtime origin.' in deploy
+    assert 'Refusing to deploy from a source-dirty git worktree.' in deploy
+    assert 'from source_state_head import source_worktree_metadata' in deploy
+    assert 'EA_DEPLOY_ALLOW_DIRTY_WORKTREE' not in deploy
+    assert 'Refusing to deploy from a detached or untracked Git worktree.' in deploy
+    assert 'export EA_DEPLOYMENT_ID="deploy-$(date -u +%Y%m%dT%H%M%SZ)-${deploy_commit_fragment}"' in deploy
     assert 'export EA_DEPLOYMENT_ID_SOURCE="deploy_script_generated"' in deploy
     assert (
         'export EA_DEPLOYMENT_ID_SOURCE="${EA_DEPLOYMENT_ID_SOURCE:-ea_deploy_id_env}"'

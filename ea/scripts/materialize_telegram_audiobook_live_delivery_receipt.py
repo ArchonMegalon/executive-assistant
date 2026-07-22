@@ -102,6 +102,11 @@ USER_SELECTED_VOICE_DELIVERY_BLOCKING_CODES = {
 }
 
 TELEGRAM_ACTION_SURFACES = {
+    "send_epub_over_telegram_to_create_live_delivery_receipt": (
+        TELEGRAM_INTEGRATION_PATH,
+        TELEGRAM_INTEGRATION_LABEL,
+        ACTION_METHOD,
+    ),
     "capture_real_user_playback_acceptance_or_close_operator_loop": (
         TELEGRAM_INTEGRATION_PATH,
         TELEGRAM_INTEGRATION_LABEL,
@@ -1058,6 +1063,7 @@ def _voice_selected_default(job: dict[str, object]) -> bool:
 def _candidate(job: dict[str, object], *, reference: datetime) -> dict[str, object]:
     metadata = _as_dict(job.get("metadata"))
     source = _as_dict(job.get("source"))
+    render = _as_dict(job.get("render"))
     assembly = _as_dict(job.get("assembly"))
     imported = _as_dict(job.get("audiobookshelf_import"))
     telegram = _as_dict(job.get("telegram"))
@@ -1070,6 +1076,15 @@ def _candidate(job: dict[str, object], *, reference: datetime) -> dict[str, obje
     public_url = str(imported.get("public_share_url") or "").strip()
     parsed_host = urlparse(public_url).hostname or ""
     failed_codes: list[str] = []
+    for value in (
+        render.get("chapter_index"),
+        render.get("segment_index"),
+        render.get("segment_count"),
+        telegram.get("voice_sample_delivery_expected_count"),
+        telegram.get("voice_sample_delivery_sent_count"),
+        telegram.get("voice_sample_delivery_failed_count"),
+    ):
+        _receipt_nonnegative_int(value or 0)
     performance, performance_issues = _performance_evidence(job)
     job_freshness = _freshness_evidence(job.get("observed_at"), reference=reference)
     publication_freshness = _freshness_evidence(
@@ -1408,9 +1423,15 @@ def _pending_summary(candidate: dict[str, object]) -> dict[str, object]:
         "job_id_sha256": candidate["job_id_sha256"],
         "status": str(job.get("status") or ""),
         "render_status": str(render.get("status") or ""),
-        "render_chapter_index": int(render.get("chapter_index") or 0),
-        "render_segment_index": int(render.get("segment_index") or 0),
-        "render_segment_count": int(render.get("segment_count") or 0),
+        "render_chapter_index": _receipt_nonnegative_int(
+            render.get("chapter_index") or 0
+        ),
+        "render_segment_index": _receipt_nonnegative_int(
+            render.get("segment_index") or 0
+        ),
+        "render_segment_count": _receipt_nonnegative_int(
+            render.get("segment_count") or 0
+        ),
         "voice_selection_status": str(voice.get("status") or ""),
         "voice_selection_reason": str(voice.get("reason") or ""),
         "voice_selection_waiting": str(voice.get("status") or "") == "waiting_user_choice",
@@ -1431,9 +1452,15 @@ def _pending_summary(candidate: dict[str, object]) -> dict[str, object]:
         ),
         "author_gender_mismatched_voice_samples_pending": bool(author_gender_mismatch_count > 0),
         "voice_sample_delivery_status": str(telegram.get("voice_sample_delivery_status") or "").strip(),
-        "voice_sample_delivery_expected_count": int(telegram.get("voice_sample_delivery_expected_count") or 0),
-        "voice_sample_delivery_sent_count": int(telegram.get("voice_sample_delivery_sent_count") or 0),
-        "voice_sample_delivery_failed_count": int(telegram.get("voice_sample_delivery_failed_count") or 0),
+        "voice_sample_delivery_expected_count": _receipt_nonnegative_int(
+            telegram.get("voice_sample_delivery_expected_count") or 0
+        ),
+        "voice_sample_delivery_sent_count": _receipt_nonnegative_int(
+            telegram.get("voice_sample_delivery_sent_count") or 0
+        ),
+        "voice_sample_delivery_failed_count": _receipt_nonnegative_int(
+            telegram.get("voice_sample_delivery_failed_count") or 0
+        ),
         "selected_voice_id_sha256": str(selected.get("voice_id_sha256") or ""),
         "selected_label_sha256": _sha256_text(selected.get("label")),
         "raw_voice_ids_exposed": False,
@@ -1484,8 +1511,40 @@ def _duplicate_suppression_state(
     }
 
 
-def _candidate_public(candidate: dict[str, object]) -> dict[str, object]:
-    return {key: value for key, value in candidate.items() if key != "raw"}
+def _candidate_public(
+    candidate: dict[str, object],
+    *,
+    current_claim_allowed: bool = True,
+) -> dict[str, object]:
+    public = {key: value for key, value in candidate.items() if key != "raw"}
+    if current_claim_allowed:
+        return public
+    historical_human_acceptance = public.get("playback_acceptance_verified") is True
+    historical_canary_completion = (
+        public.get("canary_completion_claim_allowed") is True
+    )
+    public.update(
+        {
+            "projection_scope": "historical_non_claim_evidence",
+            "current_claim_allowed": False,
+            "historical_machine_playback_observed": (
+                public.get("machine_playback_e2e_verified") is True
+            ),
+            "historical_human_acceptance_observed": historical_human_acceptance,
+            "historical_canary_completion_observed": historical_canary_completion,
+            "playback_acceptance_verified": False,
+            "canary_completion_claim_allowed": False,
+        }
+    )
+    canary = dict(_as_dict(public.get("human_listened_canary")))
+    if canary:
+        canary["projection_scope"] = "historical_non_claim_evidence"
+        canary["historical_acceptance_observed"] = (
+            canary.get("claim_allowed") is True
+        )
+        canary["claim_allowed"] = False
+        public["human_listened_canary"] = canary
+    return public
 
 
 def _failed_candidate_public(candidate: dict[str, object]) -> dict[str, object]:
@@ -1527,17 +1586,31 @@ def _voice_candidate_gender(row: dict[str, object]) -> str:
 
 
 def _pending_voice_samples_sent(row: dict[str, object]) -> bool:
-    expected = int(row.get("voice_sample_delivery_expected_count") or 0)
-    sent = int(row.get("voice_sample_delivery_sent_count") or 0)
+    expected = _receipt_nonnegative_int(
+        row.get("voice_sample_delivery_expected_count") or 0
+    )
+    sent = _receipt_nonnegative_int(
+        row.get("voice_sample_delivery_sent_count") or 0
+    )
     status = str(row.get("voice_sample_delivery_status") or "").strip()
-    candidate_count = int(row.get("voice_choice_candidate_count") or row.get("replacement_candidate_count") or 0)
+    candidate_count = _receipt_nonnegative_int(
+        row.get("voice_choice_candidate_count")
+        or row.get("replacement_candidate_count")
+        or 0
+    )
     required = max(expected, candidate_count)
     return status == "sent" and required > 0 and sent >= required
 
 
 def _pending_voice_samples_required(row: dict[str, object]) -> bool:
-    expected = int(row.get("voice_sample_delivery_expected_count") or 0)
-    candidate_count = int(row.get("voice_choice_candidate_count") or row.get("replacement_candidate_count") or 0)
+    expected = _receipt_nonnegative_int(
+        row.get("voice_sample_delivery_expected_count") or 0
+    )
+    candidate_count = _receipt_nonnegative_int(
+        row.get("voice_choice_candidate_count")
+        or row.get("replacement_candidate_count")
+        or 0
+    )
     return max(expected, candidate_count) > 0
 
 
@@ -1621,9 +1694,26 @@ def _operator_action_packet(
             "callback_tokens_exposed": False,
         }
     if next_action == "send_missing_telegram_audiobook_voice_samples_before_user_choice":
-        candidate_count = int(first.get("replacement_candidate_count") or first.get("voice_choice_candidate_count") or 0)
-        sent_count = int(first.get("voice_sample_delivery_sent_count") or 0)
-        expected_count = int(first.get("voice_sample_delivery_expected_count") or 0)
+        first = next(
+            (
+                row
+                for row in pending
+                if _pending_voice_samples_required(row)
+                and not _pending_voice_samples_sent(row)
+            ),
+            first,
+        )
+        candidate_count = _receipt_nonnegative_int(
+            first.get("replacement_candidate_count")
+            or first.get("voice_choice_candidate_count")
+            or 0
+        )
+        sent_count = _receipt_nonnegative_int(
+            first.get("voice_sample_delivery_sent_count") or 0
+        )
+        expected_count = _receipt_nonnegative_int(
+            first.get("voice_sample_delivery_expected_count") or 0
+        )
         required_count = max(candidate_count, expected_count)
         return {
             "user_action_required": False,
@@ -1648,9 +1738,17 @@ def _operator_action_packet(
         if str(item).strip()
     ]
     delivery_status = str(first.get("voice_sample_delivery_status") or "").strip()
-    sent_count = int(first.get("voice_sample_delivery_sent_count") or 0)
-    expected_count = int(first.get("voice_sample_delivery_expected_count") or 0)
-    candidate_count = int(first.get("replacement_candidate_count") or first.get("voice_choice_candidate_count") or 0)
+    sent_count = _receipt_nonnegative_int(
+        first.get("voice_sample_delivery_sent_count") or 0
+    )
+    expected_count = _receipt_nonnegative_int(
+        first.get("voice_sample_delivery_expected_count") or 0
+    )
+    candidate_count = _receipt_nonnegative_int(
+        first.get("replacement_candidate_count")
+        or first.get("voice_choice_candidate_count")
+        or 0
+    )
     if next_action == "choose_sent_replacement_voice_sample":
         instruction = "Choose one sent replacement voice sample in Telegram."
     elif next_action == "choose_explicit_replacement_voice_or_restore_selected_provider":
@@ -1728,11 +1826,18 @@ def build_receipt(
         failed_codes.append("voice_sample_delivery_underfilled")
     failed_codes = _dedupe(failed_codes)
     live_pass = bool(valid_candidates) and not pending
-    real_user_accepted = bool(selected.get("playback_acceptance_verified")) if selected else False
-    machine_verified = bool(selected.get("machine_playback_e2e_verified")) if selected else any(
-        bool(candidate.get("machine_playback_e2e_verified")) for candidate in candidates
+    real_user_accepted = bool(
+        live_pass and selected.get("playback_acceptance_verified")
+    ) if selected else False
+    machine_verified = bool(
+        live_pass and selected.get("machine_playback_e2e_verified")
+    ) if selected else False
+    action_candidate = valid_candidates[0] if valid_candidates else selected
+    selected_failed_codes = (
+        list(action_candidate.get("failed_codes") or [])
+        if action_candidate
+        else failed_codes
     )
-    selected_failed_codes = list(selected.get("failed_codes") or []) if selected else failed_codes
     if not valid_candidates and "valid_live_audiobook_delivery_missing" not in failed_codes:
         failed_codes.insert(0, "valid_live_audiobook_delivery_missing")
     next_action = (
@@ -1741,7 +1846,14 @@ def build_receipt(
         else (
             "capture_real_user_playback_acceptance_or_close_operator_loop"
             if live_pass
-            else _next_action(failed_codes=selected_failed_codes, pending=pending)
+            else (
+                "send_epub_over_telegram_to_create_live_delivery_receipt"
+                if not candidates
+                else _next_action(
+                    failed_codes=selected_failed_codes,
+                    pending=pending,
+                )
+            )
         )
     )
     next_action_href, next_action_label, next_action_method = _next_action_surface(next_action)
@@ -1785,7 +1897,7 @@ def build_receipt(
         ) if selected else False,
         "canary_completion_blocked_fields": list(
             _as_dict(selected.get("human_listened_canary")).get("blocked_fields") or []
-        ) if selected else ["current_human_listened_canary_receipt"],
+        ) if live_pass and selected else ["current_delivery_not_release_claimable"],
         "human_listened_canary_contract": HUMAN_LISTENED_CANARY_CONTRACT_NAME,
         "narration_plan_contract": NARRATION_PLAN_CONTRACT_NAME,
         "goal_completion_claim_allowed": False,
@@ -1808,7 +1920,10 @@ def build_receipt(
             real_user_accepted=real_user_accepted,
         ),
         "duplicate_suppression": _duplicate_suppression_state(candidates=candidates, pending=pending),
-        "selected_delivery": _candidate_public(selected) if selected else {},
+        "selected_delivery": _candidate_public(
+            selected,
+            current_claim_allowed=live_pass,
+        ) if selected else {},
         "failed_candidates": [_failed_candidate_public(candidate) for candidate in candidates if candidate.get("failed_codes")],
         "pending_user_selected_voice_job_count": len(pending),
         "pending_user_selected_voice_jobs": pending,

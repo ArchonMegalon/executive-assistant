@@ -65,7 +65,10 @@ def test_memorial_voice_release_accepts_only_private_fresh_explicitly_bound_rece
     [
         ({"runtime_enablement_allowed": False}, "release_human_acceptance_missing"),
         ({"voice_authority_verified": False}, "release_human_acceptance_missing"),
-        ({"blocked_checks": ["manual_room_checks_confirmed"]}, "release_prerequisites_blocked"),
+        (
+            {"blocked_checks": ["manual_room_checks_confirmed"]},
+            "release_prerequisites_blocked",
+        ),
         ({"memorial_slug": "other"}, "release_receipt_slug_unbound"),
         ({"operator_acceptance_receipt_sha256": ""}, "release_digest_binding_missing"),
     ],
@@ -162,7 +165,9 @@ def test_production_voice_gate_rejects_before_provider_work(monkeypatch) -> None
         "manfred",
         public_memorials._load_memorial("manfred"),
     )
-    monkeypatch.setattr(public_memorials, "_memorial_voice_release_enforced", lambda: True)
+    monkeypatch.setattr(
+        public_memorials, "_memorial_voice_release_enforced", lambda: True
+    )
     monkeypatch.setattr(
         public_memorials,
         "_memorial_voice_release_decision",
@@ -183,8 +188,12 @@ def test_production_voice_gate_rejects_before_provider_work(monkeypatch) -> None
 
 def test_blocked_release_prevents_page_prewarm(monkeypatch) -> None:
     scheduled: list[str] = []
-    monkeypatch.setattr(public_memorials, "_memorial_page_prewarm_enabled", lambda: True)
-    monkeypatch.setattr(public_memorials, "_memorial_voice_release_enforced", lambda: True)
+    monkeypatch.setattr(
+        public_memorials, "_memorial_page_prewarm_enabled", lambda: True
+    )
+    monkeypatch.setattr(
+        public_memorials, "_memorial_voice_release_enforced", lambda: True
+    )
     monkeypatch.setattr(
         public_memorials,
         "_memorial_voice_release_decision",

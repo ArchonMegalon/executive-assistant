@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import importlib.util
 import io
 import json
@@ -13,6 +14,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "scripts" / "chummer6_guide_media_worker.py"
+GUIDE_WORKER_PATH = ROOT / "scripts" / "chummer6_guide_worker.py"
+_OFFLINE_MEDIA_OVERRIDES: dict[str, object] | None = None
 
 
 def _load_module():
@@ -25,7 +28,75 @@ def _load_module():
     module.SCENE_LEDGER_OUT = sandbox_root / "scene-ledger.json"
     module.CHALLENGER_LEDGER_OUT = sandbox_root / "challenger-ledger.json"
     module.PROVIDER_SCHEDULER_OUT = sandbox_root / "provider-scheduler.json"
+    module.PROVIDER_HEALTH_OUT = sandbox_root / "provider-health.json"
     return module
+
+
+def test_loaded_worker_cannot_mutate_the_tracked_provider_health_registry() -> None:
+    tracked_registry = (
+        ROOT
+        / ".codex-studio"
+        / "published"
+        / "chummer6_media"
+        / "ea_provider_health_registry.json"
+    )
+    tracked_before = tracked_registry.read_bytes()
+    media = _load_module()
+
+    media.record_provider_health_attempt(
+        provider="media_factory",
+        target="assets/pages/current-status.png",
+        detail="test:isolated",
+        ok=True,
+    )
+
+    assert media.PROVIDER_HEALTH_OUT != tracked_registry
+    assert tracked_registry.read_bytes() == tracked_before
+    isolated = json.loads(media.PROVIDER_HEALTH_OUT.read_text(encoding="utf-8"))
+    assert isolated["providers"]["media_factory"]["families"]
+
+
+def _offline_media_overrides() -> dict[str, object]:
+    """Build a deterministic fixture from tracked canon without provider calls."""
+
+    global _OFFLINE_MEDIA_OVERRIDES
+    if _OFFLINE_MEDIA_OVERRIDES is None:
+        spec = importlib.util.spec_from_file_location(
+            "chummer6_guide_worker_offline_fixture",
+            GUIDE_WORKER_PATH,
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"cannot load module from {GUIDE_WORKER_PATH}")
+        worker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(worker)
+
+        def provider_unavailable(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+            raise RuntimeError("offline_test_fixture")
+
+        with tempfile.TemporaryDirectory(prefix="chummer6-overrides-fixture-") as raw_root:
+            sandbox_root = Path(raw_root)
+            worker.CHUMMER6_GUIDE_STATE_ROOT = sandbox_root
+            worker.OVERRIDE_OUT = sandbox_root / "ea-overrides.json"
+            worker.STYLE_EPOCH_PATH = sandbox_root / "style-epoch.json"
+            worker.SCENE_LEDGER_PATH = sandbox_root / "scene-ledger.json"
+            worker.chat_json = provider_unavailable
+            worker.humanize_mapping_fields_with_mode = lambda *_args, **_kwargs: None
+            _OFFLINE_MEDIA_OVERRIDES = worker.generate_overrides(
+                include_parts=True,
+                include_horizons=True,
+                include_pages=True,
+                include_hero_media=True,
+                model="offline-test-fixture",
+                run_skill_audits=False,
+                prefer_brain_humanizer=True,
+            )
+    return copy.deepcopy(_OFFLINE_MEDIA_OVERRIDES)
+
+
+def _load_module_with_offline_media_overrides():
+    media = _load_module()
+    media.load_media_overrides = _offline_media_overrides
+    return media
 
 
 def _clear_onemin_runtime_policy(media, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1463,6 +1534,9 @@ def test_render_with_ooda_rejects_forbidden_fallback_providers(
 def test_render_with_ooda_delegates_media_factory_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     media = _load_module()
     seen: dict[str, object] = {}
+    render_script = tmp_path / "render_guide_asset.py"
+    render_script.write_text("raise SystemExit(0)\n", encoding="utf-8")
+    monkeypatch.setattr(media, "MEDIA_FACTORY_RENDER_SCRIPT", render_script)
 
     def fake_run_command_provider(name: str, template: list[str], **kwargs):
         assert name == "media_factory"
@@ -2098,7 +2172,7 @@ def test_overlay_mode_for_target_maps_flagship_assets() -> None:
 
 
 def test_page_media_row_does_not_literalize_page_id_as_metaphor() -> None:
-    media = _load_module()
+    media = _load_module_with_offline_media_overrides()
 
     loaded = media.load_media_overrides()
     pages = loaded["pages"]
@@ -3029,7 +3103,7 @@ def test_apply_flagship_finish_postpass_uses_ffmpeg_when_pillow_is_unavailable(
 
 
 def test_asset_specs_use_vivid_auto_first_flagship_onemin_lane() -> None:
-    media = _load_module()
+    media = _load_module_with_offline_media_overrides()
     specs = media.asset_specs()
     hero = next(spec for spec in specs if spec["target"] == "assets/hero/chummer6-hero.png")
     horizons = next(spec for spec in specs if spec["target"] == "assets/pages/horizons-index.png")
@@ -3051,7 +3125,7 @@ def test_asset_specs_use_vivid_auto_first_flagship_onemin_lane() -> None:
 
 
 def test_render_prompt_from_row_uses_clean_scene_plate_for_flagship_assets() -> None:
-    media = _load_module()
+    media = _load_module_with_offline_media_overrides()
     specs = media.asset_specs()
     hero_spec = next(spec for spec in specs if spec["target"] == "assets/hero/chummer6-hero.png")
     karma_spec = next(spec for spec in specs if spec["target"] == "assets/horizons/karma-forge.png")
@@ -3668,7 +3742,7 @@ def test_critical_visual_gate_failures_rejects_sub_flagship_hero_score() -> None
 
 
 def test_scene_policy_for_target_uses_approval_rail_for_karma_forge() -> None:
-    media = _load_module()
+    media = _load_module_with_offline_media_overrides()
     specs = media.asset_specs()
     forge = next(spec for spec in specs if spec["target"] == "assets/horizons/karma-forge.png")
     contract = forge["media_row"]["scene_contract"]
@@ -3677,7 +3751,7 @@ def test_scene_policy_for_target_uses_approval_rail_for_karma_forge() -> None:
 
 
 def test_scene_policy_for_target_rebriefs_hero_as_active_triage() -> None:
-    media = _load_module()
+    media = _load_module_with_offline_media_overrides()
     specs = media.asset_specs()
     hero = next(spec for spec in specs if spec["target"] == "assets/hero/chummer6-hero.png")
     contract = hero["media_row"]["scene_contract"]
@@ -3689,7 +3763,7 @@ def test_scene_policy_for_target_rebriefs_hero_as_active_triage() -> None:
 
 
 def test_scene_policy_for_target_makes_karma_forge_an_industrial_materials_lab() -> None:
-    media = _load_module()
+    media = _load_module_with_offline_media_overrides()
     specs = media.asset_specs()
     forge = next(spec for spec in specs if spec["target"] == "assets/horizons/karma-forge.png")
     contract = forge["media_row"]["scene_contract"]
@@ -3700,7 +3774,7 @@ def test_scene_policy_for_target_makes_karma_forge_an_industrial_materials_lab()
 
 
 def test_asset_specs_propagate_onemin_strict_models_for_direct_targets() -> None:
-    media = _load_module()
+    media = _load_module_with_offline_media_overrides()
     specs = media.asset_specs()
     parts_index = next(spec for spec in specs if spec["target"] == "assets/pages/parts-index.png")
     alice = next(spec for spec in specs if spec["target"] == "assets/horizons/alice.png")

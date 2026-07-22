@@ -10,6 +10,7 @@ import os
 import re
 import struct
 import subprocess
+import threading
 import time
 import wave
 import contextlib
@@ -986,7 +987,16 @@ def test_memorial_transcribe_applies_shadow_stt_correction_to_effective_transcri
     monkeypatch.setattr(
         product_service,
         "_onemin_speech_to_text",
-        lambda **kwargs: {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Hallo Manfred, kannst du jetzt mit mir brechen?"}}}},
+        lambda **kwargs: {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {
+                    "responseObject": {
+                        "text": "Hallo Manfred, kannst du jetzt mit mir brechen?"
+                    }
+                },
+            }
+        },
     )
     monkeypatch.setattr(
         public_memorials,
@@ -1255,7 +1265,14 @@ def test_memorial_transcribe_ignores_fast_shadow_stt_junk_and_falls_back_to_prim
     monkeypatch.setattr(
         product_service,
         "_onemin_speech_to_text",
-        lambda **kwargs: {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Wie ist das Wetter heute in Wien?"}}}},
+        lambda **kwargs: {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {
+                    "responseObject": {"text": "Wie ist das Wetter heute in Wien?"}
+                },
+            }
+        },
     )
     monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
 
@@ -1296,7 +1313,14 @@ def test_memorial_transcribe_falls_back_to_onemin_when_cartesia_fails(
     monkeypatch.setattr(
         product_service,
         "_onemin_speech_to_text",
-        lambda **kwargs: {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Wie ist das Wetter heute in Wien?"}}}},
+        lambda **kwargs: {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {
+                    "responseObject": {"text": "Wie ist das Wetter heute in Wien?"}
+                },
+            }
+        },
     )
     monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
 
@@ -1386,8 +1410,15 @@ def test_memorial_transcribe_skips_depleted_onemin_key_and_uses_next_key(
 
     def _fake_onemin_speech_to_text(**kwargs):
         if kwargs.get("api_key") == "key-1":
-            raise RuntimeError('onemin_transcribe_http_406:{"errorCode":"INSUFFICIENT_CREDITS","message":"credits low"}')
-        return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Wie ist das Wetter heute in Wien?"}}}}
+            raise RuntimeError("onemin_transcribe_http_406")
+        return {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {
+                    "responseObject": {"text": "Wie ist das Wetter heute in Wien?"}
+                },
+            }
+        }
 
     monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_onemin_speech_to_text)
 
@@ -1456,6 +1487,7 @@ def test_memorial_transcribe_rejects_known_bad_onemin_subtitle_and_uses_next_key
         if kwargs.get("api_key") == "key-1":
             return {
                 "aiRecord": {
+                    "status": "SUCCESS",
                     "aiRecordDetail": {
                         "responseObject": {
                             "text": '{"task":"transcribe","text":"Untertitel der Amara.org-Community","segments":[]}'
@@ -1463,7 +1495,16 @@ def test_memorial_transcribe_rejects_known_bad_onemin_subtitle_and_uses_next_key
                     }
                 }
             }
-        return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Würdest du dich gegen Covid impfen lassen?"}}}}
+        return {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {
+                    "responseObject": {
+                        "text": "Würdest du dich gegen Covid impfen lassen?"
+                    }
+                },
+            }
+        }
 
     monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_onemin_speech_to_text)
 
@@ -1694,7 +1735,12 @@ def test_memorial_transcribe_prefers_best_provider_variant_over_first_garbage_re
             text = "Untertitel der Amara.org-Community"
         else:
             text = "Wie ist das Wetter heute in Wien?"
-        return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": text}}}}
+        return {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {"responseObject": {"text": text}},
+            }
+        }
 
     monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_stt)
 
@@ -1745,7 +1791,12 @@ def test_memorial_transcribe_prefers_question_candidate_over_early_contact_openi
             text = "Wie ist das Wetter heute in Wien?"
         else:
             text = "Hallo Manfred, kannst du jetzt mit mir sprechen?"
-        return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": text}}}}
+        return {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {"responseObject": {"text": text}},
+            }
+        }
 
     monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_stt)
 
@@ -1787,7 +1838,14 @@ def test_memorial_transcribe_prefers_enhanced_wav_before_original_for_strong_res
     def _fake_stt(**kwargs):
         audio_path = str(kwargs.get("audio_path") or "")
         seen_paths.append(audio_path)
-        return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Wie ist das Wetter heute in Wien?"}}}}
+        return {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {
+                    "responseObject": {"text": "Wie ist das Wetter heute in Wien?"}
+                },
+            }
+        }
 
     monkeypatch.setattr(product_service, "_onemin_asset_upload", _fake_upload)
     monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_stt)
@@ -1830,6 +1888,7 @@ def test_memorial_transcribe_prefers_enhanced_wav_for_hostile_captured_audio(
         seen_paths.append(audio_path)
         return {
             "aiRecord": {
+                "status": "SUCCESS",
                 "aiRecordDetail": {
                     "responseObject": {"text": "Hallo Manfred, kannst du jetzt mit mir sprechen?"}
                 }
@@ -1876,7 +1935,14 @@ def test_memorial_transcribe_early_accepts_strong_non_contact_question(
     monkeypatch.setattr(product_service, "_onemin_asset_upload", _fake_upload)
 
     def _fake_stt(**kwargs):
-        return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Wie ist das Wetter heute in Wien?"}}}}
+        return {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {
+                    "responseObject": {"text": "Wie ist das Wetter heute in Wien?"}
+                },
+            }
+        }
 
     monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_stt)
 
@@ -1943,6 +2009,105 @@ def test_memorial_chat_live_openings_route_to_model_without_memory_fallback(
     assert "Antwortmodus: gegenwaertige Live-Interaktion." in evidence_block
     assert "Erinnerungsgedaechtnis:" not in evidence_block
     assert "Eigene archivierte Erinnerungen" not in evidence_block
+
+
+def test_memorial_chat_falls_back_without_waiting_for_stalled_redis_rate_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    entered = threading.Event()
+    release = threading.Event()
+    worker_completed = threading.Event()
+    eval_calls = {"value": 0}
+
+    class _BlockingRedisClient:
+        def eval(self, *args, **kwargs):
+            eval_calls["value"] += 1
+            entered.set()
+            release.wait(timeout=5.0)
+            worker_completed.set()
+            return 1
+
+    monkeypatch.setattr(public_memorials, "_public_memorial_rate_backend", lambda: "redis")
+    monkeypatch.setattr(public_memorials, "_public_memorial_redis_client", lambda: _BlockingRedisClient())
+    monkeypatch.setattr(public_memorials, "_public_memorial_redis_operation_timeout_seconds", lambda: 0.02)
+    monkeypatch.setattr(
+        public_memorials,
+        "generate_text",
+        lambda **kwargs: SimpleNamespace(
+            text="Meine Stimme klingt ruhig und sachlich.",
+            provider_key="unit-test-model",
+            model="unit-test-model",
+        ),
+    )
+    client = _client(principal_id="exec-memorial-stalled-redis")
+
+    try:
+        started = time.perf_counter()
+        response = client.post(
+            f"/memorials/{slug}/chat",
+            json={"question": "Wie klingt deine Stimme jetzt?"},
+        )
+        elapsed = time.perf_counter() - started
+        assert entered.wait(timeout=0.5)
+        second_started = time.perf_counter()
+        second_response = client.post(
+            f"/memorials/{slug}/chat",
+            json={"question": "Wie klingt deine Stimme jetzt?"},
+        )
+        second_elapsed = time.perf_counter() - second_started
+    finally:
+        release.set()
+        assert worker_completed.wait(timeout=1.0)
+
+    assert response.status_code == 200
+    assert second_response.status_code == 200
+    assert elapsed < 1.5
+    assert second_elapsed < 1.5
+    assert eval_calls["value"] == 1
+    body = response.json()
+    assert body["llm_fallback_used"] is False
+    assert body["llm_provider"] == "unit-test-model"
+    assert "synthetisch" in body["answer"].lower()
+    assert "gedenkbegleiter" in body["answer"].lower()
+
+
+def test_memorial_chat_memory_storage_does_not_touch_disk_rate_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_enforce_public_memorial_rate_limit_sqlite",
+        lambda **kwargs: pytest.fail("memory-backed chat attempted SQLite rate I/O"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "generate_text",
+        lambda **kwargs: SimpleNamespace(
+            text="Ich antworte direkt und ohne Umweg.",
+            provider_key="unit-test-model",
+            model="unit-test-model",
+        ),
+    )
+    client = _client(principal_id="exec-memorial-memory-rate")
+
+    started = time.perf_counter()
+    response = client.post(
+        f"/memorials/{slug}/chat",
+        json={"question": "Sag jetzt direkt etwas zu mir."},
+    )
+    elapsed = time.perf_counter() - started
+
+    assert response.status_code == 200
+    assert elapsed < 1.5
+    assert response.json()["llm_provider"] == "unit-test-model"
 
 
 def test_memorial_chat_contact_opening_short_circuits_to_direct_answer(
@@ -4144,8 +4309,10 @@ def test_blocked_voice_release_renders_polished_text_only_memorial_guide(
     )
 
     assert 'data-voice-release="blocked"' in page
-    assert "Schriftliche Frage stellen" in page
-    assert "Zum quellengebundenen Gedenkbegleiter" in page
+    assert "Frage schreiben" in page
+    assert "Schriftliche Frage stellen" not in page
+    assert "Zum Gespräch" in page
+    assert "Zum quellengebundenen Gedenkbegleiter" not in page
     assert "ist nicht Manfred und spricht nicht für ihn" in page
     assert "Was möchtest du Manfred fragen?" not in page
     assert "KI-gestützten, synthetischen Manfred-Stimme" not in page
@@ -6104,12 +6271,24 @@ def test_memorial_speech_transcribe_route_accepts_hostile_captured_contact_clip(
         audio_path = str(kwargs.get("audio_path") or "")
         seen_paths.append(audio_path)
         if len(seen_paths) == 1:
-            return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Untertitel der Amara.org-Community"}}}}
+            return {
+                "aiRecord": {
+                    "status": "SUCCESS",
+                    "aiRecordDetail": {
+                        "responseObject": {
+                            "text": "Untertitel der Amara.org-Community"
+                        }
+                    },
+                }
+            }
         return {
             "aiRecord": {
+                "status": "SUCCESS",
                 "aiRecordDetail": {
-                    "responseObject": {"text": "Hallo Manfred, kannst du jetzt mit mir sprechen?"}
-                }
+                    "responseObject": {
+                        "text": "Hallo Manfred, kannst du jetzt mit mir sprechen?"
+                    }
+                },
             }
         }
 
@@ -6165,8 +6344,8 @@ def test_memorial_warmup_never_uses_piper_or_openvoice_tts() -> None:
     assert 'selected_plugin = PIPER_FAST_TTS_PLUGIN_ID' not in source
     assert 'piper_fast_synthesize_request(' not in source
     assert 'openvoice_synthesize_request_with_variant(' not in source
-    assert "_schedule_memorial_voicewave_contact_prewarm(slug, voice_label)" in source
-    assert "_schedule_memorial_server_voice_contact_prewarm(slug)" in source
+    assert "_schedule_memorial_voicewave_contact_prewarm(" in source
+    assert "_schedule_memorial_server_voice_contact_prewarm(" in source
 
 
 def test_memorial_landing_does_not_enable_conversation_on_warmup_timeout() -> None:
@@ -6178,9 +6357,10 @@ def test_memorial_landing_does_not_enable_conversation_on_warmup_timeout() -> No
     assert 'let contactAcknowledgementReady = false;' in source
     assert 'contactAcknowledgementReady = true;' in source
     assert "if (completedConversationTurns === 0 && contactAcknowledgementReady)" in source
-    assert "Die kurze Begrüßung ist nicht vorgeladen; das Gespräch bleibt verfügbar." in source
+    assert "Die kurze Begrüßung ist nicht vorgeladen; das Gespräch bleibt verfügbar." not in source
     assert 'retryButton.dataset.action = "voice-readiness";' in source
-    assert 'retryButton.textContent = "Stimme erneut prüfen";' in source
+    assert 'retryButton.textContent = "Sprachfunktion erneut versuchen";' in source
+    assert 'retryButton.textContent = "Stimme erneut prüfen";' not in source
     assert "memorialWarmupPollDelayMs" in source
     assert "memorialLastWarmupStatus" in source
     assert "memorialLastWarmupStatus = payload;" in source
@@ -6504,7 +6684,8 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     assert "playFastContactAcknowledgement" in source
     assert "if (completedConversationTurns === 0 && contactAcknowledgementReady)" in source
     assert "await playFastContactAcknowledgement(generation);" in source
-    assert 'const contactAcknowledgementText = "Worum geht es?";' in source
+    assert 'const contactAcknowledgementText = "Worüber möchtest du sprechen?";' in source
+    assert 'const contactAcknowledgementText = "Worum geht es?";' not in source
     assert 'id="memorial-read-answer"' in source
     assert 'id="memorial-replay-answer"' in source
     assert 'id="memorial-toggle-status"' in source
@@ -6540,7 +6721,7 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     assert "finishConversationTurn" in source
     assert "window.__memorialMinimalBooted" in source
     assert "startConversation();" not in source
-    assert "Gespräch stoppen" in source
+    assert "Gespräch beenden" in source
     assert "captureTurnAudio" not in source
     assert "ontouchstart=" not in source
     assert 'if (window.speechSynthesis) window.speechSynthesis.cancel();' in source
@@ -7898,3 +8079,1324 @@ def test_memorial_live_page_stays_voice_only_without_legacy_video_call_ui(
     assert "write_token" not in source
     assert "memorial_write_token" not in source
     assert "x-memorial-write-token" not in source
+
+
+def _reset_memorial_live_warmup_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> object:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(public_memorials, "_MEMORIAL_LIVE_WARMUP_STATE", {})
+    monkeypatch.setattr(
+        public_memorials,
+        "_MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS",
+        set(),
+    )
+    monkeypatch.setattr(public_memorials, "_MEMORIAL_LIVE_WARMUP_RESERVATION_SEQUENCE", 0)
+    monkeypatch.setattr(public_memorials, "_MEMORIAL_VOICE_PREWARM_RESERVATION_SEQUENCE", 0)
+    monkeypatch.setattr(public_memorials, "_MEMORIAL_RUNTIME_READINESS_CACHE_STATE", {})
+    monkeypatch.setattr(public_memorials, "_memorial_voice_release_enforced", lambda: False)
+    return public_memorials
+
+
+def test_memorial_live_warmup_reserves_slug_before_starting_one_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+
+    class DeferredThread:
+        created: list[DeferredThread] = []
+
+        def __init__(self, *, target, args, daemon, name) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+            self.name = name
+            self.created.append(self)
+
+        def start(self) -> None:
+            return None
+
+    caller_count = 8
+    barrier = threading.Barrier(caller_count + 1)
+    result_lock = threading.Lock()
+    results: list[dict[str, object]] = []
+    failures: list[BaseException] = []
+
+    def schedule() -> None:
+        try:
+            barrier.wait(timeout=5.0)
+            result = public_memorials._schedule_memorial_live_warmup("manfred")
+            with result_lock:
+                results.append(result)
+        except BaseException as exc:  # pragma: no cover - asserted below
+            with result_lock:
+                failures.append(exc)
+
+    monkeypatch.setattr(
+        public_memorials,
+        "threading",
+        SimpleNamespace(Thread=DeferredThread),
+    )
+    callers = [threading.Thread(target=schedule) for _ in range(caller_count)]
+    for caller in callers:
+        caller.start()
+    barrier.wait(timeout=5.0)
+    for caller in callers:
+        caller.join(timeout=5.0)
+
+    assert not failures
+    assert all(not caller.is_alive() for caller in callers)
+    assert len(DeferredThread.created) == 1
+    assert sum(result["status"] == "queued" for result in results) == 1
+    assert sum(result["status"] == "warming" for result in results) == caller_count - 1
+    assert sum(bool(result["scheduled"]) for result in results) == 1
+
+
+def test_memorial_live_warmup_backs_off_after_worker_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+
+    class InlineThread:
+        def __init__(self, *, target, args, daemon, name) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+            self.name = name
+
+        def start(self) -> None:
+            self.target(*self.args)
+
+    monkeypatch.setenv("EA_MEMORIAL_LIVE_WARMUP_FAILURE_BACKOFF_SECONDS", "45")
+    monkeypatch.setattr(
+        public_memorials,
+        "_run_memorial_live_warmup",
+        lambda _slug, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "threading",
+        SimpleNamespace(Thread=InlineThread),
+    )
+
+    queued = public_memorials._schedule_memorial_live_warmup("manfred")
+    backed_off = public_memorials._schedule_memorial_live_warmup("manfred")
+
+    assert queued["status"] == "queued"
+    assert queued["scheduled"] is True
+    assert backed_off["status"] == "failure_backoff"
+    assert backed_off["scheduled"] is False
+    assert 1 <= backed_off["retry_after_seconds"] <= 45
+    with public_memorials._MEMORIAL_LIVE_WARMUP_LOCK:
+        current = dict(public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"])
+        active = set(public_memorials._MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS)
+    assert current["inflight"] is False
+    assert current["errors"] == ["warmup_worker:RuntimeError"]
+    assert not active
+
+
+def test_memorial_live_warmup_refuses_capacity_without_spawning_waiter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+
+    class DeferredThread:
+        created: list[DeferredThread] = []
+
+        def __init__(self, *, target, args, daemon, name) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+            self.name = name
+            self.created.append(self)
+
+        def start(self) -> None:
+            return None
+
+    monkeypatch.setenv("EA_MEMORIAL_LIVE_WARMUP_MAX_CONCURRENCY", "1")
+    monkeypatch.setattr(
+        public_memorials,
+        "threading",
+        SimpleNamespace(Thread=DeferredThread),
+    )
+
+    first = public_memorials._schedule_memorial_live_warmup("manfred")
+    refused = public_memorials._schedule_memorial_live_warmup("erika")
+
+    assert first["status"] == "queued"
+    assert refused["status"] == "capacity_limited"
+    assert refused["scheduled"] is False
+    assert refused["retry_after_seconds"] == 1
+    assert len(DeferredThread.created) == 1
+    with public_memorials._MEMORIAL_LIVE_WARMUP_LOCK:
+        assert "erika" not in public_memorials._MEMORIAL_LIVE_WARMUP_STATE
+        assert len(public_memorials._MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS) == 1
+
+
+def test_memorial_live_warmup_cleans_reservation_when_thread_start_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+
+    class FailingThread:
+        def __init__(self, *, target, args, daemon, name) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+            self.name = name
+
+        def start(self) -> None:
+            raise RuntimeError("thread unavailable")
+
+    monkeypatch.setenv("EA_MEMORIAL_LIVE_WARMUP_FAILURE_BACKOFF_SECONDS", "17")
+    monkeypatch.setattr(
+        public_memorials,
+        "threading",
+        SimpleNamespace(Thread=FailingThread),
+    )
+
+    failed = public_memorials._schedule_memorial_live_warmup("manfred")
+    backed_off = public_memorials._schedule_memorial_live_warmup("manfred")
+
+    assert failed["status"] == "schedule_failed"
+    assert failed["scheduled"] is False
+    assert failed["retry_after_seconds"] == 17
+    assert backed_off["status"] == "failure_backoff"
+    with public_memorials._MEMORIAL_LIVE_WARMUP_LOCK:
+        current = dict(public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"])
+        active = set(public_memorials._MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS)
+    assert current["inflight"] is False
+    assert "warmup_reservation_id" not in current
+    assert current["errors"] == ["warmup_schedule:RuntimeError"]
+    assert not active
+
+
+def test_memorial_live_warmup_records_unexpected_inner_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+    reservation_id = "manfred:1"
+    public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] = {
+        "inflight": True,
+        "warmup_reservation_id": reservation_id,
+    }
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_memorial",
+        lambda _slug: (_ for _ in ()).throw(RuntimeError("unexpected")),
+    )
+
+    public_memorials._run_memorial_live_warmup(
+        "manfred",
+        reservation_id=reservation_id,
+    )
+
+    current = public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"]
+    assert current["inflight"] is False
+    assert current["errors"] == ["warmup:RuntimeError"]
+    assert current["completed_at"] > 0.0
+
+
+def test_memorial_live_warmup_recovers_orphaned_stale_reservation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+
+    class DeferredThread:
+        created: list[DeferredThread] = []
+
+        def __init__(self, *, target, args, daemon, name) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+            self.name = name
+            self.created.append(self)
+
+        def start(self) -> None:
+            return None
+
+    stale_reservation_id = "manfred:stale"
+    public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] = {
+        "inflight": True,
+        "started_at": time.time() - 10.0,
+        "completed_at": time.time() - 4.0,
+        "warmup_reservation_id": stale_reservation_id,
+    }
+    monkeypatch.setenv("EA_MEMORIAL_LIVE_WARMUP_STALE_SECONDS", "5")
+    monkeypatch.setattr(
+        public_memorials,
+        "threading",
+        SimpleNamespace(Thread=DeferredThread),
+    )
+
+    result = public_memorials._schedule_memorial_live_warmup("manfred")
+
+    assert result["status"] == "queued"
+    assert result["scheduled"] is True
+    assert len(DeferredThread.created) == 1
+    current = dict(public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"])
+    replacement_id = str(current["warmup_reservation_id"])
+    assert replacement_id != stale_reservation_id
+    assert current["inflight"] is True
+    assert current["completed_at"] == 0.0
+    assert current["warmup_stale_recovery_error"] == (
+        "warmup_worker:stale_superseded"
+    )
+    assert public_memorials._MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS == {
+        replacement_id
+    }
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_run_memorial_live_warmup",
+        lambda *_args, **_kwargs: None,
+    )
+    public_memorials._run_reserved_memorial_live_warmup(
+        "manfred",
+        stale_reservation_id,
+    )
+    assert public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"][
+        "warmup_reservation_id"
+    ] == replacement_id
+    assert public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"][
+        "inflight"
+    ] is True
+
+
+def test_memorial_live_warmup_does_not_oversubscribe_stale_active_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+    stale_reservation_id = "manfred:stale-active"
+    public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] = {
+        "inflight": True,
+        "started_at": time.time() - 10.0,
+        "completed_at": time.time() - 4.0,
+        "warmup_reservation_id": stale_reservation_id,
+    }
+    public_memorials._MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS.add(
+        stale_reservation_id
+    )
+    monkeypatch.setenv("EA_MEMORIAL_LIVE_WARMUP_STALE_SECONDS", "5")
+
+    result = public_memorials._schedule_memorial_live_warmup("manfred")
+
+    assert result == {
+        "status": "warmup_stale",
+        "scheduled": False,
+        "ttl_seconds": public_memorials._MEMORIAL_LIVE_WARMUP_TTL_SECONDS,
+        "retry_after_seconds": 1,
+    }
+    assert public_memorials._MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS == {
+        stale_reservation_id
+    }
+    current = public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"]
+    assert current["warmup_reservation_id"] == stale_reservation_id
+    assert current["inflight"] is True
+    assert current["completed_at"] > 0.0
+
+
+def _configure_enabled_unmixr_voice_prewarm(
+    monkeypatch: pytest.MonkeyPatch,
+    public_memorials: object,
+) -> None:
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_voice_config",
+        lambda _slug: {"tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID},
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_tts_plugin_options",
+        lambda **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_resolve_server_tts_plugin",
+        lambda **_kwargs: (
+            public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            {"tts_plugin_enabled": True},
+        ),
+    )
+
+
+def test_memorial_voice_prewarm_reservation_deduplicates_fresh_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+    _configure_enabled_unmixr_voice_prewarm(monkeypatch, public_memorials)
+
+    class DeferredThread:
+        created: list[DeferredThread] = []
+
+        def __init__(self, *, target, args, daemon, name) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+            self.name = name
+            self.created.append(self)
+
+        def start(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        public_memorials,
+        "threading",
+        SimpleNamespace(Thread=DeferredThread),
+    )
+
+    first = public_memorials._schedule_missing_memorial_voice_prewarm("manfred")
+    duplicate = public_memorials._schedule_missing_memorial_voice_prewarm(
+        "manfred"
+    )
+
+    assert first is True
+    assert duplicate is False
+    assert len(DeferredThread.created) == 1
+    current = public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"]
+    assert current["voice_contact_inflight"] is True
+    assert str(current["voice_prewarm_reservation_id"]).startswith(
+        "manfred:voice:"
+    )
+
+
+def test_memorial_voice_prewarm_does_not_oversubscribe_stale_active_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+    _configure_enabled_unmixr_voice_prewarm(monkeypatch, public_memorials)
+    stale_reservation_id = "manfred:voice:stale-active"
+    original = {
+        "voice_prewarm_reservation_id": stale_reservation_id,
+        "voice_prewarm_provider": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+        "voice_contact_required": True,
+        "voice_contact_inflight": True,
+        "voice_contact_started_at": time.time() - 10.0,
+        "voice_contact_completed_at": 0.0,
+        "voice_contact_errors": [],
+    }
+    public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] = dict(original)
+    monkeypatch.setenv("EA_MEMORIAL_VOICE_PREWARM_STALE_SECONDS", "5")
+    monkeypatch.setattr(
+        public_memorials,
+        "_schedule_memorial_server_voice_contact_prewarm",
+        lambda *_args, **_kwargs: pytest.fail(
+            "stale active provider worker was physically oversubscribed"
+        ),
+    )
+
+    scheduled = public_memorials._schedule_missing_memorial_voice_prewarm(
+        "manfred"
+    )
+
+    assert scheduled is False
+    assert public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] == original
+
+
+def test_memorial_voice_prewarm_recovers_orphaned_stale_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+    _configure_enabled_unmixr_voice_prewarm(monkeypatch, public_memorials)
+    public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] = {
+        "voice_prewarm_provider": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+        "voice_contact_required": True,
+        "voice_contact_inflight": True,
+        "voice_contact_started_at": time.time() - 10.0,
+        "voice_contact_completed_at": 0.0,
+        "voice_contact_errors": [],
+    }
+    monkeypatch.setenv("EA_MEMORIAL_VOICE_PREWARM_STALE_SECONDS", "5")
+    scheduled_workers: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        public_memorials,
+        "_schedule_memorial_server_voice_contact_prewarm",
+        lambda slug, *, reservation_id: scheduled_workers.append(
+            (slug, reservation_id)
+        ),
+    )
+
+    scheduled = public_memorials._schedule_missing_memorial_voice_prewarm(
+        "manfred"
+    )
+
+    assert scheduled is True
+    assert len(scheduled_workers) == 1
+    replacement_id = scheduled_workers[0][1]
+    assert scheduled_workers[0][0] == "manfred"
+    assert replacement_id.startswith("manfred:voice:")
+    current = public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"]
+    assert current["voice_prewarm_reservation_id"] == replacement_id
+    assert current["voice_contact_inflight"] is True
+    assert current["voice_contact_started_at"] > time.time() - 5.0
+
+
+def test_memorial_voice_prewarm_reservation_rolls_back_thread_start_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+    _configure_enabled_unmixr_voice_prewarm(monkeypatch, public_memorials)
+
+    class FailingThread:
+        def __init__(self, *, target, args, daemon, name) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+            self.name = name
+
+        def start(self) -> None:
+            raise RuntimeError("thread unavailable")
+
+    monkeypatch.setattr(
+        public_memorials,
+        "threading",
+        SimpleNamespace(Thread=FailingThread),
+    )
+
+    scheduled = public_memorials._schedule_missing_memorial_voice_prewarm(
+        "manfred"
+    )
+
+    assert scheduled is False
+    current = public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"]
+    assert current["voice_contact_inflight"] is False
+    assert current["voice_contact_errors"] == [
+        "voice_prewarm_schedule:RuntimeError"
+    ]
+    assert "voice_prewarm_reservation_id" not in current
+
+
+def test_memorial_voice_prewarm_provider_switch_clears_stale_voicewave_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+    _configure_enabled_unmixr_voice_prewarm(monkeypatch, public_memorials)
+
+    class DeferredThread:
+        def __init__(self, *, target, args, daemon, name) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+            self.name = name
+
+        def start(self) -> None:
+            return None
+
+    public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] = {
+        "voice_prewarm_provider": public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
+        "voice_contact_required": True,
+        "voice_contact_inflight": False,
+        "voice_contact_completed_at": time.time() - 700.0,
+        "voice_contact_errors": ["old-general-error"],
+        "voicewave_contact_required": True,
+        "voicewave_contact_inflight": False,
+        "voicewave_contact_started_at": time.time() - 710.0,
+        "voicewave_contact_completed_at": time.time() - 700.0,
+        "voicewave_contact_errors": ["old-voicewave-error"],
+    }
+    monkeypatch.setattr(
+        public_memorials,
+        "threading",
+        SimpleNamespace(Thread=DeferredThread),
+    )
+
+    scheduled = public_memorials._schedule_missing_memorial_voice_prewarm(
+        "manfred"
+    )
+
+    assert scheduled is True
+    current = public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"]
+    assert current["voice_prewarm_provider"] == (
+        public_memorials.UNMIXR_TTS_PLUGIN_ID
+    )
+    assert current["voicewave_contact_required"] is False
+    assert current["voicewave_contact_inflight"] is False
+    assert current["voicewave_contact_started_at"] == 0.0
+    assert current["voicewave_contact_completed_at"] == 0.0
+    assert current["voicewave_contact_errors"] == []
+
+
+def test_memorial_voice_prewarm_completion_race_preserves_ready_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+    _configure_enabled_unmixr_voice_prewarm(monkeypatch, public_memorials)
+    completed_at = time.time()
+
+    def complete_then_resolve(**_kwargs):
+        public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] = {
+            "voice_prewarm_provider": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "voice_contact_required": True,
+            "voice_contact_inflight": False,
+            "voice_contact_started_at": completed_at - 1.0,
+            "voice_contact_completed_at": completed_at,
+            "voice_contact_errors": [],
+        }
+        return (
+            public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            {"tts_plugin_enabled": True},
+        )
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_resolve_server_tts_plugin",
+        complete_then_resolve,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_schedule_memorial_server_voice_contact_prewarm",
+        lambda *_args, **_kwargs: pytest.fail(
+            "completed voice prewarm was redundantly replaced"
+        ),
+    )
+
+    scheduled = public_memorials._schedule_missing_memorial_voice_prewarm(
+        "manfred"
+    )
+    response = public_memorials._memorial_live_warmup_existing_response(
+        "manfred",
+        {
+            "inflight": False,
+            "warm": True,
+            "voice_required": True,
+            "voice_prewarm_stale": False,
+            "voice_ready": False,
+            "voice_inflight": False,
+        },
+    )
+
+    assert scheduled is False
+    assert response == {
+        "status": "warm_recent",
+        "scheduled": False,
+        "ttl_seconds": public_memorials._MEMORIAL_LIVE_WARMUP_TTL_SECONDS,
+    }
+    current = public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"]
+    assert current["voice_contact_completed_at"] == completed_at
+    assert current["voice_contact_errors"] == []
+
+
+def test_memorial_voice_prewarm_old_generation_cannot_overwrite_newer_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+    current = {
+        "voice_prewarm_reservation_id": "manfred:voice:new",
+        "voice_contact_inflight": True,
+        "voice_contact_started_at": time.time(),
+        "voice_contact_errors": [],
+    }
+    public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] = dict(current)
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_voice_config",
+        lambda _slug: pytest.fail("stale worker reached provider configuration"),
+    )
+
+    public_memorials._run_memorial_server_voice_contact_prewarm(
+        "manfred",
+        "manfred:voice:old",
+    )
+
+    assert public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] == current
+
+
+def test_memorial_voicewave_prewarm_unexpected_failure_is_not_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+    reservation_id = "manfred:voice:1"
+    public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] = {
+        "voice_prewarm_reservation_id": reservation_id,
+        "voice_contact_inflight": True,
+        "voicewave_contact_inflight": True,
+    }
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_voice_config",
+        lambda _slug: (_ for _ in ()).throw(RuntimeError("unexpected")),
+    )
+
+    public_memorials._run_memorial_voicewave_contact_prewarm(
+        "manfred",
+        "Manfred",
+        reservation_id,
+    )
+
+    current = public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"]
+    assert current["voice_contact_inflight"] is False
+    assert current["voicewave_contact_inflight"] is False
+    assert current["voice_contact_errors"] == [
+        "voicewave_prewarm:unexpected"
+    ]
+    assert "voice_prewarm_reservation_id" not in current
+
+
+def _configure_isolated_onemin_transcription_test(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    response: dict[str, object],
+    observed_languages: list[str],
+    add_success_status: bool = True,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    _clear_cartesia_env(monkeypatch)
+    public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS.clear()
+    public_memorials._MEMORIAL_STT_KEY_COOLDOWNS.clear()
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: {
+            "enabled": False,
+            "provider": "blipai",
+            "status": "skipped",
+            "transcript_text": "",
+            "correction": {"should_correct": False},
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_convert_audio_to_wav",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("skip_enhanced")),
+    )
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_asset_upload",
+        lambda **kwargs: {"asset": {"key": "audio"}, "fileContent": {"path": "audio-path"}},
+    )
+
+    response_payload = dict(response)
+    if add_success_status and isinstance(response_payload.get("aiRecord"), dict):
+        ai_record = dict(response_payload["aiRecord"])
+        ai_record.setdefault("status", "SUCCESS")
+        response_payload["aiRecord"] = ai_record
+
+    def _fake_onemin_speech_to_text(**kwargs):
+        observed_languages.append(str(kwargs.get("language") or ""))
+        return response_payload
+
+    monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_onemin_speech_to_text)
+
+
+@pytest.mark.parametrize(
+    ("source_language", "provider_language", "transcript"),
+    (
+        ("en-US", "en", "Anna opens the lantern while Ben reads the first page aloud."),
+        ("de-AT", "de", "Anna öffnet die Laterne, während Ben die erste Seite laut liest."),
+    ),
+)
+def test_memorial_transcribe_forwards_source_language_and_extracts_only_verbose_text(
+    monkeypatch: pytest.MonkeyPatch,
+    source_language: str,
+    provider_language: str,
+    transcript: str,
+) -> None:
+    from app.api.routes import public_memorials
+
+    observed_languages: list[str] = []
+    _configure_isolated_onemin_transcription_test(
+        monkeypatch,
+        observed_languages=observed_languages,
+        response={
+            "aiRecord": {
+                "aiRecordDetail": {
+                    "responseObject": {
+                        "content": json.dumps(
+                            {
+                                "task": "transcribe",
+                                "language": "provider metadata",
+                                "duration": 20.4,
+                                "text": transcript,
+                                "segments": [{"text": "verbose metadata must not be appended"}],
+                            }
+                        )
+                    }
+                }
+            }
+        },
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed=transcript),
+        content_type="audio/wav",
+        language=source_language,
+    )
+
+    assert result["transcription_status"] == "transcribed"
+    assert result["transcript_text"] == transcript
+    assert observed_languages == [provider_language]
+
+
+def test_memorial_transcribe_fails_closed_when_onemin_response_has_no_transcript_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    observed_languages: list[str] = []
+    _configure_isolated_onemin_transcription_test(
+        monkeypatch,
+        observed_languages=observed_languages,
+        response={
+            "aiRecord": {
+                "aiRecordDetail": {
+                    "responseObject": {
+                        "content": json.dumps(
+                            {
+                                "task": "transcribe",
+                                "duration": 20.4,
+                                "segments": [
+                                    {"text": "segment metadata is not an authoritative transcript"}
+                                ],
+                            }
+                        )
+                    },
+                    "resultObject": {"output": "plain provider metadata"},
+                }
+            }
+        },
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Anna and Ben"),
+        content_type="audio/wav",
+        language="en-US",
+    )
+
+    assert result["transcription_status"] == "no_speech"
+    assert result["transcript_text"] == ""
+    assert result["retryable"] is True
+    assert observed_languages == ["en"]
+
+
+def test_audiobook_publication_stt_forwards_source_language_to_runtime_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.services import audiobook_epub_pipeline
+
+    monkeypatch.delenv("EA_AUDIOBOOK_PUBLICATION_STT_COMMAND", raising=False)
+    monkeypatch.setattr(
+        audiobook_epub_pipeline,
+        "_transcribe_audiobook_publication_stt_sample_with_cartesia",
+        lambda **kwargs: {"status": "failed", "reason": "cartesia_api_key_missing"},
+    )
+    observed: dict[str, object] = {}
+
+    def _fake_runtime_transcribe(**kwargs):
+        observed.update(kwargs)
+        return {
+            "transcription_status": "transcribed",
+            "transcript_text": "Anna opens the lantern.",
+            "transcriber": "1min.ai/whisper-1",
+        }
+
+    monkeypatch.setattr(public_memorials, "_memorial_transcribe_audio_blob", _fake_runtime_transcribe)
+    sample_path = tmp_path / "sample.wav"
+    sample_path.write_bytes(b"rights-safe-audio-fixture")
+
+    result = audiobook_epub_pipeline._transcribe_audiobook_publication_stt_sample(
+        sample_path=sample_path,
+        language="en-US",
+    )
+
+    assert result["status"] == "transcribed"
+    assert result["transcriber"] == "1min.ai/whisper-1"
+    assert observed["language"] == "en-US"
+
+
+def test_memorial_onemin_top_level_plaintext_response_object_remains_supported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    transcript = "Anna opens the lantern while Ben reads the first page aloud."
+    observed_languages: list[str] = []
+    _configure_isolated_onemin_transcription_test(
+        monkeypatch,
+        observed_languages=observed_languages,
+        response={
+            "aiRecord": {
+                "aiRecordDetail": {
+                    "responseObject": transcript,
+                }
+            }
+        },
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed=transcript),
+        content_type="audio/wav",
+        language="en-US",
+    )
+
+    assert result["transcription_status"] == "transcribed"
+    assert result["transcript_text"] == transcript
+    assert observed_languages == ["en"]
+
+
+@pytest.mark.parametrize(
+    ("source_language", "provider_language"),
+    (("en-US", "en"), ("de-AT", "de")),
+)
+def test_memorial_cartesia_fallback_uses_primary_language(
+    monkeypatch: pytest.MonkeyPatch,
+    source_language: str,
+    provider_language: str,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    monkeypatch.setenv("CARTESIA_API_KEY", "cartesia-test-key")
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: {
+            "enabled": False,
+            "provider": "blipai",
+            "status": "skipped",
+            "transcript_text": "",
+            "correction": {"should_correct": False},
+        },
+    )
+    observed_languages: list[str] = []
+
+    def _fake_cartesia(**kwargs):
+        observed_languages.append(str(kwargs.get("language") or ""))
+        return {"text": "Anna opens the lantern while Ben reads the first page aloud."}
+
+    monkeypatch.setattr(public_memorials, "_cartesia_transcribe_audio", _fake_cartesia)
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ())
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Anna and Ben"),
+        content_type="audio/wav",
+        language=source_language,
+    )
+
+    assert result["transcription_status"] == "transcribed"
+    assert observed_languages
+    assert set(observed_languages) == {provider_language}
+    assert public_memorials._memorial_cartesia_language(source_language) == provider_language
+
+
+@pytest.mark.parametrize(
+    ("source_language", "provider_language"),
+    (("en-US", "en"), ("de-AT", "de")),
+)
+def test_audiobook_cartesia_request_uses_primary_language(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    source_language: str,
+    provider_language: str,
+) -> None:
+    import requests
+
+    from app.services import audiobook_epub_pipeline
+
+    monkeypatch.setattr(audiobook_epub_pipeline, "_audiobook_cartesia_api_key", lambda: "cartesia-test-key")
+    observed: dict[str, object] = {}
+
+    class _Response:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"text": "Anna opens the lantern while Ben reads the first page aloud."}
+
+    def _fake_post(*args, **kwargs):
+        observed.update(kwargs)
+        return _Response()
+
+    monkeypatch.setattr(requests, "post", _fake_post)
+    sample_path = tmp_path / "sample.wav"
+    sample_path.write_bytes(b"rights-safe-audio-fixture")
+
+    result = audiobook_epub_pipeline._transcribe_audiobook_publication_stt_sample_with_cartesia(
+        sample_path=sample_path,
+        language=source_language,
+    )
+
+    assert result["status"] == "transcribed"
+    assert dict(observed["data"])["language"] == provider_language
+    assert audiobook_epub_pipeline._audiobook_cartesia_language(source_language) == provider_language
+
+
+@pytest.mark.parametrize("invalid_language", ("eng-US", "eng", "e-US", "english"))
+def test_cartesia_language_normalizers_reject_non_iso_639_1_primaries(
+    invalid_language: str,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.services import audiobook_epub_pipeline
+
+    assert public_memorials._memorial_cartesia_language(invalid_language) == "de"
+    assert audiobook_epub_pipeline._audiobook_cartesia_language(invalid_language) == "de"
+
+
+def test_onemin_whisper_request_uses_documented_plain_text_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.product import service as product_service
+
+    observed: dict[str, object] = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        @staticmethod
+        def read() -> bytes:
+            return b'{"aiRecord":{"status":"SUCCESS"}}'
+
+    def _fake_urlopen(request, timeout=180):
+        observed["url"] = request.full_url
+        observed["body"] = json.loads(request.data.decode("utf-8"))
+        observed["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setattr(product_service.urllib.request, "urlopen", _fake_urlopen)
+
+    result = product_service._onemin_speech_to_text(
+        api_key="private-test-key",
+        audio_path="audios/private-test.wav",
+        language="en",
+    )
+
+    assert result["aiRecord"]["status"] == "SUCCESS"
+    assert observed["url"] == "https://api.1min.ai/api/features"
+    assert observed["timeout"] == 180
+    assert observed["body"] == {
+        "type": "SPEECH_TO_TEXT",
+        "model": "whisper-1",
+        "promptObject": {
+            "audioUrl": "audios/private-test.wav",
+            "response_format": "text",
+            "language": "en",
+        },
+    }
+
+
+def test_onemin_transcript_parser_accepts_only_one_unambiguous_result() -> None:
+    from app.product import service as product_service
+
+    transcript = "Anna opens the lantern while Ben reads the first page aloud."
+
+    assert product_service._onemin_transcript_text([transcript]) == transcript
+    assert product_service._onemin_transcript_text([{"text": transcript}]) == transcript
+    assert product_service._onemin_transcript_text([transcript, "provider metadata"]) == ""
+    assert product_service._onemin_transcript_text({"output": "provider metadata"}) == ""
+
+
+def test_pocket_onemin_retranscription_uses_safe_single_result_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.product import service as product_service
+
+    transcript = "Anna opens the lantern while Ben reads the first page aloud."
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_download_audio_blob",
+        lambda **kwargs: (b"audio", "audio/wav", "https://example.invalid/audio.wav"),
+    )
+    monkeypatch.setattr(product_service, "_pocket_guess_audio_filename", lambda **kwargs: "audio.wav")
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_asset_upload",
+        lambda **kwargs: {"fileContent": {"path": "audios/private.wav"}},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_speech_to_text",
+        lambda **kwargs: {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {"resultObject": [transcript]},
+            }
+        },
+    )
+
+    result = product_service._pocket_retranscribe_with_onemin(
+        recording_id="recording-1",
+        title="Private title",
+        language="en",
+        audio_download_url="https://example.invalid/audio.wav",
+    )
+
+    assert result is not None
+    assert result["transcript_text"] == transcript
+    assert result["transcript_segment_count"] == 0
+
+
+@pytest.mark.parametrize(
+    "record_status",
+    ("PROCESSING", "FAILURE", "unexpected-private-status", ""),
+)
+def test_pocket_onemin_retranscription_requires_success_status(
+    monkeypatch: pytest.MonkeyPatch,
+    record_status: str,
+) -> None:
+    from app.product import service as product_service
+
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_download_audio_blob",
+        lambda **kwargs: (b"audio", "audio/wav", "https://example.invalid/audio.wav"),
+    )
+    monkeypatch.setattr(product_service, "_pocket_guess_audio_filename", lambda **kwargs: "audio.wav")
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_asset_upload",
+        lambda **kwargs: {"fileContent": {"path": "audios/private.wav"}},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_speech_to_text",
+        lambda **kwargs: {
+            "aiRecord": {
+                "status": record_status,
+                "aiRecordDetail": {"resultObject": ["private result must be ignored"]},
+            }
+        },
+    )
+
+    safe_status = (
+        record_status.lower()
+        if record_status in {"PROCESSING", "FAILURE"}
+        else "missing" if not record_status else "other"
+    )
+    with pytest.raises(RuntimeError, match=f"^onemin_transcribe_status_{safe_status}$"):
+        product_service._pocket_retranscribe_with_onemin(
+            recording_id="recording-1",
+            title="Private title",
+            language="en",
+            audio_download_url="https://example.invalid/audio.wav",
+        )
+
+
+def test_pocket_onemin_retranscription_continues_to_next_bounded_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.product import service as product_service
+
+    transcript = "Anna opens the lantern while Ben reads the first page aloud."
+    calls: list[str] = []
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1", "key-2"))
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_download_audio_blob",
+        lambda **kwargs: (b"audio", "audio/wav", "https://example.invalid/audio.wav"),
+    )
+    monkeypatch.setattr(product_service, "_pocket_guess_audio_filename", lambda **kwargs: "audio.wav")
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_asset_upload",
+        lambda **kwargs: {"fileContent": {"path": "audios/private.wav"}},
+    )
+
+    def _fake_transcribe(**kwargs):
+        api_key = str(kwargs.get("api_key") or "")
+        calls.append(api_key)
+        if api_key == "key-1":
+            return {"aiRecord": {"status": "FAILURE", "aiRecordDetail": {}}}
+        return {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {"resultObject": [transcript]},
+            }
+        }
+
+    monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_transcribe)
+
+    result = product_service._pocket_retranscribe_with_onemin(
+        recording_id="recording-1",
+        title="Private title",
+        language="en",
+        audio_download_url="https://example.invalid/audio.wav",
+    )
+
+    assert result is not None
+    assert result["transcript_text"] == transcript
+    assert calls == ["key-1", "key-2"]
+
+
+def test_onemin_http_failures_never_expose_provider_response_bodies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from io import BytesIO
+
+    from app.product import service as product_service
+
+    private_body = b"PRIVATE_TRANSCRIPT_AND_PROVIDER_ID"
+
+    def _raise_http_error(request, timeout=180):
+        raise product_service.urllib.error.HTTPError(
+            request.full_url,
+            502,
+            "private provider error",
+            {},
+            BytesIO(private_body),
+        )
+
+    monkeypatch.setattr(product_service.urllib.request, "urlopen", _raise_http_error)
+
+    with pytest.raises(RuntimeError, match="^onemin_transcribe_http_502$") as transcribe_error:
+        product_service._onemin_speech_to_text(
+            api_key="private-test-key",
+            audio_path="audios/private.wav",
+            language="en",
+        )
+    with pytest.raises(RuntimeError, match="^onemin_asset_http_502$") as asset_error:
+        product_service._onemin_asset_upload(
+            api_key="private-test-key",
+            filename="private.wav",
+            content_type="audio/wav",
+            payload=b"private audio",
+        )
+
+    assert private_body.decode("ascii") not in str(transcribe_error.value)
+    assert private_body.decode("ascii") not in str(asset_error.value)
+    assert "private provider error" not in str(transcribe_error.value)
+
+
+def test_memorial_onemin_rejects_non_success_record_even_with_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    private_text = "PRIVATE failed provider output"
+    observed_languages: list[str] = []
+    _configure_isolated_onemin_transcription_test(
+        monkeypatch,
+        observed_languages=observed_languages,
+        response={
+            "aiRecord": {
+                "status": "FAILURE",
+                "aiRecordDetail": {"resultObject": [private_text]},
+            }
+        },
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Anna and Ben"),
+        content_type="audio/wav",
+        language="en-US",
+    )
+
+    assert result["transcription_status"] == "no_speech"
+    assert result["detail"] == (
+        "speech_transcribe_not_success:original:status_failure:"
+        "response_missing:result_array_1_string_plain"
+    )
+    assert private_text not in json.dumps(result, sort_keys=True)
+
+
+def test_memorial_onemin_rejects_missing_record_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    private_text = "PRIVATE missing-status provider output"
+    observed_languages: list[str] = []
+    _configure_isolated_onemin_transcription_test(
+        monkeypatch,
+        observed_languages=observed_languages,
+        add_success_status=False,
+        response={
+            "aiRecord": {
+                "aiRecordDetail": {"resultObject": [private_text]},
+            }
+        },
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Anna and Ben"),
+        content_type="audio/wav",
+        language="en-US",
+    )
+
+    assert result["transcription_status"] == "no_speech"
+    assert result["detail"] == (
+        "speech_transcribe_not_success:original:status_missing:"
+        "response_missing:result_array_1_string_plain"
+    )
+    assert private_text not in json.dumps(result, sort_keys=True)
+
+
+def test_memorial_transcribe_accepts_documented_single_result_text_array(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    transcript = "Anna opens the lantern while Ben reads the first page aloud."
+    observed_languages: list[str] = []
+    _configure_isolated_onemin_transcription_test(
+        monkeypatch,
+        observed_languages=observed_languages,
+        response={
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {"resultObject": [transcript]},
+            }
+        },
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed=transcript),
+        content_type="audio/wav",
+        language="en-US",
+    )
+
+    assert result["transcription_status"] == "transcribed"
+    assert result["transcript_text"] == transcript
+    assert observed_languages == ["en"]
+
+
+def test_memorial_empty_transcript_reports_only_content_free_provider_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    private_text = "PRIVATE BOOK TEXT must never enter a failure receipt"
+    observed_languages: list[str] = []
+    _configure_isolated_onemin_transcription_test(
+        monkeypatch,
+        observed_languages=observed_languages,
+        response={
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {
+                    "responseObject": {"content": private_text},
+                    "resultObject": [
+                        {"text": private_text},
+                        {"text": "alternate provider output"},
+                    ],
+                },
+            }
+        },
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Anna and Ben"),
+        content_type="audio/wav",
+        language="en-US",
+    )
+
+    assert result["transcription_status"] == "no_speech"
+    assert result["transcript_text"] == ""
+    assert result["detail"] == (
+        "speech_transcript_empty:original:status_success:"
+        "response_object_content:result_array_2_object_text"
+    )
+    assert private_text not in json.dumps(result, sort_keys=True)
+    assert "alternate provider output" not in json.dumps(result, sort_keys=True)
+    assert observed_languages == ["en"]

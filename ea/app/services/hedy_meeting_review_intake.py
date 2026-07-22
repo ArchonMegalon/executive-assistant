@@ -37,9 +37,20 @@ class HedyMeetingReviewIntakeResult:
 
 
 class HedyMeetingReviewIntakeService:
-    def __init__(self, *, orchestrator: _HedyReviewQueue, webhook_secret: str, clock=None) -> None:
+    def __init__(
+        self,
+        *,
+        orchestrator: _HedyReviewQueue,
+        webhook_secret: str,
+        clock=None,
+        tolerance_seconds: int = 300,
+    ) -> None:
         self._orchestrator = orchestrator
-        self._evidence = HedyMeetingEvidenceService(webhook_secret=webhook_secret, clock=clock)
+        self._evidence = HedyMeetingEvidenceService(
+            webhook_secret=webhook_secret,
+            clock=clock,
+            tolerance_seconds=tolerance_seconds,
+        )
 
     def ingest_webhook_to_review_queue(
         self,

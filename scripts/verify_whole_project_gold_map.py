@@ -9,13 +9,29 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from scripts.source_state_head import resolve_source_state_head
+    from scripts.memorial_spatial_public_origin_contract import (
+        validate_memorial_spatial_public_origin_receipt,
+    )
+    from scripts.source_state_head import (
+        resolve_source_state_head,
+        resolve_source_worktree_fingerprint,
+    )
 except ModuleNotFoundError:  # pragma: no cover - script execution path
-    from source_state_head import resolve_source_state_head
+    from memorial_spatial_public_origin_contract import (
+        validate_memorial_spatial_public_origin_receipt,
+    )
+    from source_state_head import (
+        resolve_source_state_head,
+        resolve_source_worktree_fingerprint,
+    )
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RECEIPT = ROOT / ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json"
+MEMORIAL_SPATIAL_RECEIPT_RELPATH = Path(
+    ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json"
+)
+DEFAULT_MEMORIAL_SPATIAL_RECEIPT = ROOT / MEMORIAL_SPATIAL_RECEIPT_RELPATH
 BLOCKING_STATUSES = {
     "unknown_missing_receipt",
     "blocked",
@@ -55,6 +71,7 @@ GENERATED_RECEIPT_PATHS = {
     ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
     ".codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json",
     ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+    ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json",
 }
 MEMORIAL_SOURCE_SCOPE_PREFIXES = (
     "ea/app/api/routes/public_memorial",
@@ -127,6 +144,7 @@ def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
     if receipt.get("contract_name") != "ea.whole_project_gold_map":
         issues.append("contract_name must be ea.whole_project_gold_map")
     current_head = _git_head()
+    current_fingerprint = resolve_source_worktree_fingerprint(ROOT)
     if current_head and not _fresh_enough(_recorded_source_head(receipt), current_head=current_head):
         issues.append("whole-project gold map is stale relative to current HEAD")
 
@@ -156,53 +174,42 @@ def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
                 issues.append("memorial voice receipt is stale relative to current HEAD")
 
     memorial_public_plane = by_key.get("memorial_public_origin_gold") or {}
-    for evidence_text in [str(item) for item in list(memorial_public_plane.get("evidence") or []) if str(item)]:
+    memorial_public_evidence = [
+        str(item)
+        for item in list(memorial_public_plane.get("evidence") or [])
+        if str(item)
+    ]
+    for evidence_text in memorial_public_evidence:
         if not _is_stable_repo_evidence_path(evidence_text):
             issues.append("memorial public-origin evidence paths must be repo-relative or generated-artifact relative")
-    memorial_operator_payload = _json(ROOT / ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json")
-    memorial_public_runtime_status = str(memorial_operator_payload.get("public_runtime_mode") or "").strip().lower()
-    memorial_public_runtime_detail = dict(memorial_operator_payload.get("public_runtime_mode_detail") or {})
-    memorial_public_runtime_reason = str(memorial_public_runtime_detail.get("reason") or "").strip().lower()
-    memorial_public_runtime_next_action = str(memorial_public_runtime_detail.get("next_action") or "").strip()
-    memorial_public_access_status = str(memorial_operator_payload.get("public_origin_access") or "").strip().lower()
-    memorial_public_access_detail = dict(memorial_operator_payload.get("public_origin_access_detail") or {})
-    memorial_public_access_reason = str(memorial_public_access_detail.get("reason") or "").strip().lower()
-    memorial_public_access_next_action = str(memorial_public_access_detail.get("next_action") or "").strip()
-    memorial_public_missing = [str(item).strip().lower() for item in list(memorial_public_plane.get("missing_evidence") or []) if str(item).strip()]
-    suppress_access_symptom = (
-        memorial_public_runtime_status == "blocked"
-        and memorial_public_runtime_reason == "public_origin_not_deployed_in_memorial_mode"
+    spatial_receipt_path = ROOT / MEMORIAL_SPATIAL_RECEIPT_RELPATH
+    spatial_payload = _json(spatial_receipt_path)
+    spatial_issues = validate_memorial_spatial_public_origin_receipt(
+        spatial_payload,
+        current_head=current_head,
+        current_fingerprint=current_fingerprint,
     )
-    if memorial_public_runtime_status in {"blocked", "missing"}:
-        if str(memorial_public_plane.get("status") or "").strip().lower() != "blocked":
-            issues.append("memorial public-origin plane must be blocked while public runtime mode is blocked")
-        if memorial_public_runtime_reason == "public_origin_not_deployed_in_memorial_mode":
-            if not any(
-                "public origin is still deployed in" in item and "memorial mode" in item
-                for item in memorial_public_missing
-            ):
-                issues.append("memorial public-origin plane must surface EA_CORE-only public deploy mode in missing_evidence")
-            issues.append("configured public origin is not deployed in MEMORIAL mode; run make deploy-ea-memorial before refreshing public memorial gold receipts")
-        if memorial_public_runtime_next_action:
-            issues.append(f"memorial public-origin deploy next action: {memorial_public_runtime_next_action}")
-    if memorial_public_access_status in {"access_blocked", "blocked"} and not suppress_access_symptom:
-        if str(memorial_public_plane.get("status") or "").strip().lower() != "blocked":
-            issues.append("memorial public-origin plane must be blocked while public origin access is blocked")
-        if memorial_public_access_reason == "public_origin_memorial_not_found":
-            if not any("public memorial page or manifest not found" in item for item in memorial_public_missing):
-                issues.append("memorial public-origin plane must surface not-found public memorial access in missing_evidence")
+    spatial_evidence_path = MEMORIAL_SPATIAL_RECEIPT_RELPATH.as_posix()
+    memorial_public_plane_status = str(
+        memorial_public_plane.get("status") or ""
+    ).strip().lower()
+    if spatial_issues:
+        if memorial_public_plane_status != "blocked":
             issues.append(
-                "memorial public-origin page or manifest is missing at the configured edge; republish the public memorial bundle or fix the memorial slug before refreshing public memorial gold receipts"
+                "memorial public-origin plane must be blocked while the strict public spatial-tour receipt is missing or invalid"
             )
-        else:
-            if not any("public memorial origin access blocked" in item for item in memorial_public_missing):
-                issues.append("memorial public-origin plane must surface blocked public origin access in missing_evidence")
+        spatial_missing = [
+            str(item).lower()
+            for item in list(memorial_public_plane.get("missing_evidence") or [])
+        ]
+        if not any("spatial" in item or "3d-tour" in item for item in spatial_missing):
             issues.append(
-                "memorial public-origin access is blocked at the configured edge; unblock anonymous public memorial access before refreshing public memorial gold receipts"
+                "memorial public-origin plane must surface the strict public 3D-tour receipt in missing_evidence"
             )
-        if memorial_public_access_next_action:
-            issues.append(f"memorial public-origin access next action: {memorial_public_access_next_action}")
-
+    elif spatial_evidence_path not in memorial_public_evidence:
+        issues.append(
+            "passing strict public spatial-tour receipt must be listed as memorial public-origin evidence"
+        )
     blocking_planes = [
         key
         for key, plane in by_key.items()
@@ -241,6 +248,8 @@ def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
         issues.append("missing rule: unknown external planes block whole-project gold claims")
     if "Whole-project gold requires every listed plane to pass" not in rules:
         issues.append("missing rule: whole-project gold must require every listed plane")
+    if "strict public spatial-tour receipt" not in rules:
+        issues.append("missing rule: memorial public-origin gold must require strict spatial-tour proof")
     return issues
 
 

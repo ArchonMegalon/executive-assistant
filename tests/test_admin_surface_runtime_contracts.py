@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import html
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -287,7 +286,17 @@ def test_admin_proactive_ooda_operator_status_refresh_keeps_live_probe_enabled(
     assert calls[0]["allow_live_route_probe"] is True
 
 
-def test_admin_surfaces_render_live_runtime_state() -> None:
+def test_admin_surfaces_render_live_runtime_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import admin_view_models
+
+    def _unexpected_proactive_live_probe() -> dict[str, object]:
+        raise AssertionError("non-goal admin surfaces must not run the proactive live probe")
+
+    monkeypatch.setattr(
+        admin_view_models,
+        "_load_current_proactive_ooda_runtime_bundle",
+        _unexpected_proactive_live_probe,
+    )
     principal_id = "exec-admin-surface"
     client = _operator_client(principal_id=principal_id)
     _seed_admin_state(client, principal_id=principal_id)
@@ -737,8 +746,8 @@ def test_admin_goal_evidence_surface_shows_receipts_without_completion_overclaim
     assert "scan_whatsapp_web_qr" in goals.text
     assert "preferred delivery path needs recovery" in goals.text
     assert "Record a signal-loop outcome" not in goals.text
-    assert "Record packet verdict" not in goals.text
-    assert "/admin/proactive-ooda/approval" not in goals.text
+    assert "Record packet verdict" in goals.text
+    assert "/admin/proactive-ooda/approval" in goals.text
     assert "Acceptance evidence receipt" in goals.text
     assert "Morning brief accepted" in goals.text
     assert "Real decision cleared" in goals.text
@@ -1242,7 +1251,7 @@ def test_admin_signal_evidence_runtime_bundle_uses_repo_root(monkeypatch: pytest
     monkeypatch.setattr(landing_actions, "load_runtime_artifact_bundle", _fake_load_runtime_artifact_bundle)
 
     assert landing_actions._load_current_proactive_ooda_runtime_bundle() == {}
-    assert observed["root"] == Path("/docker/EA")
+    assert observed["root"] == Path(__file__).resolve().parents[1]
 
 
 def test_admin_proactive_ooda_capture_records_redacted_gold_evidence(

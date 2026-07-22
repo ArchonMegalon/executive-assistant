@@ -29,6 +29,8 @@ def test_build_env_secret_rows_classifies_and_can_include_secret_values(tmp_path
             [
                 "TEABLE_API_KEY=teable-live-key",
                 "UNMIXR_PASSWORD=voice-password",
+                "VOCALLAB_API_KEY=vocallab-key",
+                "EA_AUDIOBOOK_VOCALLAB_ENABLED=0",
                 "EA_HOST_PORT=8010",
                 "DATABASE_URL=postgresql://user:pass@db/app",
             ]
@@ -44,6 +46,12 @@ def test_build_env_secret_rows_classifies_and_can_include_secret_values(tmp_path
     assert by_name["TEABLE_API_KEY"]["provider_guess"] == "teable"
     assert by_name["TEABLE_API_KEY"]["env_value_secret"] == "teable-live-key"
     assert by_name["UNMIXR_PASSWORD"]["secret_kind"] == "password"
+    assert by_name["VOCALLAB_API_KEY"]["secret_kind"] == "api_key"
+    assert by_name["VOCALLAB_API_KEY"]["provider_guess"] == "vocallab"
+    assert (
+        by_name["EA_AUDIOBOOK_VOCALLAB_ENABLED"]["provider_guess"]
+        == "ea_audiobook_vocallab"
+    )
     assert by_name["DATABASE_URL"]["secret_kind"] == "database_url"
     assert by_name["EA_HOST_PORT"]["secret_kind"] == "config"
     assert by_name["TEABLE_API_KEY"]["projection_id"] == "test-host:ea_service:TEABLE_API_KEY"
@@ -126,12 +134,20 @@ def test_build_recovery_rows_includes_default_local_secret_files(monkeypatch, tm
     accounts_file = config_dir / "unmixr_accounts.json"
     slot_owner_file = config_dir / "onemin_slot_owners.json"
     example_file = config_dir / "onemin_api_keys.example.json"
+    voice_catalog = config_dir / "vocallab_voice_catalog.local.json"
+    rotation_authority = (
+        config_dir / "vocallab_credential_rotation_authority.local.json"
+    )
+    verification_hmac = config_dir / "vocallab_verification_hmac_key"
     cartesia_file.write_text('{"api_key":"cartesia"}', encoding="utf-8")
     gemini_file.write_text('{"installed":{"client_id":"gemini"}}', encoding="utf-8")
     unmixr_file.write_text('{"keys":["unmixr"]}', encoding="utf-8")
     accounts_file.write_text('{"accounts":[{"label":"slot-1"}]}', encoding="utf-8")
     slot_owner_file.write_text('{"slots":[{"slot":"fallback_1","owner":"sample"}]}', encoding="utf-8")
     example_file.write_text('{"example":true}', encoding="utf-8")
+    voice_catalog.write_text('{"voices":[{"provider_voice_id":"private"}]}', encoding="utf-8")
+    rotation_authority.write_text('{"exposed_key_revoked":true}', encoding="utf-8")
+    verification_hmac.write_text("private-hmac-material", encoding="utf-8")
     env_file = tmp_path / ".env"
     env_file.write_text("EA_API_TOKEN=root-token\n", encoding="utf-8")
     service_env_file = tmp_path / "ea" / ".env"
@@ -159,6 +175,91 @@ def test_build_recovery_rows_includes_default_local_secret_files(monkeypatch, tm
     assert file_rows[str(slot_owner_file)]["env_name"] == "LOCAL_SECRET_FILE:config/onemin_slot_owners.json"
     assert file_rows[str(cartesia_file)]["env_value_secret"] == base64.b64encode(b'{"api_key":"cartesia"}').decode("ascii")
     assert str(example_file) not in file_rows
+    assert str(voice_catalog) not in file_rows
+    assert str(rotation_authority) not in file_rows
+    assert str(verification_hmac) not in file_rows
+
+
+def test_vocallab_authority_catalog_and_hmac_are_never_teable_recovery_rows(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    denied = {
+        "VOCALLAB_ROTATION_AUTHORITY_CONFIG_FILE": (
+            config_dir / "vocallab_credential_rotation_authority.local.json"
+        ),
+        "VOCALLAB_VERIFICATION_HMAC_KEY_FILE": (
+            config_dir / "vocallab_verification_hmac_key"
+        ),
+        "EA_AUDIOBOOK_VOCALLAB_VOICE_CATALOG_FILE": (
+            config_dir / "vocallab_voice_catalog.local.json"
+        ),
+    }
+    for path in denied.values():
+        path.write_text("private-authority-material", encoding="utf-8")
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(f"{name}={path}" for name, path in denied.items()) + "\n",
+        encoding="utf-8",
+    )
+    service_env_file = tmp_path / "ea" / ".env"
+    service_env_file.parent.mkdir()
+    service_env_file.write_text("", encoding="utf-8")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(module, "DEFAULT_ENV_FILES", (env_file, service_env_file))
+
+    rows = module.build_recovery_rows(
+        env_files=(env_file, service_env_file),
+        include_values=True,
+        host_profile="test-host",
+    )
+    recovered_paths = {
+        row["source_path"] for row in rows if row["source_scope"] == "ea_file"
+    }
+
+    assert recovered_paths.isdisjoint({str(path) for path in denied.values()})
+
+
+def test_vocallab_denial_cannot_be_bypassed_by_symlink_or_hardlink(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    denied_hmac = config_dir / "vocallab_verification_hmac_key"
+    denied_hmac.write_text("private-hmac-material", encoding="utf-8")
+    symlink_alias = config_dir / "alternate_key_file"
+    hardlink_alias = config_dir / "alternate_hardlink_key_file"
+    symlink_alias.symlink_to(denied_hmac.name)
+    os.link(denied_hmac, hardlink_alias)
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            (
+                f"VOCALLAB_ALIAS_KEY_FILE={symlink_alias}",
+                f"VOCALLAB_HARDLINK_KEY_FILE={hardlink_alias}",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    service_env_file = tmp_path / "ea" / ".env"
+    service_env_file.parent.mkdir()
+    service_env_file.write_text("", encoding="utf-8")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(module, "DEFAULT_ENV_FILES", (env_file, service_env_file))
+
+    rows = module.build_recovery_rows(
+        env_files=(env_file, service_env_file),
+        include_values=True,
+        host_profile="test-host",
+    )
+
+    assert [row for row in rows if row["source_scope"] == "ea_file"] == []
 
 
 def test_build_recovery_rows_includes_default_audiobook_access_files(monkeypatch, tmp_path: Path) -> None:

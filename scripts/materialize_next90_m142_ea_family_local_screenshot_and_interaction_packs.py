@@ -24,9 +24,19 @@ def _env_path(name: str, default: Path) -> Path:
     return Path(os.environ.get(name) or default)
 
 
+def _source_provenance(path: Path) -> str:
+    """Return stable repo-relative provenance without leaking operator host paths."""
+    resolved = path.expanduser().resolve(strict=False)
+    try:
+        return resolved.relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        return f"external:{path.name}"
+
+
 DESIGN_PRODUCT_ROOT = _env_path("CHUMMER6_DESIGN_PRODUCT_ROOT", ROOT / ".codex-design" / "product")
-CHUMMER_COMPLETION_ROOT = _env_path("EA_CHUMMER_CROSS_REPO_COMPLETION_ROOT", ROOT / "ea" / "_completion" / "chummer_cross_repo")
-FLEET_COMPLETION_ROOT = _env_path("EA_FLEET_COMPLETION_ROOT", ROOT / "ea" / "_completion" / "fleet")
+SOURCE_PROJECTION_ROOT = ROOT / "docs" / "chummer5a_parity_lab" / "source_projections"
+CHUMMER_COMPLETION_ROOT = _env_path("EA_CHUMMER_CROSS_REPO_COMPLETION_ROOT", SOURCE_PROJECTION_ROOT / "chummer_cross_repo")
+FLEET_COMPLETION_ROOT = _env_path("EA_FLEET_COMPLETION_ROOT", SOURCE_PROJECTION_ROOT / "fleet")
 
 OUTPUT_PATH = DOCS_ROOT / "NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml"
 MARKDOWN_PATH = DOCS_ROOT / "NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.md"
@@ -116,13 +126,13 @@ TARGET_FAMILIES: dict[str, dict[str, Any]] = {
             },
         ],
         "evidence_paths": [
-            str(VETERAN_WORKFLOW_PACK_PATH),
-            str(SECTION_HOST_PARITY_PATH),
-            str(SCREENSHOT_GATE_PATH),
-            str(VISUAL_GATE_PATH),
-            str(WORKFLOW_GATE_PATH),
-            str(CLASSIC_DENSE_GATE_PATH),
-            str(PARITY_AUDIT_PATH),
+            _source_provenance(VETERAN_WORKFLOW_PACK_PATH),
+            _source_provenance(SECTION_HOST_PARITY_PATH),
+            _source_provenance(SCREENSHOT_GATE_PATH),
+            _source_provenance(VISUAL_GATE_PATH),
+            _source_provenance(WORKFLOW_GATE_PATH),
+            _source_provenance(CLASSIC_DENSE_GATE_PATH),
+            _source_provenance(PARITY_AUDIT_PATH),
         ],
     },
     "dice_initiative_and_table_utilities": {
@@ -164,14 +174,14 @@ TARGET_FAMILIES: dict[str, dict[str, Any]] = {
             },
         ],
         "evidence_paths": [
-            str(VETERAN_WORKFLOW_PACK_PATH),
-            str(SCREENSHOT_GATE_PATH),
-            str(VISUAL_GATE_PATH),
-            str(WORKFLOW_GATE_PATH),
-            str(GENERATED_DIALOG_PARITY_PATH),
-            str(GM_RUNBOARD_ROUTE_PATH),
-            str(CORE_RECEIPTS_DOC_PATH),
-            str(PARITY_AUDIT_PATH),
+            _source_provenance(VETERAN_WORKFLOW_PACK_PATH),
+            _source_provenance(SCREENSHOT_GATE_PATH),
+            _source_provenance(VISUAL_GATE_PATH),
+            _source_provenance(WORKFLOW_GATE_PATH),
+            _source_provenance(GENERATED_DIALOG_PARITY_PATH),
+            _source_provenance(GM_RUNBOARD_ROUTE_PATH),
+            _source_provenance(CORE_RECEIPTS_DOC_PATH),
+            _source_provenance(PARITY_AUDIT_PATH),
         ],
     },
     "identity_contacts_lifestyles_history": {
@@ -213,12 +223,12 @@ TARGET_FAMILIES: dict[str, dict[str, Any]] = {
             },
         ],
         "evidence_paths": [
-            str(VETERAN_WORKFLOW_PACK_PATH),
-            str(SECTION_HOST_PARITY_PATH),
-            str(VISUAL_GATE_PATH),
-            str(WORKFLOW_GATE_PATH),
-            str(CORE_RECEIPTS_DOC_PATH),
-            str(PARITY_AUDIT_PATH),
+            _source_provenance(VETERAN_WORKFLOW_PACK_PATH),
+            _source_provenance(SECTION_HOST_PARITY_PATH),
+            _source_provenance(VISUAL_GATE_PATH),
+            _source_provenance(WORKFLOW_GATE_PATH),
+            _source_provenance(CORE_RECEIPTS_DOC_PATH),
+            _source_provenance(PARITY_AUDIT_PATH),
         ],
     },
 }
@@ -668,11 +678,11 @@ def build_payload() -> dict[str, Any]:
             "desktop_client_reason_count": len(desktop_reasons),
         },
         "source_inputs": {
-            "ea_compare_packs": {"path": str(COMPARE_PACKS_PATH), "generated_at": _generated_at(COMPARE_PACKS_PATH)},
-            "ea_veteran_workflow_pack": {"path": str(VETERAN_WORKFLOW_PACK_PATH), "generated_at": _generated_at(VETERAN_WORKFLOW_PACK_PATH)},
-            "next90_guide": {"path": str(NEXT90_GUIDE_PATH), "generated_at": _generated_at(NEXT90_GUIDE_PATH)},
+            "ea_compare_packs": {"path": _source_provenance(COMPARE_PACKS_PATH), "generated_at": _generated_at(COMPARE_PACKS_PATH)},
+            "ea_veteran_workflow_pack": {"path": _source_provenance(VETERAN_WORKFLOW_PACK_PATH), "generated_at": _generated_at(VETERAN_WORKFLOW_PACK_PATH)},
+            "next90_guide": {"path": _source_provenance(NEXT90_GUIDE_PATH), "generated_at": _generated_at(NEXT90_GUIDE_PATH)},
             "design_queue": {
-                "path": str(DESIGN_QUEUE_PATH),
+                "path": _source_provenance(DESIGN_QUEUE_PATH),
                 "match_count": len(design_queue_rows),
                 "unique_match": len(design_queue_rows) == 1,
                 "status": str(design_queue_row.get("status") or ""),
@@ -680,7 +690,7 @@ def build_payload() -> dict[str, Any]:
                 "row_fingerprint": _stable_fingerprint(design_queue_row),
             },
             "fleet_queue": {
-                "path": str(FLEET_QUEUE_PATH),
+                "path": _source_provenance(FLEET_QUEUE_PATH),
                 "match_count": len(fleet_queue_rows),
                 "unique_match": len(fleet_queue_rows) == 1,
                 "status": str(fleet_queue_row.get("status") or ""),
@@ -688,7 +698,7 @@ def build_payload() -> dict[str, Any]:
                 "row_fingerprint": _stable_fingerprint(fleet_queue_row),
             },
             "local_mirror_queue": {
-                "path": str(LOCAL_MIRROR_QUEUE_PATH),
+                "path": _source_provenance(LOCAL_MIRROR_QUEUE_PATH),
                 "match_count": len(local_mirror_queue_rows),
                 "unique_match": len(local_mirror_queue_rows) == 1,
                 "status": str(local_mirror_queue_row.get("status") or ""),
@@ -696,7 +706,7 @@ def build_payload() -> dict[str, Any]:
                 "row_fingerprint": _stable_fingerprint(local_mirror_queue_row),
             },
             "registry": {
-                "path": str(SUCCESSOR_REGISTRY_PATH),
+                "path": _source_provenance(SUCCESSOR_REGISTRY_PATH),
                 "match_count": len(registry_tasks),
                 "unique_match": len(registry_tasks) == 1,
                 "status": str(registry_task.get("status") or ""),
@@ -704,25 +714,25 @@ def build_payload() -> dict[str, Any]:
                 "row_fingerprint": _stable_fingerprint(registry_task),
             },
             "local_mirror_registry": {
-                "path": str(LOCAL_MIRROR_REGISTRY_PATH),
+                "path": _source_provenance(LOCAL_MIRROR_REGISTRY_PATH),
                 "match_count": len(local_mirror_registry_tasks),
                 "unique_match": len(local_mirror_registry_tasks) == 1,
                 "status": str(local_mirror_registry_task.get("status") or ""),
                 "owner": str(local_mirror_registry_task.get("owner") or ""),
                 "row_fingerprint": _stable_fingerprint(local_mirror_registry_task),
             },
-            "parity_audit": {"path": str(PARITY_AUDIT_PATH), "generated_at": _generated_at(PARITY_AUDIT_PATH, parity_audit)},
-            "screenshot_gate": {"path": str(SCREENSHOT_GATE_PATH), "generated_at": _generated_at(SCREENSHOT_GATE_PATH, screenshot_gate)},
-            "visual_gate": {"path": str(VISUAL_GATE_PATH), "generated_at": _generated_at(VISUAL_GATE_PATH, visual_gate)},
-            "workflow_gate": {"path": str(WORKFLOW_GATE_PATH), "generated_at": _generated_at(WORKFLOW_GATE_PATH, workflow_gate)},
-            "classic_dense_gate": {"path": str(CLASSIC_DENSE_GATE_PATH), "generated_at": _generated_at(CLASSIC_DENSE_GATE_PATH, classic_dense_gate)},
-            "section_host_ruleset_parity": {"path": str(SECTION_HOST_PARITY_PATH), "generated_at": _generated_at(SECTION_HOST_PARITY_PATH, section_host_parity)},
-            "generated_dialog_parity": {"path": str(GENERATED_DIALOG_PARITY_PATH), "generated_at": _generated_at(GENERATED_DIALOG_PARITY_PATH, generated_dialog_parity)},
-            "gm_runboard_route": {"path": str(GM_RUNBOARD_ROUTE_PATH), "generated_at": _generated_at(GM_RUNBOARD_ROUTE_PATH, gm_runboard_route)},
-            "core_receipts_doc": {"path": str(CORE_RECEIPTS_DOC_PATH), "generated_at": _generated_at(CORE_RECEIPTS_DOC_PATH)},
-            "fleet_m142_gate": {"path": str(FLEET_M142_GATE_PATH), "generated_at": _generated_at(FLEET_M142_GATE_PATH, fleet_gate)},
+            "parity_audit": {"path": _source_provenance(PARITY_AUDIT_PATH), "generated_at": _generated_at(PARITY_AUDIT_PATH, parity_audit)},
+            "screenshot_gate": {"path": _source_provenance(SCREENSHOT_GATE_PATH), "generated_at": _generated_at(SCREENSHOT_GATE_PATH, screenshot_gate)},
+            "visual_gate": {"path": _source_provenance(VISUAL_GATE_PATH), "generated_at": _generated_at(VISUAL_GATE_PATH, visual_gate)},
+            "workflow_gate": {"path": _source_provenance(WORKFLOW_GATE_PATH), "generated_at": _generated_at(WORKFLOW_GATE_PATH, workflow_gate)},
+            "classic_dense_gate": {"path": _source_provenance(CLASSIC_DENSE_GATE_PATH), "generated_at": _generated_at(CLASSIC_DENSE_GATE_PATH, classic_dense_gate)},
+            "section_host_ruleset_parity": {"path": _source_provenance(SECTION_HOST_PARITY_PATH), "generated_at": _generated_at(SECTION_HOST_PARITY_PATH, section_host_parity)},
+            "generated_dialog_parity": {"path": _source_provenance(GENERATED_DIALOG_PARITY_PATH), "generated_at": _generated_at(GENERATED_DIALOG_PARITY_PATH, generated_dialog_parity)},
+            "gm_runboard_route": {"path": _source_provenance(GM_RUNBOARD_ROUTE_PATH), "generated_at": _generated_at(GM_RUNBOARD_ROUTE_PATH, gm_runboard_route)},
+            "core_receipts_doc": {"path": _source_provenance(CORE_RECEIPTS_DOC_PATH), "generated_at": _generated_at(CORE_RECEIPTS_DOC_PATH)},
+            "fleet_m142_gate": {"path": _source_provenance(FLEET_M142_GATE_PATH), "generated_at": _generated_at(FLEET_M142_GATE_PATH, fleet_gate)},
             "flagship_readiness": {
-                "path": str(FLAGSHIP_READINESS_PATH),
+                "path": _source_provenance(FLAGSHIP_READINESS_PATH),
                 "coverage_key": "desktop_client",
                 "status": desktop_status,
                 "summary": desktop_summary,

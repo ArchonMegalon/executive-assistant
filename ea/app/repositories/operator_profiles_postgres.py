@@ -7,6 +7,9 @@ from typing import Any
 from app.domain.models import OperatorProfile, now_utc_iso
 
 
+_OPERATOR_BOOTSTRAP_LOCK_NAMESPACE = "ea:operator-profile-bootstrap:v1"
+
+
 def _to_iso(value: Any) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
@@ -155,6 +158,96 @@ class PostgresOperatorProfileRepository:
                     ),
                 )
                 out = cur.fetchone()
+        return self._from_row(out) if out else row
+
+    def bootstrap_profile_if_none(
+        self,
+        *,
+        principal_id: str,
+        operator_id: str | None = None,
+        display_name: str,
+        roles: tuple[str, ...] = (),
+        skill_tags: tuple[str, ...] = (),
+        trust_tier: str = "standard",
+        status: str = "active",
+        notes: str = "",
+    ) -> OperatorProfile | None:
+        """Atomically create a principal's first operator-access profile."""
+
+        normalized_principal = str(principal_id or "").strip()
+        normalized_operator_id = str(operator_id or "").strip()
+        row = OperatorProfile(
+            operator_id=normalized_operator_id or str(uuid.uuid4()),
+            principal_id=normalized_principal,
+            display_name=str(display_name or "").strip(),
+            roles=tuple(str(v).strip() for v in roles if str(v).strip()),
+            skill_tags=tuple(
+                str(v).strip().lower() for v in skill_tags if str(v).strip()
+            ),
+            trust_tier=str(trust_tier or "standard").strip() or "standard",
+            status=_normalize_status(status),
+            notes=str(notes or "").strip(),
+            created_at=now_utc_iso(),
+            updated_at=now_utc_iso(),
+        )
+        lock_scope = f"{_OPERATOR_BOOTSTRAP_LOCK_NAMESPACE}:{normalized_principal}"
+        with self._connect() as conn:
+            with conn.transaction():
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                        (lock_scope,),
+                    )
+                    cur.execute(
+                        """
+                        SELECT operator_id
+                        FROM operator_profiles
+                        WHERE principal_id = %s
+                          AND status = 'active'
+                          AND EXISTS (
+                              SELECT 1
+                              FROM jsonb_array_elements_text(
+                                  COALESCE(roles_json, '[]'::jsonb)
+                              ) AS access_role(role_name)
+                              WHERE LOWER(BTRIM(access_role.role_name)) = ANY (
+                                  ARRAY['operator', 'admin', 'reviewer', 'cloudflare_access']
+                              )
+                          )
+                        LIMIT 1
+                        """,
+                        (normalized_principal,),
+                    )
+                    if cur.fetchone() is not None:
+                        return None
+                    cur.execute(
+                        """
+                        INSERT INTO operator_profiles
+                        (operator_id, principal_id, display_name, roles_json, skill_tags_json, trust_tier, status, notes, created_at, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (principal_id, operator_id) DO UPDATE
+                        SET display_name = EXCLUDED.display_name,
+                            roles_json = EXCLUDED.roles_json,
+                            skill_tags_json = EXCLUDED.skill_tags_json,
+                            trust_tier = EXCLUDED.trust_tier,
+                            status = EXCLUDED.status,
+                            notes = EXCLUDED.notes,
+                            updated_at = EXCLUDED.updated_at
+                        RETURNING operator_id, principal_id, display_name, roles_json, skill_tags_json, trust_tier, status, notes, created_at, updated_at
+                        """,
+                        (
+                            row.operator_id,
+                            row.principal_id,
+                            row.display_name,
+                            self._json_value(list(row.roles)),
+                            self._json_value(list(row.skill_tags)),
+                            row.trust_tier,
+                            row.status,
+                            row.notes,
+                            row.created_at,
+                            row.updated_at,
+                        ),
+                    )
+                    out = cur.fetchone()
         return self._from_row(out) if out else row
 
     def get(self, operator_id: str, *, principal_id: str | None = None) -> OperatorProfile | None:

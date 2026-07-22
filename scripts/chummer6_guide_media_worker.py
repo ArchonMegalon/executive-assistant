@@ -7449,10 +7449,17 @@ def _apply_public_asset_finish_postpass_pillow(*, image_path: Path, target: str)
         image = image.convert("RGBA")
         image.putalpha(alpha)
 
-    with tempfile.NamedTemporaryFile(suffix=image_path.suffix, delete=False) as handle:
+    destination_mode = image_path.stat().st_mode & 0o7777
+    with tempfile.NamedTemporaryFile(
+        prefix=f".{image_path.stem}.public-asset-finish-",
+        suffix=image_path.suffix,
+        dir=image_path.parent,
+        delete=False,
+    ) as handle:
         temp_path = Path(handle.name)
     try:
         image.save(temp_path, format=source_format)
+        temp_path.chmod(destination_mode)
         temp_path.replace(image_path)
     finally:
         if temp_path.exists():
@@ -7466,7 +7473,13 @@ def _apply_public_asset_finish_postpass_pillow(*, image_path: Path, target: str)
 def _apply_public_asset_finish_postpass_ffmpeg(*, image_path: Path, target: str) -> str:
     if not image_path.exists():
         raise RuntimeError(f"public_asset_finish_postpass:missing_image:{image_path}")
-    with tempfile.NamedTemporaryFile(suffix=image_path.suffix, delete=False) as handle:
+    destination_mode = image_path.stat().st_mode & 0o7777
+    with tempfile.NamedTemporaryFile(
+        prefix=f".{image_path.stem}.public-asset-finish-",
+        suffix=image_path.suffix,
+        dir=image_path.parent,
+        delete=False,
+    ) as handle:
         temp_path = Path(handle.name)
     filtergraph = "unsharp=5:5:0.50:3:3:0.0,eq=contrast=1.09:saturation=1.05:brightness=0.02"
     try:
@@ -7488,6 +7501,7 @@ def _apply_public_asset_finish_postpass_ffmpeg(*, image_path: Path, target: str)
             text=True,
             capture_output=True,
         )
+        temp_path.chmod(destination_mode)
         temp_path.replace(image_path)
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or exc.stdout or "").strip()
@@ -7682,10 +7696,17 @@ def _apply_flagship_finish_postpass_pillow(*, image_path: Path, target: str) -> 
         image = image.convert("RGBA")
         image.putalpha(alpha)
 
-    with tempfile.NamedTemporaryFile(suffix=image_path.suffix, delete=False) as handle:
+    destination_mode = image_path.stat().st_mode & 0o7777
+    with tempfile.NamedTemporaryFile(
+        prefix=f".{image_path.stem}.flagship-finish-",
+        suffix=image_path.suffix,
+        dir=image_path.parent,
+        delete=False,
+    ) as handle:
         temp_path = Path(handle.name)
     try:
         image.save(temp_path, format=source_format)
+        temp_path.chmod(destination_mode)
         temp_path.replace(image_path)
     finally:
         if temp_path.exists():
@@ -7699,7 +7720,13 @@ def _apply_flagship_finish_postpass_pillow(*, image_path: Path, target: str) -> 
 def _apply_flagship_finish_postpass_ffmpeg(*, image_path: Path, target: str) -> str:
     if not image_path.exists():
         raise RuntimeError(f"flagship_finish_postpass:missing_image:{image_path}")
-    with tempfile.NamedTemporaryFile(suffix=image_path.suffix, delete=False) as handle:
+    destination_mode = image_path.stat().st_mode & 0o7777
+    with tempfile.NamedTemporaryFile(
+        prefix=f".{image_path.stem}.flagship-finish-",
+        suffix=image_path.suffix,
+        dir=image_path.parent,
+        delete=False,
+    ) as handle:
         temp_path = Path(handle.name)
     filtergraph = (
         "curves=all='0/0 0.14/0.12 0.52/0.56 0.88/0.92 1/1',"
@@ -7818,6 +7845,7 @@ def _apply_flagship_finish_postpass_ffmpeg(*, image_path: Path, target: str) -> 
             text=True,
             capture_output=True,
         )
+        temp_path.chmod(destination_mode)
         temp_path.replace(image_path)
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or exc.stdout or "").strip()

@@ -339,6 +339,12 @@ def _candidate(job: dict[str, object], *, reference: datetime) -> dict[str, obje
     public_url = str(imported.get("public_share_url") or "").strip()
     parsed_host = urlparse(public_url).hostname or ""
     failed_codes: list[str] = []
+    for value in (
+        render.get("chapter_index"),
+        render.get("segment_index"),
+        render.get("segment_count"),
+    ):
+        _receipt_nonnegative_int(value or 0)
     performance, performance_issues = _performance_evidence(job)
     job_freshness = _freshness_evidence(job.get("observed_at"), reference=reference)
     publication_freshness = _freshness_evidence(
@@ -636,9 +642,15 @@ def _pending_summary(candidate: dict[str, object]) -> dict[str, object]:
         "job_id_sha256": candidate["job_id_sha256"],
         "status": str(job.get("status") or ""),
         "render_status": str(render.get("status") or ""),
-        "render_chapter_index": int(render.get("chapter_index") or 0),
-        "render_segment_index": int(render.get("segment_index") or 0),
-        "render_segment_count": int(render.get("segment_count") or 0),
+        "render_chapter_index": _receipt_nonnegative_int(
+            render.get("chapter_index") or 0
+        ),
+        "render_segment_index": _receipt_nonnegative_int(
+            render.get("segment_index") or 0
+        ),
+        "render_segment_count": _receipt_nonnegative_int(
+            render.get("segment_count") or 0
+        ),
         "voice_selection_status": str(voice.get("status") or ""),
         "voice_selection_reason": str(voice.get("reason") or ""),
         "voice_selection_waiting": str(voice.get("status") or "") == "waiting_user_choice",
@@ -655,8 +667,40 @@ def _pending_summary(candidate: dict[str, object]) -> dict[str, object]:
     }
 
 
-def _candidate_public(candidate: dict[str, object]) -> dict[str, object]:
-    return {key: value for key, value in candidate.items() if key != "raw"}
+def _candidate_public(
+    candidate: dict[str, object],
+    *,
+    current_claim_allowed: bool = True,
+) -> dict[str, object]:
+    public = {key: value for key, value in candidate.items() if key != "raw"}
+    if current_claim_allowed:
+        return public
+    historical_human_acceptance = public.get("playback_acceptance_verified") is True
+    historical_canary_completion = (
+        public.get("canary_completion_claim_allowed") is True
+    )
+    public.update(
+        {
+            "projection_scope": "historical_non_claim_evidence",
+            "current_claim_allowed": False,
+            "historical_machine_playback_observed": (
+                public.get("machine_playback_e2e_verified") is True
+            ),
+            "historical_human_acceptance_observed": historical_human_acceptance,
+            "historical_canary_completion_observed": historical_canary_completion,
+            "playback_acceptance_verified": False,
+            "canary_completion_claim_allowed": False,
+        }
+    )
+    canary = dict(_as_dict(public.get("human_listened_canary")))
+    if canary:
+        canary["projection_scope"] = "historical_non_claim_evidence"
+        canary["historical_acceptance_observed"] = (
+            canary.get("claim_allowed") is True
+        )
+        canary["claim_allowed"] = False
+        public["human_listened_canary"] = canary
+    return public
 
 
 def _failed_candidate_public(candidate: dict[str, object]) -> dict[str, object]:
@@ -993,11 +1037,13 @@ def build_receipt(
         failed_codes.append("explicit_replacement_voice_choice_pending")
     failed_codes = _dedupe(failed_codes)
     live_pass = bool(valid_candidates) and not pending
-    real_user_accepted = bool(selected.get("playback_acceptance_verified")) if selected else False
-    machine_verified = bool(selected.get("machine_playback_e2e_verified")) if selected else any(
-        bool(candidate.get("machine_playback_e2e_verified")) for candidate in candidates
-    )
-    human_acceptance_evidence = _playback_acceptance_evidence(selected) if selected else {
+    real_user_accepted = bool(
+        live_pass and selected.get("playback_acceptance_verified")
+    ) if selected else False
+    machine_verified = bool(
+        live_pass and selected.get("machine_playback_e2e_verified")
+    ) if selected else False
+    human_acceptance_evidence = _playback_acceptance_evidence(selected) if live_pass and selected else {
         "status": "not_human_verified",
         "accepted": False,
         "rejected": False,
@@ -1101,7 +1147,7 @@ def build_receipt(
         ) if selected else False,
         "canary_completion_blocked_fields": list(
             _as_dict(selected.get("human_listened_canary")).get("blocked_fields") or []
-        ) if selected else ["current_human_listened_canary_receipt"],
+        ) if live_pass and selected else ["current_delivery_not_release_claimable"],
         "human_listened_canary_contract": HUMAN_LISTENED_CANARY_CONTRACT_NAME,
         "narration_plan_contract": NARRATION_PLAN_CONTRACT_NAME,
         "proof_semantics": {
@@ -1130,7 +1176,10 @@ def build_receipt(
             historical_evidence=historical,
             )
         ),
-        "selected_delivery": _candidate_public(selected) if selected else {},
+        "selected_delivery": _candidate_public(
+            selected,
+            current_claim_allowed=live_pass,
+        ) if selected else {},
         "failed_candidates": [_failed_candidate_public(candidate) for candidate in candidates if candidate.get("failed_codes")],
         "pending_user_selected_voice_job_count": len(pending),
         "pending_user_selected_voice_jobs": [

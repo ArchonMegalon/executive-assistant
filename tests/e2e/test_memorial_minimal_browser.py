@@ -5,7 +5,6 @@ import base64
 import asyncio
 import difflib
 import importlib.util
-import os
 import socket
 import struct
 import threading
@@ -13,6 +12,7 @@ import time
 import urllib.request
 import wave
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from pathlib import Path
 
@@ -21,12 +21,13 @@ import pytest
 uvicorn = pytest.importorskip("uvicorn")
 pytest.importorskip("playwright.sync_api")
 _HAS_WEBSOCKET_PROTOCOL = importlib.util.find_spec("websockets") is not None or importlib.util.find_spec("wsproto") is not None
-from playwright.sync_api import Browser, Page, sync_playwright
+from playwright.sync_api import Browser, Page, sync_playwright  # noqa: E402
 
 Config = uvicorn.Config
 Server = uvicorn.Server
 
-from app.api.app import create_app
+from app.api.app import create_app  # noqa: E402
+from tests.browser_test_support import launch_installed_chromium  # noqa: E402
 
 
 def _free_port() -> int:
@@ -93,8 +94,29 @@ def _source_first_memorial_payload(slug: str) -> dict[str, object]:
             {
                 "visibility": "public",
                 "public": True,
-                "title": f"Freigegebene Erinnerung {index}",
-                "body": f"Behutsam gekürzte Erinnerung Nummer {index}.",
+                "title": (
+                    "Jimdo-Seite, Familienchronik und die lange Spur durch mehrere Lebensabschnitte"
+                    if index == 3
+                    else f"Freigegebene Erinnerung {index}"
+                ),
+                "body": (
+                    "Eine ausführliche freigegebene Erinnerung mit genügend ruhigem Kontext, "
+                    "um die längste reale Kartenform auf einem schmalen Mobilgerät abzubilden. "
+                    "Sie beschreibt mehrere Stationen, Menschen und belegte Zusammenhänge, ohne "
+                    "private Angaben zu ergänzen. Der vollständige Text bleibt in der Liste lesbar, "
+                    "während die räumliche Karte nur eine bounded Vorschau zeigt."
+                    if index == 3
+                    else f"Behutsam gekürzte Erinnerung Nummer {index}."
+                ),
+                "public_excerpt": (
+                    "Eine ausführliche freigegebene Erinnerung mit genügend ruhigem Kontext, "
+                    "um die längste reale Kartenform auf einem schmalen Mobilgerät abzubilden. "
+                    "Sie beschreibt mehrere Stationen, Menschen und belegte Zusammenhänge, ohne "
+                    "private Angaben zu ergänzen. Der vollständige Text bleibt in der Liste lesbar, "
+                    "während die räumliche Karte nur eine kurze Vorschau zeigt."
+                    if index == 3
+                    else f"Behutsam gekürzte Erinnerung Nummer {index}."
+                ),
                 "source_label": "Familienfreigabe",
             }
             for index in range(1, 7)
@@ -332,17 +354,14 @@ def memorial_minimal_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
 @pytest.fixture(scope="module")
 def browser() -> Iterator[Browser]:
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
-            headless=True,
-            executable_path=os.getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH") or None,
-            args=[
+        browser = launch_installed_chromium(
+            playwright,
+            args=(
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--disable-software-rasterizer",
                 "--no-proxy-server",
-            ],
+            ),
         )
         try:
             yield browser
@@ -355,11 +374,15 @@ def _install_fake_audio_runtime(context) -> None:
         """
         (() => {
           navigator.mediaDevices = navigator.mediaDevices || {};
-          navigator.mediaDevices.getUserMedia = async () => ({
-            getTracks() {
-              return [{ stop() {} }];
-            },
-          });
+          window.__getUserMediaCalls = 0;
+          navigator.mediaDevices.getUserMedia = async () => {
+            window.__getUserMediaCalls += 1;
+            return {
+              getTracks() {
+                return [{ stop() {} }];
+              },
+            };
+          };
 
           class FakeMediaRecorder {
             constructor(stream, options) {
@@ -448,7 +471,7 @@ def _await_realtime_turn_complete(page: Page, slug: str, action, timeout_ms: int
                 if not isinstance(parsed, dict):
                     continue
                 turn_id = str(parsed.get("turn_id", "") or "")
-                if turn_id and slug and f"turn_" not in turn_id and not state.get("turn_id"):
+                if turn_id and slug and "turn_" not in turn_id and not state.get("turn_id"):
                     continue
                 event_type = str(parsed.get("type", "")).strip()
                 if event_type == "turn_complete":
@@ -477,7 +500,7 @@ def _await_realtime_turn_complete(page: Page, slug: str, action, timeout_ms: int
         ({"width": 900, "height": 650}, "relative"),
     ],
 )
-def test_memorial_source_first_page_scrolls_without_conversation_dock_overlap(
+def test_memorial_conversation_only_page_has_one_main_without_ui_noise(
     browser: Browser,
     memorial_minimal_server: dict[str, object],
     viewport: dict[str, int],
@@ -487,68 +510,110 @@ def test_memorial_source_first_page_scrolls_without_conversation_dock_overlap(
     slug = str(memorial_minimal_server["slug"])
     context = browser.new_context(viewport=viewport)
     page: Page = context.new_page()
+    page_errors: list[str] = []
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
     try:
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
         assert response is not None and response.ok
         page.wait_for_function(
             """() => (
-              document.querySelectorAll("article.memory-card").length === 6 &&
-              document.querySelectorAll(".source-list a").length === 8 &&
-              document.querySelectorAll(".prompt-list li").length === 4
+              document.querySelectorAll("main#memorial-conversation-region").length === 1 &&
+              document.getElementById("memorial-text-turn-form") &&
+              !document.getElementById("memorial-text-turn-form").hidden &&
+              !document.getElementById("memorial-conversation").disabled
             )""",
-            timeout=3000,
+            timeout=12000,
         )
         metrics = page.evaluate(
             """async () => {
+              const settings = document.querySelector("details.conversation-settings");
+              settings.open = true;
               window.scrollTo(0, document.documentElement.scrollHeight);
               await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-              const main = document.getElementById("memorial-story");
-              const dock = document.getElementById("memorial-conversation-region");
-              const dockRect = dock.getBoundingClientRect();
-              const mainRect = main.getBoundingClientRect();
+              const conversation = document.getElementById("memorial-conversation-region");
+              const header = document.querySelector("header");
+              const conversationRect = conversation.getBoundingClientRect();
+              const headerRect = header.getBoundingClientRect();
+              const guidance = document.getElementById("memorial-conversation-disclosure");
+              const idleMonitor = document.getElementById("memorial-speech-monitor");
+              const textInput = document.getElementById("memorial-text-turn-input");
+              const textSubmit = document.getElementById("memorial-text-turn-submit");
+              const personalMemoryToggle = document.querySelector(".conversation-toggle-control");
+              const personalMemoryForget = document.getElementById("memorial-personal-memory-forget");
               return {
                 scrollHeight: document.documentElement.scrollHeight,
                 scrollWidth: document.documentElement.scrollWidth,
                 viewportHeight: window.innerHeight,
                 viewportWidth: window.innerWidth,
-                dockPosition: getComputedStyle(dock).position,
-                dockTop: dockRect.top,
-                dockBottom: dockRect.bottom,
-                dockHeight: dockRect.height,
-                mainBottom: mainRect.bottom,
+                dockPosition: getComputedStyle(conversation).position,
+                conversationTop: conversationRect.top,
+                headerBottom: headerRect.bottom,
                 bodyPaddingBottom: parseFloat(getComputedStyle(document.body).paddingBottom || "0"),
                 bodyOverflow: getComputedStyle(document.body).overflowY,
                 htmlOverflow: getComputedStyle(document.documentElement).overflowY,
+                mainCount: document.querySelectorAll("body > main").length,
+                storyCount: document.querySelectorAll("#memorial-story").length,
+                navigationCount: document.querySelectorAll("header nav").length,
+                contributionCount: document.querySelectorAll("#memorial-contribution").length,
+                settingsCount: document.querySelectorAll("details.conversation-settings").length,
+                settingsWithinConversationCount: conversation.querySelectorAll("details.conversation-settings").length,
+                personalMemoryOptinCount: conversation.querySelectorAll("#memorial-personal-memory-optin").length,
+                personalMemoryStatusCount: conversation.querySelectorAll("#memorial-personal-memory-status").length,
+                personalMemoryForgetCount: conversation.querySelectorAll("#memorial-personal-memory-forget").length,
+                personalMemoryChecked: document.getElementById("memorial-personal-memory-optin").checked,
+                personalMemoryForgetDisabled: document.getElementById("memorial-personal-memory-forget").disabled,
+                personalMemoryForgetAriaDisabled: document.getElementById("memorial-personal-memory-forget").getAttribute("aria-disabled"),
+                personalMemoryToggleHeight: personalMemoryToggle.getBoundingClientRect().height,
+                personalMemoryForgetHeight: personalMemoryForget.getBoundingClientRect().height,
+                installCount: document.querySelectorAll("#memorial-install-hint").length,
+                memoryRoomLinks: document.querySelectorAll("a[href*='/memory-room']").length,
+                mainLabel: conversation.getAttribute("aria-label"),
+                guidanceAlign: getComputedStyle(guidance).textAlign,
+                guidanceWidth: guidance.getBoundingClientRect().width,
+                chatWidth: document.querySelector(".chat").getBoundingClientRect().width,
+                idleMonitorDisplay: getComputedStyle(idleMonitor).display,
+                idleMonitorHeight: idleMonitor.getBoundingClientRect().height,
+                inputFontSize: parseFloat(getComputedStyle(textInput).fontSize),
+                inputHeight: textInput.getBoundingClientRect().height,
+                submitHeight: textSubmit.getBoundingClientRect().height,
               };
             }"""
         )
-        assert int(metrics["scrollHeight"]) > int(metrics["viewportHeight"])
+        assert int(metrics["scrollHeight"]) >= int(metrics["viewportHeight"])
         assert int(metrics["scrollWidth"]) <= int(metrics["viewportWidth"]) + 1
         assert metrics["dockPosition"] == expected_dock_position
         assert metrics["bodyOverflow"] == "auto"
         assert metrics["htmlOverflow"] == "auto"
-        if expected_dock_position == "fixed":
-            assert float(metrics["dockBottom"]) <= float(metrics["viewportHeight"]) + 1
-            assert float(metrics["mainBottom"]) <= float(metrics["dockTop"]) + 1
-            assert float(metrics["bodyPaddingBottom"]) >= float(metrics["dockHeight"]) + 39
-            page.evaluate(
-                """() => {
-                  const answer = document.getElementById("memorial-chat-answer");
-                  answer.hidden = false;
-                  answer.textContent = "Eine längere sichtbare Antwort. ".repeat(28);
-                }"""
-            )
-            page.wait_for_function(
-                """() => {
-                  const dock = document.getElementById("memorial-conversation-region");
-                  return parseFloat(getComputedStyle(document.body).paddingBottom || "0") >=
-                    dock.getBoundingClientRect().height + 39;
-                }""",
-                timeout=3000,
-            )
-        else:
-            assert float(metrics["dockTop"]) >= float(metrics["mainBottom"]) - 1
-            assert float(metrics["bodyPaddingBottom"]) == 0
+        assert float(metrics["conversationTop"]) >= float(metrics["headerBottom"]) - 1
+        assert float(metrics["bodyPaddingBottom"]) == 0
+        assert metrics["mainCount"] == 1
+        assert metrics["storyCount"] == 0
+        assert metrics["navigationCount"] == 0
+        assert metrics["contributionCount"] == 0
+        assert metrics["settingsCount"] == 1
+        assert metrics["settingsWithinConversationCount"] == 1
+        assert metrics["personalMemoryOptinCount"] == 1
+        assert metrics["personalMemoryStatusCount"] == 1
+        assert metrics["personalMemoryForgetCount"] == 1
+        assert metrics["personalMemoryChecked"] is False
+        assert metrics["personalMemoryForgetDisabled"] is True
+        assert metrics["personalMemoryForgetAriaDisabled"] == "true"
+        assert float(metrics["personalMemoryToggleHeight"]) >= 44
+        assert float(metrics["personalMemoryForgetHeight"]) >= 44
+        assert metrics["installCount"] == 0
+        assert metrics["memoryRoomLinks"] == 0
+        assert str(metrics["mainLabel"]).startswith("KI-Gespräch über ")
+        assert metrics["guidanceAlign"] == "center"
+        assert float(metrics["guidanceWidth"]) <= float(metrics["chatWidth"])
+        assert metrics["idleMonitorDisplay"] == "none"
+        assert float(metrics["idleMonitorHeight"]) == 0
+        assert float(metrics["inputFontSize"]) >= 16
+        assert float(metrics["inputHeight"]) >= 44
+        assert float(metrics["submitHeight"]) >= 44
+
+        assert page.get_by_text("Die Stimme ist künstlich erzeugt.", exact=False).is_visible()
+        assert page.get_by_role("button", name="Gespräch starten").is_visible()
+        assert page.get_by_label("Oder schreiben").is_visible()
 
         page_html = page.content()
         for sentinel in (
@@ -558,6 +623,382 @@ def test_memorial_source_first_page_scrolls_without_conversation_dock_overlap(
             PRIVATE_FAMILY_SENTINEL,
         ):
             assert sentinel not in page_html
+        page.wait_for_timeout(250)
+        assert page_errors == []
+    finally:
+        context.close()
+
+
+def test_memorial_blocked_voice_release_has_one_text_action_and_never_requests_microphone(
+    browser: Browser,
+    memorial_minimal_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(public_memorials, "_memorial_voice_release_enforced", lambda: True)
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_decision",
+        lambda slug: {"allowed": False, "status": "blocked", "reason": "release_human_acceptance_missing"},
+    )
+    base_url = str(memorial_minimal_server["base_url"])
+    slug = str(memorial_minimal_server["slug"])
+    context = browser.new_context(viewport={"width": 390, "height": 844})
+    context.add_init_script(
+        """
+        (() => {
+          window.__getUserMediaCalls = 0;
+          navigator.mediaDevices = navigator.mediaDevices || {};
+          navigator.mediaDevices.getUserMedia = async () => {
+            window.__getUserMediaCalls += 1;
+            throw new DOMException("blocked test microphone", "NotAllowedError");
+          };
+        })();
+        """
+    )
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.wait_for_function(
+            "() => !document.getElementById('memorial-text-turn-form').hidden",
+            timeout=3000,
+        )
+        assert page.locator("#memorial-conversation-region").get_attribute("data-voice-release") == "blocked"
+        assert page.locator("#memorial-conversation").is_hidden()
+        assert page.locator("#memorial-voice-recovery-note").is_hidden()
+        assert page.locator("#memorial-conversation-disclosure").get_by_text(
+            "Sprechen ist derzeit nicht verfügbar", exact=False
+        ).is_visible()
+        assert page.locator("label[for='memorial-text-turn-input']").text_content() == "Frage schreiben"
+        assert page.locator("#memorial-speech-message").text_content() == "Schreiben ist bereit."
+
+        page.locator("#memorial-text-turn-input").fill("Was war Manfred wichtig?")
+        page.locator("#memorial-text-turn-input").press("Enter")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#memorial-speech-transcript > .speech-turn').length === 2",
+            timeout=5000,
+        )
+        assert page.evaluate("window.__getUserMediaCalls") == 0
+        assert page.locator("#memorial-speech-transcript > .speech-turn").count() == 2
+        assert page.locator("#memorial-chat-answer").is_hidden()
+        source_toggle = page.locator("#memorial-toggle-status")
+        source_status = page.locator("#memorial-chat-status")
+        assert source_toggle.is_visible()
+        assert source_toggle.get_attribute("aria-expanded") == "false"
+        assert source_status.is_hidden()
+        source_toggle.click()
+        assert source_toggle.get_attribute("aria-expanded") == "true"
+        assert source_status.is_visible()
+        assert source_status.inner_text() == (
+            "Quellen: Öffentliche Quelle 1, Öffentliche Quelle 2, "
+            "Öffentliche Quelle 3, Öffentliche Quelle 4"
+        )
+    finally:
+        context.close()
+
+
+def test_candidate_browser_audit_accepts_current_blocked_talk_copy(
+    memorial_minimal_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from scripts.measure_memorial_live_browser import _resolve_chromium_executable
+    from scripts import verify_manfred_memorial_candidate as candidate_verify
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_enforced",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_decision",
+        lambda _slug: {
+            "allowed": False,
+            "status": "blocked",
+            "reason": "release_human_acceptance_missing",
+        },
+    )
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        def _resolve_installed_chromium() -> str | None:
+            with sync_playwright() as playwright:
+                executable_path, _executable_source = _resolve_chromium_executable(playwright)
+            return executable_path
+
+        executable_path = executor.submit(_resolve_installed_chromium).result(timeout=10)
+        assert executable_path is not None
+        monkeypatch.setenv("EA_PLAYWRIGHT_CHROMIUM_EXECUTABLE", executable_path)
+        evidence = executor.submit(
+            candidate_verify.audit_browser_surface,
+            str(memorial_minimal_server["base_url"]),
+            public_origin="https://myexternalbrain.com",
+        ).result(timeout=30)
+
+    assert evidence["status"] == "pass"
+    assert evidence["memorial_surface"] == "conversation_only"
+    for field in candidate_verify.BROWSER_ZERO_COUNT_FIELDS:
+        assert evidence[field] == 0
+
+
+def test_memorial_text_retry_resubmits_text_without_starting_microphone(
+    browser: Browser,
+    memorial_minimal_server: dict[str, object],
+) -> None:
+    base_url = str(memorial_minimal_server["base_url"])
+    slug = str(memorial_minimal_server["slug"])
+    context = browser.new_context(viewport={"width": 390, "height": 844})
+    context.add_init_script(
+        """
+        (() => {
+          window.__getUserMediaCalls = 0;
+          navigator.mediaDevices = navigator.mediaDevices || {};
+          navigator.mediaDevices.getUserMedia = async () => {
+            window.__getUserMediaCalls += 1;
+            throw new DOMException("unexpected microphone request", "NotAllowedError");
+          };
+        })();
+        """
+    )
+    failed_requests: list[str] = []
+    page: Page = context.new_page()
+
+    def fail_text_turn(route) -> None:
+        failed_requests.append(route.request.url)
+        route.fulfill(
+            status=503,
+            content_type="application/json",
+            body=json.dumps({"detail": "test_text_failure"}),
+        )
+
+    page.route(f"**/memorials/{slug}/chat", fail_text_turn)
+    try:
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.wait_for_function(
+            """() => (
+              !document.getElementById('memorial-text-turn-form').hidden &&
+              !document.getElementById('memorial-conversation').disabled
+            )""",
+            timeout=12000,
+        )
+        text_input = page.locator("#memorial-text-turn-input")
+        text_input.fill("Welche Erinnerung ist belegt?")
+        text_input.press("Enter")
+        retry = page.get_by_role("button", name="Textfrage erneut senden")
+        retry.wait_for(state="visible", timeout=3000)
+        assert len(failed_requests) == 1
+        assert page.evaluate("window.__getUserMediaCalls") == 0
+
+        retry.click()
+        page.wait_for_timeout(250)
+        assert len(failed_requests) == 2
+        assert page.evaluate("window.__getUserMediaCalls") == 0
+        assert text_input.input_value() == "Welche Erinnerung ist belegt?"
+        assert retry.is_visible()
+    finally:
+        context.close()
+
+
+def test_memorial_memory_room_mobile_keyboard_and_back_journey(
+    browser: Browser,
+    memorial_minimal_server: dict[str, object],
+) -> None:
+    base_url = str(memorial_minimal_server["base_url"])
+    slug = str(memorial_minimal_server["slug"])
+    context = browser.new_context(viewport={"width": 320, "height": 568})
+    page: Page = context.new_page()
+    room_requests: list[str] = []
+    page.on("request", lambda request: room_requests.append(request.url))
+    try:
+        response = page.goto(
+            f"{base_url}/memorials/{slug}/memory-room",
+            wait_until="domcontentloaded",
+        )
+        assert response is not None and response.ok
+        page.wait_for_function(
+            "() => document.querySelector('[data-room-status]')?.textContent?.startsWith('Bereit')",
+            timeout=3000,
+        )
+
+        metrics = page.evaluate(
+            """() => {
+              const stage = document.getElementById("memory-room-stage");
+              const lastEntry = document.querySelector(".memory-entry:last-child");
+              return {
+                lang: document.documentElement.lang,
+                scrollWidth: document.documentElement.scrollWidth,
+                viewportWidth: window.innerWidth,
+                bodyOverflow: getComputedStyle(document.body).overflowY,
+                htmlOverflow: getComputedStyle(document.documentElement).overflowY,
+                touchAction: getComputedStyle(stage).touchAction,
+                perspective: getComputedStyle(stage).perspective,
+                transformStyle: getComputedStyle(document.querySelector("[data-room-orbit]")).transformStyle,
+                memoryCount: document.querySelectorAll(".memory-entry").length,
+                lastEntryExists: Boolean(lastEntry),
+                externalAssets: Array.from(document.querySelectorAll("script[src],link[rel=stylesheet],iframe"))
+                  .map((node) => node.getAttribute("src") || node.getAttribute("href")),
+              };
+            }"""
+        )
+        assert metrics["lang"] == "de"
+        assert int(metrics["scrollWidth"]) <= int(metrics["viewportWidth"]) + 1
+        assert metrics["bodyOverflow"] == "auto"
+        assert metrics["htmlOverflow"] == "auto"
+        assert "pan-y" in str(metrics["touchAction"])
+        assert metrics["perspective"] != "none"
+        assert metrics["transformStyle"] == "preserve-3d"
+        assert int(metrics["memoryCount"]) == 6
+        assert metrics["lastEntryExists"] is True
+        assert metrics["externalAssets"] == []
+        assert all(url.startswith(base_url) for url in room_requests)
+        assert page.get_by_text("keine Rekonstruktion eines realen Ortes").is_visible()
+        assert page.locator("header [data-room-back]").get_attribute("href") == (
+            f"/memorials/{slug}#memorial-conversation-region"
+        )
+        assert page.locator("header [data-room-back]").text_content() == "← Zurück zum Gespräch"
+        assert page.locator("footer [data-room-back]").text_content() == "Zurück zum Gedenkgespräch"
+
+        stage = page.locator("#memory-room-stage")
+        stage.focus()
+        page.keyboard.press("ArrowRight")
+        assert page.locator("[data-room-position]").text_content() == "2 / 6"
+        rotated = page.evaluate(
+            """() => ({
+              angle: document.querySelector("[data-room-orbit]").style.getPropertyValue("--room-angle"),
+              active: document.querySelector(".room-panel.is-active")?.getAttribute("data-room-panel"),
+            })"""
+        )
+        assert rotated == {"angle": "-60deg", "active": "1"}
+        page.keyboard.press("ArrowRight")
+        page.wait_for_function(
+            "() => document.querySelector('[data-room-position]')?.textContent === '3 / 6'"
+        )
+        bounds = page.evaluate(
+            """() => {
+              const stage = document.getElementById("memory-room-stage").getBoundingClientRect();
+              const status = document.querySelector("[data-room-status]").getBoundingClientRect();
+              const controls = document.querySelector(".room-controls").getBoundingClientRect();
+              const panel = document.querySelector(".room-panel.is-active").getBoundingClientRect();
+              return {
+                panelTop: panel.top,
+                panelBottom: panel.bottom,
+                statusBottom: status.bottom,
+                controlsTop: controls.top,
+                stageTop: stage.top,
+                stageBottom: stage.bottom,
+              };
+            }"""
+        )
+        assert float(bounds["panelTop"]) >= float(bounds["statusBottom"]) + 4
+        assert float(bounds["panelBottom"]) <= float(bounds["controlsTop"]) - 4
+        assert float(bounds["panelTop"]) >= float(bounds["stageTop"])
+        assert float(bounds["panelBottom"]) <= float(bounds["stageBottom"])
+
+        stage.hover()
+        before_scroll = page.evaluate("window.scrollY")
+        page.mouse.wheel(0, 520)
+        page.wait_for_timeout(120)
+        after_scroll = page.evaluate("window.scrollY")
+        assert float(after_scroll) > float(before_scroll)
+
+        page.emulate_media(reduced_motion="reduce")
+        page.locator('[data-memory-focus="5"]').click()
+        page.wait_for_function(
+            "() => document.querySelector('[data-room-position]')?.textContent === '6 / 6'"
+        )
+        reduced_motion = page.evaluate(
+            """() => ({
+              matches: matchMedia("(prefers-reduced-motion: reduce)").matches,
+              transition: getComputedStyle(document.querySelector("[data-room-orbit]")).transitionDuration,
+              activePanels: document.querySelectorAll(".room-panel.is-active").length,
+            })"""
+        )
+        assert reduced_motion["matches"] is True
+        assert reduced_motion["transition"] == "0s"
+        assert int(reduced_motion["activePanels"]) == 1
+
+        page.locator("[data-room-back]").first.click()
+        page.wait_for_url(f"{base_url}/memorials/{slug}#memorial-conversation-region")
+        assert page.locator("#memorial-conversation-region").is_visible()
+    finally:
+        context.close()
+
+
+def test_memorial_memory_room_no_js_keeps_every_memory_and_back_link(
+    browser: Browser,
+    memorial_minimal_server: dict[str, object],
+) -> None:
+    base_url = str(memorial_minimal_server["base_url"])
+    slug = str(memorial_minimal_server["slug"])
+    context = browser.new_context(
+        viewport={"width": 320, "height": 568},
+        java_script_enabled=False,
+    )
+    page: Page = context.new_page()
+    try:
+        response = page.goto(
+            f"{base_url}/memorials/{slug}/memory-room",
+            wait_until="domcontentloaded",
+        )
+        assert response is not None and response.ok
+        assert page.locator("#memory-room-stage").is_hidden()
+        no_js_notice = page.locator("noscript .room-trust")
+        assert no_js_notice.is_visible()
+        assert "Alle freigegebenen Erinnerungen bleiben vollständig" in (
+            no_js_notice.text_content() or ""
+        )
+        assert page.locator(".memory-entry").count() == 6
+        assert page.locator(".memory-focus:visible").count() == 0
+        footer_link = page.locator("footer [data-room-back]")
+        footer_link.scroll_into_view_if_needed()
+        assert footer_link.is_visible()
+        metrics = page.evaluate(
+            """() => ({
+              scrollWidth: document.documentElement.scrollWidth,
+              viewportWidth: window.innerWidth,
+              scrollY: window.scrollY,
+            })"""
+        )
+        assert int(metrics["scrollWidth"]) <= int(metrics["viewportWidth"]) + 1
+        assert float(metrics["scrollY"]) > 0
+    finally:
+        context.close()
+
+
+def test_memorial_memory_room_initialization_failure_keeps_readable_fallback(
+    browser: Browser,
+    memorial_minimal_server: dict[str, object],
+) -> None:
+    base_url = str(memorial_minimal_server["base_url"])
+    slug = str(memorial_minimal_server["slug"])
+    context = browser.new_context(viewport={"width": 390, "height": 844})
+    context.add_init_script(
+        """
+        (() => {
+          const original = Document.prototype.querySelector;
+          Document.prototype.querySelector = function querySelector(selector) {
+            if (selector === "[data-room-orbit]") return null;
+            return original.call(this, selector);
+          };
+        })();
+        """
+    )
+    page: Page = context.new_page()
+    try:
+        response = page.goto(
+            f"{base_url}/memorials/{slug}/memory-room",
+            wait_until="domcontentloaded",
+        )
+        assert response is not None and response.ok
+        page.wait_for_function(
+            "() => document.querySelector('[data-room-status]')?.textContent?.startsWith('Die 3D-Ansicht konnte nicht')"
+        )
+        assert page.locator(".memory-entry").count() == 6
+        assert page.locator(".memory-focus:visible").count() == 0
+        assert page.locator(".room-controls").is_hidden()
+        assert page.locator("footer [data-room-back]").is_visible()
     finally:
         context.close()
 
@@ -588,7 +1029,7 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
         page.wait_for_function(
             """() => {
               const button = document.getElementById("memorial-conversation");
-              return Boolean(button && button.textContent && button.textContent.includes("Gespräch stoppen"));
+              return Boolean(button && button.textContent && button.textContent.includes("Gespräch beenden"));
             }""",
             timeout=3000,
         )
@@ -603,7 +1044,7 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
         page.wait_for_function(
             """() => {
               const button = document.getElementById("memorial-conversation");
-              return Boolean(button && button.textContent && button.textContent.includes("Gespräch beginnen"));
+              return Boolean(button && button.textContent && button.textContent.includes("Gespräch starten"));
             }""",
             timeout=7000,
         )
@@ -612,6 +1053,14 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
         assert "Bitte noch einmal" not in phase_text
         assert "Bitte noch einmal" not in message_text
         assert page.locator("#memorial-retry-button").is_hidden()
+        turns = page.locator("#memorial-speech-transcript > .speech-turn")
+        assert turns.count() == 2
+        assert turns.nth(0).get_attribute("class") == "speech-turn user"
+        assert turns.nth(1).get_attribute("class") == "speech-turn assistant"
+        assert turns.nth(0).locator("strong").text_content() == "Du"
+        assert turns.nth(1).locator("strong").text_content() == "KI-Begleiter"
+        assert page.locator("#memorial-speech-transcript-live").is_hidden()
+        assert page.locator("#memorial-chat-answer").is_hidden()
     finally:
         context.close()
 

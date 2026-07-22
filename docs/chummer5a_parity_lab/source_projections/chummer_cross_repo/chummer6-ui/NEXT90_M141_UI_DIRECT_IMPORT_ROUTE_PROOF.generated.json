@@ -1,0 +1,19 @@
+{
+  "contract_name": "projection.next90_m141_ui_direct_import_route_proof",
+  "generated_at": "2026-07-15T00:00:00Z",
+  "projection_redacted": true,
+  "proof_tokens": [
+    "ExecuteCommandAsync_translator_opens_dialog_with_master_index_lane_posture",
+    "Runtime_backed_translator_xml_editor_and_hero_lab_importer_routes_surface_governed_posture",
+    "ExecuteCommandAsync_xml_editor_opens_dialog_with_xml_bridge_posture",
+    "CreateCommandDialog_xml_editor_surfaces_xml_bridge_and_custom_data_posture",
+    "ExecuteCommandAsync_hero_lab_importer_opens_dialog_with_import_oracle_lane_posture",
+    "CreateCommandDialog_hero_lab_importer_surfaces_import_oracle_and_adjacent_sr6_posture"
+  ],
+  "evidence": {
+    "routeReceiptChecks": {
+      "translator_xml_custom_data": {"exists": true, "status_pass": true, "route_ids_exact": true, "screenshots_exact": true, "workflow_family_matches": true},
+      "hero_lab_import_oracle": {"exists": true, "status_pass": true, "route_ids_exact": true, "screenshots_exact": true, "workflow_family_matches": true}
+    }
+  }
+}

@@ -1,10 +1,31 @@
 # Manfred memorial scoped deploy runbook
 
+## Scope notice
+
+This document preserves the API-only component contract and candidate details.
+Public promotion now uses the joint API-and-ingress lane documented in
+`MANFRED_MEMORIAL_JOINT_DEPLOY_RUNBOOK.md`. `make deploy-ea-memorial` selects
+that joint lane. The explicit `deploy-ea-memorial-scoped` target cannot repair
+or authorize ingress and must not be substituted for the joint path when the
+public edge is unhealthy.
+
+## Deployment order
+
+The supported release order is:
+
+1. finish source-only memorial and PropertyQuarry-owned 3D inputs;
+2. build and verify the isolated candidate, including the exact priority 3D
+   browser/actionability proof;
+3. run non-mutating production preflight;
+4. deploy the public release only through `scripts/deploy_ea_memorial_joint.py`;
+   and
+5. prove the exact public memorial and priority 3D routes.
+
 ## Purpose
 
-`make deploy-ea-memorial` is the governed public-memorial lane. It no longer
-invokes the inherited EA mega-stack deployer. The lane may start `ea-redis`,
-but the only service it force-recreates is `ea-api`.
+`make deploy-ea-memorial-scoped` is the API-only component lane used by the
+joint coordinator. It no longer invokes the inherited EA mega-stack deployer.
+It may start `ea-redis`, but the only service it force-recreates is `ea-api`.
 
 All runs take the fixed host-global lock
 `/run/lock/ea-memorial-ea-api.lock` as well as a deployment-ID lock. Distinct
@@ -30,26 +51,29 @@ fails before mutation when that exact baseline cannot be resolved.
 
 Deploy from a clean, durable release worktree on a branch with a configured
 upstream. Do not deploy from a detached `HEAD`, the dirty development tree, or
-an ephemeral `/tmp` directory. Compose bind mounts keep using the release root
-for the lifetime of the container. The lane enforces the attached branch,
-upstream, and non-temporary root; these are not advisory checks.
+an ephemeral `/tmp` directory. The lane enforces the attached branch, upstream,
+and non-temporary root; these are not advisory checks. Application code is
+owned by the immutable candidate image. The Memorial override deliberately
+replaces the base volume list, so checkout files never shadow `/app` in the
+non-root runtime.
 
 The release root must contain:
 
 - the committed memorial source and `memorial_data` candidate;
 - a mode-`0600` production `.env`;
-- any ignored production configuration files required under `config/`;
-- durable absolute host paths in `.env` for OneDrive, pocket audio, audiobook
-  jobs, audiobook imports, and other state that must not resolve inside the
-  release worktree;
+- the receipt-validated candidate release root exported as the absolute
+  `EA_MEMORIAL_DATA_HOST_PATH`;
+- the matching candidate runtime root exported as the absolute
+  `EA_MEMORIAL_RUNTIME_HOST_PATH`;
 - a writable private `.runtime` directory for deployment receipts.
 
-Copy ignored configuration without overwriting committed release files:
+Copy only the production environment without overwriting committed release
+files. Memorial does not bind host `config/`, source, scripts, Dockerfiles,
+requirements, or evidence directories into the API:
 
 ```bash
 install -m 600 /docker/EA/.env "$RELEASE_ROOT/.env"
 test ! -f /docker/EA/.env.local || install -m 600 /docker/EA/.env.local "$RELEASE_ROOT/.env.local"
-rsync -a --ignore-existing /docker/EA/config/ "$RELEASE_ROOT/config/"
 mkdir -p "$RELEASE_ROOT/.runtime"
 chmod 700 "$RELEASE_ROOT/.runtime"
 ```
@@ -62,9 +86,9 @@ the release-authority source projection must remain clean.
 Choose a unique, explicit deployment identifier. Reusing an identifier is
 rejected so a prior receipt cannot be overwritten.
 
-Select a locally present candidate image whose tag contains the full release
-revision or at least its first 12 hexadecimal characters, or use a repository
-SHA-256 digest. `latest`, unbound tags, remote-only images, and unsafe image
+Select a locally present candidate image whose tag contains the full 40-character
+release revision, or use a repository SHA-256 digest. `latest`, short or unbound
+tags, remote-only images, and unsafe image
 references are rejected. The lane never builds or pulls this image; it resolves
 the reference to a local immutable image ID before any mutation and later
 requires the rendered override to retain the exact reference with
@@ -72,7 +96,7 @@ requires the rendered override to retain the exact reference with
 
 Promotion also requires the private `0600` receipt from a passing isolated
 candidate run. A regular, single-link, non-symlink receipt is mandatory; the
-lane rejects the older v2 contract. Runtime v3 binds the exact image ID and
+lane rejects the older v2, v3, and v4 contracts. Runtime v5 binds the exact image ID and
 source revision to the immutable memorial projection root/digest, isolated
 Compose project and clean preflight, held project-name and candidate-port locks, provider-free
 narrator/TTS/browser proof, live-EA before/after snapshots, and OpenAPI
@@ -80,50 +104,83 @@ counts/digests. The deploy receipt retains only the candidate receipt path and
 hash plus bounded safe fields, never the full snapshots.
 
 Build, project, and prove the candidate before preflight. The candidate runner
-leaves its isolated project running for inspection and does not mutate the live `ea`
-project:
+leaves its isolated project running for validation and does not mutate the live
+`ea` project:
 
 ```bash
 cd "$RELEASE_ROOT"
 umask 077
-source_revision="$(git rev-parse HEAD)"
-candidate_root="$HOME/.local/share/ea-deploy/manfred-memorial/$source_revision"
-candidate_project="ea-manfred-candidate-${source_revision:0:12}"
+
+commit="$(git rev-parse HEAD)"
+image="ea-runtime:manfred-$commit"
+project_name="ea-manfred-candidate-${commit:0:12}"
+candidate_root="$HOME/.local/share/ea-deploy/manfred-memorial/candidate-${commit}-18092"
+public_origin="${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}"
+
+spatial_bundle="${EA_MEMORIAL_SPATIAL_TOUR_BUNDLE_DIR:?set the pinned six-file tour bundle}"
+spatial_authority="${EA_MEMORIAL_SPATIAL_AUTHORITY_RECEIPT:?set the publication-authority receipt}"
+spatial_final_review="${EA_MEMORIAL_SPATIAL_FINAL_REVIEW_RECEIPT:?set the final-review receipt}"
+spatial_browser_review="${EA_MEMORIAL_SPATIAL_BROWSER_REVIEW_RECEIPT:?set the exact-viewer browser receipt}"
+
 mkdir -p "$candidate_root"
 chmod 700 "$candidate_root"
 
 .venv/bin/python scripts/build_manfred_memorial_image.py \
   --source-root "$RELEASE_ROOT" \
-  --ref "$source_revision" \
-  --tag "ea-runtime:memorial-$source_revision" \
-  --receipt "$candidate_root/image-build.json"
+  --ref "$commit" \
+  --tag "$image" \
+  --receipt "$candidate_root/image-build.v3.json"
 
 .venv/bin/python scripts/prepare_manfred_memorial_candidate.py \
   --source-root "$RELEASE_ROOT" \
-  --ref "$source_revision" \
-  --image "ea-runtime:memorial-$source_revision" \
+  --ref "$commit" \
+  --image "$image" \
   --deploy-root "$candidate_root" \
-  --public-base-url "${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}" \
-  --project-name "$candidate_project" \
-  >"$candidate_root/prepare-output.json"
+  --public-base-url "$public_origin" \
+  --host-port 18092 \
+  --project-name "$project_name" \
+  --rotate-secrets \
+  --spatial-tour-bundle-dir "$spatial_bundle" \
+  --spatial-authority-receipt "$spatial_authority" \
+  --spatial-final-review-receipt "$spatial_final_review" \
+  --spatial-browser-review-receipt "$spatial_browser_review" \
+  >"$candidate_root/prepare-output.v3.json"
 
-candidate_env="$(jq -er .env_file "$candidate_root/prepare-output.json")"
-export EA_MEMORIAL_DATA_HOST_PATH="$(jq -er .release_root "$candidate_root/prepare-output.json")"
-export EA_MEMORIAL_CANDIDATE_RECEIPT="$candidate_root/runtime-v3.json"
+candidate_env="$(jq -er '.env_file' "$candidate_root/prepare-output.v3.json")"
+export EA_MEMORIAL_DATA_HOST_PATH
+EA_MEMORIAL_DATA_HOST_PATH="$(jq -er '.release_root' "$candidate_root/prepare-output.v3.json")"
+export EA_MEMORIAL_RUNTIME_HOST_PATH
+EA_MEMORIAL_RUNTIME_HOST_PATH="$(jq -er '.runtime_root' "$candidate_root/prepare-output.v3.json")"
+export EA_MEMORIAL_CANDIDATE_RECEIPT="$candidate_root/candidate-runtime.v5.json"
+export EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT="$candidate_root/candidate-browser.v5.json"
+
 .venv/bin/python scripts/run_manfred_memorial_candidate.py \
   --env-file "$candidate_env" \
-  --receipt "$EA_MEMORIAL_CANDIDATE_RECEIPT"
+  --compose-file "$RELEASE_ROOT/deploy/manfred-memorial/docker-compose.candidate.yml" \
+  --receipt "$EA_MEMORIAL_CANDIDATE_RECEIPT" \
+  --spatial-browser-receipt "$EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT" \
+  --wait-seconds 240
+
 test "$(stat -c %a "$EA_MEMORIAL_CANDIDATE_RECEIPT")" = 600
+test "$(jq -er '.schema' "$EA_MEMORIAL_CANDIDATE_RECEIPT")" = \
+  "ea.manfred_memorial_candidate_runtime.v5"
+test "$(jq -er '.status' "$EA_MEMORIAL_CANDIDATE_RECEIPT")" = "pass"
+test "$(stat -c %a "$EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT")" = 600
+test "$(jq -er '.schema' "$EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT")" = \
+  "ea.manfred_spatial_candidate_browser.v5"
+test "$(jq -er '.status' "$EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT")" = "pass"
 ```
 
 ```bash
 cd "$RELEASE_ROOT"
-source_revision="$(git rev-parse HEAD)"
-export EA_DEPLOYMENT_ID="manfred-$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short=12 HEAD)"
-export EA_MEMORIAL_IMAGE="ea-runtime:memorial-$source_revision"
+commit="$(git rev-parse HEAD)"
+export EA_DEPLOYMENT_ID="manfred-$(date -u +%Y%m%dT%H%M%SZ)-${commit:0:12}"
+export EA_MEMORIAL_IMAGE="ea-runtime:manfred-$commit"
 test -n "${EA_MEMORIAL_CANDIDATE_RECEIPT:?run the isolated candidate first}"
 test -n "${EA_MEMORIAL_DATA_HOST_PATH:?bind the proved projection root}"
+test -n "${EA_MEMORIAL_RUNTIME_HOST_PATH:?bind the validated runtime root}"
 export EA_MEMORIAL_CONTROL_TOUR_SLUG="360-tour-balkon-wohnung-in-neustift-layout-first-0146e6f9c6"
+export EA_PUBLIC_APP_BASE_URL="${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}"
 docker image inspect "$EA_MEMORIAL_IMAGE" --format '{{.Id}}'
 make verify-ea-memorial-scoped-deploy
 ```
@@ -147,32 +204,55 @@ Preflight is fail-closed and performs no Docker mutation. It verifies:
   reproduces the live API image reference/ID plus normalized environment,
   process (`Cmd`/`Entrypoint`/`User`), and mount-identity digests; `.env` drift
   therefore fails before forward mutation;
-- a private passing runtime-v3 candidate receipt bound to the exact image,
+- a private passing runtime-v5 candidate receipt bound to the exact image,
   revision, memorial projection root/digest, isolated project/port, unchanged
   live EA snapshot, and provider-free browser proof;
+- a fresh preflight recomputation of the projection tree digest, file modes,
+  file count, and byte count using the candidate producer's exact algorithm;
+  receipt-only claims or a tree changed after candidate proof fail closed;
+- explicit runtime user `10001:10001`, no supplemental groups, an image-pure
+  `/app`, and exactly the sealed Memorial projection, three writable Memorial
+  runtime roots, and artifacts volume;
+- a no-follow bind-source access snapshot that models runtime UID/GID access,
+  recursively seals the read-only projection without reading contents, and is
+  revalidated immediately before API recreation;
 - attached release branch, configured upstream, and durable release root;
 - a real configured public origin;
-- an exact committed source revision.
-- the live local OpenAPI sorted path set/count/digest; when
-  `EA_MEMORIAL_CONTROL_TOUR_SLUG` is set, `200` HTML plus the exact JSON body
-  digest for that tour.
+- an exact committed source revision;
+- an exact clean source seal covering `HEAD`, the committed tree, the index
+  tree, file modes, submodules, and tracked/untracked worktree status before
+  and after every release-evidence subprocess;
+- no-follow content and identity seals for forward and rollback Compose files,
+  `.env`, and the optional `.env.local` presence/content, rechecked before and
+  after evidence work and immediately before forward or rollback recreation;
+- the live local OpenAPI sorted path set/count/digest; and
+- the required priority control-tour slug, with `200` HTML plus the exact JSON
+  body digest captured for mandatory post-deploy equality.
 
 The preflight receipt is written privately under
 `.runtime/deployments/memorial/<deployment-id>.json`. Because deployment IDs are
 single-use, use a fresh ID for the actual deployment after a standalone
 preflight.
 
+Release context, manifest, authority, and operator projections are materialized
+under a new `0700` per-deployment `predeploy/` evidence directory, never at
+their tracked default paths. Each `0600` artifact is hash-bound into a private
+phase manifest with the source tree, candidate image, projection digest, and
+gate result. Any checkout mutation fails before the next evidence command.
+
 ## Deploy
 
 ```bash
 cd "$RELEASE_ROOT"
-source_revision="$(git rev-parse HEAD)"
-export EA_DEPLOYMENT_ID="manfred-$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short=12 HEAD)"
-export EA_MEMORIAL_IMAGE="ea-runtime:memorial-$source_revision"
+commit="$(git rev-parse HEAD)"
+export EA_DEPLOYMENT_ID="${EA_DEPLOYMENT_ID:-manfred-$(date -u +%Y%m%dT%H%M%SZ)-${commit:0:12}}"
+export EA_MEMORIAL_IMAGE="ea-runtime:manfred-$commit"
 test -n "${EA_MEMORIAL_CANDIDATE_RECEIPT:?run the isolated candidate first}"
 test -n "${EA_MEMORIAL_DATA_HOST_PATH:?bind the proved projection root}"
+test -n "${EA_MEMORIAL_RUNTIME_HOST_PATH:?bind the validated runtime root}"
 export EA_MEMORIAL_CONTROL_TOUR_SLUG="360-tour-balkon-wohnung-in-neustift-layout-first-0146e6f9c6"
-make deploy-ea-memorial
+export EA_PUBLIC_APP_BASE_URL="${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}"
+make deploy-ea-memorial-scoped
 ```
 
 The lane performs these mutations only:
@@ -198,8 +278,12 @@ Success requires all of the following:
 - its image ID equals the preflight-resolved candidate ID, its project/service
   labels are `ea`/`ea-api`, and its Compose working directory/config files are
   exactly the release topology;
-- read-only `/app/app`, `/app/scripts`, and `/data/memorial_data` mounts resolve
-  to the clean release root;
+- the running API recomputes the digest, file modes, file count, and byte count
+  from its actual `/data/memorial_data` bind mount; any check/use swap or drift
+  from the preflight projection triggers automatic rollback;
+- `/app/app`, `/app/scripts`, and release evidence are image-owned and have no
+  host bind overlays; the read-only `/data/memorial_data` mount resolves to the
+  receipt-validated candidate release root;
 - local `/health` returns `200`;
 - local and public `/memorials/manfred` return the Manfred HTML surface;
 - local and public `/memorials/manfred.json` return slug `manfred`;
@@ -214,10 +298,19 @@ Success requires all of the following:
   public origins, including source-grounded narrator chat, TTS `409`, rendered
   browser checks, zero automatic provider work, zero WebSockets, zero failed
   requests/page errors, and zero same-origin HTTP 4xx/5xx responses;
-- the post-deploy OpenAPI path set is a superset of the captured live baseline;
-- when configured, the priority 3D tour still returns `200` for HTML and JSON,
-  with the exact pre-deploy JSON digest unchanged;
-- refreshed release authority and memorial deploy readiness remain `pass`.
+- post-deploy OpenAPI retires exactly the two fixed governed-spatial POST
+  operations, preserves every retained operation/schema/security scheme, and
+  allows only the allowlisted compatible `GET /version` evolution;
+- the required priority 3D control tour
+  `360-tour-balkon-wohnung-in-neustift-layout-first-0146e6f9c6` still returns
+  `200` for HTML and JSON, with the exact pre-deploy JSON digest unchanged;
+- a distinct private `postdeploy/` evidence set is rebuilt from scratch and
+  refreshed release authority and memorial deploy readiness remain `pass`,
+  with the exact predeploy public origin and authority posture unchanged.
+
+Post-deploy evidence refresh remains inside the rollback-protected section. A
+source-seal, evidence, or gate failure after API recreation restores the prior
+API before the deploy can report `pass`.
 
 The receipt stores statuses, response sizes and digests, the verified source
 revision, image IDs, sanitized candidate-gate counters, mount-identity digests,
@@ -260,3 +353,17 @@ python3 scripts/verify_memorial_deploy_readiness.py --pretty
 
 Do not claim memorial public-origin readiness unless both public routes and the
 transparent-narrator contract pass at the configured production origin.
+
+## Deployment sequence
+
+Run the non-mutating scoped preflight before the API-only component deploy:
+
+```bash
+python3 scripts/deploy_ea_memorial.py --preflight-only
+python3 scripts/deploy_ea_memorial.py
+```
+
+Public promotion must use the joint API-and-ingress target documented in
+`MANFRED_MEMORIAL_JOINT_DEPLOY_RUNBOOK.md`. Do not replace either governed lane
+with ad hoc Docker or Compose commands; the source, image, projection, browser,
+rollback, and public-origin checks remain mandatory.

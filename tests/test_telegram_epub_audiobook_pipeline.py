@@ -934,6 +934,214 @@ def test_valid_cached_cinematic_master_reuses_without_synthesis_or_merge(
     assert calls == []
 
 
+def test_structurally_valid_swapped_passage_is_not_falsely_reused(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    text = "A structurally valid swapped passage must be regenerated from its source."
+    pipeline, chapter, metadata, calls = _prepare_offline_cached_passage_render(
+        monkeypatch,
+        tmp_path,
+        text=text,
+        cinematic=False,
+    )
+    initial = pipeline.render_unmixr_chapter_audio(
+        job_dir=tmp_path,
+        chapters=(chapter,),
+        metadata=metadata,
+    )
+    assert initial["status"] == "rendered"
+    fingerprint = pipeline._segment_render_fingerprint(
+        text=text,
+        voice_id="narrator-voice",
+        speaker_role="narrator",
+        speaker_id="narrator",
+        render_language="en-US",
+    )
+    cached_passage = (
+        tmp_path / "audio" / "001-parts" / f"passage-{fingerprint}.wav"
+    )
+    output_binding_path = pipeline._audio_cache_output_binding_path(
+        cached_passage
+    )
+    original_binding = json.loads(
+        output_binding_path.read_text(encoding="utf-8")
+    )
+    assert output_binding_path.stat().st_mode & 0o777 == 0o600
+    assert original_binding["audio_sha256"] == pipeline._sha256_file(
+        cached_passage
+    )
+
+    swapped_wav = tmp_path / "swapped-passage.wav"
+    _write_tone_wav(swapped_wav, seconds=0.21, sample_rate=22050)
+    cached_passage.write_bytes(swapped_wav.read_bytes())
+    swapped_sha256 = pipeline._sha256_file(cached_passage)
+    assert swapped_sha256 != original_binding["audio_sha256"]
+    assert pipeline._rendered_audio_quality_report(cached_passage)["status"] != "failed"
+    (tmp_path / "audio" / "001.wav").unlink()
+    (tmp_path / "audio" / "001.wav.narration.signature").unlink()
+
+    calls.clear()
+    repaired = pipeline.render_unmixr_chapter_audio(
+        job_dir=tmp_path,
+        chapters=(chapter,),
+        metadata=metadata,
+    )
+
+    assert repaired["status"] == "rendered"
+    assert calls == [text]
+    assert repaired["chapters"][0]["reused_passage_count"] == 0
+    assert repaired["chapters"][0]["regenerated_passage_count"] == 1
+    assert repaired["chapters"][0]["invalid_cached_passage_count"] == 1
+    repaired_binding = pipeline._load_validated_audio_cache_output_binding(
+        audio_path=cached_passage,
+        cache_kind="passage",
+        render_fingerprint=fingerprint,
+    )
+    assert repaired_binding
+    assert repaired_binding["audio_sha256"] != swapped_sha256
+
+
+@pytest.mark.parametrize("cinematic", [False, True])
+def test_structurally_valid_swapped_final_master_rebuilds_from_bound_passage(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    cinematic: bool,
+) -> None:
+    text = "A swapped final master must rebuild without another paid synthesis call."
+    pipeline, chapter, metadata, calls = _prepare_offline_cached_passage_render(
+        monkeypatch,
+        tmp_path,
+        text=text,
+        cinematic=cinematic,
+    )
+    initial = pipeline.render_unmixr_chapter_audio(
+        job_dir=tmp_path,
+        chapters=(chapter,),
+        metadata=metadata,
+    )
+    assert initial["status"] == "rendered"
+    master = (
+        Path(str(initial["cinematic_master_audio"]))
+        if cinematic
+        else tmp_path / "audio" / "001.wav"
+    )
+    render_fingerprint = (
+        (tmp_path / "audio" / "_cinematic_master.signature")
+        if cinematic
+        else tmp_path / "audio" / "001.wav.narration.signature"
+    ).read_text(encoding="utf-8").strip()
+    original_binding = pipeline._load_validated_audio_cache_output_binding(
+        audio_path=master,
+        cache_kind="cinematic_master" if cinematic else "chapter_master",
+        render_fingerprint=render_fingerprint,
+    )
+    assert original_binding
+
+    swapped_wav = tmp_path / "swapped-master.wav"
+    _write_tone_wav(swapped_wav, seconds=0.23, sample_rate=22050)
+    master.write_bytes(swapped_wav.read_bytes())
+    swapped_sha256 = pipeline._sha256_file(master)
+    assert swapped_sha256 != original_binding["audio_sha256"]
+    assert pipeline._rendered_audio_quality_report(master)["status"] != "failed"
+    if cinematic:
+        assert pipeline._discover_or_build_cinematic_master_audio(
+            job_dir=tmp_path,
+            chapters=(chapter,),
+        ) is None
+    else:
+        assert not pipeline._signed_chapter_master_output_bindings_ready(
+            job_dir=tmp_path,
+            chapters=(chapter,),
+        )
+
+    calls.clear()
+    repaired = pipeline.render_unmixr_chapter_audio(
+        job_dir=tmp_path,
+        chapters=(chapter,),
+        metadata=metadata,
+    )
+
+    assert repaired["status"] == "rendered"
+    assert calls == []
+    assert repaired["chapters"][0]["status"] == "rendered"
+    assert repaired["chapters"][0]["stale_master_rebuilt"] is True
+    assert repaired["cache"]["reused_passage_count"] == 1
+    repaired_binding = pipeline._load_validated_audio_cache_output_binding(
+        audio_path=master,
+        cache_kind="cinematic_master" if cinematic else "chapter_master",
+        render_fingerprint=render_fingerprint,
+    )
+    assert repaired_binding
+    assert repaired_binding["audio_sha256"] != swapped_sha256
+    signature_row = (
+        {
+            "track": "cinematic_master",
+            "signature": render_fingerprint,
+            "audio_sha256": repaired_binding["audio_sha256"],
+        }
+        if cinematic
+        else {
+            "chapter_index": chapter.index,
+            "signature": render_fingerprint,
+            "audio_sha256": repaired_binding["audio_sha256"],
+        }
+    )
+    assert repaired["mastering"]["signature_set_sha256"] == (
+        pipeline._sha256_bytes(
+            json.dumps(
+                [signature_row],
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        )
+    )
+
+
+@pytest.mark.parametrize("cinematic", [False, True])
+def test_missing_legacy_master_output_binding_rebuilds_without_synthesis(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    cinematic: bool,
+) -> None:
+    text = "A legacy master without an output digest must rebuild from its passage."
+    pipeline, chapter, metadata, calls = _prepare_offline_cached_passage_render(
+        monkeypatch,
+        tmp_path,
+        text=text,
+        cinematic=cinematic,
+    )
+    initial = pipeline.render_unmixr_chapter_audio(
+        job_dir=tmp_path,
+        chapters=(chapter,),
+        metadata=metadata,
+    )
+    assert initial["status"] == "rendered"
+    master = (
+        Path(str(initial["cinematic_master_audio"]))
+        if cinematic
+        else tmp_path / "audio" / "001.wav"
+    )
+    pipeline._audio_cache_output_binding_path(master).unlink()
+
+    calls.clear()
+    repaired = pipeline.render_unmixr_chapter_audio(
+        job_dir=tmp_path,
+        chapters=(chapter,),
+        metadata=metadata,
+    )
+
+    assert repaired["status"] == "rendered"
+    assert calls == []
+    assert repaired["chapters"][0]["stale_master_rebuilt"] is True
+    assert repaired["cache"]["reused_passage_count"] == 1
+    assert (
+        pipeline._audio_cache_output_binding_path(master).stat().st_mode
+        & 0o777
+        == 0o600
+    )
+
+
 def test_failed_cached_cinematic_passage_is_selectively_regenerated(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -2497,6 +2705,123 @@ def _mock_publication_gate_contract_pass(monkeypatch, pipeline) -> None:
         }
 
     monkeypatch.setattr(pipeline, "_build_audiobook_publication_gate", build_gate)
+
+
+def test_preferred_m4b_tool_success_passes_publication_gate_chapter_counts(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    job_dir = tmp_path / "jobs" / "preferred-m4b-tool"
+    chapter_dir = job_dir / "chapters"
+    audio_dir = job_dir / "audio"
+    chapter_dir.mkdir(parents=True)
+    audio_dir.mkdir()
+    source_text = "The preferred assembler preserves this exact chapter."
+    text_path = "001.txt"
+    (chapter_dir / text_path).write_text(source_text, encoding="utf-8")
+    chapter = pipeline.EpubChapter(
+        index=1,
+        title="Chapter",
+        source_href="chapter.xhtml",
+        text_path=text_path,
+        audio_filename="001.wav",
+        char_count=len(source_text),
+        sha256=pipeline._sha256_bytes(source_text.encode("utf-8")),
+    )
+    metadata = pipeline.EpubMetadata(
+        title="Test Book",
+        author="A. Writer",
+        language="en-US",
+        source_filename="book.epub",
+        source_sha256=chapter.sha256,
+    )
+    chapter_master = audio_dir / chapter.audio_filename
+    _write_tone_wav(chapter_master)
+    render_fingerprint = "9" * 64
+    pipeline._write_atomic_private_text(
+        chapter_master.with_suffix(
+            chapter_master.suffix + ".narration.signature"
+        ),
+        render_fingerprint,
+    )
+    pipeline._write_audio_cache_output_binding(
+        audio_path=chapter_master,
+        cache_kind="chapter_master",
+        render_fingerprint=render_fingerprint,
+    )
+    monkeypatch.setenv("EA_AUDIOBOOK_CINEMATIC_NARRATION", "0")
+    monkeypatch.setenv("EA_AUDIOBOOK_M4B_AUTO_MERGE", "1")
+    monkeypatch.setenv("EA_M4B_TOOL_BIN", "m4b-tool")
+    m4b_tool_calls: list[list[str]] = []
+
+    def run_m4b_tool(command, **_kwargs):
+        m4b_tool_calls.append(list(command))
+        output_path = Path(command[command.index("--output-file") + 1])
+        output_path.write_bytes(b"preferred m4b-tool output")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(pipeline, "_m4b_cover_image_path", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(pipeline, "_m4b_tool_available", lambda: True)
+    monkeypatch.setattr(
+        pipeline,
+        "_merge_m4b_with_ffmpeg",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("preferred success must not silently select ffmpeg")
+        ),
+    )
+    monkeypatch.setattr(pipeline.subprocess, "run", run_m4b_tool)
+    monkeypatch.setattr(
+        pipeline,
+        "_probe_audio_publication_file",
+        lambda _path: {"chapters": [{"id": 1}]},
+    )
+
+    merge_result = pipeline._merge_m4b_if_ready(
+        job_dir=job_dir,
+        metadata=metadata,
+        chapters=(chapter,),
+    )
+
+    assembled_path = Path(str(merge_result["output_file"]))
+    import_root = tmp_path / "audiobookshelf"
+    target_path = import_root / "A. Writer" / "Test Book" / "Test Book.m4b"
+    target_path.parent.mkdir(parents=True)
+    target_path.write_bytes(assembled_path.read_bytes())
+    job = _publication_ready_job(
+        pipeline,
+        job_dir=job_dir,
+        source_text=source_text,
+        text_path=text_path,
+    )
+    job["merge_result"] = merge_result
+    monkeypatch.setenv("EA_AUDIOBOOKSHELF_IMPORT_ROOT", str(import_root))
+    _mock_publication_gate_media_pass(
+        monkeypatch,
+        pipeline,
+        target_path=target_path,
+        chapter_count=1,
+    )
+
+    gate = pipeline._build_audiobook_publication_gate(
+        job=job,
+        target_path=target_path,
+    )
+
+    assert merge_result["provider"] == "m4b-tool"
+    assert merge_result["expected_chapter_count"] == 1
+    assert merge_result["actual_chapter_count"] == 1
+    assert merge_result["chapter_count_matches"] is True
+    assert merge_result["output_file_sha256"] == pipeline._sha256_file(
+        target_path
+    )
+    assert len(m4b_tool_calls) == 1
+    assert gate["status"] == "pass"
+    assert gate["issues"] == []
+    assert gate["expected_chapter_count"] == 1
+    assert gate["actual_chapter_count"] == 1
+    assert gate["chapter_count_matches"] is True
 
 
 def test_audio_publication_loudness_uses_full_file_loudnorm_json(
@@ -8220,6 +8545,71 @@ def test_telegram_automatic_cast_control_survives_first_preview_send_failure(
     assert delivered_callbacks[0].startswith("ab|a|ranked-token|")
 
 
+@pytest.mark.parametrize(
+    "unproven_receipt",
+    [
+        {"ok": True, "result": {}},
+        {"ok": True, "result": {"message_id": {"malformed": "id"}}},
+        {"ok": 1, "result": {"message_id": 7}},
+    ],
+)
+def test_telegram_unproven_transport_receipts_are_never_confirmed(
+    monkeypatch,
+    unproven_receipt: dict[str, object],
+) -> None:
+    from app.api.routes import channels
+
+    monkeypatch.setattr(
+        channels,
+        "_telegram_audiobook_voice_samples_pending_delivery",
+        lambda _job: [
+            {
+                "token": "sample-token",
+                "label": "Narrator",
+                "audio_path": "/unused/sample.wav",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        channels,
+        "_telegram_send_audio",
+        lambda **_: dict(unproven_receipt),
+    )
+    receipts = channels._telegram_send_audiobook_voice_samples(
+        bot_config={"token": "bot-token", "secret": "callback-secret"},
+        chat_id="requester",
+        job={"job_id": "unproven-receipt"},
+    )
+
+    assert receipts[0]["status"] == "skipped"
+    assert receipts[0]["effect_state"] == "ambiguous"
+    assert receipts[0]["media_message_id_sha256"] == ""
+
+    monkeypatch.setattr(
+        channels,
+        "_telegram_send_audiobook_voice_samples",
+        lambda **_: [],
+    )
+    monkeypatch.setattr(
+        channels,
+        "_telegram_audiobook_playback_acceptance_buttons",
+        lambda **kwargs: (dict(kwargs["job"]), []),
+    )
+    monkeypatch.setattr(
+        channels,
+        "_telegram_send_message",
+        lambda **_: dict(unproven_receipt),
+    )
+    outcome = channels._telegram_deliver_started_audiobook_request(
+        bot_config={"token": "bot-token"},
+        record={"telegram": {"chat_id": "requester"}},
+        job={"job_id": "unproven-final-reply"},
+    )
+    assert outcome["classification"] == "outcome_unknown"
+    assert outcome["confirmed_effect_count"] == 0
+    assert outcome["ambiguous_effect_count"] == 1
+
+
 def test_whatsapp_send_audiobook_voice_samples_exposes_optional_automatic_cast(
     monkeypatch,
 ) -> None:
@@ -9954,6 +10344,565 @@ def test_telegram_audiobook_approval_start_failure_is_sanitized_and_hashed(
     assert len(str(start["idempotency_key_sha256"])) == 64
 
 
+def test_telegram_approved_audiobook_starter_returns_created_bound_job(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import channels
+
+    jobs_root = tmp_path / "jobs"
+    source_path = tmp_path / "approved.epub"
+    source_path.write_bytes(b"approved source")
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(jobs_root))
+    record = channels.audiobook_access_approval.create_pending_request(
+        channel="telegram",
+        principal_id="principal-1",
+        filename="approved.epub",
+        source_path=source_path,
+        sender_ref="telegram:requester",
+        chat_id="requester",
+        message_id="source-message",
+    )
+    expected_job = {
+        "job_id": "approval-audiobook-bound-job",
+        "status": "waiting_voice_selection",
+        "source": {
+            "source_sha256": str(dict(record["source"])["source_sha256"]),
+            "intake_idempotency_key_sha256": "a" * 64,
+        },
+    }
+    captured: dict[str, object] = {}
+
+    def _create_job_from_epub(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return expected_job
+
+    monkeypatch.setattr(channels, "create_job_from_epub", _create_job_from_epub)
+
+    result = channels._telegram_start_approved_audiobook_request(
+        record=record,
+        deterministic_job_id="approval-audiobook-bound-job",
+        start_identity_sha256="a" * 64,
+    )
+
+    assert result is expected_job
+    assert captured["epub_path"] == channels.audiobook_access_approval.source_path(record)
+    assert captured["deterministic_job_id"] == "approval-audiobook-bound-job"
+    assert captured["intake_idempotency_key_sha256"] == "a" * 64
+    assert captured["principal_id"] == "principal-1"
+    assert captured["chat_id"] == "requester"
+    assert captured["message_id"] == "source-message"
+
+
+def test_telegram_approval_delivery_cannot_overwrite_concurrent_decision(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import audiobook_access_approval
+
+    jobs_root = tmp_path / "jobs"
+    source_path = tmp_path / "race.epub"
+    source_path.write_bytes(b"approval delivery race source")
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(jobs_root))
+    record = audiobook_access_approval.create_pending_request(
+        channel="telegram",
+        principal_id="principal-1",
+        filename="race.epub",
+        source_path=source_path,
+        sender_ref="telegram:requester",
+        chat_id="requester",
+        message_id="source-message",
+    )
+    approval_id = str(record["approval_id"])
+    original_load = audiobook_access_approval.load_request
+    delivery_thread_id: dict[str, int] = {}
+    delivery_read = threading.Event()
+    release_delivery_write = threading.Event()
+    decision_entered = threading.Event()
+    decision_finished = threading.Event()
+
+    def _instrumented_load(requested_id: str) -> dict[str, object]:
+        loaded = original_load(requested_id)
+        if threading.get_ident() == delivery_thread_id.get("value") and not delivery_read.is_set():
+            delivery_read.set()
+            assert release_delivery_write.wait(timeout=5)
+        return loaded
+
+    monkeypatch.setattr(audiobook_access_approval, "load_request", _instrumented_load)
+
+    def _record_delivery() -> dict[str, object]:
+        delivery_thread_id["value"] = threading.get_ident()
+        return audiobook_access_approval.record_telegram_approval_delivery(
+            approval_id=approval_id,
+            status="sent",
+            approver_chat_id="operator-chat",
+            message_id="approval-message",
+        )
+
+    def _approve() -> dict[str, object]:
+        decision_entered.set()
+        try:
+            return audiobook_access_approval.update_status(
+                approval_id,
+                status="approved",
+                decided_by="operator-chat",
+                expected_statuses=("pending",),
+            )
+        finally:
+            decision_finished.set()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        delivery_future = executor.submit(_record_delivery)
+        assert delivery_read.wait(timeout=5)
+        decision_future = executor.submit(_approve)
+        assert decision_entered.wait(timeout=5)
+        try:
+            assert not decision_finished.wait(timeout=0.25)
+        finally:
+            release_delivery_write.set()
+        delivery_future.result(timeout=5)
+        decision_future.result(timeout=5)
+
+    persisted = original_load(approval_id)
+    assert persisted["status"] == "approved"
+    assert dict(persisted["approval_delivery"])["status"] == "sent"
+
+
+def _started_delivery_bound_approval(
+    *,
+    approval_service,
+    tmp_path: Path,
+    channel: str,
+    suffix: str,
+) -> tuple[str, dict[str, object]]:
+    source_path = tmp_path / f"delivery-{suffix}.epub"
+    source_path.write_bytes(f"delivery source {suffix}".encode("utf-8"))
+    request_kwargs: dict[str, object] = {
+        "channel": channel,
+        "principal_id": "principal-1",
+        "filename": source_path.name,
+        "source_path": source_path,
+        "sender_ref": f"{channel}:requester",
+        "message_id": f"source-{suffix}",
+    }
+    if channel == "telegram":
+        request_kwargs["chat_id"] = "requester"
+    else:
+        request_kwargs.update(
+            phone_number="4368120864006",
+            session_ref="session-1",
+            chat_ref="chat-ref-1",
+        )
+    record = approval_service.create_pending_request(**request_kwargs)
+    approval_id = str(record["approval_id"])
+
+    def _starter(
+        claimed: dict[str, object],
+        job_id: str,
+        identity: str,
+    ) -> dict[str, object]:
+        job_dir = approval_service.audiobook_epub_pipeline.audiobook_jobs_root() / job_id
+        job_dir.mkdir(parents=True, exist_ok=True)
+        job: dict[str, object] = {
+            "contract_name": "ea.audiobook_job.v1",
+            "job_id": job_id,
+            "principal_id": "principal-1",
+            "status": "waiting_voice_selection",
+            "source": {
+                "kind": "epub",
+                "source_filename": source_path.name,
+                "source_sha256": str(dict(claimed["source"])["source_sha256"]),
+                "intake_idempotency_key_sha256": identity,
+            },
+            "metadata": {
+                "title": f"Delivery {suffix}",
+                "author": "A. Writer",
+                "language": "en-US",
+                "source_filename": source_path.name,
+                "source_sha256": str(dict(claimed["source"])["source_sha256"]),
+            },
+            "provider": {
+                "preferred": "unmixr",
+                "external_tts_enabled": True,
+                "voice_selection": {
+                    "contract_name": "ea.audiobook_voice_selection.v1",
+                    "strategy": "ranked",
+                    "candidate_count": 3,
+                },
+            },
+            "chapters": [],
+            "totals": {"chapter_count": 0},
+            "storage": {"job_dir": str(job_dir)},
+        }
+        (job_dir / "job.json").write_text(json.dumps(job), encoding="utf-8")
+        return job
+
+    started = approval_service.run_approved_start_once(
+        approval_id,
+        approve_pending=True,
+        decided_by="telegram:42",
+        starter=_starter,
+    )
+    if channel == "telegram":
+        target_snapshot = dict(
+            dict(dict(started["record"])["start"])["immutable_snapshot"]
+        )["approved_target"]
+        assert target_snapshot["chat_id_sha256"] == hashlib.sha256(
+            b"requester"
+        ).hexdigest()
+        assert target_snapshot["message_id_sha256"] == hashlib.sha256(
+            f"source-{suffix}".encode("utf-8")
+        ).hexdigest()
+    return approval_id, dict(started["job"])
+
+
+@pytest.mark.parametrize("missing_field", ["chat_id", "message_id"])
+def test_telegram_incomplete_approved_target_never_starts_or_delivers(
+    monkeypatch,
+    tmp_path: Path,
+    missing_field: str,
+) -> None:
+    from app.services import audiobook_access_approval
+
+    jobs_root = tmp_path / "jobs"
+    source_path = tmp_path / f"incomplete-telegram-{missing_field}.epub"
+    source_path.write_bytes(b"incomplete Telegram target")
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(jobs_root))
+    record = audiobook_access_approval.create_pending_request(
+        channel="telegram",
+        principal_id="principal-1",
+        filename=source_path.name,
+        source_path=source_path,
+        sender_ref="telegram:requester",
+        chat_id="requester",
+        message_id=f"source-incomplete-{missing_field}",
+    )
+    telegram = dict(record["telegram"])
+    telegram[missing_field] = ""
+    record["telegram"] = telegram
+    audiobook_access_approval._write_request(record)
+    approved = audiobook_access_approval.update_status(
+        str(record["approval_id"]),
+        status="approved",
+        decided_by="telegram:42",
+        expected_statuses=("pending",),
+    )
+    callbacks = {"starter": 0, "deliverer": 0}
+
+    def _must_not_start(*_: object) -> dict[str, object]:
+        callbacks["starter"] += 1
+        raise AssertionError("incomplete target must not invoke starter")
+
+    with pytest.raises(RuntimeError, match="approval_channel_target_incomplete"):
+        audiobook_access_approval.run_approved_start_once(
+            str(approved["approval_id"]),
+            starter=_must_not_start,
+        )
+    rejected = audiobook_access_approval.load_request(str(approved["approval_id"]))
+    assert rejected["status"] == "approved"
+    assert "start" not in rejected
+
+    replay_id, replay_job = _started_delivery_bound_approval(
+        approval_service=audiobook_access_approval,
+        tmp_path=tmp_path,
+        channel="telegram",
+        suffix=f"incomplete-replay-{missing_field}",
+    )
+    replay_record = audiobook_access_approval.load_request(replay_id)
+    replay_telegram = dict(replay_record["telegram"])
+    replay_telegram[missing_field] = ""
+    replay_record["telegram"] = replay_telegram
+    audiobook_access_approval._write_request(replay_record)
+    with pytest.raises(RuntimeError, match="approval_channel_target_incomplete"):
+        audiobook_access_approval.run_approved_start_once(
+            replay_id,
+            starter=_must_not_start,
+        )
+
+    def _must_not_deliver() -> object:
+        callbacks["deliverer"] += 1
+        raise AssertionError("incomplete target must not invoke deliverer")
+
+    with pytest.raises(RuntimeError, match="approval_channel_target_incomplete"):
+        audiobook_access_approval.run_approved_delivery_once(
+            replay_id,
+            channel="telegram",
+            job=replay_job,
+            deliverer=_must_not_deliver,
+        )
+    assert callbacks == {"starter": 0, "deliverer": 0}
+
+
+def test_telegram_delivery_clean_failure_retries_but_partial_waits_for_reconciliation(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import channels
+
+    jobs_root = tmp_path / "jobs"
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(jobs_root))
+    approval_id, job = _started_delivery_bound_approval(
+        approval_service=channels.audiobook_access_approval,
+        tmp_path=tmp_path,
+        channel="telegram",
+        suffix="telegram-clean",
+    )
+    record = channels.audiobook_access_approval.load_request(approval_id)
+    message_receipts = [
+        {"ok": False},
+        {"ok": True, "result": {"message_id": 1}},
+    ]
+    monkeypatch.setattr(channels, "_telegram_send_audiobook_voice_samples", lambda **_: [])
+    monkeypatch.setattr(
+        channels,
+        "_telegram_audiobook_playback_acceptance_buttons",
+        lambda **kwargs: (dict(kwargs["job"]), []),
+    )
+    monkeypatch.setattr(
+        channels,
+        "_telegram_send_message",
+        lambda **_: message_receipts.pop(0),
+    )
+
+    first = channels.audiobook_access_approval.run_approved_delivery_once(
+        approval_id,
+        channel="telegram",
+        job=job,
+        deliverer=lambda: channels._telegram_deliver_started_audiobook_request(
+            bot_config={"token": "bot-token"},
+            record=record,
+            job=job,
+        ),
+    )
+    second = channels.audiobook_access_approval.run_approved_delivery_once(
+        approval_id,
+        channel="telegram",
+        job=job,
+        deliverer=lambda: channels._telegram_deliver_started_audiobook_request(
+            bot_config={"token": "bot-token"},
+            record=record,
+            job=job,
+        ),
+    )
+
+    assert first["delivery_status"] == "failed_before_effect"
+    assert second["delivery_status"] == "completed"
+    assert dict(second["record"]["first_delivery"])["attempt_count"] == 2
+    assert message_receipts == []
+
+    partial_id, partial_job = _started_delivery_bound_approval(
+        approval_service=channels.audiobook_access_approval,
+        tmp_path=tmp_path,
+        channel="telegram",
+        suffix="telegram-partial",
+    )
+    partial_record = channels.audiobook_access_approval.load_request(partial_id)
+    sends = {"count": 0}
+    monkeypatch.setattr(
+        channels,
+        "_telegram_send_audiobook_voice_samples",
+        lambda **_: [
+            {
+                "status": "sent",
+                "effect_state": "confirmed",
+                "media_message_id_sha256": "1" * 64,
+                "token": "sample-1",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        channels,
+        "record_audiobook_voice_sample_delivery",
+        lambda *, job, sample_receipts: dict(job),
+    )
+
+    def _known_failed_message(**_: object) -> dict[str, object]:
+        sends["count"] += 1
+        return {"ok": False}
+
+    monkeypatch.setattr(channels, "_telegram_send_message", _known_failed_message)
+    partial = channels.audiobook_access_approval.run_approved_delivery_once(
+        partial_id,
+        channel="telegram",
+        job=partial_job,
+        deliverer=lambda: channels._telegram_deliver_started_audiobook_request(
+            bot_config={"token": "bot-token"},
+            record=partial_record,
+            job=partial_job,
+        ),
+    )
+    replay = channels.audiobook_access_approval.run_approved_delivery_once(
+        partial_id,
+        channel="telegram",
+        job=partial_job,
+        deliverer=lambda: (_ for _ in ()).throw(
+            AssertionError("partial Telegram delivery must not resend")
+        ),
+    )
+
+    assert partial["delivery_status"] == "outcome_unknown"
+    assert replay["delivery_now"] is False
+    assert replay["delivery_status"] == "outcome_unknown"
+    assert sends["count"] == 1
+
+
+def test_delivery_reconciliation_is_authorized_and_never_automatically_resends(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import audiobook_access_approval
+
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path / "jobs"))
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_DELIVERY_RECONCILIATION_SECRET",
+        "operator-reconciliation-secret",
+    )
+
+    def _unknown_delivery(approval_id: str, job: dict[str, object]) -> dict[str, object]:
+        return audiobook_access_approval.run_approved_delivery_once(
+            approval_id,
+            channel="telegram",
+            job=job,
+            deliverer=lambda: audiobook_access_approval.build_approved_delivery_outcome(
+                channel="telegram",
+                result=job,
+                expected_effect_count=2,
+                confirmed_effect_count=1,
+                known_no_effect_count=1,
+                ambiguous_effect_count=0,
+            ),
+        )
+
+    completed_id, completed_job = _started_delivery_bound_approval(
+        approval_service=audiobook_access_approval,
+        tmp_path=tmp_path,
+        channel="telegram",
+        suffix="reconcile-completed",
+    )
+    unknown = _unknown_delivery(completed_id, completed_job)
+    with pytest.raises(
+        RuntimeError,
+        match="approval_delivery_reconciliation_unauthorized",
+    ):
+        audiobook_access_approval.reconcile_approved_delivery(
+            completed_id,
+            action="verified_completed",
+            binding_sha256=str(unknown["binding_sha256"]),
+            reconciled_by="operator:42",
+            authorization="wrong-secret",
+        )
+    with pytest.raises(
+        RuntimeError,
+        match="approval_delivery_reconciliation_binding_mismatch",
+    ):
+        audiobook_access_approval.reconcile_approved_delivery(
+            completed_id,
+            action="verified_completed",
+            binding_sha256="0" * 64,
+            reconciled_by="operator:42",
+            authorization="operator-reconciliation-secret",
+        )
+    reconciled = audiobook_access_approval.reconcile_approved_delivery(
+        completed_id,
+        action="verified_completed",
+        binding_sha256=str(unknown["binding_sha256"]),
+        reconciled_by="operator:42",
+        authorization="operator-reconciliation-secret",
+    )
+    replay = audiobook_access_approval.run_approved_delivery_once(
+        completed_id,
+        channel="telegram",
+        job=completed_job,
+        deliverer=lambda: (_ for _ in ()).throw(
+            AssertionError("verified completed delivery must not resend")
+        ),
+    )
+    assert reconciled["delivery_status"] == "completed"
+    assert replay["delivery_now"] is False
+    assert replay["delivery_status"] == "completed"
+
+    retry_id, retry_job = _started_delivery_bound_approval(
+        approval_service=audiobook_access_approval,
+        tmp_path=tmp_path,
+        channel="telegram",
+        suffix="reconcile-retry",
+    )
+    retry_unknown = _unknown_delivery(retry_id, retry_job)
+    audiobook_access_approval.reconcile_approved_delivery(
+        retry_id,
+        action="verified_no_effect_retry",
+        binding_sha256=str(retry_unknown["binding_sha256"]),
+        reconciled_by="operator:42",
+        authorization="operator-reconciliation-secret",
+    )
+    sends = {"count": 0}
+
+    def _verified_retry() -> dict[str, object]:
+        sends["count"] += 1
+        return audiobook_access_approval.build_approved_delivery_outcome(
+            channel="telegram",
+            result=retry_job,
+            expected_effect_count=1,
+            confirmed_effect_count=1,
+            known_no_effect_count=0,
+            ambiguous_effect_count=0,
+        )
+
+    retried = audiobook_access_approval.run_approved_delivery_once(
+        retry_id,
+        channel="telegram",
+        job=retry_job,
+        deliverer=_verified_retry,
+    )
+    assert retried["delivery_status"] == "completed"
+    assert sends["count"] == 1
+    retained_reconciliation = dict(
+        dict(retried["record"]["first_delivery"])["reconciliation"]
+    )
+    assert retained_reconciliation["contract_name"] == (
+        audiobook_access_approval.DELIVERY_RECONCILIATION_CONTRACT_NAME
+    )
+    assert retained_reconciliation["action"] == "verified_no_effect_retry"
+
+
+def test_delivery_rejects_tampered_immutable_job_fields_before_send(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import audiobook_access_approval
+
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path / "jobs"))
+    approval_id, job = _started_delivery_bound_approval(
+        approval_service=audiobook_access_approval,
+        tmp_path=tmp_path,
+        channel="telegram",
+        suffix="tamper",
+    )
+    tampered = json.loads(json.dumps(job))
+    tampered["metadata"]["title"] = "Tampered title"
+    sends = {"count": 0}
+
+    with pytest.raises(
+        RuntimeError,
+        match="approval_delivery_immutable_snapshot_mismatch",
+    ):
+        audiobook_access_approval.run_approved_delivery_once(
+            approval_id,
+            channel="telegram",
+            job=tampered,
+            deliverer=lambda: sends.__setitem__("count", sends["count"] + 1),
+        )
+
+    assert sends["count"] == 0
+    assert "first_delivery" not in audiobook_access_approval.load_request(approval_id)
+
+
 def test_telegram_audiobook_approval_start_is_atomic_and_replay_safe(
     monkeypatch,
     tmp_path: Path,
@@ -10016,7 +10965,14 @@ def test_telegram_audiobook_approval_start_is_atomic_and_replay_safe(
     def _deliver_once(**kwargs: object) -> dict[str, object]:
         with counter_lock:
             counters["deliveries"] += 1
-        return dict(kwargs["job"])
+        return channels.audiobook_access_approval.build_approved_delivery_outcome(
+            channel="telegram",
+            result=dict(kwargs["job"]),
+            expected_effect_count=1,
+            confirmed_effect_count=1,
+            known_no_effect_count=0,
+            ambiguous_effect_count=0,
+        )
 
     monkeypatch.setattr(channels, "_telegram_start_approved_audiobook_request", _start_once)
     monkeypatch.setattr(channels, "_telegram_deliver_started_audiobook_request", _deliver_once)
@@ -10046,16 +11002,135 @@ def test_telegram_audiobook_approval_start_is_atomic_and_replay_safe(
     assert counters == {"starts": 1, "deliveries": 1}
     replies = {str(decision.reply_text) for decision in decisions}
     assert any("Approved and started" in reply for reply in replies)
-    assert any("reused the existing job" in reply for reply in replies)
+    assert any(
+        "reused the existing job" in reply or "Recovered the missing first delivery" in reply
+        for reply in replies
+    )
     persisted = channels.audiobook_access_approval.load_request(approval_id)
     assert persisted["status"] == "started"
     assert dict(persisted["start"])["attempt_count"] == 1
+    delivery = dict(persisted["first_delivery"])
+    assert delivery["contract_name"] == channels.audiobook_access_approval.DELIVERY_CONTRACT_NAME
+    assert delivery["state"] == "completed"
+    assert delivery["channel"] == "telegram"
+    assert delivery["attempt_count"] == 1
+    assert len(str(delivery["binding_sha256"])) == 64
+    serialized_delivery = json.dumps(delivery, sort_keys=True)
+    assert str(source_path) not in serialized_delivery
+    assert "bot-token" not in serialized_delivery
+    assert str(persisted["job_id"]) not in serialized_delivery
     with pytest.raises(RuntimeError, match="approval_status_conflict"):
         channels.audiobook_access_approval.update_status(
             approval_id,
             status="denied",
             expected_statuses=("pending",),
         )
+
+
+def test_telegram_replay_recovers_crash_after_start_before_first_delivery(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import channels
+
+    jobs_root = tmp_path / "jobs"
+    source_path = tmp_path / "delivery-gap.epub"
+    source_path.write_bytes(b"telegram delivery gap source")
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(jobs_root))
+    record = channels.audiobook_access_approval.create_pending_request(
+        channel="telegram",
+        principal_id="principal-1",
+        filename="delivery-gap.epub",
+        source_path=source_path,
+        sender_ref="telegram:requester",
+        chat_id="requester",
+        message_id="source-message",
+    )
+    approval_id = str(record["approval_id"])
+    starts = {"count": 0}
+
+    def _starter(
+        claimed: dict[str, object],
+        job_id: str,
+        identity: str,
+    ) -> dict[str, object]:
+        starts["count"] += 1
+        job_dir = jobs_root / job_id
+        job_dir.mkdir(parents=True, exist_ok=True)
+        job = {
+            "job_id": job_id,
+            "status": "waiting_voice_selection",
+            "source": {
+                "intake_idempotency_key_sha256": identity,
+                "source_sha256": str(dict(claimed["source"])["source_sha256"]),
+            },
+            "storage": {"job_dir": str(job_dir)},
+            "metadata": {"title": "Delivery Gap Book"},
+        }
+        (job_dir / "job.json").write_text(json.dumps(job), encoding="utf-8")
+        return job
+
+    # The first worker commits the canonical job and then dies before entering
+    # the first-delivery boundary.
+    started = channels.audiobook_access_approval.run_approved_start_once(
+        approval_id,
+        approve_pending=True,
+        decided_by="telegram:42",
+        starter=_starter,
+    )
+    assert started["started_now"] is True
+    assert "first_delivery" not in channels.audiobook_access_approval.load_request(approval_id)
+
+    monkeypatch.setattr(
+        channels.audiobook_access_approval,
+        "decode_telegram_approval_callback",
+        lambda **_: {"ok": True, "approval_id": approval_id, "action": "approve"},
+    )
+    monkeypatch.setattr(channels, "_telegram_callback_already_processed", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(channels, "_record_telegram_callback_processed", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        channels,
+        "_telegram_start_approved_audiobook_request",
+        lambda **_: (_ for _ in ()).throw(
+            AssertionError("delivery recovery must not call the paid starter")
+        ),
+    )
+    deliveries = {"count": 0}
+
+    def _deliver(**kwargs: object) -> dict[str, object]:
+        deliveries["count"] += 1
+        return channels.audiobook_access_approval.build_approved_delivery_outcome(
+            channel="telegram",
+            result=dict(kwargs["job"]),
+            expected_effect_count=1,
+            confirmed_effect_count=1,
+            known_no_effect_count=0,
+            ambiguous_effect_count=0,
+        )
+
+    monkeypatch.setattr(channels, "_telegram_deliver_started_audiobook_request", _deliver)
+    ctx = SimpleNamespace(
+        payload={
+            "kind": "callback_query",
+            "callback_data": "aa|signed-approval",
+            "_bot_config": {"token": "bot-token"},
+        },
+        chat_id="42",
+        container=object(),
+        principal_id="principal-1",
+        current_message_id="delivery-gap-callback",
+    )
+
+    recovered = channels._telegram_callback_turn_decision(ctx)
+    replayed = channels._telegram_callback_turn_decision(ctx)
+
+    assert "Recovered the missing first delivery" in recovered.reply_text
+    assert "reused the existing job" in replayed.reply_text
+    assert starts["count"] == 1
+    assert deliveries["count"] == 1
+    persisted = channels.audiobook_access_approval.load_request(approval_id)
+    assert dict(persisted["first_delivery"])["state"] == "completed"
 
 
 def test_telegram_audiobook_approval_crash_recovers_bound_job_without_paid_replay(
@@ -10115,7 +11190,14 @@ def test_telegram_audiobook_approval_crash_recovers_bound_job_without_paid_repla
 
     def _delivery(**kwargs: object) -> dict[str, object]:
         counters["deliveries"] += 1
-        return dict(kwargs["job"])
+        return channels.audiobook_access_approval.build_approved_delivery_outcome(
+            channel="telegram",
+            result=dict(kwargs["job"]),
+            expected_effect_count=1,
+            confirmed_effect_count=1,
+            known_no_effect_count=0,
+            ambiguous_effect_count=0,
+        )
 
     monkeypatch.setattr(channels, "_telegram_start_approved_audiobook_request", _crashing_start)
     monkeypatch.setattr(channels, "_telegram_deliver_started_audiobook_request", _delivery)
@@ -12630,13 +13712,13 @@ def test_exact_narration_plan_cache_reuses_only_exact_private_binding(
     assert cache_files[0].stat().st_mode & 0o777 == 0o600
 
     original_plan_narration = pipeline.plan_narration
-    monkeypatch.setattr(
-        pipeline,
-        "plan_narration",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("valid planner cache was not reused")
-        ),
-    )
+    planner_calls = {"count": 0}
+
+    def counted_plan(*args, **kwargs):
+        planner_calls["count"] += 1
+        return original_plan_narration(*args, **kwargs)
+
+    monkeypatch.setattr(pipeline, "plan_narration", counted_plan)
     reused = pipeline._build_exact_narration_plan(
         chapter_inputs=((chapter, text),),
         render_language="en-US",
@@ -12645,17 +13727,12 @@ def test_exact_narration_plan_cache_reuses_only_exact_private_binding(
     )
     assert reused["plan_sha256"] == first["plan_sha256"]
     assert reused["planner_cache"]["status"] == "reused"
+    assert planner_calls["count"] == 1
 
     cached_payload = json.loads(cache_files[0].read_text(encoding="utf-8"))
     cached_payload["spans"][0]["source_text"] = "tampered"
     pipeline._write_private_json(cache_files[0], cached_payload)
-    replanned_calls = {"count": 0}
-
-    def counted_plan(*args, **kwargs):
-        replanned_calls["count"] += 1
-        return original_plan_narration(*args, **kwargs)
-
-    monkeypatch.setattr(pipeline, "plan_narration", counted_plan)
+    planner_calls["count"] = 0
     repaired = pipeline._build_exact_narration_plan(
         chapter_inputs=((chapter, text),),
         render_language="en-US",
@@ -12664,13 +13741,14 @@ def test_exact_narration_plan_cache_reuses_only_exact_private_binding(
     )
     assert repaired["status"] == "ready"
     assert repaired["planner_cache"]["status"] == "materialized"
-    assert replanned_calls["count"] == 1
+    assert planner_calls["count"] == 2
 
     stale_metrics_payload = json.loads(
         cache_files[0].read_text(encoding="utf-8")
     )
     stale_metrics_payload.pop("receipt_metrics_contract", None)
     pipeline._write_private_json(cache_files[0], stale_metrics_payload)
+    planner_calls["count"] = 0
     refreshed_metrics = pipeline._build_exact_narration_plan(
         chapter_inputs=((chapter, text),),
         render_language="en-US",
@@ -12678,7 +13756,7 @@ def test_exact_narration_plan_cache_reuses_only_exact_private_binding(
         job_dir=tmp_path,
     )
     assert refreshed_metrics["planner_cache"]["status"] == "materialized"
-    assert replanned_calls["count"] == 2
+    assert planner_calls["count"] == 1
     assert (
         refreshed_metrics["receipt_metrics_contract"]
         == pipeline.RECEIPT_METRICS_CONTRACT_NAME

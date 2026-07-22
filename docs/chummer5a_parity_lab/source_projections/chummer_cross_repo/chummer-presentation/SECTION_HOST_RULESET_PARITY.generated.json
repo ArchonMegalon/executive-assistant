@@ -1,0 +1,23 @@
+{
+  "contract_name": "projection.section_host_ruleset_parity",
+  "generated_at": "2026-07-15T00:00:00Z",
+  "projection_redacted": true,
+  "proof_tokens": [
+    "expectedTabIds",
+    "tab-info",
+    "tab-skills",
+    "tab-qualities",
+    "tab-combat",
+    "tab-gear",
+    "expectedWorkspaceActionIds",
+    "tab-info.summary",
+    "tab-skills.skills",
+    "tab-gear.inventory",
+    "tab-contacts.contacts",
+    "tab-contacts",
+    "tab-notes.metadata",
+    "tab-notes",
+    "open_for_printing",
+    "open_for_export"
+  ]
+}

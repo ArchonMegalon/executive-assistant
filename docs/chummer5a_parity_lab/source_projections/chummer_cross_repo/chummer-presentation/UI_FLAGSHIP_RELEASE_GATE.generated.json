@@ -1,0 +1,16 @@
+{
+  "contract_name": "projection.ui_flagship_release_gate",
+  "generated_at": "2026-07-15T00:00:00Z",
+  "projection_redacted": true,
+  "headProofs": {"routeSpecificParity": {"status": "pass"}},
+  "chummer5aScreenshotReviewProof": {"reviewJobs": {}},
+  "directImportRouteProof": {
+    "status": "pass",
+    "screenshots": [
+      "38-translator-dialog-light.png",
+      "39-xml-editor-dialog-light.png",
+      "40-hero-lab-importer-dialog-light.png"
+    ],
+    "characterOverviewPresenterTests": ["m141_route_local_presenter_projection"]
+  }
+}

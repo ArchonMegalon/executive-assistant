@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-07-07T12:56:30Z",
+  "generated_at": "2026-07-22T14:00:26Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "source_git_head": "bb575cc976c55adb1de1ef9734d15f2db0acfb4e",
+  "source_git_head": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
   "head_semantics": "source_state",
   "head_semantics_note": "source_git_head records the proved source state. Generated-only artifact commits may advance repository HEAD without changing the source state that the receipts prove.",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
@@ -20,10 +20,12 @@
     "Telegram video delivery requires a dedicated live delivery receipt before it can support whole-project gold.",
     "Design mirror parity is bounded; canonical product/UI proof must come from owning repos.",
     "Memorial voice/realtime readiness requires its own browser, STT, TTS, and latency receipts.",
-    "Memorial public-origin gold requires the public voice roundtrip receipt, public browser realtime receipt, and public room-audio receipt."
+    "Memorial public-origin gold requires the public voice roundtrip receipt, public browser realtime receipt, public room-audio receipt, and strict public spatial-tour receipt.",
+    "The spatial-tour receipt must bind the pinned PropertyQuarry authority and package to polished v5 candidate-browser proof, the governed deploy receipt, and all exact public-origin GET/HEAD observations; status-only or candidate-only evidence is insufficient."
   ],
   "blocking_planes": [
     "ea_release_control",
+    "fleet_journey_gates",
     "design_surface",
     "chummer_core_rules",
     "chummer_desktop_ui",
@@ -59,12 +61,12 @@
       "key": "fleet_journey_gates",
       "title": "Fleet Journey Gates",
       "owner_repo": "fleet",
-      "status": "pass",
+      "status": "unknown_missing_receipt",
       "claim": "Fleet journey gates are separate evidence; EA only consumes their generated summary.",
-      "evidence": [
+      "evidence": [],
+      "missing_evidence": [
         "ea/_completion/fleet/JOURNEY_GATES.generated.json"
       ],
-      "missing_evidence": [],
       "design_notes": []
     },
     {
@@ -194,7 +196,24 @@
         "Public copy must not collapse this into a generic gold claim.",
         "public_origin_gold_status=blocked",
         "public-origin room/device audio intelligibility receipt with manual attestation",
-        "public origin is still deployed in EA_CORE mode instead of MEMORIAL mode"
+        "public-origin polished 3D-tour receipt with pinned PropertyQuarry authority, v5 browser interactions, deploy binding, and exact public bytes",
+        "public spatial-tour receipt: spatial_public_origin_schema_invalid",
+        "public spatial-tour receipt: spatial_public_origin_status_not_pass",
+        "public spatial-tour receipt: spatial_public_origin_generated_at_invalid",
+        "public spatial-tour receipt: spatial_public_origin_source_worktree_dirty",
+        "public spatial-tour receipt: spatial_public_origin_https_origin_invalid",
+        "public spatial-tour receipt: spatial_public_origin_runtime_revision_mismatch",
+        "public spatial-tour receipt: spatial_public_origin_slug_invalid",
+        "public spatial-tour receipt: spatial_public_origin_provider_boundary_invalid",
+        "public spatial-tour receipt: spatial_public_origin_gold_claim_invalid",
+        "public spatial-tour receipt: spatial_public_origin_checks_invalid",
+        "public spatial-tour receipt: spatial_public_origin_authority_invalid",
+        "public spatial-tour receipt: spatial_public_origin_package_invalid",
+        "public spatial-tour receipt: spatial_package_files_invalid",
+        "public spatial-tour receipt: spatial_public_origin_tour_manifest_mismatch",
+        "public spatial-tour receipt: spatial_candidate_browser_schema_invalid",
+        "public spatial-tour receipt: public_spatial_tour_schema_invalid",
+        "public spatial-tour receipt: spatial_public_origin_deploy_binding_invalid"
       ]
     },
     {
@@ -202,23 +221,37 @@
       "title": "Memorial Public-Origin Experience Gold",
       "owner_repo": "memorial runtime",
       "status": "blocked",
-      "claim": "The public memorial experience is gold only when the deployed public origin proves the voice roundtrip receipt, browser realtime playback with live STT, room/device intelligibility, and latency. Local release receipts do not satisfy this plane.",
+      "claim": "The public memorial experience is gold only when the deployed public origin proves voice, realtime playback, room/device intelligibility, latency, and the polished generated 3D tour through exact-byte public-origin and browser-interaction evidence. Local or candidate-only receipts do not satisfy this plane.",
       "evidence": [
         ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
         ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
         ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
-        ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json"
+        ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json"
       ],
       "missing_evidence": [
         "public-origin room/device audio intelligibility receipt with manual attestation",
-        "public origin is still deployed in EA_CORE mode instead of MEMORIAL mode"
+        "public-origin polished 3D-tour receipt with pinned PropertyQuarry authority, v5 browser interactions, deploy binding, and exact public bytes",
+        "public spatial-tour receipt: spatial_public_origin_schema_invalid",
+        "public spatial-tour receipt: spatial_public_origin_status_not_pass",
+        "public spatial-tour receipt: spatial_public_origin_generated_at_invalid",
+        "public spatial-tour receipt: spatial_public_origin_source_worktree_dirty",
+        "public spatial-tour receipt: spatial_public_origin_https_origin_invalid",
+        "public spatial-tour receipt: spatial_public_origin_runtime_revision_mismatch",
+        "public spatial-tour receipt: spatial_public_origin_slug_invalid",
+        "public spatial-tour receipt: spatial_public_origin_provider_boundary_invalid",
+        "public spatial-tour receipt: spatial_public_origin_gold_claim_invalid",
+        "public spatial-tour receipt: spatial_public_origin_checks_invalid",
+        "public spatial-tour receipt: spatial_public_origin_authority_invalid",
+        "public spatial-tour receipt: spatial_public_origin_package_invalid",
+        "public spatial-tour receipt: spatial_package_files_invalid",
+        "public spatial-tour receipt: spatial_public_origin_tour_manifest_mismatch",
+        "public spatial-tour receipt: spatial_candidate_browser_schema_invalid",
+        "public spatial-tour receipt: public_spatial_tour_schema_invalid",
+        "public spatial-tour receipt: spatial_public_origin_deploy_binding_invalid"
       ],
       "design_notes": [
         "Guest-facing copy must never say simply gold while this plane is blocked.",
-        "Use: Memorial public-origin gold: blocked.",
-        "public_runtime_mode=blocked",
-        "public_runtime_reason=public_origin_not_deployed_in_memorial_mode",
-        "public_runtime_next_action=deploy_ea_memorial"
+        "Use: Memorial public-origin gold: blocked."
       ]
     },
     {
@@ -349,12 +382,12 @@
     "contract_backed_check_count": 14
   },
   "required_next_receipts": [
-    "memorial public-origin deploy next action: deploy_ea_memorial",
     ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json is not pass",
     "weekly release_health=blocked: The EA flagship receipt is blocked by the current browser workflow proof or release evidence.",
     "weekly flagship_readiness=blocked: Browser workflow proof is currently blocked, so the flagship receipt cannot support wider release claims.",
     "weekly launch_readiness: Hold launch expansion pending browser execution proof and cross-host journey coverage.",
     ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json is not pass",
+    "ea/_completion/fleet/JOURNEY_GATES.generated.json",
     "canonical Chummer product/UI design review receipt from the owning design repo",
     "public/human-facing Chummer documentation humanization review receipt",
     "desktop/public surface visual polish acceptance receipt from the owning UI repo",
@@ -375,7 +408,24 @@
     "live_observation_missing",
     "video_sent_text_ack_without_delivery_receipt",
     "public-origin room/device audio intelligibility receipt with manual attestation",
-    "public origin is still deployed in EA_CORE mode instead of MEMORIAL mode",
+    "public-origin polished 3D-tour receipt with pinned PropertyQuarry authority, v5 browser interactions, deploy binding, and exact public bytes",
+    "public spatial-tour receipt: spatial_public_origin_schema_invalid",
+    "public spatial-tour receipt: spatial_public_origin_status_not_pass",
+    "public spatial-tour receipt: spatial_public_origin_generated_at_invalid",
+    "public spatial-tour receipt: spatial_public_origin_source_worktree_dirty",
+    "public spatial-tour receipt: spatial_public_origin_https_origin_invalid",
+    "public spatial-tour receipt: spatial_public_origin_runtime_revision_mismatch",
+    "public spatial-tour receipt: spatial_public_origin_slug_invalid",
+    "public spatial-tour receipt: spatial_public_origin_provider_boundary_invalid",
+    "public spatial-tour receipt: spatial_public_origin_gold_claim_invalid",
+    "public spatial-tour receipt: spatial_public_origin_checks_invalid",
+    "public spatial-tour receipt: spatial_public_origin_authority_invalid",
+    "public spatial-tour receipt: spatial_public_origin_package_invalid",
+    "public spatial-tour receipt: spatial_package_files_invalid",
+    "public spatial-tour receipt: spatial_public_origin_tour_manifest_mismatch",
+    "public spatial-tour receipt: spatial_candidate_browser_schema_invalid",
+    "public spatial-tour receipt: public_spatial_tour_schema_invalid",
+    "public spatial-tour receipt: spatial_public_origin_deploy_binding_invalid",
     "LTD provider lane check pending: fliplink_document_portal:first_publication_receipt",
     "LTD provider lane check pending: hedy_meeting_evidence:hedy_provider_capability",
     "LTD provider lane check pending: markupgo_fliplink_premium_delivery:markupgo_provider_proof",

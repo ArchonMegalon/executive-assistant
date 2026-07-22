@@ -28,10 +28,10 @@
 
 - [ ] `bash scripts/deploy.sh`
 - [ ] If first rollout or schema changes pending: `EA_BOOTSTRAP_DB=1 bash scripts/deploy.sh`
-- [ ] For the Manfred public memorial, use the API-only governed lane in `docs/MANFRED_MEMORIAL_SCOPED_DEPLOY_RUNBOOK.md`; do not use the mega-stack deployer to publish only the memorial.
+- [ ] For the Manfred public memorial, pass the source gate, isolated candidate and sealed spatial-browser proof, and non-mutating joint preflight, then use the coordinated API-and-ingress lane in `docs/MANFRED_MEMORIAL_JOINT_DEPLOY_RUNBOOK.md`; do not use the mega-stack deployer or standalone ingress reconciler.
 - [ ] Memorial deployment has a unique explicit `EA_DEPLOYMENT_ID`, an immutable revision-bound `EA_MEMORIAL_IMAGE`, a clean tracking release branch, a durable release root, and a private rollback receipt.
 - [ ] Memorial preflight proves the captured prior Compose topology still renders to the live API image, normalized environment/process identity, and mount digest under the stripped rollback environment.
-- [ ] `EA_MEMORIAL_CANDIDATE_RECEIPT` is a mode-`0600` passing runtime-v3 receipt bound to the exact image/revision and `EA_MEMORIAL_DATA_HOST_PATH`; its browser audit has zero provider work, WebSockets, failed requests, page errors, external requests, and same-origin HTTP errors.
+- [ ] `EA_MEMORIAL_CANDIDATE_RECEIPT` is a mode-`0600` passing runtime-v5 receipt bound to the exact image/revision, immutable memorial projection root/digest, isolated project/port locks, and `EA_MEMORIAL_DATA_HOST_PATH`; its browser audit has zero provider work, WebSockets, failed requests, page errors, external requests, and same-origin HTTP errors.
 - [ ] `EA_MEMORIAL_CONTROL_TOUR_SLUG` is set for any priority 3D tour that must survive promotion; OpenAPI remains a path superset and the tour's pre/post JSON digest is identical.
 
 ## Migrations

@@ -86,6 +86,8 @@ def _next_action_for_posture(posture: str, *, issues: list[str] | None = None) -
         return "Build from a clean committed tree before treating this runtime as release authority."
     if posture == "compose_topology_missing":
         return "Materialize the release manifest through the deploy path so the compose topology is recorded."
+    if posture == "source_not_remote":
+        return "Publish the exact commit to the declared upstream, refresh its local remote-tracking ref, then rematerialize release authority."
     if posture in {"watch", "verifier_error"}:
         return "Resolve release authority issues before using this runtime as the shipping source of truth."
     return "No action required."
@@ -130,6 +132,10 @@ def build_status(
             "branch": "",
             "tracking_branch": "",
             "commit_sha": "",
+            "source_remote_ref": "",
+            "source_remote_ref_commit_sha": "",
+            "source_remote_ref_evidence": "unavailable",
+            "source_commit_reachable_from_remote_ref": False,
             "deployment_id": "",
             "deployment_id_source": "",
             "public_origin": "",
@@ -154,6 +160,16 @@ def build_status(
     branch = str(manifest.get("branch") or "").strip()
     tracking_branch = str(manifest.get("tracking_branch") or "").strip()
     commit_sha = str(manifest.get("commit_sha") or "").strip()
+    source_remote_ref = str(manifest.get("source_remote_ref") or "").strip()
+    source_remote_ref_commit_sha = str(
+        manifest.get("source_remote_ref_commit_sha") or ""
+    ).strip()
+    source_remote_ref_evidence = str(
+        manifest.get("source_remote_ref_evidence") or ""
+    ).strip()
+    source_commit_reachable_from_remote_ref = (
+        manifest.get("source_commit_reachable_from_remote_ref") is True
+    )
     deployment_id = str(manifest.get("deployment_id") or "").strip()
     deployment_id_source = str(manifest.get("deployment_id_source") or "").strip()
     public_origin = str(manifest.get("public_origin") or "").strip()
@@ -208,6 +224,10 @@ def build_status(
         "branch": branch,
         "tracking_branch": tracking_branch,
         "commit_sha": commit_sha,
+        "source_remote_ref": source_remote_ref,
+        "source_remote_ref_commit_sha": source_remote_ref_commit_sha,
+        "source_remote_ref_evidence": source_remote_ref_evidence,
+        "source_commit_reachable_from_remote_ref": source_commit_reachable_from_remote_ref,
         "deployment_id": deployment_id,
         "deployment_id_source": deployment_id_source,
         "public_origin": public_origin,
@@ -248,6 +268,10 @@ def build_status(
         "branch": branch,
         "tracking_branch": tracking_branch,
         "commit_sha": commit_sha,
+        "source_remote_ref": source_remote_ref,
+        "source_remote_ref_commit_sha": source_remote_ref_commit_sha,
+        "source_remote_ref_evidence": source_remote_ref_evidence,
+        "source_commit_reachable_from_remote_ref": source_commit_reachable_from_remote_ref,
         "dirty_worktree": bool(manifest.get("dirty_worktree")),
         "source_worktree_dirty": bool(manifest.get("source_worktree_dirty", manifest.get("dirty_worktree"))),
         "source_dirty_count": int(manifest.get("source_dirty_count") or 0),

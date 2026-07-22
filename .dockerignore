@@ -39,3 +39,8 @@ memorial_archive/**
 !.env.example
 config/*client_secret*.json
 config/*oauth*secret*.json
+config/vocallab_*
+config/vocallab_api_key
+config/vocallab_credential_rotation_authority.local.json
+config/vocallab_verification_hmac_key
+config/vocallab_voice_catalog.local.json

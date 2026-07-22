@@ -244,6 +244,10 @@ def verify(path: Path = DEFAULT_RECEIPT, *, now: datetime | None = None) -> list
     human_claim_allowed = (
         receipt.get("human_playback_acceptance_claim_allowed") is True
     )
+    real_user_verified = (
+        receipt.get("real_user_playback_acceptance_verified") is True
+    )
+    canary_claim_allowed = receipt.get("canary_completion_claim_allowed") is True
     for field in (
         "live_delivery_claim_allowed",
         "fresh_live_job_receipt_proven",
@@ -296,6 +300,14 @@ def verify(path: Path = DEFAULT_RECEIPT, *, now: datetime | None = None) -> list
                 f"human_playback_acceptance_evidence.{field} must be a boolean"
             )
     human_status = str(human_evidence.get("status") or "").strip()
+    human_evidence_accepted = human_evidence.get("accepted") is True
+    accepted_relation_complete = bool(
+        human_evidence_accepted
+        and human_evidence.get("claim_allowed") is True
+        and human_claim_allowed
+        and real_user_verified
+        and canary_claim_allowed
+    )
     rejected_claim_observed = human_evidence.get("rejected_claim_observed") is True
     feedback_sha256_valid = human_evidence.get("feedback_sha256_valid") is True
     operator_grade_rejected = (
@@ -314,6 +326,17 @@ def verify(path: Path = DEFAULT_RECEIPT, *, now: datetime | None = None) -> list
         issues.append("human_playback_acceptance_evidence.status must be accepted, rejected, not_human_verified, or legacy_non_complete")
     if human_claim_allowed != (human_evidence.get("claim_allowed") is True):
         issues.append("human_playback_acceptance_claim_allowed must match human evidence claim_allowed")
+    if human_status == "accepted" and not accepted_relation_complete:
+        issues.append(
+            "accepted human evidence requires accepted=true and human, real-user, and canary claims"
+        )
+        issues.append(
+            "incomplete human acceptance evidence must use legacy_non_complete or not_human_verified status"
+        )
+    elif human_status != "accepted" and human_evidence_accepted:
+        issues.append(
+            "human_playback_acceptance_evidence.accepted=true requires status=accepted"
+        )
     if proof_semantics.get("live_delivery_claim_scope") != claim_scope:
         issues.append("proof_semantics.live_delivery_claim_scope must match live_delivery_claim_scope")
     if proof_semantics.get("human_acceptance_evidence") != human_status:

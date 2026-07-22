@@ -201,8 +201,16 @@ def test_manfred_image_build_passes_and_records_exact_source_revision(
         return subprocess.CompletedProcess(argv, 0, stdout=rendered, stderr=b"")
 
     monkeypatch.setattr(builder, "_materialize_tracked_context", materialize_context)
-    monkeypatch.setattr(builder, "_require_root_disk_capacity", lambda: None)
+    monkeypatch.setattr(
+        builder,
+        "_root_free_bytes",
+        lambda: builder.MINIMUM_ROOT_FREE_BYTES,
+    )
     monkeypatch.setattr(builder, "_run", record_run)
+    monkeypatch.setattr(builder, "_ensure_dedicated_builder", lambda: False)
+    monkeypatch.setattr(builder, "_prune_dedicated_builder_cache", lambda: None)
+    listed_image_ids = iter((None, image_id, image_id))
+    monkeypatch.setattr(builder, "_listed_image_id", lambda _tag: next(listed_image_ids))
     monkeypatch.setattr(
         builder,
         "_image_inspection",
@@ -227,7 +235,7 @@ def test_manfred_image_build_passes_and_records_exact_source_revision(
     )
     build_arg_index = build_command.index("--build-arg")
     assert build_command[build_arg_index + 1] == f"EA_SOURCE_REVISION={commit}"
-    assert receipt["schema"] == "ea.manfred_memorial_image_build.v2"
+    assert receipt["schema"] == "ea.manfred_memorial_image_build.v3"
     assert receipt["runtime_source_revision"] == commit
 
 
@@ -359,4 +367,4 @@ def test_candidate_runtime_revision_probe_reads_image_bound_header(monkeypatch) 
         candidate._candidate_runtime_source_revision("http://127.0.0.1:18090")
         == revision
     )
-    assert candidate.RECEIPT_SCHEMA == "ea.manfred_memorial_candidate_runtime.v2"
+    assert candidate.RECEIPT_SCHEMA == "ea.manfred_memorial_candidate_runtime.v5"

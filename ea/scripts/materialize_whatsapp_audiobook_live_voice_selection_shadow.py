@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import inspect
 from contextlib import contextmanager
 from datetime import UTC, datetime
 import hashlib
@@ -265,9 +266,15 @@ def _run_shadow_text_fallback_proof(shadow_job_dir: Path) -> dict[str, object]:
         )
         or ""
     ).strip()
-    source = (ROOT / "scripts" / "process_whatsapp_web_session_actions.py").read_text(encoding="utf-8")
-    prompt_mentions_fallback = (
-        "If the buttons do not work, reply 'use " in source and "'dismiss all'" in source
+    source = inspect.getsource(processor._send_whatsapp_voice_samples)  # type: ignore[attr-defined]
+    prompt_mentions_fallback = all(
+        marker in source
+        for marker in (
+            "If the buttons do not work",
+            "'use {",
+            "use automatic cast",
+            "dismiss all",
+        )
     )
     status = (
         "pass"

@@ -61,7 +61,6 @@ from app.services.memorial_openvoice import (
     voicewave_plugin_option,
     voicewave_synthesize_request,
 )
-from app.services.public_clickrank import clickrank_head_snippet, request_hostname
 from app.services.responses_upstream import ResponsesUpstreamError, generate_text
 from app.domain.memorial.turns import MemorialTurnRequest
 from app.services.memorial_turn_service import build_public_memorial_turn
@@ -74,8 +73,14 @@ from app.services.memorial_memory import (
     retrieve_memorial_memory_items,
     seed_memorial_source_memories,
 )
-from app.services.memorial_private_context import merge_private_memorial_context
-from app.services.memorial_archive_registry import archive_slug_root, load_json as load_archive_json
+from app.services.memorial_private_context import (
+    merge_private_memorial_context,
+    public_memorial_projection_source,
+)
+from app.services.memorial_archive_registry import archive_slug_root
+from app.services.memorial_archive_registry import (
+    load_json_with_sha256 as load_archive_json_with_sha256,
+)
 from app.services.memorial_archive_registry import public_registry_path, public_registry_payload
 from app.services.memorial_video_meeting import (
     create_video_meeting_session,
@@ -150,6 +155,15 @@ _TTS_PLUGIN_DEFAULT_ID = UNMIXR_TTS_PLUGIN_ID
 _LEGACY_ELEVENLABS_TTS_PLUGIN_ID = "elevenlabs_memorial_voice_clone"
 _TTS_MAX_CLONE_FILES = 3
 _TTS_MAX_TEXT_LEN = 3000
+_TRUSTED_VOICE_ENV_PLACEHOLDERS = frozenset(
+    {
+        "EA_MEMORIAL_MANFRED_VOICE_A_ID",
+        "EA_MEMORIAL_MANFRED_VOICE_B_ID",
+        "OPENVOICE_MEMORIAL_VOICE_ID",
+        "UNMIXR_VOICE_ID",
+        "VOICEWAVE_MEMORIAL_VOICE_LABEL",
+    }
+)
 _PERSONAL_MEMORY_MAX_ITEMS = 24
 _VOICE_AB_AUTO_SWAP_MARGIN = 3
 _VOICE_AB_AUTO_SWAP_MIN_TOTAL = 4
@@ -203,6 +217,9 @@ _MEMORIAL_GEMINI_LIVE_VOICE = "Kore"
 _GEMINI_CLI_OAUTH_CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
 _MEMORIAL_GEMINI_OAUTH_FAILURE_COOLDOWN_SECONDS = 600
 _MEMORIAL_LIVE_WARMUP_TTL_SECONDS = 600
+_MEMORIAL_LIVE_WARMUP_MAX_CONCURRENCY_DEFAULT = 2
+_MEMORIAL_LIVE_WARMUP_FAILURE_BACKOFF_SECONDS_DEFAULT = 30.0
+_MEMORIAL_LIVE_WARMUP_STALE_SECONDS_DEFAULT = 120.0
 _MEMORIAL_VOICE_PREWARM_STALE_SECONDS = 150.0
 _MEMORIAL_REALTIME_LLM_TIMEOUT_SECONDS = 8.0
 _MEMORIAL_CONVERSATION_TURN_LLM_TIMEOUT_SECONDS = 10.0
@@ -246,9 +263,16 @@ _VOICE_AB_DIMENSION_DEFS: tuple[dict[str, str], ...] = (
 )
 _VOICE_AB_DIMENSION_KEYS = tuple(item["id"] for item in _VOICE_AB_DIMENSION_DEFS)
 _PUBLIC_MEMORIAL_RATE_DB_LOCK = threading.Lock()
+_PUBLIC_MEMORIAL_RATE_MEMORY_LOCK = threading.Lock()
+_PUBLIC_MEMORIAL_RATE_MEMORY_EVENTS: dict[str, list[float]] = {}
+_PUBLIC_MEMORIAL_RATE_MEMORY_MAX_KEYS = 4096
+_PUBLIC_MEMORIAL_REDIS_RATE_EXECUTION_LOCK = threading.Lock()
 _PUBLIC_MEMORIAL_RATE_BACKEND_CACHE: str | None = None
 _MEMORIAL_LIVE_WARMUP_STATE: dict[str, dict[str, object]] = {}
 _MEMORIAL_LIVE_WARMUP_LOCK = threading.Lock()
+_MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS: set[str] = set()
+_MEMORIAL_LIVE_WARMUP_RESERVATION_SEQUENCE = 0
+_MEMORIAL_VOICE_PREWARM_RESERVATION_SEQUENCE = 0
 _MEMORIAL_RUNTIME_READINESS_CACHE_TTL_SECONDS_DEFAULT = 2.0
 _MEMORIAL_RUNTIME_READINESS_CACHE_STATE: dict[str, dict[str, object]] = {}
 _MEMORIAL_RUNTIME_READINESS_CACHE_LOCK = threading.Lock()
@@ -481,25 +505,245 @@ def _cookie_value_from_header(raw_cookie_header: object, name: str) -> str:
     return str(morsel.value or "").strip() if morsel else ""
 
 
+def _configured_memorial_https_origin() -> tuple[str, str] | None:
+    raw = str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = urllib.parse.urlsplit(raw)
+        port = parsed.port
+    except (TypeError, ValueError):
+        return None
+    hostname = str(parsed.hostname or "").strip().rstrip(".").lower()
+    if (
+        parsed.scheme.lower() != "https"
+        or not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in {"", "/"}
+    ):
+        return None
+    authority = f"[{hostname}]" if ":" in hostname else hostname
+    if port is not None and port != 443:
+        authority = f"{authority}:{port}"
+    return hostname, f"https://{authority}"
+
+
+def _single_memorial_request_header(request: Request, name: str) -> tuple[bool, str]:
+    values = request.headers.getlist(name)
+    if not values:
+        return False, ""
+    if len(values) != 1:
+        return True, ""
+    value = str(values[0] or "").strip()
+    if not value or any(ord(character) < 32 or ord(character) == 127 for character in value):
+        return True, ""
+    return True, value
+
+
+def _memorial_authority(value: object) -> tuple[str, int | None] | None:
+    raw = str(value or "").strip()
+    if (
+        not raw
+        or any(character in raw for character in ("@", "/", "\\", "?", "#", ","))
+        or any(ord(character) < 33 or ord(character) == 127 for character in raw)
+    ):
+        return None
+    try:
+        parsed = urllib.parse.urlsplit(f"//{raw}")
+        port = parsed.port
+    except (TypeError, ValueError):
+        return None
+    hostname = str(parsed.hostname or "").strip().rstrip(".").lower()
+    if not hostname or parsed.username is not None or parsed.password is not None:
+        return None
+    return hostname, port
+
+
+def _memorial_authority_matches_configured(value: object) -> bool:
+    configured = _configured_memorial_https_origin()
+    authority = _memorial_authority(value)
+    if configured is None or authority is None:
+        return False
+    configured_url = urllib.parse.urlsplit(configured[1])
+    expected_port = configured_url.port or 443
+    hostname, port = authority
+    return hostname == configured[0] and (port or 443) == expected_port
+
+
+def _request_matches_configured_memorial_host(request: Request) -> bool:
+    present, raw_host = _single_memorial_request_header(request, "host")
+    if not present:
+        return False
+    return _memorial_authority_matches_configured(raw_host)
+
+
+def _request_is_isolated_memorial_candidate_loopback(request: Request) -> bool:
+    project = str(os.getenv("EA_MANFRED_COMPOSE_PROJECT") or "").strip().lower()
+    expected_port_raw = str(os.getenv("EA_MANFRED_HOST_PORT") or "").strip()
+    if not project.startswith("ea-manfred-candidate-") or not expected_port_raw.isdigit():
+        return False
+    expected_port = int(expected_port_raw)
+    if expected_port < 1 or expected_port > 65535:
+        return False
+    present, raw_host = _single_memorial_request_header(request, "host")
+    if not present:
+        return False
+    authority = _memorial_authority(raw_host)
+    if authority is None:
+        return False
+    hostname, port = authority
+    return hostname in {"127.0.0.1", "localhost", "::1"} and port == expected_port
+
+
+def _forwarded_header_parameters(request: Request) -> tuple[bool, dict[str, str] | None]:
+    present, forwarded = _single_memorial_request_header(request, "forwarded")
+    if not present:
+        return False, {}
+    if not forwarded or "," in forwarded:
+        return True, None
+    forwarded_values: dict[str, str] = {}
+    for raw_part in forwarded.split(";"):
+        part = raw_part.strip()
+        if not part or "=" not in part:
+            return True, None
+        key, raw_value = part.split("=", 1)
+        key = key.strip().lower()
+        value = raw_value.strip()
+        if not key or key in forwarded_values:
+            return True, None
+        if value.startswith('"') or value.endswith('"'):
+            if len(value) < 2 or not (value.startswith('"') and value.endswith('"')):
+                return True, None
+            value = value[1:-1]
+        if not value or any(ord(character) < 33 or ord(character) == 127 for character in value):
+            return True, None
+        forwarded_values[key] = value
+    return True, forwarded_values
+
+
+def _forwarded_transport_scheme(request: Request) -> str:
+    schemes: list[str] = []
+
+    forwarded_proto_present, forwarded_proto = _single_memorial_request_header(request, "x-forwarded-proto")
+    forwarded_proto = forwarded_proto.lower()
+    if forwarded_proto_present:
+        if "," in forwarded_proto or forwarded_proto not in {"http", "https"}:
+            return ""
+        schemes.append(forwarded_proto)
+
+    cf_visitor_present, cf_visitor = _single_memorial_request_header(request, "cf-visitor")
+    if cf_visitor_present:
+        try:
+            parsed_cf_visitor = json.loads(cf_visitor)
+        except (TypeError, ValueError):
+            return ""
+        if not isinstance(parsed_cf_visitor, dict):
+            return ""
+        cf_scheme = str(parsed_cf_visitor.get("scheme") or "").strip().lower()
+        if cf_scheme not in {"http", "https"}:
+            return ""
+        schemes.append(cf_scheme)
+
+    forwarded_present, forwarded_values = _forwarded_header_parameters(request)
+    if forwarded_present:
+        if forwarded_values is None:
+            return ""
+        forwarded_scheme = forwarded_values.get("proto", "").lower()
+        if forwarded_scheme not in {"http", "https"}:
+            return ""
+        schemes.append(forwarded_scheme)
+
+    if not schemes or len(set(schemes)) != 1:
+        return ""
+    return schemes[0]
+
+
+def _memorial_transport_rejection(request: Request) -> Response | None:
+    if _configured_memorial_https_origin() is None:
+        return None
+
+    configured_host = _request_matches_configured_memorial_host(request)
+    candidate_loopback = _request_is_isolated_memorial_candidate_loopback(request)
+    if not configured_host and not candidate_loopback:
+        return Response(
+            status_code=421,
+            headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
+        )
+
+    proxy_header_names = ("x-forwarded-proto", "cf-visitor", "forwarded", "x-forwarded-host")
+    proxy_headers_present = any(request.headers.getlist(name) for name in proxy_header_names)
+    if candidate_loopback and proxy_headers_present:
+        return Response(
+            status_code=400,
+            headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
+        )
+
+    forwarded_present, forwarded_values = _forwarded_header_parameters(request)
+    if forwarded_present and forwarded_values is None:
+        return Response(
+            status_code=400,
+            headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
+        )
+
+    forwarded_host_present, forwarded_host = _single_memorial_request_header(request, "x-forwarded-host")
+    if forwarded_host_present and not _memorial_authority_matches_configured(forwarded_host):
+        return Response(
+            status_code=421,
+            headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
+        )
+    if forwarded_values and forwarded_values.get("host") and not _memorial_authority_matches_configured(
+        forwarded_values["host"]
+    ):
+        return Response(
+            status_code=421,
+            headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
+        )
+
+    if str(request.url.scheme or "").strip().lower() == "https":
+        return None
+
+    scheme_headers_present = any(
+        request.headers.getlist(name) for name in ("x-forwarded-proto", "cf-visitor", "forwarded")
+    )
+    if scheme_headers_present and not _forwarded_transport_scheme(request):
+        return Response(
+            status_code=400,
+            headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
+        )
+    return None
+
+
 def _request_uses_https(request: Request) -> bool:
     if str(request.url.scheme).strip().lower() == "https":
         return True
-    if not trust_forwarded_ip():
+    if not trust_forwarded_ip() and not _request_matches_configured_memorial_host(request):
         return False
-    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip().lower()
-    if forwarded_proto:
-        first_proto = forwarded_proto.split(",", 1)[0].strip()
-        if first_proto == "https":
-            return True
-    cf_visitor = str(request.headers.get("cf-visitor") or "").strip()
-    if cf_visitor:
-        try:
-            parsed = json.loads(cf_visitor)
-        except Exception:
-            parsed = {}
-        if str((parsed or {}).get("scheme") or "").strip().lower() == "https":
-            return True
-    return False
+    return _forwarded_transport_scheme(request) == "https"
+
+
+def _memorial_https_redirect(request: Request) -> RedirectResponse | None:
+    configured = _configured_memorial_https_origin()
+    if configured is None or not _request_matches_configured_memorial_host(request):
+        return None
+    if _request_uses_https(request):
+        return None
+    path = str(request.url.path or "")
+    query = str(request.url.query or "")
+    target = f"{configured[1]}{path}"
+    if query:
+        target = f"{target}?{query}"
+    if any(ord(character) < 32 or ord(character) == 127 for character in target):
+        return None
+    return RedirectResponse(url=target, status_code=308)
+
+
+def _apply_memorial_transport_security(response: Response, request: Request) -> Response:
+    if _request_uses_https(request):
+        response.headers["Strict-Transport-Security"] = "max-age=31536000"
+    return response
 
 
 def _ensure_memorial_guest_cookie(response: Response, request: Request, *, slug: str) -> None:
@@ -549,9 +793,77 @@ def _enforce_public_memorial_rate_limit(
     now = datetime.now(timezone.utc).timestamp()
     cutoff = now - float(window_seconds)
     backend = _public_memorial_rate_backend()
+    if backend == "memory":
+        _enforce_public_memorial_rate_limit_memory(
+            bucket_key=bucket_key,
+            now=now,
+            cutoff=cutoff,
+            limit=limit,
+        )
+        return
     if backend == "redis":
-        if _enforce_public_memorial_rate_limit_redis(bucket_key=bucket_key, now=now, cutoff=cutoff, limit=limit, window_seconds=window_seconds):
-            return
+        # Keep a process-local reservation even when the distributed backend is
+        # unavailable. This makes the bounded Redis fallback conservative rather
+        # than admitting an uncounted request.
+        _enforce_public_memorial_rate_limit_memory(
+            bucket_key=bucket_key,
+            now=now,
+            cutoff=cutoff,
+            limit=limit,
+        )
+        _enforce_public_memorial_rate_limit_redis(
+            bucket_key=bucket_key,
+            now=now,
+            cutoff=cutoff,
+            limit=limit,
+            window_seconds=window_seconds,
+        )
+        return
+    _enforce_public_memorial_rate_limit_sqlite(
+        bucket_key=bucket_key,
+        now=now,
+        cutoff=cutoff,
+        limit=limit,
+    )
+
+
+def _enforce_public_memorial_rate_limit_memory(
+    *,
+    bucket_key: str,
+    now: float,
+    cutoff: float,
+    limit: int,
+) -> None:
+    with _PUBLIC_MEMORIAL_RATE_MEMORY_LOCK:
+        events = [
+            created_at
+            for created_at in _PUBLIC_MEMORIAL_RATE_MEMORY_EVENTS.get(bucket_key, [])
+            if created_at >= cutoff
+        ]
+        if len(events) >= limit:
+            raise HTTPException(status_code=429, detail="memorial_rate_limited")
+        if bucket_key not in _PUBLIC_MEMORIAL_RATE_MEMORY_EVENTS:
+            stale_cutoff = now - 120.0
+            stale_keys = [
+                key
+                for key, timestamps in _PUBLIC_MEMORIAL_RATE_MEMORY_EVENTS.items()
+                if not timestamps or timestamps[-1] < stale_cutoff
+            ]
+            for key in stale_keys:
+                _PUBLIC_MEMORIAL_RATE_MEMORY_EVENTS.pop(key, None)
+            if len(_PUBLIC_MEMORIAL_RATE_MEMORY_EVENTS) >= _PUBLIC_MEMORIAL_RATE_MEMORY_MAX_KEYS:
+                raise HTTPException(status_code=429, detail="memorial_rate_limited")
+        events.append(now)
+        _PUBLIC_MEMORIAL_RATE_MEMORY_EVENTS[bucket_key] = events
+
+
+def _enforce_public_memorial_rate_limit_sqlite(
+    *,
+    bucket_key: str,
+    now: float,
+    cutoff: float,
+    limit: int,
+) -> None:
     _PUBLIC_MEMORIAL_RATE_DB.parent.mkdir(parents=True, exist_ok=True)
     with _PUBLIC_MEMORIAL_RATE_DB_LOCK:
         connection = sqlite3.connect(str(_PUBLIC_MEMORIAL_RATE_DB), timeout=5)
@@ -581,11 +893,17 @@ def _public_memorial_rate_backend() -> str:
     global _PUBLIC_MEMORIAL_RATE_BACKEND_CACHE
     if _PUBLIC_MEMORIAL_RATE_BACKEND_CACHE:
         return _PUBLIC_MEMORIAL_RATE_BACKEND_CACHE
-    if is_prod_mode(get_settings().runtime.mode):
-        configured = _text(os.getenv("EA_PUBLIC_MEMORIAL_RATE_BACKEND"), "").lower()
+    production_mode = is_prod_mode(get_settings().runtime.mode)
+    configured = _text(os.getenv("EA_PUBLIC_MEMORIAL_RATE_BACKEND"), "").lower()
+    if production_mode:
         if configured != "redis" or not _text(os.getenv("EA_PUBLIC_MEMORIAL_REDIS_URL"), ""):
             raise RuntimeError("public memorial production requires Redis rate limiting")
-    configured = _text(os.getenv("EA_PUBLIC_MEMORIAL_RATE_BACKEND"), "").lower()
+    if not production_mode and (
+        configured == "memory"
+        or _text(os.getenv("EA_STORAGE_BACKEND"), "").lower() == "memory"
+    ):
+        _PUBLIC_MEMORIAL_RATE_BACKEND_CACHE = "memory"
+        return _PUBLIC_MEMORIAL_RATE_BACKEND_CACHE
     if configured == "redis":
         try:
             import importlib.util
@@ -607,9 +925,63 @@ def _public_memorial_redis_client():
     try:
         import redis
 
-        return redis.Redis.from_url(redis_url, decode_responses=True)
+        timeout_seconds = _public_memorial_redis_operation_timeout_seconds()
+        return redis.Redis.from_url(
+            redis_url,
+            decode_responses=True,
+            retry_on_timeout=False,
+            socket_connect_timeout=timeout_seconds,
+            socket_timeout=timeout_seconds,
+        )
     except Exception:
         return None
+
+
+def _public_memorial_redis_operation_timeout_seconds() -> float:
+    raw = _text(os.getenv("EA_PUBLIC_MEMORIAL_REDIS_OPERATION_TIMEOUT_SECONDS"), "")
+    try:
+        configured = float(raw) if raw else 0.25
+    except (TypeError, ValueError):
+        configured = 0.25
+    return max(0.05, min(configured, 1.0))
+
+
+def _execute_public_memorial_rate_limit_redis(
+    *,
+    client: object,
+    bucket_key: str,
+    now: float,
+    cutoff: float,
+    limit: int,
+    window_seconds: int,
+) -> bool:
+    redis_key = f"memorial-rate:{bucket_key}"
+    member = f"{now}:{uuid.uuid4().hex}"
+    reservation_script = """
+local key = KEYS[1]
+redis.call('ZREMRANGEBYSCORE', key, '-inf', ARGV[1])
+local count = redis.call('ZCARD', key)
+if count >= tonumber(ARGV[4]) then
+    redis.call('EXPIRE', key, tonumber(ARGV[5]))
+    return 0
+end
+redis.call('ZADD', key, ARGV[2], ARGV[3])
+redis.call('EXPIRE', key, tonumber(ARGV[5]))
+return 1
+""".strip()
+    allowed = client.eval(
+        reservation_script,
+        1,
+        redis_key,
+        cutoff,
+        now,
+        member,
+        limit,
+        max(window_seconds * 2, 120),
+    )
+    if int(allowed or 0) != 1:
+        raise HTTPException(status_code=429, detail="memorial_rate_limited")
+    return True
 
 
 def _enforce_public_memorial_rate_limit_redis(
@@ -623,25 +995,45 @@ def _enforce_public_memorial_rate_limit_redis(
     client = _public_memorial_redis_client()
     if client is None:
         return False
-    redis_key = f"memorial-rate:{bucket_key}"
-    member = f"{now}:{uuid.uuid4().hex}"
-    try:
-        pipeline = client.pipeline()
-        pipeline.zremrangebyscore(redis_key, 0, cutoff)
-        pipeline.zcard(redis_key)
-        pipeline.expire(redis_key, max(window_seconds * 2, 120))
-        _, count, _ = pipeline.execute()
-        if int(count or 0) >= limit:
-            raise HTTPException(status_code=429, detail="memorial_rate_limited")
-        pipeline = client.pipeline()
-        pipeline.zadd(redis_key, {member: now})
-        pipeline.expire(redis_key, max(window_seconds * 2, 120))
-        pipeline.execute()
-        return True
-    except HTTPException:
-        raise
-    except Exception:
+    if not _PUBLIC_MEMORIAL_REDIS_RATE_EXECUTION_LOCK.acquire(blocking=False):
         return False
+
+    completed = threading.Event()
+    result: dict[str, object] = {"allowed": False}
+
+    def _run() -> None:
+        try:
+            result["allowed"] = _execute_public_memorial_rate_limit_redis(
+                client=client,
+                bucket_key=bucket_key,
+                now=now,
+                cutoff=cutoff,
+                limit=limit,
+                window_seconds=window_seconds,
+            )
+        except Exception as exc:
+            result["error"] = exc
+        finally:
+            _PUBLIC_MEMORIAL_REDIS_RATE_EXECUTION_LOCK.release()
+            completed.set()
+
+    try:
+        worker = threading.Thread(
+            target=_run,
+            name="ea-public-memorial-rate-redis",
+            daemon=True,
+        )
+        worker.start()
+    except Exception:
+        _PUBLIC_MEMORIAL_REDIS_RATE_EXECUTION_LOCK.release()
+        return False
+
+    if not completed.wait(timeout=_public_memorial_redis_operation_timeout_seconds()):
+        return False
+    error = result.get("error")
+    if isinstance(error, HTTPException):
+        raise error
+    return bool(result.get("allowed"))
 
 
 def _memorial_personal_memory_path(*, slug: str, scope: str) -> Path:
@@ -820,8 +1212,9 @@ def _public_list(items: object, *, allowed_keys: set[str]) -> list[dict[str, obj
 
 
 def _public_memorial_payload(payload: dict[str, object]) -> dict[str, object]:
+    public_source = public_memorial_projection_source(payload)
     return _support_public_memorial_payload(
-        payload,
+        public_source,
         safe_json_keys=_PUBLIC_MEMORIAL_SAFE_JSON_KEYS,
         text=_text,
         story_text=_public_memorial_story_text,
@@ -2738,7 +3131,7 @@ def _require_public_memorial_write_access(*, slug: str, request: Request, memori
 
 def _asset_file(slug: str, asset_path: str) -> Path:
     bundle_dir = _memorial_bundle(slug)
-    payload = _load_memorial(slug)
+    payload = public_memorial_projection_source(_load_memorial(slug))
     candidate = (bundle_dir / str(asset_path or "")).resolve()
     if candidate != bundle_dir.resolve() and bundle_dir.resolve() not in candidate.parents:
         raise HTTPException(status_code=404, detail="memorial_file_not_found")
@@ -2825,6 +3218,7 @@ def _memorial_video_call_avatar_fallback_html(video_call_avatar: dict[str, objec
         <div class="hero-portrait-line" id="memorial-video-call-avatar-fallback" style="margin-top: 14px; max-width: 520px;">
           <strong>{provider_html}</strong>
           <span id="memorial-video-call-avatar-detail">{detail_html}</span>
+          <span>Gleich kannst du mit mir reden.</span>
         </div>"""
 
 
@@ -2860,6 +3254,19 @@ def _content_length_or_zero(request: Request) -> int:
 def _text(value: object, fallback: str = "") -> str:
     normalized = str(value or "").strip()
     return normalized or fallback
+
+
+def _json_for_html_script(value: object) -> str:
+    """Serialize JSON without permitting an inline-script breakout."""
+
+    return (
+        json.dumps(value, ensure_ascii=False)
+        .replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
 
 
 def _list_of_dicts(value: object) -> list[dict[str, object]]:
@@ -3274,12 +3681,28 @@ def _safe_tts_plugin_id(value: object) -> str:
     return normalized
 
 
+def _voice_config_identifier_has_runtime_reference(value: object) -> bool:
+    raw = str(value or "").strip()
+    if not raw:
+        return False
+    lowered = raw.lower()
+    return "$" in raw or bool(
+        re.search(
+            r"(?:^|[^a-z0-9_])(?:env|environment|os\.environ)\s*(?::|//|\.|\[|\()",
+            lowered,
+        )
+    )
+
+
 def _runtime_secret_placeholder(value: object) -> str:
     raw = str(value or "").strip()
     match = re.fullmatch(r"\$\{([A-Z0-9_]+)\}", raw)
     if not match:
-        return raw
-    return str(os.environ.get(match.group(1)) or "").strip()
+        return "" if _voice_config_identifier_has_runtime_reference(raw) else raw
+    env_name = match.group(1)
+    if env_name not in _TRUSTED_VOICE_ENV_PLACEHOLDERS:
+        return ""
+    return str(os.environ.get(env_name) or "").strip()
 
 
 def _tts_plugin_options(*, payload: dict[str, object], voice_profile_ready: bool) -> list[dict[str, object]]:
@@ -3687,7 +4110,12 @@ def _compact_public_facts(payload: dict[str, object]) -> list[str]:
     return facts[:8]
 
 
-def _save_voice_config_payload(slug: str, payload: dict[str, object]) -> None:
+def _save_voice_config_payload(
+    slug: str,
+    payload: dict[str, object],
+    *,
+    trusted_clone_activation: bool = False,
+) -> None:
     _support_save_voice_config_payload(
         slug,
         payload,
@@ -3701,6 +4129,7 @@ def _save_voice_config_payload(slug: str, payload: dict[str, object]) -> None:
         tts_plugin_default_id=_TTS_PLUGIN_DEFAULT_ID,
         voice_config_path=_voice_config_path,
         write_json_atomic=_write_json_atomic,
+        trusted_clone_activation=trusted_clone_activation,
     )
 
 
@@ -3723,21 +4152,40 @@ def _collect_memorial_public_audio_paths(payload: dict[str, object], slug: str) 
     return paths
 
 
-def _load_memorial_archive_registry(slug: str) -> dict[str, object]:
+def _empty_memorial_archive_registry(slug: str) -> dict[str, object]:
+    return {
+        "slug": _safe_slug(slug),
+        "generated_at": "",
+        "archive_sections": [],
+        "fliplink_publications": [],
+    }
+
+
+def _load_memorial_archive_registry_with_digest(
+    slug: str,
+) -> tuple[dict[str, object], str]:
     path = public_registry_path(slug, generated=False)
     if not path.is_file():
-        return {"slug": _safe_slug(slug), "generated_at": "", "archive_sections": [], "fliplink_publications": []}
+        return _empty_memorial_archive_registry(slug), ""
     try:
-        payload = load_archive_json(path)
+        payload, digest = load_archive_json_with_sha256(path)
     except Exception:
-        return {"slug": _safe_slug(slug), "generated_at": "", "archive_sections": [], "fliplink_publications": []}
+        return _empty_memorial_archive_registry(slug), ""
     if not isinstance(payload, dict):
-        return {"slug": _safe_slug(slug), "generated_at": "", "archive_sections": [], "fliplink_publications": []}
-    return payload
+        return _empty_memorial_archive_registry(slug), ""
+    return payload, digest
 
 
-def _public_memorial_archive_registry(slug: str) -> dict[str, object]:
-    registry = public_registry_payload(_load_memorial_archive_registry(slug))
+def _load_memorial_archive_registry(slug: str) -> dict[str, object]:
+    registry, _digest = _load_memorial_archive_registry_with_digest(slug)
+    return registry
+
+
+def _public_memorial_archive_registry_with_digest(
+    slug: str,
+) -> tuple[dict[str, object], str]:
+    loaded_registry, digest = _load_memorial_archive_registry_with_digest(slug)
+    registry = public_registry_payload(loaded_registry)
     if not _text(registry.get("slug"), ""):
         registry["slug"] = _safe_slug(slug)
     publications: list[dict[str, object]] = []
@@ -3750,6 +4198,11 @@ def _public_memorial_archive_registry(slug: str) -> dict[str, object]:
             normalized["url"] = f"/memorials/{_safe_slug(slug)}/archive/{publication_slug}"
         publications.append(normalized)
     registry["fliplink_publications"] = publications
+    return registry, digest
+
+
+def _public_memorial_archive_registry(slug: str) -> dict[str, object]:
+    registry, _digest = _public_memorial_archive_registry_with_digest(slug)
     return registry
 
 
@@ -7527,6 +7980,64 @@ def _memorial_voice_prewarm_stale_seconds() -> float:
     return max(5.0, min(600.0, value))
 
 
+def _memorial_live_warmup_max_concurrency() -> int:
+    raw = str(os.getenv("EA_MEMORIAL_LIVE_WARMUP_MAX_CONCURRENCY") or "").strip()
+    try:
+        value = int(raw or str(_MEMORIAL_LIVE_WARMUP_MAX_CONCURRENCY_DEFAULT))
+    except ValueError:
+        value = _MEMORIAL_LIVE_WARMUP_MAX_CONCURRENCY_DEFAULT
+    return max(1, min(8, value))
+
+
+def _memorial_live_warmup_failure_backoff_seconds() -> float:
+    raw = str(os.getenv("EA_MEMORIAL_LIVE_WARMUP_FAILURE_BACKOFF_SECONDS") or "").strip()
+    try:
+        value = float(raw or str(_MEMORIAL_LIVE_WARMUP_FAILURE_BACKOFF_SECONDS_DEFAULT))
+    except ValueError:
+        value = _MEMORIAL_LIVE_WARMUP_FAILURE_BACKOFF_SECONDS_DEFAULT
+    if not math.isfinite(value):
+        value = _MEMORIAL_LIVE_WARMUP_FAILURE_BACKOFF_SECONDS_DEFAULT
+    return max(1.0, min(300.0, value))
+
+
+def _memorial_live_warmup_stale_seconds() -> float:
+    raw = str(os.getenv("EA_MEMORIAL_LIVE_WARMUP_STALE_SECONDS") or "").strip()
+    try:
+        value = float(raw or str(_MEMORIAL_LIVE_WARMUP_STALE_SECONDS_DEFAULT))
+    except ValueError:
+        value = _MEMORIAL_LIVE_WARMUP_STALE_SECONDS_DEFAULT
+    if not math.isfinite(value):
+        value = _MEMORIAL_LIVE_WARMUP_STALE_SECONDS_DEFAULT
+    return max(5.0, min(600.0, value))
+
+
+def _memorial_live_warmup_failure_retry_after(
+    current: dict[str, object],
+    *,
+    now: float,
+) -> int:
+    if not list(current.get("errors") or []):
+        return 0
+    try:
+        completed_at = float(current.get("completed_at") or 0.0)
+    except (TypeError, ValueError):
+        completed_at = 0.0
+    if completed_at <= 0.0:
+        return 0
+    backoff_seconds = _memorial_live_warmup_failure_backoff_seconds()
+    remaining = min(backoff_seconds, (completed_at + backoff_seconds) - now)
+    return max(0, int(math.ceil(remaining)))
+
+
+def _prune_orphaned_memorial_live_warmup_reservations_locked() -> None:
+    live_reservations = {
+        str(current.get("warmup_reservation_id") or "")
+        for current in _MEMORIAL_LIVE_WARMUP_STATE.values()
+        if bool(current.get("inflight")) and current.get("warmup_reservation_id")
+    }
+    _MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS.intersection_update(live_reservations)
+
+
 def _memorial_warmup_ttl_remaining(completed_at: float, *, now: float) -> float:
     if not completed_at:
         return 0.0
@@ -7653,7 +8164,12 @@ def _memorial_live_warmup_snapshot(slug: str) -> dict[str, object]:
         voice_prewarm_stale=voice_prewarm_stale,
         voice_errors=voice_errors,
     )
-    warm = bool(completed_at and not errors and (now - completed_at) < _MEMORIAL_LIVE_WARMUP_TTL_SECONDS)
+    warm = bool(
+        not inflight
+        and completed_at
+        and not errors
+        and (now - completed_at) < _MEMORIAL_LIVE_WARMUP_TTL_SECONDS
+    )
     ttl_remaining_seconds = _memorial_warmup_ttl_remaining(completed_at, now=now) if warm else 0.0
     voice_ttl_remaining_seconds = (
         _memorial_warmup_ttl_remaining(voice_completed_at, now=now)
@@ -7702,7 +8218,19 @@ def _memorial_live_warmup_snapshot(slug: str) -> dict[str, object]:
     }
 
 
+def _memorial_voice_prewarm_generation_matches(
+    current: dict[str, object],
+    reservation_id: str | None,
+) -> bool:
+    return (
+        reservation_id is None
+        or current.get("voice_prewarm_reservation_id") == reservation_id
+    )
+
+
 def _schedule_missing_memorial_voice_prewarm(slug: str) -> bool:
+    global _MEMORIAL_VOICE_PREWARM_RESERVATION_SEQUENCE
+
     safe_slug = _safe_slug(slug)
     if _memorial_voice_release_enforced() and not bool(
         _memorial_voice_release_decision(safe_slug).get("allowed")
@@ -7717,34 +8245,130 @@ def _schedule_missing_memorial_voice_prewarm(slug: str) -> bool:
     selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
     if not bool(selected_option.get("tts_plugin_enabled")):
         return False
+    voice_label = ""
     if selected_plugin == VOICEWAVE_TTS_PLUGIN_ID:
         voice_label = _text(base_config.get("tts_plugin_voice_id"), voicewave_memorial_voice_label())
         if not voice_label:
             return False
-        with _MEMORIAL_LIVE_WARMUP_LOCK:
-            current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(safe_slug, {}))
-            current["voice_contact_required"] = True
-            current["voice_contact_inflight"] = True
-            current["voice_contact_started_at"] = time.time()
-            current["voice_contact_errors"] = []
+    elif selected_plugin != UNMIXR_TTS_PLUGIN_ID:
+        return False
+
+    now = time.time()
+    with _MEMORIAL_LIVE_WARMUP_LOCK:
+        current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(safe_slug, {}))
+        voice_inflight = bool(
+            current.get("voice_contact_inflight")
+            or current.get("voicewave_contact_inflight")
+        )
+        try:
+            voice_started_at = float(
+                current.get("voice_contact_started_at")
+                or current.get("voicewave_contact_started_at")
+                or 0.0
+            )
+        except (TypeError, ValueError):
+            voice_started_at = 0.0
+        if voice_inflight and _text(
+            current.get("voice_prewarm_reservation_id"),
+            "",
+        ):
+            # A reservation identifies a physical provider worker. Keep its
+            # slot fail-closed even after the freshness window so repeated
+            # status probes cannot accumulate superseded daemon threads.
+            return False
+        if (
+            voice_inflight
+            and voice_started_at > 0.0
+            and (now - voice_started_at) < _memorial_voice_prewarm_stale_seconds()
+        ):
+            return False
+        try:
+            voice_completed_at = float(
+                current.get("voice_contact_completed_at")
+                or current.get("voicewave_contact_completed_at")
+                or 0.0
+            )
+        except (TypeError, ValueError):
+            voice_completed_at = 0.0
+        voice_errors = list(
+            current.get("voice_contact_errors")
+            or current.get("voicewave_contact_errors")
+            or []
+        )
+        current_provider = _text(current.get("voice_prewarm_provider"), "")
+        if (
+            not voice_inflight
+            and voice_completed_at > 0.0
+            and not voice_errors
+            and (not current_provider or current_provider == selected_plugin)
+            and (now - voice_completed_at) < _MEMORIAL_LIVE_WARMUP_TTL_SECONDS
+        ):
+            return False
+        _MEMORIAL_VOICE_PREWARM_RESERVATION_SEQUENCE += 1
+        reservation_id = (
+            f"{safe_slug}:voice:{_MEMORIAL_VOICE_PREWARM_RESERVATION_SEQUENCE}"
+        )
+        current["voice_prewarm_reservation_id"] = reservation_id
+        current["voice_prewarm_provider"] = selected_plugin
+        current["voice_contact_required"] = True
+        current["voice_contact_inflight"] = True
+        current["voice_contact_started_at"] = now
+        current["voice_contact_completed_at"] = 0.0
+        current["voice_contact_errors"] = []
+        if selected_plugin == VOICEWAVE_TTS_PLUGIN_ID:
             current["voicewave_contact_required"] = True
             current["voicewave_contact_inflight"] = True
-            current["voicewave_contact_started_at"] = current["voice_contact_started_at"]
+            current["voicewave_contact_started_at"] = now
+            current["voicewave_contact_completed_at"] = 0.0
             current["voicewave_contact_errors"] = []
-            _MEMORIAL_LIVE_WARMUP_STATE[safe_slug] = current
-        _schedule_memorial_voicewave_contact_prewarm(safe_slug, voice_label)
-        return True
-    if selected_plugin == UNMIXR_TTS_PLUGIN_ID:
+        else:
+            current["voicewave_contact_required"] = False
+            current["voicewave_contact_inflight"] = False
+            current["voicewave_contact_started_at"] = 0.0
+            current["voicewave_contact_completed_at"] = 0.0
+            current["voicewave_contact_errors"] = []
+        _MEMORIAL_LIVE_WARMUP_STATE[safe_slug] = current
+
+    _memorial_runtime_readiness_cache_invalidate(safe_slug)
+    try:
+        if selected_plugin == VOICEWAVE_TTS_PLUGIN_ID:
+            _schedule_memorial_voicewave_contact_prewarm(
+                safe_slug,
+                voice_label,
+                reservation_id=reservation_id,
+            )
+        else:
+            _schedule_memorial_server_voice_contact_prewarm(
+                safe_slug,
+                reservation_id=reservation_id,
+            )
+    except Exception as exc:
+        failed_at = time.time()
         with _MEMORIAL_LIVE_WARMUP_LOCK:
             current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(safe_slug, {}))
-            current["voice_contact_required"] = True
-            current["voice_contact_inflight"] = True
-            current["voice_contact_started_at"] = time.time()
-            current["voice_contact_errors"] = []
-            _MEMORIAL_LIVE_WARMUP_STATE[safe_slug] = current
-        _schedule_memorial_server_voice_contact_prewarm(safe_slug)
-        return True
-    return False
+            if _memorial_voice_prewarm_generation_matches(current, reservation_id):
+                current.pop("voice_prewarm_reservation_id", None)
+                current["voice_contact_inflight"] = False
+                current["voice_contact_completed_at"] = failed_at
+                current["voice_contact_errors"] = [
+                    f"voice_prewarm_schedule:{type(exc).__name__}"
+                ]
+                if selected_plugin == VOICEWAVE_TTS_PLUGIN_ID:
+                    current["voicewave_contact_inflight"] = False
+                    current["voicewave_contact_completed_at"] = failed_at
+                    current["voicewave_contact_errors"] = list(
+                        current["voice_contact_errors"]
+                    )
+                _MEMORIAL_LIVE_WARMUP_STATE[safe_slug] = current
+        _memorial_runtime_readiness_cache_invalidate(safe_slug)
+        logger.warning(
+            "memorial_voice_prewarm_schedule_failed slug=%s provider=%s detail=%s",
+            safe_slug,
+            selected_plugin,
+            str(exc)[:160],
+        )
+        return False
+    return True
 
 
 def _memorial_readiness_next_actions(degraded_reasons: list[str], *, ready: bool, realtime_ready: bool) -> list[str]:
@@ -7992,7 +8616,14 @@ def _log_memorial_timing(event: str, *, slug: str, **fields: object) -> None:
     logger.info("memorial_timing %s", " ".join(parts))
 
 
-def _run_memorial_live_warmup(slug: str) -> None:
+def _memorial_live_warmup_generation_matches(
+    current: dict[str, object],
+    reservation_id: str | None,
+) -> bool:
+    return reservation_id is None or current.get("warmup_reservation_id") == reservation_id
+
+
+def _run_memorial_live_warmup(slug: str, reservation_id: str | None = None) -> None:
     if _memorial_voice_release_enforced() and not bool(
         _memorial_voice_release_decision(slug).get("allowed")
     ):
@@ -8007,6 +8638,8 @@ def _run_memorial_live_warmup(slug: str) -> None:
     selected_plugin = ""
     with _MEMORIAL_LIVE_WARMUP_LOCK:
         current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
+        if not _memorial_live_warmup_generation_matches(current, reservation_id):
+            return
         current["inflight"] = True
         current["started_at"] = started_at
         current["errors"] = []
@@ -8055,33 +8688,15 @@ def _run_memorial_live_warmup(slug: str) -> None:
                 raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
         except Exception as exc:
             errors.append(f"tts:{str(exc)[:120]}")
-        if _safe_tts_plugin_id(base_config.get("tts_plugin")) == VOICEWAVE_TTS_PLUGIN_ID:
-            voice_label = _text(base_config.get("tts_plugin_voice_id"), voicewave_memorial_voice_label())
-            if voice_label:
-                with _MEMORIAL_LIVE_WARMUP_LOCK:
-                    current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
-                    current["voice_contact_required"] = True
-                    current["voice_contact_inflight"] = True
-                    current["voice_contact_started_at"] = time.time()
-                    current["voice_contact_completed_at"] = 0.0
-                    current["voice_contact_errors"] = []
-                    current["voicewave_contact_required"] = True
-                    current["voicewave_contact_inflight"] = True
-                    current["voicewave_contact_started_at"] = current["voice_contact_started_at"]
-                    current["voicewave_contact_completed_at"] = 0.0
-                    current["voicewave_contact_errors"] = []
-                    _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
-                _schedule_memorial_voicewave_contact_prewarm(slug, voice_label)
-        elif _safe_tts_plugin_id(base_config.get("tts_plugin")) == UNMIXR_TTS_PLUGIN_ID:
-            with _MEMORIAL_LIVE_WARMUP_LOCK:
-                current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
-                current["voice_contact_required"] = True
-                current["voice_contact_inflight"] = True
-                current["voice_contact_started_at"] = time.time()
-                current["voice_contact_completed_at"] = 0.0
-                current["voice_contact_errors"] = []
-                _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
-            _schedule_memorial_server_voice_contact_prewarm(slug)
+        if selected_plugin in {VOICEWAVE_TTS_PLUGIN_ID, UNMIXR_TTS_PLUGIN_ID}:
+            _schedule_missing_memorial_voice_prewarm(slug)
+    except Exception as exc:
+        errors.append(f"warmup:{type(exc).__name__}")
+        logger.warning(
+            "memorial_warmup_unexpected_failure slug=%s detail=%s",
+            _safe_slug(slug),
+            str(exc)[:160],
+        )
     finally:
         total_ms = (time.perf_counter() - started_clock) * 1000.0
         _log_memorial_timing(
@@ -8095,21 +8710,64 @@ def _run_memorial_live_warmup(slug: str) -> None:
             tts_plugin=locals().get("selected_plugin", ""),
             errors="|".join(errors[:6]) if errors else "-",
         )
+        state_changed = False
         with _MEMORIAL_LIVE_WARMUP_LOCK:
             current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
-            current["inflight"] = False
-            current["completed_at"] = time.time()
-            current["errors"] = errors[:6]
-            _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
-        _memorial_runtime_readiness_cache_invalidate(slug)
+            if _memorial_live_warmup_generation_matches(current, reservation_id):
+                current["inflight"] = False
+                current["completed_at"] = time.time()
+                current["errors"] = errors[:6]
+                _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
+                state_changed = True
+        if state_changed:
+            _memorial_runtime_readiness_cache_invalidate(slug)
 
 
-def _run_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None:
+def _run_reserved_memorial_live_warmup(slug: str, reservation_id: str) -> None:
+    worker_error = ""
+    try:
+        _run_memorial_live_warmup(slug, reservation_id=reservation_id)
+    except Exception as exc:
+        worker_error = f"warmup_worker:{type(exc).__name__}"
+        logger.warning(
+            "memorial_warmup_worker_failed slug=%s detail=%s",
+            _safe_slug(slug),
+            str(exc)[:160],
+        )
+    finally:
+        state_changed = False
+        with _MEMORIAL_LIVE_WARMUP_LOCK:
+            _MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS.discard(reservation_id)
+            current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
+            if current.get("warmup_reservation_id") == reservation_id:
+                current.pop("warmup_reservation_id", None)
+                if bool(current.get("inflight")):
+                    errors = list(current.get("errors") or [])
+                    errors.append(worker_error or "warmup_worker:incomplete")
+                    current["inflight"] = False
+                    current["completed_at"] = time.time()
+                    current["errors"] = errors[:6]
+                _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
+                state_changed = True
+        if state_changed:
+            _memorial_runtime_readiness_cache_invalidate(slug)
+
+
+def _run_memorial_voicewave_contact_prewarm(
+    slug: str,
+    voice_label: str,
+    reservation_id: str | None = None,
+) -> None:
     errors: list[str] = []
     started_clock = time.perf_counter()
     try:
         with _MEMORIAL_LIVE_WARMUP_LOCK:
             current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
+            if not _memorial_voice_prewarm_generation_matches(
+                current,
+                reservation_id,
+            ):
+                return
             current["voicewave_contact_required"] = True
             current["voicewave_contact_inflight"] = True
             current["voicewave_contact_started_at"] = time.time()
@@ -8123,7 +8781,7 @@ def _run_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None
         )
         selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
         if selected_plugin != VOICEWAVE_TTS_PLUGIN_ID or not bool(selected_option.get("tts_plugin_enabled")):
-            return
+            raise RuntimeError("voicewave_prewarm_provider_unavailable")
         seed_texts = tuple(
             dict.fromkeys(
                 _memorial_contact_answer_body(seed_question)
@@ -8150,16 +8808,22 @@ def _run_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None
                 if not first_ready_marked:
                     with _MEMORIAL_LIVE_WARMUP_LOCK:
                         current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
-                        current["voice_contact_completed_at"] = time.time()
-                        current["voice_contact_errors"] = []
-                        current["voice_contact_inflight"] = False
-                        current["voicewave_contact_completed_at"] = time.time()
-                        current["voicewave_contact_errors"] = []
-                        _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
-                    first_ready_marked = True
+                        if _memorial_voice_prewarm_generation_matches(
+                            current,
+                            reservation_id,
+                        ):
+                            current["voice_contact_completed_at"] = time.time()
+                            current["voice_contact_errors"] = []
+                            current["voice_contact_inflight"] = False
+                            current["voicewave_contact_completed_at"] = time.time()
+                            current["voicewave_contact_errors"] = []
+                            _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
+                            first_ready_marked = True
             except Exception as exc:
                 errors.append(f"voicewave_prewarm:{str(exc)[:120]}")
                 break
+    except Exception as exc:
+        errors.append(f"voicewave_prewarm:{str(exc)[:120]}")
     finally:
         _log_memorial_timing(
             "voicewave_contact_prewarm",
@@ -8168,27 +8832,40 @@ def _run_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None
             tts_plugin=VOICEWAVE_TTS_PLUGIN_ID,
             errors="|".join(errors[:6]) if errors else "-",
         )
+        state_changed = False
         with _MEMORIAL_LIVE_WARMUP_LOCK:
             current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
-            current["voice_contact_inflight"] = False
-            if not errors and not float(current.get("voice_contact_completed_at") or 0.0):
-                current["voice_contact_completed_at"] = time.time()
-            current["voice_contact_errors"] = errors[:6]
-            current["voicewave_contact_inflight"] = False
-            if not errors and not float(current.get("voicewave_contact_completed_at") or 0.0):
-                current["voicewave_contact_completed_at"] = time.time()
-            current["voicewave_contact_errors"] = errors[:6]
-            _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
-        _memorial_runtime_readiness_cache_invalidate(slug)
+            if _memorial_voice_prewarm_generation_matches(current, reservation_id):
+                current.pop("voice_prewarm_reservation_id", None)
+                current["voice_contact_inflight"] = False
+                if not errors and not float(current.get("voice_contact_completed_at") or 0.0):
+                    current["voice_contact_completed_at"] = time.time()
+                current["voice_contact_errors"] = errors[:6]
+                current["voicewave_contact_inflight"] = False
+                if not errors and not float(current.get("voicewave_contact_completed_at") or 0.0):
+                    current["voicewave_contact_completed_at"] = time.time()
+                current["voicewave_contact_errors"] = errors[:6]
+                _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
+                state_changed = True
+        if state_changed:
+            _memorial_runtime_readiness_cache_invalidate(slug)
 
 
-def _run_memorial_server_voice_contact_prewarm(slug: str) -> None:
+def _run_memorial_server_voice_contact_prewarm(
+    slug: str,
+    reservation_id: str | None = None,
+) -> None:
     errors: list[str] = []
     started_clock = time.perf_counter()
     selected_plugin = ""
     try:
         with _MEMORIAL_LIVE_WARMUP_LOCK:
             current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
+            if not _memorial_voice_prewarm_generation_matches(
+                current,
+                reservation_id,
+            ):
+                return
             current["voice_contact_required"] = True
             current["voice_contact_inflight"] = True
             current["voice_contact_started_at"] = time.time()
@@ -8202,9 +8879,9 @@ def _run_memorial_server_voice_contact_prewarm(slug: str) -> None:
         )
         selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
         if selected_plugin != UNMIXR_TTS_PLUGIN_ID:
-            return
+            raise RuntimeError("server_voice_prewarm_provider_unavailable")
         if not bool(selected_option.get("tts_plugin_enabled")):
-            return
+            raise RuntimeError("server_voice_prewarm_provider_disabled")
         seed_texts = tuple(
             dict.fromkeys(
                 _memorial_contact_answer_body(seed_question)
@@ -8236,43 +8913,96 @@ def _run_memorial_server_voice_contact_prewarm(slug: str) -> None:
             tts_plugin=selected_plugin,
             errors="|".join(errors[:6]) if errors else "-",
         )
+        state_changed = False
         with _MEMORIAL_LIVE_WARMUP_LOCK:
             current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
-            current["voice_contact_inflight"] = False
-            if not errors:
-                current["voice_contact_completed_at"] = time.time()
-                current["voice_contact_errors"] = []
-            else:
-                current["voice_contact_errors"] = errors[:6]
-            _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
-        _memorial_runtime_readiness_cache_invalidate(slug)
+            if _memorial_voice_prewarm_generation_matches(current, reservation_id):
+                current.pop("voice_prewarm_reservation_id", None)
+                current["voice_contact_inflight"] = False
+                if not errors:
+                    current["voice_contact_completed_at"] = time.time()
+                    current["voice_contact_errors"] = []
+                else:
+                    current["voice_contact_errors"] = errors[:6]
+                _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
+                state_changed = True
+        if state_changed:
+            _memorial_runtime_readiness_cache_invalidate(slug)
 
 
-def _schedule_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None:
+def _schedule_memorial_voicewave_contact_prewarm(
+    slug: str,
+    voice_label: str,
+    *,
+    reservation_id: str | None = None,
+) -> None:
     if not str(voice_label or "").strip():
         return
     _memorial_runtime_readiness_cache_invalidate(slug)
     worker = threading.Thread(
         target=_run_memorial_voicewave_contact_prewarm,
-        args=(slug, voice_label),
+        args=(slug, voice_label, reservation_id),
         daemon=True,
         name=f"memorial-voicewave-prewarm-{slug}",
     )
     worker.start()
 
 
-def _schedule_memorial_server_voice_contact_prewarm(slug: str) -> None:
+def _schedule_memorial_server_voice_contact_prewarm(
+    slug: str,
+    *,
+    reservation_id: str | None = None,
+) -> None:
     _memorial_runtime_readiness_cache_invalidate(slug)
     worker = threading.Thread(
         target=_run_memorial_server_voice_contact_prewarm,
-        args=(slug,),
+        args=(slug, reservation_id),
         daemon=True,
         name=f"memorial-server-voice-prewarm-{slug}",
     )
     worker.start()
 
 
+def _memorial_live_warmup_existing_response(
+    slug: str,
+    snapshot: dict[str, object],
+) -> dict[str, object] | None:
+    if snapshot["inflight"]:
+        try:
+            warmup_age_seconds = float(snapshot.get("warmup_age_seconds") or 0.0)
+        except (TypeError, ValueError):
+            warmup_age_seconds = 0.0
+        if warmup_age_seconds >= _memorial_live_warmup_stale_seconds():
+            return None
+        return {"status": "warming", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
+    if snapshot["warm"] and snapshot["voice_required"] and snapshot.get("voice_prewarm_stale"):
+        if _schedule_missing_memorial_voice_prewarm(slug):
+            return {"status": "requeued_stale_voice", "scheduled": True, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
+        refreshed = _memorial_live_warmup_snapshot(slug)
+        if refreshed["voice_ready"] or (
+            refreshed["voice_inflight"]
+            and not refreshed["voice_prewarm_stale"]
+        ):
+            return {"status": "warm_recent", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
+        return {"status": "voice_stale", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
+    if snapshot["warm"] and (not snapshot["voice_required"] or snapshot["voice_ready"] or snapshot["voice_inflight"]):
+        return {"status": "warm_recent", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
+    if snapshot["warm"] and snapshot["voice_required"] and not snapshot["voice_ready"]:
+        if _schedule_missing_memorial_voice_prewarm(slug):
+            return {"status": "queued_voice", "scheduled": True, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
+        refreshed = _memorial_live_warmup_snapshot(slug)
+        if refreshed["voice_ready"] or (
+            refreshed["voice_inflight"]
+            and not refreshed["voice_prewarm_stale"]
+        ):
+            return {"status": "warm_recent", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
+        return {"status": "voice_cold", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
+    return None
+
+
 def _schedule_memorial_live_warmup(slug: str) -> dict[str, object]:
+    global _MEMORIAL_LIVE_WARMUP_RESERVATION_SEQUENCE
+
     safe_slug = _safe_slug(slug)
     if _memorial_voice_release_enforced() and not bool(
         _memorial_voice_release_decision(safe_slug).get("allowed")
@@ -8283,20 +9013,134 @@ def _schedule_memorial_live_warmup(slug: str) -> dict[str, object]:
             "ttl_seconds": 0,
         }
     snapshot = _memorial_live_warmup_snapshot(safe_slug)
-    if snapshot["inflight"]:
-        return {"status": "warming", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
-    if snapshot["warm"] and snapshot["voice_required"] and snapshot.get("voice_prewarm_stale"):
-        if _schedule_missing_memorial_voice_prewarm(safe_slug):
-            return {"status": "requeued_stale_voice", "scheduled": True, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
-        return {"status": "voice_stale", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
-    if snapshot["warm"] and (not snapshot["voice_required"] or snapshot["voice_ready"] or snapshot["voice_inflight"]):
-        return {"status": "warm_recent", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
-    if snapshot["warm"] and snapshot["voice_required"] and not snapshot["voice_ready"]:
-        if _schedule_missing_memorial_voice_prewarm(safe_slug):
-            return {"status": "queued_voice", "scheduled": True, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
-        return {"status": "voice_cold", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
-    worker = threading.Thread(target=_run_memorial_live_warmup, args=(safe_slug,), daemon=True, name=f"memorial-warmup-{safe_slug}")
-    worker.start()
+    existing_response = _memorial_live_warmup_existing_response(safe_slug, snapshot)
+    if existing_response is not None:
+        return existing_response
+
+    now = time.time()
+    refresh_snapshot = False
+    previous_state: dict[str, object] = {}
+    reservation_id = ""
+    with _MEMORIAL_LIVE_WARMUP_LOCK:
+        _prune_orphaned_memorial_live_warmup_reservations_locked()
+        current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(safe_slug, {}))
+        if bool(current.get("inflight")):
+            try:
+                current_started_at = float(current.get("started_at") or 0.0)
+            except (TypeError, ValueError):
+                current_started_at = 0.0
+            if (
+                current_started_at > 0.0
+                and (now - current_started_at) < _memorial_live_warmup_stale_seconds()
+            ):
+                return {
+                    "status": "warming",
+                    "scheduled": False,
+                    "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS,
+                }
+            stale_reservation_id = str(
+                current.get("warmup_reservation_id", "") or ""
+            )
+            if (
+                stale_reservation_id
+                and stale_reservation_id
+                in _MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS
+            ):
+                return {
+                    "status": "warmup_stale",
+                    "scheduled": False,
+                    "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS,
+                    "retry_after_seconds": 1,
+                }
+            current.pop("warmup_reservation_id", None)
+            current["inflight"] = False
+            current["completed_at"] = 0.0
+            current["warmup_stale_recovered_at"] = now
+            current["warmup_stale_recovery_error"] = (
+                "warmup_worker:stale_superseded"
+            )
+            current["errors"] = []
+            _MEMORIAL_LIVE_WARMUP_STATE[safe_slug] = current
+        retry_after_seconds = _memorial_live_warmup_failure_retry_after(current, now=now)
+        if retry_after_seconds > 0:
+            return {
+                "status": "failure_backoff",
+                "scheduled": False,
+                "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS,
+                "retry_after_seconds": retry_after_seconds,
+            }
+        try:
+            completed_at = float(current.get("completed_at") or 0.0)
+        except (TypeError, ValueError):
+            completed_at = 0.0
+        refresh_snapshot = bool(
+            completed_at
+            and not list(current.get("errors") or [])
+            and (now - completed_at) < _MEMORIAL_LIVE_WARMUP_TTL_SECONDS
+        )
+        if not refresh_snapshot:
+            if len(_MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS) >= _memorial_live_warmup_max_concurrency():
+                return {
+                    "status": "capacity_limited",
+                    "scheduled": False,
+                    "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS,
+                    "retry_after_seconds": 1,
+                }
+            previous_state = dict(current)
+            _MEMORIAL_LIVE_WARMUP_RESERVATION_SEQUENCE += 1
+            reservation_id = f"{safe_slug}:{_MEMORIAL_LIVE_WARMUP_RESERVATION_SEQUENCE}"
+            current["inflight"] = True
+            current["started_at"] = now
+            current["completed_at"] = 0.0
+            current["errors"] = []
+            current["warmup_reservation_id"] = reservation_id
+            _MEMORIAL_LIVE_WARMUP_STATE[safe_slug] = current
+            _MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS.add(reservation_id)
+
+    if refresh_snapshot:
+        refreshed_response = _memorial_live_warmup_existing_response(
+            safe_slug,
+            _memorial_live_warmup_snapshot(safe_slug),
+        )
+        if refreshed_response is not None:
+            return refreshed_response
+        return {
+            "status": "warm_recent",
+            "scheduled": False,
+            "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS,
+        }
+
+    try:
+        worker = threading.Thread(
+            target=_run_reserved_memorial_live_warmup,
+            args=(safe_slug, reservation_id),
+            daemon=True,
+            name=f"memorial-warmup-{safe_slug}",
+        )
+        worker.start()
+    except Exception as exc:
+        failed_at = time.time()
+        with _MEMORIAL_LIVE_WARMUP_LOCK:
+            _MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS.discard(reservation_id)
+            current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(safe_slug, {}))
+            if current.get("warmup_reservation_id") == reservation_id:
+                restored = dict(previous_state)
+                restored["inflight"] = False
+                restored["completed_at"] = failed_at
+                restored["errors"] = [f"warmup_schedule:{type(exc).__name__}"]
+                _MEMORIAL_LIVE_WARMUP_STATE[safe_slug] = restored
+        _memorial_runtime_readiness_cache_invalidate(safe_slug)
+        logger.warning(
+            "memorial_warmup_schedule_failed slug=%s detail=%s",
+            safe_slug,
+            str(exc)[:160],
+        )
+        return {
+            "status": "schedule_failed",
+            "scheduled": False,
+            "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS,
+            "retry_after_seconds": int(math.ceil(_memorial_live_warmup_failure_backoff_seconds())),
+        }
     _memorial_runtime_readiness_cache_invalidate(safe_slug)
     return {"status": "queued", "scheduled": True, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
 
@@ -8517,7 +9361,12 @@ def _build_memorial_conversation_turn_payload(
     ).as_public_payload()
 
 
-def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dict[str, object]:
+def _memorial_transcribe_audio_blob(
+    *,
+    payload: bytes,
+    content_type: str,
+    language: str = "",
+) -> dict[str, object]:
     if not payload:
         raise HTTPException(status_code=400, detail="audio_missing")
     if len(payload) > _MAX_SPEECH_UPLOAD_BYTES:
@@ -8596,7 +9445,7 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                         api_key=cartesia_api_key,
                         payload=variant_payload,
                         content_type=variant_content_type,
-                        language="de",
+                        language=_memorial_cartesia_language(language),
                     )
                     text = _repair_memorial_transcript_text(transcribed.get("text"))
                     if not text:
@@ -8706,25 +9555,31 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                     transcribed = product_service._onemin_speech_to_text(
                         api_key=api_key,
                         audio_path=audio_path,
-                        language="de",
+                        language=_memorial_onemin_language(language),
                     )
                     ai_record = dict(transcribed.get("aiRecord") or {}) if isinstance(transcribed.get("aiRecord"), dict) else {}
                     ai_detail = dict(ai_record.get("aiRecordDetail") or {}) if isinstance(ai_record.get("aiRecordDetail"), dict) else {}
+                    record_status = _text(ai_record.get("status")).strip().upper()
+                    if record_status != "SUCCESS":
+                        response_shape = _memorial_onemin_response_shape(
+                            ai_record=ai_record,
+                            ai_detail=ai_detail,
+                        )
+                        raise RuntimeError(
+                            f"speech_transcribe_not_success:{variant_label}:{response_shape}"
+                        )
                     text = _repair_memorial_transcript_text(
-                        product_service._extract_transcript_text(ai_detail.get("responseObject"))
-                        or product_service._extract_transcript_text(ai_detail.get("resultObject"))
+                        _memorial_onemin_transcript_text(ai_detail.get("responseObject"))
+                        or _memorial_onemin_transcript_text(ai_detail.get("resultObject"))
                     )
-                    if text.startswith("{") and text.endswith("}"):
-                        try:
-                            parsed_text = json.loads(text)
-                        except json.JSONDecodeError:
-                            parsed_text = {}
-                        if isinstance(parsed_text, dict):
-                            text = _repair_memorial_transcript_text(
-                                product_service._extract_transcript_text(parsed_text.get("text")) or text
-                            )
                     if not text:
-                        raise RuntimeError(f"speech_transcript_empty:{variant_label}")
+                        response_shape = _memorial_onemin_response_shape(
+                            ai_record=ai_record,
+                            ai_detail=ai_detail,
+                        )
+                        raise RuntimeError(
+                            f"speech_transcript_empty:{variant_label}:{response_shape}"
+                        )
                     if _is_known_bad_memorial_subtitle_transcript(text):
                         raise RuntimeError(f"speech_known_bad_transcript:{variant_label}")
                     _memorial_clear_stt_key_cooldown("onemin", api_key)
@@ -9621,10 +10476,116 @@ def _memorial_cartesia_api_key() -> str:
 
 
 def _memorial_cartesia_language(language: str) -> str:
-    normalized = _text(language).strip().lower()
-    if normalized.startswith("de"):
-        return "de"
-    return normalized or "de"
+    normalized = _text(language).strip().lower().replace("_", "-")
+    primary = normalized.split("-", 1)[0].strip()
+    return primary if len(primary) == 2 and primary.isalpha() else "de"
+
+
+def _memorial_onemin_language(language: str) -> str:
+    normalized = _text(language).strip().lower().replace("_", "-")
+    primary = normalized.split("-", 1)[0].strip()
+    return primary if len(primary) in {2, 3} and primary.isalpha() else "de"
+
+
+def _memorial_onemin_transcript_text(
+    value: object,
+    *,
+    allow_provider_envelope: bool = True,
+) -> str:
+    """Accept top-level plaintext; nested output/content must be JSON transcript envelopes."""
+    if isinstance(value, str):
+        candidate = value.strip()
+        if not candidate:
+            return ""
+        if candidate.startswith(("{", "[")):
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                return ""
+            return _memorial_onemin_transcript_text(
+                parsed,
+                allow_provider_envelope=allow_provider_envelope,
+            )
+        return _repair_memorial_transcript_text(candidate)
+    if isinstance(value, list):
+        if len(value) != 1:
+            return ""
+        return _memorial_onemin_transcript_text(
+            value[0],
+            allow_provider_envelope=False,
+        )
+    if not isinstance(value, dict):
+        return ""
+    for key in ("text", "transcript"):
+        if key not in value:
+            continue
+        transcript = _memorial_onemin_transcript_text(
+            value.get(key),
+            allow_provider_envelope=False,
+        )
+        if transcript:
+            return transcript
+    if allow_provider_envelope:
+        for key in ("output", "content"):
+            nested = value.get(key)
+            if isinstance(nested, str) and not nested.strip().startswith(("{", "[")):
+                continue
+            transcript = _memorial_onemin_transcript_text(
+                nested,
+                allow_provider_envelope=False,
+            )
+            if transcript:
+                return transcript
+    return ""
+
+
+def _memorial_onemin_value_shape(value: object) -> str:
+    """Return a content-free provider-envelope shape for failure receipts."""
+    if value is None:
+        return "missing"
+    if isinstance(value, str):
+        candidate = value.strip()
+        if not candidate:
+            return "string_empty"
+        if candidate.startswith(("{", "[")):
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                return "string_json_invalid"
+            return f"string_json_{_memorial_onemin_value_shape(parsed)}"
+        return "string_plain"
+    if isinstance(value, list):
+        if not value:
+            return "array_empty"
+        item_shapes = sorted({_memorial_onemin_value_shape(item) for item in value})
+        if len(item_shapes) == 1:
+            return f"array_{len(value)}_{item_shapes[0]}"
+        return f"array_{len(value)}_mixed"
+    if isinstance(value, dict):
+        markers = [
+            key
+            for key in ("text", "transcript", "output", "content")
+            if key in value
+        ]
+        return "object_" + ("_".join(markers) if markers else "other")
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    return "other"
+
+
+def _memorial_onemin_response_shape(
+    *,
+    ai_record: dict[str, object],
+    ai_detail: dict[str, object],
+) -> str:
+    status = _text(ai_record.get("status")).strip().lower()
+    if status not in {"success", "processing", "failure"}:
+        status = "missing" if not status else "other"
+    response_shape = _memorial_onemin_value_shape(ai_detail.get("responseObject"))
+    result_shape = _memorial_onemin_value_shape(ai_detail.get("resultObject"))
+    return f"status_{status}:response_{response_shape}:result_{result_shape}"
 
 
 def _cartesia_transcribe_audio(*, api_key: str, payload: bytes, content_type: str, language: str) -> dict[str, object]:
@@ -9795,13 +10756,17 @@ def _public_memorial_story_html(payload: dict[str, object], *, slug: str) -> str
         allowed_keys={"title", "body", "source_label", "public_excerpt"},
     )[:8]:
         title = _public_memorial_story_text(card.get("title"), max_chars=160) or "Erinnerung"
+        source_label = _public_memorial_story_text(card.get("source_label"), max_chars=120)
         approved_excerpt = _approved_public_memory_excerpt(card.get("public_excerpt"))
         preview = approved_excerpt or _censored_memory_preview(card.get("body") or card.get("title"))
-        memory_kicker = "Freigegebene Erinnerung" if approved_excerpt else "Stark redigierte Kurzfassung"
+        memory_kicker = source_label or (
+            "Freigegebene Erinnerung" if approved_excerpt else "Stark redigierte Kurzfassung"
+        )
+        safe_memory_kicker = html.escape(memory_kicker)
         memories_html.append(
             f"""
         <article class="story-card memory-card">
-          <p class="story-kicker">{memory_kicker}</p>
+          <p class="story-kicker">{safe_memory_kicker}</p>
           <h3>{html.escape(title)}</h3>
           <p>{html.escape(preview)}</p>
         </article>"""
@@ -9842,6 +10807,18 @@ def _public_memorial_story_html(payload: dict[str, object], *, slug: str) -> str
         {f'<p class="story-disclosure">{html.escape(disclosure)}</p>' if disclosure else ''}
       </section>"""
     ]
+    if safe_slug == "manfred":
+        sections.append(
+            """
+      <section class="story-section memory-room-invitation" aria-labelledby="memorial-memory-room-title">
+        <div class="story-heading">
+          <p class="story-kicker">Räumlicher Erinnerungsraum</p>
+          <h2 id="memorial-memory-room-title">Freigegebene Spuren in 3D</h2>
+          <p>Ein symbolischer, begehbarer Zugang zu den Erinnerungen auf dieser Seite. Er ist keine Rekonstruktion eines realen Ortes und ergänzt keine neuen biografischen Behauptungen.</p>
+        </div>
+        <a class="memory-room-link" href="/memorials/manfred/memory-room">Symbolische 3D-Ansicht öffnen</a>
+      </section>"""
+        )
     if clips_html:
         sections.append(
             """
@@ -9855,16 +10832,30 @@ def _public_memorial_story_html(payload: dict[str, object], *, slug: str) -> str
       </section>""".format("".join(clips_html))
         )
     if memories_html:
+        primary_memories_html = "".join(
+            memories_html[:3] if safe_slug == "manfred" else memories_html
+        )
+        remaining_memories_html = (
+            "".join(memories_html[3:]) if safe_slug == "manfred" else ""
+        )
+        remaining_memories_disclosure = ""
+        if remaining_memories_html:
+            remaining_memories_disclosure = f"""
+        <details class="story-more">
+          <summary>Weitere belegte Spuren ({len(memories_html) - 3})</summary>
+          <div class="story-grid story-grid-more">{remaining_memories_html}</div>
+        </details>"""
         sections.append(
-            """
+            f"""
       <section class="story-section" aria-labelledby="memorial-memories-title">
         <div class="story-heading">
           <p class="story-kicker">Erinnerungen</p>
           <h2 id="memorial-memories-title">Behutsam bewahrte Spuren</h2>
           <p>Nur ausdrücklich freigegebene, stark gekürzte Vorschauen aus dem Archiv.</p>
         </div>
-        <div class="story-grid">{}</div>
-      </section>""".format("".join(memories_html))
+        <div class="story-grid">{primary_memories_html}</div>
+        {remaining_memories_disclosure}
+      </section>"""
         )
     if sources_html:
         sections.append(
@@ -9883,13 +10874,23 @@ def _public_memorial_story_html(payload: dict[str, object], *, slug: str) -> str
       <section class="story-section" aria-labelledby="memorial-prompts-title">
         <div class="story-heading">
           <p class="story-kicker">Gedenkbegleiter</p>
-          <h2 id="memorial-prompts-title">Fragen an den Gedenkbegleiter</h2>
+          <h2 id="memorial-prompts-title">Fragen als ruhiger Einstieg</h2>
           <p>Der synthetische Begleiter ordnet nur freigegebene Quellen ein, ist nicht Manfred und spricht nicht für ihn. Diese Beispiele senden noch nichts.</p>
         </div>
         <ul class="prompt-list">{}</ul>
       </section>""".format("".join(f"<li>{html.escape(prompt)}</li>" for prompt in prompts))
         )
     return "\n".join(sections)
+
+
+def _without_public_memorial_html_region(document: str, *, region: str) -> str:
+    start_marker = f"<!-- memorial-{region}:start -->"
+    end_marker = f"<!-- memorial-{region}:end -->"
+    before, start_found, remainder = document.partition(start_marker)
+    _, end_found, after = remainder.partition(end_marker)
+    if not start_found or not end_found:
+        raise RuntimeError(f"memorial_conversation_only_region_missing:{region}")
+    return before + after
 
 
 def _minimal_public_memorial_html(
@@ -9903,38 +10904,94 @@ def _minimal_public_memorial_html(
     clickrank_html: str,
     story_html: str,
     video_call_avatar_fallback_html: str = "",
+    conversation_only: bool = False,
+    operator_preview_allowed: bool = False,
 ) -> str:
     safe_person_name = html.escape(person_name)
+    memory_room_nav_html = (
+        '<a class="hero-story-link" href="/memorials/manfred/memory-room">3D-Erinnerungsraum</a>'
+        if slug == "manfred"
+        else ""
+    )
+    body_theme_attributes = (
+        ' class="memorial-theme-minimal" data-memorial-theme="editorial-minimal-v2"'
+        if slug == "manfred"
+        else ""
+    )
+    person_first_name = person_name.strip().split(maxsplit=1)[0] if person_name.strip() else "Person"
+    safe_person_first_name = html.escape(person_first_name)
     safe_subtitle = html.escape(subtitle)
     voice_release_enforced = _memorial_voice_release_enforced()
-    voice_release_allowed = True
+    public_voice_release_allowed = True
     if voice_release_enforced:
-        voice_release_allowed = bool(_memorial_voice_release_decision(slug).get("allowed"))
-    voice_release_blocked = voice_release_enforced and not voice_release_allowed
-    hero_actions_class = "" if voice_release_blocked else " is-readying"
-    conversation_button_class = "" if voice_release_blocked else " is-readying"
-    conversation_button_label = (
-        "Schriftliche Frage stellen" if voice_release_blocked else "Sprachgespräch beginnen"
+        public_voice_release_allowed = bool(
+            _memorial_voice_release_decision(slug).get("allowed")
+        )
+    operator_preview_allowed = bool(
+        operator_preview_allowed
+        and slug == "manfred"
+        and voice_release_enforced
+        and not public_voice_release_allowed
     )
-    conversation_button_state = (
-        'aria-disabled="false"'
-        if voice_release_blocked
-        else 'aria-disabled="true" disabled'
-    )
+    voice_access_allowed = public_voice_release_allowed or operator_preview_allowed
+    # This compatibility alias controls only this rendered document. Server
+    # routes that synthesize speech or accept production conversation audio
+    # independently enforce consent and the voice-release receipt.
+    voice_release_allowed = voice_access_allowed
+    voice_release_blocked = voice_release_enforced and not public_voice_release_allowed
+    voice_access_blocked = voice_release_enforced and not voice_access_allowed
+    hero_actions_class = "" if voice_access_blocked else " is-readying"
+    conversation_button_class = "" if voice_access_blocked else " is-readying"
+    conversation_button_label = "Frage schreiben" if voice_access_blocked else "Gespräch starten"
+    text_turn_label = "Frage schreiben" if voice_access_blocked else "Oder schreiben"
+    # The server-rendered control always fails closed. JavaScript enables it only
+    # after the release decision and runtime readiness are known in this document.
+    conversation_button_state = 'aria-disabled="true" disabled'
     voice_guidance = (
-        "Der quellengebundene Gedenkbegleiter ist nicht Manfred und spricht nicht für ihn. "
-        "Die Sprachfunktion bleibt bis zu einer getrennten Freigabe deaktiviert; schriftliche Fragen sind verfügbar."
-        if voice_release_blocked
+        "Operator-Vorschau: Die öffentliche Sprachfreigabe bleibt blockiert. "
+        "Dieser kurzlebige Zugang dient nur der geprüften Gesprächsabnahme. "
+        "Die KI antwortet anhand freigegebener Erinnerungen und Quellen, ist nicht Manfred "
+        "und spricht nicht für ihn. Die Stimme ist künstlich erzeugt."
+        if operator_preview_allowed
         else
-        "Du sprichst mit einem KI-gestützten, quellengebundenen Gedenkbegleiter. "
-        "Er ist nicht Manfred und spricht nicht für ihn. Das Mikrofon wird erst nach deinem Start verwendet; "
-        "eingesetzte Sprachdienste verarbeiten das Audio. Antworten bleiben als Text sichtbar."
+        "Hier antwortet eine KI anhand freigegebener Erinnerungen und Quellen. "
+        "Sie ist nicht Manfred und spricht nicht für ihn. "
+        "Sprechen ist derzeit nicht verfügbar; du kannst deine Frage schreiben."
+        if voice_access_blocked
+        else
+        "Hier antwortet eine KI anhand freigegebener Erinnerungen und Quellen. "
+        "Sie ist nicht Manfred und spricht nicht für ihn. Die Stimme ist künstlich erzeugt. "
+        "Dein Mikrofon wird erst nach deinem Start verwendet; für Spracherkennung und Wiedergabe "
+        "wird dein Audio verarbeitet. Du kannst jederzeit schreiben."
+    )
+    conversation_processing_guidance = (
+        "Im schriftlichen Modus wird kein Mikrofon verwendet. Die Sprachfunktion bleibt bis zu ihrer getrennten Freigabe ausgeschaltet."
+        if voice_access_blocked
+        else
+        f"Bei Gesprächen mit der KI-gestützten, synthetischen {safe_person_first_name}-Stimme gilt: "
+        "eingesetzte Sprachdienste verarbeiten das Audio erst nach deinem ausdrücklichen Start."
     )
     voice_autostart_attributes = (
-        ' hidden aria-hidden="true"' if voice_release_blocked else ""
+        ' hidden aria-hidden="true"' if voice_access_blocked else ""
     )
-    return f"""<!doctype html>
-<html lang="de">
+    operator_preview_body_attribute = (
+        ' data-operator-voice-preview="allowed"'
+        if operator_preview_allowed
+        else ""
+    )
+    if conversation_only:
+        video_call_avatar_fallback_html = ""
+    memorial_autostart_storage_key = _json_for_html_script(
+        f"memorial_autostart_enabled_{slug}_v2"
+    )
+    memorial_personal_memory_storage_key = _json_for_html_script(
+        f"memorial_personal_memory_enabled_{slug}_v2"
+    )
+    memorial_contribution_storage_key = _json_for_html_script(
+        f"memorial_contribution_receipt_{slug}_v1"
+    )
+    document = f"""<!doctype html>
+<html lang="de-AT">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10149,6 +11206,19 @@ def _minimal_public_memorial_html(
       }}
       .story-card > p:not(.story-kicker) {{ margin: 10px 0 0; color: var(--muted); }}
       .story-card audio {{ display: block; width: 100%; margin-top: 16px; }}
+      .memory-room-link {{
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
+        margin-top: 20px;
+        padding: 10px 16px;
+        border: 1px solid var(--line-strong);
+        border-radius: 999px;
+        color: var(--blue);
+        background: rgba(255, 251, 244, .72);
+        font: 700 13px/1.25 ui-sans-serif, system-ui, sans-serif;
+        text-decoration: none;
+      }}
       .contribution-panel {{
         margin-top: clamp(34px, 7vw, 64px);
         padding: clamp(22px, 5vw, 34px);
@@ -10157,7 +11227,30 @@ def _minimal_public_memorial_html(
         background: rgba(255,251,244,.8);
         box-shadow: 0 16px 34px rgba(56,45,36,.07);
       }}
-      .contribution-panel > p:not(.story-kicker) {{ max-width: 64ch; color: var(--muted); }}
+      .contribution-disclosure > summary {{
+        min-height: 56px;
+        cursor: pointer;
+        list-style: none;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+        color: var(--ink);
+        font: 700 clamp(1.15rem, 3vw, 1.4rem)/1.25 Georgia, "Times New Roman", serif;
+      }}
+      .contribution-disclosure > summary::-webkit-details-marker {{ display: none; }}
+      .contribution-disclosure > summary::after {{
+        content: "+";
+        color: var(--blue);
+        font: 700 1.25rem/1 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .contribution-disclosure[open] > summary::after {{ content: "−"; }}
+      .contribution-disclosure-body {{
+        margin-top: 20px;
+        padding-top: 22px;
+        border-top: 1px solid var(--line);
+      }}
+      .contribution-disclosure-body > p:not(.story-kicker) {{ max-width: 64ch; color: var(--muted); }}
       .contribution-form {{ display: grid; gap: 14px; margin-top: 22px; }}
       .memorial-js-required-form[hidden] {{ display: none !important; }}
       .memorial-noscript-notice {{
@@ -10483,6 +11576,26 @@ def _minimal_public_memorial_html(
         text-align: left;
         font: 12px/1.45 ui-sans-serif, system-ui, sans-serif;
       }}
+      .story-more {{
+        margin-top: 16px;
+        border-top: 1px solid var(--line);
+      }}
+      .story-more > summary {{
+        min-height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        color: var(--blue);
+        cursor: pointer;
+        font: 700 13px/1.35 ui-sans-serif, system-ui, sans-serif;
+        list-style: none;
+      }}
+      .story-more > summary::-webkit-details-marker {{ display: none; }}
+      .story-more > summary::after {{ content: "+"; color: var(--muted); }}
+      .story-more[open] > summary::after {{ content: "−"; }}
+      .story-grid-more {{ margin-top: 0; }}
+      .story-more:not([open]) > .story-grid-more {{ display: none; }}
       [hidden] {{ display: none !important; }}
       @media (max-width: 760px) {{
         header {{ min-height: auto; }}
@@ -10654,6 +11767,8 @@ def _minimal_public_memorial_html(
         display: inline-flex;
         align-items: center;
         gap: 8px;
+        min-height: 44px;
+        padding: 4px 0;
         flex-shrink: 0;
         color: var(--muted);
         font: 700 12px/1.2 ui-sans-serif, system-ui, sans-serif;
@@ -10675,7 +11790,7 @@ def _minimal_public_memorial_html(
         appearance: none;
         border: 1px solid rgba(72,103,126,.18);
         border-radius: 999px;
-        min-height: 36px;
+        min-height: 44px;
         padding: 8px 12px;
         background: rgba(255,255,255,.88);
         color: var(--blue);
@@ -10798,8 +11913,378 @@ def _minimal_public_memorial_html(
         0%, 100% {{ transform: scaleY(.34); opacity: .55; }}
         50% {{ transform: scaleY(1); opacity: 1; }}
       }}
+      /*
+       * Manfred's public surface is deliberately editorial rather than app-like.
+       * Keep this scoped: other memorials retain their established presentation.
+       */
+      .memorial-theme-minimal {{
+        --paper: #f7f4ee;
+        --paper-soft: #fbfaf7;
+        --panel: transparent;
+        --ink: #2b2925;
+        --muted: #6d6962;
+        --blue: #48677e;
+        --line: rgba(43, 41, 37, .14);
+        --line-strong: rgba(43, 41, 37, .24);
+        --shadow: none;
+        background: var(--paper);
+        font-size: 17px;
+        line-height: 1.65;
+      }}
+      .memorial-theme-minimal::before,
+      .memorial-theme-minimal::after {{
+        display: none;
+        content: none;
+      }}
+      .memorial-theme-minimal .skip-link:focus,
+      .memorial-theme-minimal .skip-link:focus-visible {{
+        transform: none !important;
+        transition: none;
+      }}
+      .memorial-theme-minimal .wrap {{
+        width: min(100vw - 40px, 680px);
+      }}
+      .memorial-theme-minimal header {{
+        min-height: 54dvh;
+        min-height: 54svh;
+        padding: clamp(48px, 8vh, 76px) 0 clamp(44px, 7vh, 68px);
+      }}
+      .memorial-theme-minimal .hero,
+      .memorial-theme-minimal .hero-shell {{ gap: 16px; }}
+      .memorial-theme-minimal .hero-shell {{ width: min(100%, 520px); }}
+      .memorial-theme-minimal .hero-avatar {{
+        width: clamp(68px, 12vw, 82px);
+        height: clamp(68px, 12vw, 82px);
+        border: 0;
+        border-radius: 50%;
+        background: transparent;
+        box-shadow: none;
+        filter: contrast(1.24) grayscale(.18);
+        mix-blend-mode: multiply;
+      }}
+      .memorial-theme-minimal .hero-copy {{ gap: 12px; }}
+      .memorial-theme-minimal .hero-nav {{
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 4px 22px;
+      }}
+      .memorial-theme-minimal .hero-copy h1 {{
+        max-width: 13ch;
+        font-size: clamp(2.25rem, 7vw, 3.35rem);
+        line-height: 1;
+        letter-spacing: -.025em;
+      }}
+      .memorial-theme-minimal .hero-subtitle {{
+        max-width: 36ch;
+        color: var(--muted);
+        font-size: 1rem;
+        line-height: 1.55;
+      }}
+      .memorial-theme-minimal .hero-story-link {{
+        min-height: 38px;
+        padding: 6px 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        color: var(--blue);
+        text-decoration: underline;
+        text-decoration-color: rgba(72, 103, 126, .35);
+        text-underline-offset: 6px;
+        box-shadow: none;
+      }}
+      .memorial-theme-minimal .story {{
+        gap: clamp(44px, 7vw, 64px);
+        padding-bottom: clamp(64px, 9vw, 88px);
+      }}
+      .memorial-theme-minimal .story-intro,
+      .memorial-theme-minimal .story-section {{
+        padding-top: clamp(24px, 4vw, 32px);
+      }}
+      .memorial-theme-minimal .story-kicker {{
+        color: var(--muted);
+        letter-spacing: .1em;
+      }}
+      .memorial-theme-minimal .story h2 {{
+        font-size: clamp(1.65rem, 4.5vw, 2.15rem);
+        letter-spacing: -.015em;
+      }}
+      .memorial-theme-minimal .story-grid {{
+        grid-template-columns: 1fr;
+        gap: 0;
+        margin-top: 18px;
+      }}
+      .memorial-theme-minimal .story-card {{
+        padding: 18px 0;
+        border: 0;
+        border-top: 1px solid var(--line);
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+      }}
+      .memorial-theme-minimal .story-grid > .story-card:last-child {{
+        border-bottom: 1px solid var(--line);
+      }}
+      .memorial-theme-minimal .story-card > p:not(.story-kicker) {{ max-width: 62ch; }}
+      .memorial-theme-minimal .memory-room-link {{
+        padding: 8px 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        text-decoration: underline;
+        text-decoration-color: rgba(72, 103, 126, .35);
+        text-underline-offset: 6px;
+      }}
+      .memorial-theme-minimal .story-more {{ margin-top: 0; }}
+      .memorial-theme-minimal .story-more > summary {{
+        border-bottom: 1px solid var(--line);
+      }}
+      .memorial-theme-minimal .story-more[open] > summary {{ border-bottom: 0; }}
+      .memorial-theme-minimal .contribution-panel,
+      .memorial-theme-minimal .memorial-noscript-notice {{
+        margin-top: 0;
+        padding: clamp(24px, 4vw, 32px) 0 0;
+        border: 0;
+        border-top: 1px solid var(--line);
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+      }}
+      .memorial-theme-minimal .contribution-form input:not([type="checkbox"]),
+      .memorial-theme-minimal .contribution-form textarea,
+      .memorial-theme-minimal .contribution-recovery-import input,
+      .memorial-theme-minimal .contribution-correction-form input:not([type="checkbox"]),
+      .memorial-theme-minimal .contribution-correction-form textarea,
+      .memorial-theme-minimal .text-turn-controls input {{
+        border-radius: 5px;
+        background: var(--paper-soft);
+        box-shadow: none;
+      }}
+      .memorial-theme-minimal button,
+      .memorial-theme-minimal .hero-cta,
+      .memorial-theme-minimal .contribution-actions button,
+      .memorial-theme-minimal .contribution-recovery-actions button,
+      .memorial-theme-minimal .contribution-management-actions button,
+      .memorial-theme-minimal .contribution-recovery-import button,
+      .memorial-theme-minimal .contribution-correction-form button,
+      .memorial-theme-minimal .text-turn-controls button,
+      .memorial-theme-minimal .chat-tool,
+      .memorial-theme-minimal .speech-primary {{
+        border-radius: 6px;
+        box-shadow: none;
+      }}
+      .memorial-theme-minimal .hero-actions.is-readying::before,
+      .memorial-theme-minimal .hero-cta.is-readying::after {{
+        display: none;
+        content: none;
+      }}
+      .memorial-theme-minimal .hero-cta {{
+        min-height: 52px;
+        background: var(--blue);
+        transition: none;
+      }}
+      .memorial-theme-minimal .conversation-dock {{
+        padding: clamp(48px, 7vw, 68px) 0 max(32px, env(safe-area-inset-bottom, 0px));
+        border-top: 1px solid var(--line);
+        background: #efede7;
+      }}
+      .memorial-theme-minimal .chat {{
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+      }}
+      .memorial-theme-minimal .conversation-settings {{
+        padding: 10px 0 14px;
+        border: 0;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+      }}
+      .memorial-theme-minimal .contribution-recovery-panel,
+      .memorial-theme-minimal .contribution-recovery-import,
+      .memorial-theme-minimal .contribution-management-card,
+      .memorial-theme-minimal .contribution-proposal,
+      .memorial-theme-minimal .speech-transcript-live,
+      .memorial-theme-minimal .speech-turn,
+      .memorial-theme-minimal .chat-answer,
+      .memorial-theme-minimal .chat-status {{
+        border-radius: 5px;
+        background: var(--paper-soft);
+        box-shadow: none;
+      }}
+      .memorial-theme-minimal .speech-meter {{
+        border-radius: 2px;
+        box-shadow: none;
+      }}
+      @media (max-width: 760px) {{
+        .memorial-theme-minimal .wrap {{ width: min(100vw - 28px, 680px); }}
+        .memorial-theme-minimal header {{
+          min-height: auto;
+          padding: 30px 0 34px;
+        }}
+        .memorial-theme-minimal .hero-avatar {{
+          width: 58px;
+          height: 58px;
+        }}
+        .memorial-theme-minimal .hero-copy h1 {{
+          max-width: 12ch;
+          font-size: clamp(2rem, 9vw, 2.4rem);
+        }}
+        .memorial-theme-minimal .story {{
+          gap: 40px;
+          padding-bottom: 54px;
+        }}
+        .memorial-theme-minimal .story-intro,
+        .memorial-theme-minimal .story-section {{ padding-top: 24px; }}
+        .memorial-theme-minimal .conversation-dock {{
+          padding: 38px 0 calc(24px + env(safe-area-inset-bottom, 0px));
+        }}
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] header {{
+        min-height: auto;
+        padding: clamp(42px, 6vw, 64px) 0 clamp(28px, 4vw, 40px);
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-shell {{
+        width: min(100%, 620px);
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-avatar {{
+        width: clamp(64px, 8vw, 76px);
+        height: clamp(64px, 8vw, 76px);
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-copy h1 {{
+        max-width: 15ch;
+        font-size: clamp(2.35rem, 5.4vw, 3.4rem);
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .conversation-dock {{
+        padding: 0 0 max(56px, env(safe-area-inset-bottom, 0px));
+        border-top: 0;
+        background: transparent;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .conversation-dock > .wrap {{
+        width: min(100vw - 40px, 720px);
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .chat {{
+        padding: clamp(24px, 4vw, 34px);
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        background: rgba(251, 250, 247, .94);
+        box-shadow: 0 24px 64px rgba(43, 41, 37, .09);
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-actions,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta {{
+        width: 100%;
+        min-width: 0;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta {{
+        min-height: 56px;
+        border-radius: 16px;
+        font-size: 15px;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-guidance {{
+        max-width: 52ch;
+        margin: 14px auto 0;
+        color: var(--muted);
+        text-align: center;
+        font: 500 14px/1.6 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .text-turn-form {{
+        margin-top: 24px;
+        gap: 9px;
+        padding-top: 22px;
+        border-top: 1px solid var(--line);
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .text-turn-form label {{
+        font-size: 14px;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .text-turn-controls input,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .text-turn-controls button {{
+        min-height: 52px;
+        border-radius: 14px;
+        font-size: 16px;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-status-bar {{
+        margin-top: 22px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-note strong {{
+        font: 700 14px/1.4 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] #memorial-voice-recovery-note {{
+        max-width: 58ch;
+        margin: 8px auto 0;
+        text-align: center;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-live-monitor {{
+        display: none;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-live-monitor.is-listening,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-live-monitor.is-working,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-live-monitor.is-speaking,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-live-monitor.is-error {{
+        display: grid;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-status-bar.is-pristine .speech-status-meta {{
+        display: none;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-transcript-shell:has(.speech-transcript:empty) {{
+        margin-top: 0;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .chat-tool,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-primary {{
+        min-height: 44px;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta:focus-visible,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-primary:focus-visible,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .chat-tool:focus-visible,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .text-turn-controls input:focus-visible,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .text-turn-controls button:focus-visible {{
+        outline: 3px solid var(--blue);
+        outline-offset: 3px;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] [data-voice-access="text-only"] .hero-actions,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] [data-voice-access="text-only"] #memorial-voice-recovery-note {{
+        display: none;
+      }}
+      @media (max-width: 760px) {{
+        .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] header {{
+          padding: 28px 0 24px;
+        }}
+        .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-shell {{
+          gap: 13px;
+        }}
+        .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-copy h1 {{
+          font-size: clamp(2rem, 9vw, 2.45rem);
+        }}
+        .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .conversation-dock {{
+          padding: 0 0 calc(24px + env(safe-area-inset-bottom, 0px));
+        }}
+        .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .conversation-dock > .wrap {{
+          width: min(100vw - 24px, 720px);
+        }}
+        .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .chat {{
+          padding: 20px 18px;
+          border-radius: 22px;
+        }}
+        .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-guidance {{
+          margin-top: 12px;
+          font-size: 13px;
+          line-height: 1.55;
+        }}
+      }}
+      @media (forced-colors: active) {{
+        .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .chat,
+        .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .text-turn-controls input,
+        .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .text-turn-controls button {{
+          border: 1px solid CanvasText;
+        }}
+      }}
       @media (prefers-reduced-motion: reduce) {{
-        * {{
+        *, *::before, *::after {{
           animation-duration: 0.001ms !important;
           animation-iteration-count: 1 !important;
           transition-duration: 0.001ms !important;
@@ -10807,9 +12292,11 @@ def _minimal_public_memorial_html(
       }}
     </style>
   </head>
-  <body>
+  <body{body_theme_attributes} data-public-memorial-surface="{'conversation-only' if conversation_only else 'legacy'}"{operator_preview_body_attribute}>
+    <!-- memorial-story-skip:start -->
     <a class="skip-link" href="#memorial-story">Zum Inhalt springen</a>
-    <a class="skip-link" href="#memorial-conversation-region">Zum Gedenkbegleiter springen</a>
+    <!-- memorial-story-skip:end -->
+    <a class="skip-link" href="#memorial-conversation-region">Zum Gespräch</a>
     <header>
       <div class="wrap hero">
         <div class="hero-shell">
@@ -10817,12 +12304,18 @@ def _minimal_public_memorial_html(
           <div class="hero-copy">
             <h1>{page_title}</h1>
             <p class="hero-subtitle">{safe_subtitle}</p>
-            <a class="hero-story-link" href="#memorial-conversation-region">Zum quellengebundenen Gedenkbegleiter</a>
-            <a class="hero-story-link" href="#memorial-story">Erinnerungen und Quellen ansehen</a>
+            <!-- memorial-public-navigation:start -->
+            <nav class="hero-nav" aria-label="Bereiche der Erinnerungsseite">
+              <a class="hero-story-link" href="#memorial-story">Erinnerungen ansehen</a>
+              {memory_room_nav_html}
+              <a class="hero-story-link" href="#memorial-conversation-region">Gedenkbegleiter</a>
+            </nav>
+            <!-- memorial-public-navigation:end -->
           </div>
         </div>
       </div>
     </header>
+    <!-- memorial-public-story:start -->
     <main id="memorial-story" tabindex="-1">
       <noscript>
         <section class="wrap memorial-noscript-notice" aria-labelledby="memorial-noscript-title">
@@ -10832,7 +12325,9 @@ def _minimal_public_memorial_html(
       </noscript>
       <div class="wrap story">
         {story_html}
-        <section class="story-section contribution-panel" id="memorial-contribution" aria-labelledby="memorial-contribution-title">
+        <details class="story-section contribution-panel contribution-disclosure" id="memorial-contribution">
+          <summary>Eine private Erinnerung beitragen</summary>
+          <div class="contribution-disclosure-body">
           <p class="story-kicker">Familie und Wegbegleiter</p>
           <h2 id="memorial-contribution-title">Eine Erinnerung beitragen</h2>
           <p>Dein Beitrag bleibt zunächst privat und geht in eine geschützte Prüfung. Öffentlich erscheint nur eine ausdrücklich freigegebene, redigierte Fassung. Du kannst deine Einreichung von diesem Browser aus zurückziehen oder eine dauerhafte Löschung beantragen.</p>
@@ -10890,30 +12385,37 @@ def _minimal_public_memorial_html(
             <p class="contribution-management-summary" id="memorial-contribution-management-summary" role="status" aria-live="polite" aria-atomic="true">Auf diesem Gerät ist noch kein Rücknahmebeleg gespeichert.</p>
             <div class="contribution-management-cards" id="memorial-contribution-management-cards" aria-label="Gespeicherte Einreichungen"></div>
           </section>
-        </section>
+          </div>
+        </details>
       </div>
     </main>
-    <aside class="conversation-dock" aria-label="Quellengebundener Gedenkbegleiter für {safe_person_name}" id="memorial-conversation-region" tabindex="-1" data-voice-release="{'blocked' if voice_release_blocked else 'available'}">
+    <!-- memorial-public-story:end -->
+    <main class="conversation-dock" aria-label="KI-Gespräch über {safe_person_name}" id="memorial-conversation-region" tabindex="-1" data-voice-release="{'blocked' if voice_release_blocked else 'available'}" data-voice-access="{'operator-preview' if operator_preview_allowed else ('public-release' if public_voice_release_allowed else 'text-only')}">
       <div class="wrap">
       <section class="chat quiet-shell">
+        <noscript>
+          <p class="hero-guidance" role="status">Für das Sprachgespräch und die schriftliche Alternative muss JavaScript aktiviert sein. Ohne JavaScript wird nichts aufgenommen oder gesendet.</p>
+        </noscript>
         <div class="hero-actions{hero_actions_class}" id="memorial-hero-actions">
-          <button type="button" id="memorial-conversation" class="hero-cta{conversation_button_class}" data-hero-action="conversation" title="{conversation_button_label}" aria-label="{conversation_button_label}" {conversation_button_state}>{conversation_button_label}</button>
+          <button type="button" id="memorial-conversation" class="hero-cta{conversation_button_class}" data-hero-action="conversation" title="{conversation_button_label}" aria-label="{conversation_button_label}" aria-describedby="memorial-conversation-disclosure" aria-controls="memorial-speech-note memorial-speech-transcript-shell" {conversation_button_state}>{conversation_button_label}</button>
         </div>
-        <p class="hero-guidance">{html.escape(voice_guidance)}</p>
+        <p class="hero-guidance" id="memorial-conversation-disclosure">{html.escape(voice_guidance)}</p>
         <form class="text-turn-form memorial-js-required-form" id="memorial-text-turn-form" method="post" action="/memorials/{html.escape(slug)}/chat" hidden inert aria-hidden="true" aria-disabled="true" data-js-ready="false">
-          <label for="memorial-text-turn-input">Dem Gedenkbegleiter schreiben</label>
+          <label for="memorial-text-turn-input">{text_turn_label}</label>
           <div class="text-turn-controls">
-            <input id="memorial-text-turn-input" name="question" type="text" maxlength="2000" autocomplete="off" enterkeyhint="send" placeholder="Welche belegte Erinnerung möchtest du einordnen?">
+            <input id="memorial-text-turn-input" name="question" type="text" maxlength="2000" autocomplete="off" enterkeyhint="send" placeholder="Was möchtest du fragen?" aria-describedby="memorial-text-guidance" required>
             <button type="submit" id="memorial-text-turn-submit">Senden</button>
           </div>
-          <p class="status-note">Die Antwort wird synthetisch aus freigegebenen Quellen formuliert und nie als neue Aussage Manfreds ausgegeben.</p>
+          <p class="status-note" id="memorial-text-guidance">Die KI formuliert die Antwort aus freigegebenen Erinnerungen und Quellen. Sie ist keine Aussage von Manfred.</p>
         </form>
+        <!-- memorial-install-upsell:start -->
         <p class="install-hint" id="memorial-install-hint" hidden>
           Optional: Am Handy/Desktop installieren.
           <button type="button" id="memorial-install-button" hidden>Installieren</button>
         </p>
-        <div class="speech-status-bar speech-note is-pristine" id="memorial-speech-note">
-          <strong id="memorial-speech-message" role="status" aria-live="polite" aria-atomic="true">Bereit.</strong>
+        <!-- memorial-install-upsell:end -->
+        <div class="speech-status-bar speech-note is-pristine" id="memorial-speech-note" hidden>
+          <strong id="memorial-speech-message" role="status" aria-live="polite" aria-atomic="true">Bereit für deine Frage.</strong>
           <div class="speech-live-monitor is-idle" id="memorial-speech-monitor" aria-hidden="true">
             <div class="speech-meter"><span class="speech-meter-fill" id="memorial-speech-meter-fill"></span></div>
             <div class="speech-wave" id="memorial-speech-wave">
@@ -10931,10 +12433,12 @@ def _minimal_public_memorial_html(
           </div>
         </div>
         {video_call_avatar_fallback_html}
+        <!-- memorial-conversation-settings:start -->
         <details class="conversation-settings">
-          <summary>Einstellungen</summary>
+          <summary>Datenschutz und Gespräch</summary>
           <div class="conversation-settings-copy">
             <p>Mit deiner Zustimmung werden kurze Dialogerinnerungen pseudonym auf unserem Server gespeichert und mit diesem Browser verknüpft. Du kannst sie jederzeit wieder löschen.</p>
+            <p>{conversation_processing_guidance}</p>
           </div>
           <div class="conversation-settings-grid">
             <div class="conversation-toggle"{voice_autostart_attributes}>
@@ -10953,43 +12457,51 @@ def _minimal_public_memorial_html(
                 <span>Damit merkt sich der Dienst pseudonym, welche Gesprächslinie und welche Stimme für dich gut funktioniert haben.</span>
               </div>
               <label class="conversation-toggle-control" for="memorial-personal-memory-optin">
-                <input type="checkbox" id="memorial-personal-memory-optin">
+                <input type="checkbox" id="memorial-personal-memory-optin" disabled aria-disabled="true">
                 <span>Mit diesem Browser verknüpfen</span>
               </label>
             </div>
           </div>
           <div class="conversation-settings-status">
             <span class="status-note" id="memorial-personal-memory-status">Gastmodus · Gedächtnis aus.</span>
-            <button type="button" id="memorial-personal-memory-forget" disabled aria-disabled="true">Gesprächsgedächtnis löschen</button>
+            <button type="button" id="memorial-personal-memory-forget" disabled aria-disabled="true">Gesprächsgedächtnis löschen und ausschalten</button>
           </div>
-          <p class="status-note">Die Browser-Kennung ist pseudonym; die gespeicherten Gesprächserinnerungen liegen auf unserem Server. Mit „Gesprächsgedächtnis löschen“ entfernst du sie für diesen Browser. Private Einreichungen und ihre Rücknahmebelege verwaltest du unter <a href="#memorial-contribution-management">Meine Einreichungen</a>.</p>
+          <p class="status-note">Die Browser-Kennung ist pseudonym; die gespeicherten Gesprächserinnerungen liegen auf unserem Server. Mit „Gesprächsgedächtnis löschen und ausschalten“ entfernst du sie für diesen Browser und beendest die Verknüpfung.</p>
         </details>
-        <p class="status-note" id="memorial-voice-recovery-note">Wenn die Stimme stockt, bleibt die Antwort als Text sichtbar. Du kannst ruhig unterbrechen oder noch einmal sprechen.</p>
-        <button type="button" class="speech-primary" id="memorial-retry-button" hidden>Bitte noch einmal sprechen</button>
-        <div class="chat-answer" id="memorial-chat-answer" aria-live="polite" hidden></div>
+        <!-- memorial-conversation-settings:end -->
+        <p class="status-note" id="memorial-voice-recovery-note">Wenn die Sprachausgabe stockt, bleibt die Antwort als Text sichtbar. Du kannst jederzeit noch einmal sprechen oder schreiben.</p>
+        <button type="button" class="speech-primary" id="memorial-retry-button" hidden>Sprachfunktion erneut versuchen</button>
+        <div class="chat-answer" id="memorial-chat-answer" tabindex="-1" aria-label="Aktuelle KI-Antwort" hidden></div>
         <section class="speech-transcript-shell" id="memorial-speech-transcript-shell">
           <div class="speech-transcript-live" id="memorial-speech-transcript-live" hidden>
-            <strong id="memorial-speech-transcript-label">Transkript</strong>
+            <strong id="memorial-speech-transcript-label">Du hast gesagt</strong>
             <p id="memorial-speech-transcript-live-text"></p>
             <p class="status-note" id="memorial-speech-transcript-effective" hidden></p>
           </div>
-        <div class="speech-transcript" id="memorial-speech-transcript" role="log" aria-label="Dialogverlauf mit dem Gedenkbegleiter"></div>
+        <div class="speech-transcript" id="memorial-speech-transcript" role="log" aria-label="Gesprächsverlauf" aria-live="polite" aria-relevant="additions text"></div>
         </section>
         <div class="chat-tools" id="memorial-chat-tools" hidden>
-          <button type="button" class="chat-tool" id="memorial-read-answer">Antwort lesen</button>
+          <button type="button" class="chat-tool" id="memorial-read-answer">Zur letzten Antwort</button>
           <button type="button" class="chat-tool" id="memorial-replay-answer" hidden>Noch einmal anhören</button>
-          <button type="button" class="chat-tool" id="memorial-toggle-status" aria-controls="memorial-chat-status" aria-expanded="false" hidden>Quellen / Status</button>
+          <button type="button" class="chat-tool" id="memorial-toggle-status" aria-controls="memorial-chat-status" aria-expanded="false" hidden>Quellen anzeigen</button>
         </div>
         <div class="chat-status" id="memorial-chat-status" hidden></div>
         <audio id="memorial-speech-audio" preload="none" aria-hidden="true"></audio>
       </section>
       </div>
-    </aside>
+    </main>
     <script>
-      const memorialVoiceReleaseAllowed = {json.dumps(voice_release_allowed)};
-      const memorialPagePrewarmEnabled = {json.dumps(_memorial_page_prewarm_enabled() and voice_release_allowed)};
+      const memorialConversationOnly = {_json_for_html_script(conversation_only)};
+      const memorialPublicVoiceReleaseAllowed = {_json_for_html_script(public_voice_release_allowed)};
+      const memorialOperatorPreviewAllowed = {_json_for_html_script(operator_preview_allowed)};
+      const memorialVoiceAccessAllowed = {_json_for_html_script(voice_access_allowed)};
+      // Compatibility alias for the existing client guards; this is never a
+      // release receipt and server endpoints independently reverify access.
+      const memorialVoiceReleaseAllowed = {_json_for_html_script(voice_release_allowed)};
+      const memorialPagePrewarmEnabled = {_json_for_html_script(_memorial_page_prewarm_enabled() and voice_release_allowed)};
       const installHint = document.getElementById("memorial-install-hint");
       const installButton = document.getElementById("memorial-install-button");
+      const contributionDisclosure = document.getElementById("memorial-contribution");
       const contributionForm = document.getElementById("memorial-contribution-form");
       const contributionSubmit = document.getElementById("memorial-contribution-submit");
       const contributionManagementJump = document.getElementById("memorial-contribution-management-jump");
@@ -11010,6 +12522,7 @@ def _minimal_public_memorial_html(
       const personalMemoryOptin = document.getElementById("memorial-personal-memory-optin");
       const personalMemoryStatus = document.getElementById("memorial-personal-memory-status");
       const personalMemoryForgetButton = document.getElementById("memorial-personal-memory-forget");
+      const conversationSettings = document.querySelector("details.conversation-settings");
       const heroActions = document.getElementById("memorial-hero-actions");
       const conversationButton = document.getElementById("memorial-conversation");
       const textTurnForm = document.getElementById("memorial-text-turn-form");
@@ -11051,10 +12564,10 @@ def _minimal_public_memorial_html(
           }}
         }});
       }}
-      const memorialAutostartStorageKey = "memorial_autostart_enabled_v1";
-      const memorialPersonalMemoryStorageKey = "memorial_personal_memory_enabled_v1";
-      const memorialContributionStorageKey = "memorial_contribution_receipt_{html.escape(slug)}_v1";
-      const memorialContributionSlug = {json.dumps(slug)};
+      const memorialAutostartStorageKey = {memorial_autostart_storage_key};
+      const memorialPersonalMemoryStorageKey = {memorial_personal_memory_storage_key};
+      const memorialContributionStorageKey = {memorial_contribution_storage_key};
+      const memorialContributionSlug = {_json_for_html_script(slug)};
       const memorialContributionRecoverySchema = "ea.memorial_family_contribution.recovery_receipt.v1";
       const memorialContributionReceiptLimit = 10;
       const memorialContributionReceiptMaxChars = 32768;
@@ -11108,7 +12621,7 @@ def _minimal_public_memorial_html(
       let contactAcknowledgementAudioPromise = null;
       let contactAcknowledgementInFlight = false;
       let contactAcknowledgementReady = false;
-      const contactAcknowledgementText = "Worum geht es?";
+      const contactAcknowledgementText = "Worüber möchtest du sprechen?";
       const browserPreferredLanguage = "de-AT";
       const memorialReducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
       let speechMeterLive = false;
@@ -12350,15 +13863,25 @@ def _minimal_public_memorial_html(
         try {{
           const response = await fetch("/memorials/{html.escape(slug)}/personal-memory", {{
             headers: personalMemoryHeaders(),
+            cache: "no-store",
           }});
-          if (!response.ok) return;
+          if (!response.ok) throw new Error("personal_memory_status_failed");
           personalMemoryStatusPayload = await response.json();
           updatePersonalMemoryStatusUi();
-        }} catch (error) {{}}
+        }} catch (error) {{
+          if (memorialConversationOnly && personalMemoryForgetButton) {{
+            personalMemoryForgetButton.disabled = false;
+            personalMemoryForgetButton.setAttribute("aria-disabled", "false");
+            personalMemoryForgetButton.title = "Gesprächsgedächtnis vorsorglich löschen und ausschalten";
+          }}
+        }}
       }}
 
       async function forgetPersonalMemory() {{
-        if (Number((personalMemoryStatusPayload && personalMemoryStatusPayload.item_count) || 0) <= 0) {{
+        if (
+          !memorialConversationOnly &&
+          Number((personalMemoryStatusPayload && personalMemoryStatusPayload.item_count) || 0) <= 0
+        ) {{
           updatePersonalMemoryStatusUi();
           return;
         }}
@@ -12369,8 +13892,10 @@ def _minimal_public_memorial_html(
           }});
           if (!response.ok) throw new Error("forget_failed");
           personalMemoryStatusPayload = await response.json();
+          if (personalMemoryOptin) personalMemoryOptin.checked = false;
+          try {{ window.localStorage.setItem(memorialPersonalMemoryStorageKey, "0"); }} catch (error) {{}}
           updatePersonalMemoryStatusUi();
-          setSpeechStatus("Das Gesprächsgedächtnis ist jetzt gelöscht.", "idle", "Die Verknüpfung dieses Browsers wurde zurückgesetzt");
+          setSpeechStatus("Das Gesprächsgedächtnis ist jetzt gelöscht und ausgeschaltet.", "idle", "Die Verknüpfung dieses Browsers wurde zurückgesetzt");
         }} catch (error) {{
           setSpeechStatus("Das Browser-Gedächtnis konnte ich gerade nicht löschen.", "error", "Bitte versuche es noch einmal");
         }}
@@ -12384,8 +13909,16 @@ def _minimal_public_memorial_html(
       }}
 
       function setSpeechStatus(message, state = "idle", detail = "") {{
-        if (retryButton) retryButton.hidden = state !== "error";
-        if (speechMessage) speechMessage.textContent = String(message || "").trim() || "Bereit.";
+        if (retryButton) {{
+          retryButton.hidden = state !== "error";
+          if (state !== "error") {{
+            delete retryButton.dataset.action;
+            retryButton.textContent = "Sprachfunktion erneut versuchen";
+          }} else if (!retryButton.dataset.action) {{
+            retryButton.textContent = "Sprachfunktion erneut versuchen";
+          }}
+        }}
+        if (speechMessage) speechMessage.textContent = String(message || "").trim() || "Bereit für deine Frage.";
         if (speechNote) {{
           speechNote.classList.remove("is-pristine", "is-listening", "is-working", "is-error");
           if (state === "idle") speechNote.classList.add("is-pristine");
@@ -12395,10 +13928,10 @@ def _minimal_public_memorial_html(
         }}
         if (speechPhase) speechPhase.textContent = ({{
           idle: "Bereit",
-          listening: "Aufnahme läuft",
-          working: "Einen Moment",
-          playing: "Manfred",
-          error: "Bitte noch einmal"
+          listening: "Mikrofon aktiv",
+          working: "Antwort wird vorbereitet",
+          playing: "Antwort",
+          error: "Erneut versuchen"
         }})[state] || "Bereit";
         if (speechDetail) speechDetail.textContent = String(detail || "").trim();
         setSpeechMonitorState(state);
@@ -12491,7 +14024,11 @@ def _minimal_public_memorial_html(
         const text = String(value || "").trim();
         if (!answer || !text) return;
         answer.textContent = text;
-        answer.hidden = false;
+        const latestTurn = speechTranscript && speechTranscript.lastElementChild;
+        const latestTurnText = latestTurn && latestTurn.matches(".speech-turn.assistant")
+          ? normalizeTranscriptText((latestTurn.querySelector("p") && latestTurn.querySelector("p").textContent) || "")
+          : "";
+        answer.hidden = latestTurnText === normalizeTranscriptText(text);
         if (answerTools) answerTools.hidden = false;
       }}
 
@@ -12499,23 +14036,58 @@ def _minimal_public_memorial_html(
         if (!speechTranscript) return;
         const normalized = normalizeTranscriptText(text || "");
         if (!normalized) return;
+        const normalizedRole = role === "assistant" ? "assistant" : "user";
+        const latestTurn = speechTranscript.lastElementChild;
+        const latestTurnText = latestTurn
+          ? normalizeTranscriptText((latestTurn.querySelector("p") && latestTurn.querySelector("p").textContent) || "")
+          : "";
+        if (
+          latestTurn &&
+          latestTurn.matches(".speech-turn." + normalizedRole) &&
+          latestTurnText === normalized
+        ) return;
         const turn = document.createElement("div");
-        turn.className = "speech-turn " + (role === "assistant" ? "assistant" : "user");
+        turn.className = "speech-turn " + normalizedRole;
         const label = document.createElement("strong");
-        label.textContent = role === "assistant" ? "Gedenkbegleiter" : "Du";
+        label.textContent = role === "assistant" ? "KI-Begleiter" : "Du";
         const body = document.createElement("p");
         body.textContent = normalized;
         turn.append(label, body);
-        speechTranscript.prepend(turn);
+        turn.tabIndex = -1;
+        speechTranscript.append(turn);
         while (speechTranscript.childElementCount > 8) {{
-          speechTranscript.removeChild(speechTranscript.lastElementChild);
+          speechTranscript.removeChild(speechTranscript.firstElementChild);
         }}
+        turn.scrollIntoView({{ block: "nearest", behavior: memorialReducedMotionQuery.matches ? "auto" : "smooth" }});
+      }}
+
+      function renderCompletedConversationTurn(payload) {{
+        const originalTranscript = normalizeTranscriptText(
+          (payload && payload.transcript_original_text) ||
+          (payload && payload.transcript_text) ||
+          ""
+        );
+        const effectiveTranscript = normalizeTranscriptText(
+          (payload && payload.transcript_effective_text) ||
+          (payload && payload.transcript_text) ||
+          ""
+        );
+        const visibleTranscript = originalTranscript || effectiveTranscript;
+        if (visibleTranscript) appendSpeechTurn("user", visibleTranscript);
+        const statusBits = [];
+        if (payload && Array.isArray(payload.sources) && payload.sources.length) {{
+          statusBits.push("Quellen: " + payload.sources.join(", "));
+        }}
+        setAnswerStatus(statusBits.join("\\n"));
+        const answerText = String((payload && payload.answer) || "").trim();
+        if (answerText) appendSpeechTurn("assistant", answerText);
+        showAnswerText(answerText);
       }}
 
       function setSpeechTranscriptPreview(text = "", options = {{}}) {{
         if (!speechTranscriptLive || !speechTranscriptLiveText) return;
         const normalized = normalizeTranscriptText(text || "");
-        const label = String(options.label || "Transkript").trim() || "Transkript";
+        const label = String(options.label || "Du hast gesagt").trim() || "Du hast gesagt";
         const effectiveText = normalizeTranscriptText(options.effectiveText || "");
         const placeholder = String(options.placeholder || "").trim();
         if (speechTranscriptLabel) speechTranscriptLabel.textContent = label;
@@ -12532,7 +14104,7 @@ def _minimal_public_memorial_html(
         if (speechTranscriptEffective) {{
           if (effectiveText && effectiveText !== normalized) {{
             speechTranscriptEffective.hidden = false;
-            speechTranscriptEffective.textContent = "Verstanden als: " + effectiveText;
+            speechTranscriptEffective.textContent = "So habe ich dich verstanden: " + effectiveText;
           }} else {{
             speechTranscriptEffective.hidden = true;
             speechTranscriptEffective.textContent = "";
@@ -12543,7 +14115,11 @@ def _minimal_public_memorial_html(
       function setAnswerStatus(value) {{
         lastAnswerStatusText = String(value || "").trim();
         if (toggleStatusButton) toggleStatusButton.hidden = !lastAnswerStatusText;
-        if (!lastAnswerStatusText && answerStatus) answerStatus.hidden = true;
+        if (toggleStatusButton) toggleStatusButton.setAttribute("aria-expanded", "false");
+        if (answerStatus) {{
+          answerStatus.textContent = "";
+          answerStatus.hidden = true;
+        }}
       }}
 
       function setLastAnswerAudioBlob(blob) {{
@@ -12585,8 +14161,8 @@ def _minimal_public_memorial_html(
         if (generation !== activeGeneration || completedConversationTurns > 0 || contactAcknowledgementInFlight) return;
         contactAcknowledgementInFlight = true;
         showAnswerText(contactAcknowledgementText);
-        setAnswerStatus("Direkte Kontaktantwort aus der Phrase-Bank.");
-        setSpeechStatus("Ich spreche.", "playing", contactAcknowledgementText);
+        setAnswerStatus("");
+        setSpeechStatus("Antwort wird abgespielt.", "playing", contactAcknowledgementText);
         try {{
           const blob = await ensureContactAcknowledgementAudio();
           if (generation !== activeGeneration || !blob) return;
@@ -12601,7 +14177,7 @@ def _minimal_public_memorial_html(
       function syncConversationButton() {{
         if (!conversationButton) return;
         if (!memorialVoiceReleaseAllowed) {{
-          const label = "Schriftliche Frage stellen";
+          const label = "Frage schreiben";
           conversationButton.textContent = label;
           conversationButton.setAttribute("aria-label", label);
           conversationButton.setAttribute("title", label);
@@ -12615,16 +14191,16 @@ def _minimal_public_memorial_html(
         let label = "Gespräch wird vorbereitet …";
         let disabled = true;
         if (recordingActive) {{
-          label = "Gespräch stoppen";
+          label = "Gespräch beenden";
           disabled = false;
         }} else if (conversationSessionActive) {{
-          label = "Gespräch stoppen";
+          label = "Gespräch beenden";
           disabled = false;
         }} else if (requestInFlight) {{
           label = "Einen Moment …";
           disabled = true;
         }} else if (memorialLandingReady) {{
-          label = "Gespräch beginnen";
+          label = "Gespräch starten";
           disabled = false;
         }}
         conversationButton.textContent = label;
@@ -12641,14 +14217,14 @@ def _minimal_public_memorial_html(
         memorialLandingReady = memorialVoiceReleaseAllowed ? Boolean(ready) : true;
         if (memorialLandingReady && retryButton && retryButton.dataset.action === "voice-readiness") {{
           delete retryButton.dataset.action;
-          retryButton.textContent = "Bitte noch einmal sprechen";
+          retryButton.textContent = "Sprachfunktion erneut versuchen";
         }}
         syncConversationButton();
         if (!recordingActive && !requestInFlight) {{
           if (!memorialVoiceReleaseAllowed) {{
-            setSpeechStatus("Schriftlicher Gedenkbegleiter bereit.", "idle", "Sprachfunktion nicht freigegeben");
-          }} else if (memorialLandingReady) setSpeechStatus("Bereit.", "idle", detail || "");
-          else setSpeechStatus("Der Gedenkbegleiter wird vorbereitet.", "working", detail || "");
+            setSpeechStatus("Schreiben ist bereit.", "idle", "Sprechen ist derzeit nicht verfügbar.");
+          }} else if (memorialLandingReady) setSpeechStatus("Bereit für deine Frage.", "idle", detail || "");
+          else setSpeechStatus("Gespräch wird vorbereitet …", "working", detail || "");
         }}
       }}
 
@@ -12774,12 +14350,12 @@ def _minimal_public_memorial_html(
 
       async function ensureMemorialReady(reason = "page_load") {{
         if (!memorialVoiceReleaseAllowed) {{
-          setMemorialLandingReady(true, "Sprachfunktion nicht freigegeben");
+          setMemorialLandingReady(true, "Sprechen ist derzeit nicht verfügbar.");
           return {{ status: "blocked_release", warm: false, voice_ready: false }};
         }}
         if (memorialLandingReady && memorialReadySnapshot) return memorialReadySnapshot;
         if (memorialReadyPromise) return memorialReadyPromise;
-        setMemorialLandingReady(false, "Gleich kannst du mit dem Gedenkbegleiter sprechen.");
+        setMemorialLandingReady(false, "Gleich kannst du das Gespräch starten.");
         memorialReadyPromise = (async () => {{
           try {{
             await requestMemorialWarmup(reason);
@@ -12792,18 +14368,18 @@ def _minimal_public_memorial_html(
               setMemorialLandingReady(true, "");
             }} catch (error) {{
               contactAcknowledgementReady = false;
-              setMemorialLandingReady(true, "Die kurze Begrüßung ist nicht vorgeladen; das Gespräch bleibt verfügbar.");
+              setMemorialLandingReady(true, "Das Gespräch ist bereit.");
             }}
           }} else {{
             setMemorialLandingReady(false, "");
             if (retryButton) {{
               retryButton.dataset.action = "voice-readiness";
-              retryButton.textContent = "Stimme erneut prüfen";
+              retryButton.textContent = "Sprachfunktion erneut versuchen";
             }}
             setSpeechStatus(
-              "Die Stimme ist gerade nicht verfügbar.",
+              "Sprechen ist gerade nicht möglich.",
               "error",
-              "Du kannst die Frage eintippen oder die Stimme später erneut prüfen."
+              "Du kannst schreiben oder es später noch einmal versuchen."
             );
           }}
           return memorialReadySnapshot;
@@ -13804,6 +15380,23 @@ def _minimal_public_memorial_html(
               showAnswerText(payload.answer);
               return;
             }}
+            if (
+              type === "response.output_audio_transcript.delta" ||
+              type === "response.audio_transcript.delta" ||
+              type === "response.output_text.delta"
+            ) {{
+              payload.answer += String(message.delta || "");
+              showAnswerText(payload.answer);
+              return;
+            }}
+            if (
+              type === "response.output_audio_transcript.done" ||
+              type === "response.output_text.done"
+            ) {{
+              payload.answer = String(message.transcript || message.text || payload.answer || "").trim();
+              showAnswerText(payload.answer);
+              return;
+            }}
             if (type === "audio") {{
               payload.audio_base64 = String(message.audio_base64 || "").trim();
               payload.audio_content_type = String(message.content_type || "audio/wav");
@@ -14044,7 +15637,7 @@ def _minimal_public_memorial_html(
         if (!memorialVoiceReleaseAllowed) {{
           if (textTurnForm) textTurnForm.scrollIntoView({{ block: "nearest", behavior: memorialReducedMotionQuery.matches ? "auto" : "smooth" }});
           if (textTurnInput) textTurnInput.focus();
-          setSpeechStatus("Schriftlicher Gedenkbegleiter bereit.", "idle", "Sprachfunktion nicht freigegeben");
+          setSpeechStatus("Schreiben ist bereit.", "idle", "Sprechen ist derzeit nicht verfügbar.");
           return;
         }}
         if (conversationSessionActive || recordingActive || requestInFlight) return;
@@ -14101,7 +15694,8 @@ def _minimal_public_memorial_html(
             ? await realtimeTurnOverride.finish()
             : await sendConversationTurn(blob, generation);
           if (generation !== activeGeneration) return;
-          showAnswerText(payload && payload.answer);
+          renderCompletedConversationTurn(payload);
+          setSpeechTranscriptPreview();
           const audioBlob = decodeAudioPayload(payload);
           if (audioBlob) {{
             await playMemorialAudio(audioBlob, generation, String((payload && payload.answer) || ""));
@@ -14154,24 +15748,31 @@ def _minimal_public_memorial_html(
         if (textTurnInput) textTurnInput.disabled = true;
         if (textTurnSubmit) textTurnSubmit.disabled = true;
         syncConversationButton();
-        setSpeechStatus("Der Gedenkbegleiter antwortet gleich.", "working", "Getippte Frage");
+        setSpeechStatus("Antwort wird vorbereitet …", "working", "");
         try {{
           const payload = await sendTextConversationHttp(question, generation);
           if (generation !== activeGeneration) return;
-          showAnswerText(payload && payload.answer);
+          renderCompletedConversationTurn(Object.assign({{}}, payload, {{
+            transcript_original_text: question,
+            transcript_effective_text: question,
+          }}));
           const audioBlob = decodeAudioPayload(payload);
           if (audioBlob) await playMemorialAudio(audioBlob, generation, String((payload && payload.answer) || ""));
           if (generation !== activeGeneration) return;
           completedConversationTurns += 1;
           if (textTurnInput) textTurnInput.value = "";
           setSpeechStatus(
-            "Bereit.",
+            "Bereit für deine Frage.",
             "idle",
-            memorialVoiceReleaseAllowed ? "Du kannst weiter schreiben oder sprechen" : "Du kannst eine weitere schriftliche Frage stellen"
+            memorialVoiceReleaseAllowed ? "Du kannst weiter schreiben oder sprechen." : "Du kannst eine weitere Frage schreiben."
           );
         }} catch (error) {{
           if (generation === activeGeneration) {{
-            setSpeechStatus("Die Textfrage konnte gerade nicht beantwortet werden.", "error", "Bitte versuche es noch einmal");
+            setSpeechStatus("Deine Frage konnte gerade nicht beantwortet werden.", "error", "Versuche es bitte noch einmal.");
+            if (retryButton) {{
+              retryButton.dataset.action = "text-retry";
+              retryButton.textContent = "Textfrage erneut senden";
+            }}
           }}
         }} finally {{
           if (generation === activeGeneration) {{
@@ -14186,7 +15787,7 @@ def _minimal_public_memorial_html(
       function toggleConversation() {{
         if (conversationSessionActive) {{
           abortActiveTurn();
-          setSpeechStatus("Bereit.", "idle", "");
+          setSpeechStatus("Bereit für deine Frage.", "idle", "");
           return;
         }}
         if (requestInFlight) return;
@@ -14201,8 +15802,14 @@ def _minimal_public_memorial_html(
           retryButton.hidden = true;
           if (retryButton.dataset.action === "voice-readiness") {{
             delete retryButton.dataset.action;
-            retryButton.textContent = "Bitte noch einmal sprechen";
+            retryButton.textContent = "Sprachfunktion erneut versuchen";
             void ensureMemorialReady("manual_retry");
+            return;
+          }}
+          if (retryButton.dataset.action === "text-retry") {{
+            delete retryButton.dataset.action;
+            if (textTurnForm && typeof textTurnForm.requestSubmit === "function") textTurnForm.requestSubmit();
+            else if (textTurnInput) textTurnInput.focus();
             return;
           }}
           void startConversationSession();
@@ -14210,8 +15817,11 @@ def _minimal_public_memorial_html(
       }}
       if (readAnswerButton) {{
         readAnswerButton.addEventListener("click", () => {{
-          if (!answer || answer.hidden) return;
-          answer.scrollIntoView({{ block: "nearest", behavior: memorialReducedMotionQuery.matches ? "auto" : "smooth" }});
+          const latestAssistantTurn = speechTranscript && speechTranscript.querySelector(".speech-turn.assistant:last-child");
+          const target = latestAssistantTurn || (answer && !answer.hidden ? answer : null);
+          if (!target) return;
+          target.scrollIntoView({{ block: "nearest", behavior: memorialReducedMotionQuery.matches ? "auto" : "smooth" }});
+          target.focus({{ preventScroll: true }});
         }});
       }}
       if (replayAnswerButton) {{
@@ -14248,6 +15858,7 @@ def _minimal_public_memorial_html(
         }});
         activateProtectedForm(textTurnForm);
       }}
+      if (speechNote) speechNote.hidden = false;
       if (contributionForm) {{
         contributionForm.addEventListener("submit", (event) => {{
           void submitFamilyContribution(event);
@@ -14259,6 +15870,7 @@ def _minimal_public_memorial_html(
       }}
       if (contributionManagementJump) {{
         contributionManagementJump.addEventListener("click", () => {{
+          if (contributionDisclosure) contributionDisclosure.open = true;
           if (contributionManagement) {{
             contributionManagement.scrollIntoView({{
               block: "start",
@@ -14268,6 +15880,21 @@ def _minimal_public_memorial_html(
           if (contributionManagementTitle) contributionManagementTitle.focus();
           void refreshContributionManagement();
         }});
+      }}
+      for (const contributionLink of document.querySelectorAll(
+        'a[href="#memorial-contribution-management"]'
+      )) {{
+        contributionLink.addEventListener("click", () => {{
+          if (contributionDisclosure) contributionDisclosure.open = true;
+        }});
+      }}
+      if (
+        contributionDisclosure &&
+        ["#memorial-contribution", "#memorial-contribution-management"].includes(
+          window.location.hash
+        )
+      ) {{
+        contributionDisclosure.open = true;
       }}
       if (contributionRecoveryDownload) {{
         contributionRecoveryDownload.addEventListener("click", () => {{
@@ -14293,7 +15920,7 @@ def _minimal_public_memorial_html(
         }});
       }}
 
-      const memorialPwaInstallEnabled = {json.dumps(_memorial_pwa_install_enabled())};
+      const memorialPwaInstallEnabled = {_json_for_html_script(_memorial_pwa_install_enabled())};
       window.addEventListener("beforeinstallprompt", (event) => {{
         event.preventDefault();
         if (!memorialPwaInstallEnabled) {{
@@ -14328,6 +15955,8 @@ def _minimal_public_memorial_html(
       }}
 
       if (personalMemoryOptin) {{
+        personalMemoryOptin.disabled = false;
+        personalMemoryOptin.setAttribute("aria-disabled", "false");
         try {{
           const stored = String(window.localStorage.getItem(memorialPersonalMemoryStorageKey) || "").trim().toLowerCase();
           personalMemoryOptin.checked = stored === "1" || stored === "true" || stored === "yes" || stored === "on";
@@ -14346,6 +15975,12 @@ def _minimal_public_memorial_html(
       if (personalMemoryForgetButton) {{
         personalMemoryForgetButton.addEventListener("click", () => {{
           void forgetPersonalMemory();
+        }});
+      }}
+
+      if (conversationSettings) {{
+        conversationSettings.addEventListener("toggle", () => {{
+          if (conversationSettings.open) void loadPersonalMemoryStatus();
         }});
       }}
 
@@ -14379,17 +16014,19 @@ def _minimal_public_memorial_html(
 
       if (!window.__memorialMinimalBooted) {{
         window.__memorialMinimalBooted = true;
-        syncContributionManagement();
-        void refreshContributionManagement();
+        if (!memorialConversationOnly) {{
+          syncContributionManagement();
+          void refreshContributionManagement();
+        }}
         syncConversationButton();
         setMemorialLandingReady(
           !memorialPagePrewarmEnabled,
           memorialPagePrewarmEnabled
-            ? "Gleich kannst du mit dem Gedenkbegleiter sprechen."
+            ? "Gleich kannst du das Gespräch starten."
             : "Das Mikrofon wird erst nach deinem Start verwendet."
         );
         updatePersonalMemoryStatusUi();
-        void loadPersonalMemoryStatus();
+        if (!memorialConversationOnly) void loadPersonalMemoryStatus();
         window.setTimeout(() => {{
           void retireLegacyMemorialServiceWorkers();
           if (memorialPagePrewarmEnabled) void ensureMemorialReady("page_load");
@@ -14399,7 +16036,7 @@ def _minimal_public_memorial_html(
         if (memorialVoiceReleaseAllowed && isPwaLaunch && memorialAutostartEnabled()) {{
           window.setTimeout(() => {{
             if (conversationSessionActive || recordingActive || requestInFlight) return;
-            setSpeechStatus("Mikrofon wird vorbereitet ...", "working", "Mikrofon freigeben, falls der Browser fragt");
+            setSpeechStatus("Mikrofon wird vorbereitet …", "working", "Gib das Mikrofon frei, falls der Browser fragt.");
             void startConversationSession();
           }}, 420);
         }}
@@ -14407,6 +16044,16 @@ def _minimal_public_memorial_html(
     </script>
   </body>
 </html>"""
+    if not conversation_only:
+        return document
+    for region in (
+        "story-skip",
+        "public-navigation",
+        "public-story",
+        "install-upsell",
+    ):
+        document = _without_public_memorial_html_region(document, region=region)
+    return document
 
 
 def _memorial_html(
@@ -14438,8 +16085,8 @@ def _memorial_html(
     person_name_html = html.escape(person_name)
     person_label_html = html.escape(person_label)
     person_initials_html = html.escape(person_initials)
-    person_name_js = json.dumps(person_name)
-    person_label_js = json.dumps(person_label)
+    person_name_js = _json_for_html_script(person_name)
+    person_label_js = _json_for_html_script(person_label)
     memorial_avatar_url = html.escape(_memorial_pwa_icon_url(slug, payload, 180))
     video_call_avatar = _memorial_video_call_avatar(payload, slug)
     video_call_avatar_enabled = bool(video_call_avatar.get("enabled"))
@@ -14549,7 +16196,9 @@ def _memorial_html(
     if not tts_plugin_options_html:
         tts_plugin_options_html = '<option value="" disabled selected>Keine TTS-Plug-ins verfügbar</option>'
     voice_build_default_query = html.escape(f"{person_name} interview")
-    clickrank_html = clickrank_head_snippet(hostname)
+    # The memorial page may hold contribution-management tokens in localStorage.
+    # Keep its document free of third-party scripts.
+    clickrank_html = ""
     clips_html = "\n".join(
         f"""
         <article class="clip">
@@ -14621,7 +16270,7 @@ def _memorial_html(
       <section id="memorial-prompts">
         <div class="section-intro">
           <p class="section-kicker">Fragen</p>
-          <h2>Was du fragen kannst</h2>
+          <h2>Fragen als ruhiger Einstieg</h2>
         </div>
         <div class="prompt-row">{prompts_html}</div>
       </section>"""
@@ -16448,7 +18097,7 @@ def _memorial_html(
       </div>
     </main>
     <script>
-      const memorialPagePrewarmEnabled = {json.dumps(_memorial_page_prewarm_enabled())};
+      const memorialPagePrewarmEnabled = {_json_for_html_script(_memorial_page_prewarm_enabled())};
       const form = document.getElementById("memorial-chat-form");
       const memorialPersonName = {person_name_js};
       const memorialPersonLabel = {person_label_js};
@@ -16497,13 +18146,13 @@ def _memorial_html(
       const memorialPersonalMemoryStorageKey = "memorial_personal_memory_enabled_v1";
       const memorialVoiceAbRoundStorageKey = "memorial_voice_ab_round_v1";
       const browserPreferredLanguage = "de-AT";
-      const memorialVoiceConfigPath = {json.dumps(voice_config_path)};
-      const memorialVoiceAbPath = {json.dumps(voice_ab_path)};
-      const memorialVoiceAbRatePath = {json.dumps(voice_ab_rate_path)};
-      const memorialVoiceAbFinalizePath = {json.dumps(voice_ab_finalize_path)};
-      const memorialVoiceProfilePath = {json.dumps(voice_profile_path)};
-      const memorialVoiceProfileBuildPath = {json.dumps(voice_profile_build_path)};
-      const memorialVoiceClonePath = {json.dumps(voice_clone_path)};
+      const memorialVoiceConfigPath = {_json_for_html_script(voice_config_path)};
+      const memorialVoiceAbPath = {_json_for_html_script(voice_ab_path)};
+      const memorialVoiceAbRatePath = {_json_for_html_script(voice_ab_rate_path)};
+      const memorialVoiceAbFinalizePath = {_json_for_html_script(voice_ab_finalize_path)};
+      const memorialVoiceProfilePath = {_json_for_html_script(voice_profile_path)};
+      const memorialVoiceProfileBuildPath = {_json_for_html_script(voice_profile_build_path)};
+      const memorialVoiceClonePath = {_json_for_html_script(voice_clone_path)};
       try {{ document.documentElement.setAttribute("lang", browserPreferredLanguage); }} catch (error) {{}}
       const voiceYoutubeQueryInput = document.getElementById("memorial-voice-youtube-query");
       const voiceYoutubeLimitInput = document.getElementById("memorial-voice-youtube-limit");
@@ -16588,7 +18237,7 @@ def _memorial_html(
       let memorialReadyRefreshTimer = null;
       let memorialLandingReady = false;
       const settledRealtimeTurnIds = new Set();
-      let memorialVoiceConfig = {json.dumps(public_voice_config, ensure_ascii=False)};
+      let memorialVoiceConfig = {_json_for_html_script(public_voice_config)};
       let personalMemoryStatusPayload = {{ available: false, enabled: false, guest_mode: true, item_count: 0, frozen: false, approved_voice_choice: "" }};
       let voiceAbState = {{
         variants: [],
@@ -19261,7 +20910,7 @@ def _memorial_html(
         const message = String((reason && reason.message) || reason || "Unbehandelte Promise-Ablehnung");
         setSpeechStatus("Seitenfehler: " + message, "error", "Bitte Seite neu laden");
       }});
-      const memorialPwaInstallEnabled = {json.dumps(_memorial_pwa_install_enabled())};
+      const memorialPwaInstallEnabled = {_json_for_html_script(_memorial_pwa_install_enabled())};
       window.addEventListener("beforeinstallprompt", (event) => {{
         event.preventDefault();
         if (!memorialPwaInstallEnabled) {{
@@ -19406,14 +21055,12 @@ def _public_memorial_page_html(
     *,
     hostname: str = "",
     private_profile: dict[str, object] | None = None,
+    operator_preview_allowed: bool = False,
 ) -> str:
     slug = _safe_slug(_public_memorial_story_text(payload.get("slug"), max_chars=80))
     person_name = _public_memorial_story_text(payload.get("person_name"), max_chars=160) or "Manfred"
     title_text = _public_memorial_story_text(payload.get("title"), max_chars=220) or f"Erinnerungen an {person_name}"
-    subtitle = _public_memorial_story_text(payload.get("subtitle"), max_chars=420) or (
-        "Eine ruhige Seite fuer Erinnerungen, belegte Gedanken und oeffentliche Quellen."
-    )
-    video_call_avatar = _memorial_video_call_avatar(payload, slug)
+    subtitle = f"Ein ruhiger Ort für ein Gespräch über {person_name}."
     return _minimal_public_memorial_html(
         slug=slug,
         person_name=person_name,
@@ -19421,9 +21068,15 @@ def _public_memorial_page_html(
         subtitle=subtitle,
         memorial_avatar_url=html.escape(_memorial_pwa_icon_url(slug, payload, 180)),
         pwa_short_name=_memorial_pwa_short_name(payload),
-        clickrank_html=clickrank_head_snippet(hostname),
-        story_html=_public_memorial_story_html(payload, slug=slug),
-        video_call_avatar_fallback_html=_memorial_video_call_avatar_fallback_html(video_call_avatar),
+        # Keep the public memorial document free of third-party scripts because
+        # contribution-management tokens live in this origin's localStorage.
+        clickrank_html="",
+        # Public memorials are conversation-only. Story/archive and contribution
+        # content stays on its dedicated gated routes and is never projected here.
+        story_html="",
+        video_call_avatar_fallback_html="",
+        conversation_only=True,
+        operator_preview_allowed=operator_preview_allowed,
     )
 
 

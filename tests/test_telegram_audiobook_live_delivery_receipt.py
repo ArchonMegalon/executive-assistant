@@ -120,6 +120,7 @@ def _job_receipt(
     render_status: str = "already_rendered",
     voice_selected_by_user: bool = False,
     replacement_choice_pending: bool = False,
+    voice_samples_sent: bool = True,
     origin_edition_delivery: bool = False,
 ) -> dict[str, object]:
     artifact_sha256 = "8" * 64
@@ -353,9 +354,13 @@ def _job_receipt(
             "chat_bound": True,
             "listener_reference_sha256": "b" * 64,
             "message_bound": True,
-            "voice_sample_delivery_status": "sent" if replacement_choice_pending else "",
+            "voice_sample_delivery_status": (
+                "sent" if replacement_choice_pending and voice_samples_sent else ""
+            ),
             "voice_sample_delivery_expected_count": 1 if replacement_choice_pending else 0,
-            "voice_sample_delivery_sent_count": 1 if replacement_choice_pending else 0,
+            "voice_sample_delivery_sent_count": (
+                1 if replacement_choice_pending and voice_samples_sent else 0
+            ),
             "voice_sample_delivery_failed_count": 0,
             "voice_sample_callback_tokens_exposed": False,
         },
@@ -390,6 +395,29 @@ def _job_receipt(
 
 def _sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def test_live_telegram_audiobook_delivery_receipt_guides_empty_intake_to_telegram(
+    tmp_path: Path,
+) -> None:
+    module = _load_script("materialize_telegram_audiobook_live_delivery_receipt")
+
+    receipt = module.build_receipt(
+        output_path=tmp_path / "empty.generated.json",
+        job_receipts=[],
+        generated_at="2026-06-19T21:10:00Z",
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["candidate_count"] == 0
+    assert receipt["failed_candidate_count"] == 0
+    assert receipt["live_delivery_claim_allowed"] is False
+    assert receipt["next_action"] == (
+        "send_epub_over_telegram_to_create_live_delivery_receipt"
+    )
+    assert receipt["next_action_href"] == "/integrations/telegram"
+    assert receipt["next_action_label"] == "Open Telegram"
+    assert receipt["next_action_method"] == "get"
 
 
 def test_live_telegram_audiobook_delivery_receipt_passes_with_redacted_job_receipt(tmp_path: Path) -> None:
@@ -725,8 +753,42 @@ def test_live_telegram_audiobook_delivery_receipt_does_not_mark_delivery_only_ga
     assert receipt["next_action_method"] == "get"
 
 
+@pytest.mark.parametrize(
+    (
+        "voice_samples_sent",
+        "expected_underfilled",
+        "expected_next_action",
+        "expected_href",
+        "expected_label",
+        "expected_user_action",
+    ),
+    [
+        (
+            False,
+            True,
+            "send_missing_telegram_audiobook_voice_samples_before_user_choice",
+            "/app/channel-loop",
+            "Open channel loop",
+            False,
+        ),
+        (
+            True,
+            False,
+            "choose_one_telegram_audiobook_voice_sample",
+            "/integrations/telegram",
+            "Open Telegram",
+            True,
+        ),
+    ],
+)
 def test_live_telegram_audiobook_delivery_receipt_surfaces_initial_voice_choice(
     tmp_path: Path,
+    voice_samples_sent: bool,
+    expected_underfilled: bool,
+    expected_next_action: str,
+    expected_href: str,
+    expected_label: str,
+    expected_user_action: bool,
 ) -> None:
     module = _load_script("materialize_telegram_audiobook_live_delivery_receipt")
     pending = _job_receipt(
@@ -737,6 +799,7 @@ def test_live_telegram_audiobook_delivery_receipt_surfaces_initial_voice_choice(
         telegram_delivery_status="",
         telegram_message_present=False,
         replacement_choice_pending=True,
+        voice_samples_sent=voice_samples_sent,
     )
     pending["render"]["voice_selection"]["reason"] = ""
 
@@ -754,14 +817,44 @@ def test_live_telegram_audiobook_delivery_receipt_surfaces_initial_voice_choice(
     assert receipt["pending_user_selected_voice_jobs"][0]["replacement_choice_pending"] is False
     assert "audiobook_voice_choice_pending" in receipt["failed_codes"]
     assert "explicit_replacement_voice_choice_pending" not in receipt["failed_codes"]
-    assert receipt["next_action"] == "choose_one_telegram_audiobook_voice_sample"
-    assert receipt["next_action_href"] == "/integrations/telegram"
-    assert receipt["next_action_label"] == "Open Telegram"
+    assert (
+        "voice_sample_delivery_underfilled" in receipt["failed_codes"]
+    ) is expected_underfilled
+    assert receipt["next_action"] == expected_next_action
+    assert receipt["next_action_href"] == expected_href
+    assert receipt["next_action_label"] == expected_label
     assert receipt["next_action_method"] == "get"
+    packet = receipt["operator_action_packet"]
+    assert packet["user_action_required"] is expected_user_action
+    if expected_underfilled:
+        assert packet["voice_sample_delivery_missing_count"] == 1
+    else:
+        assert packet["sent_samples_cover_expected"] is True
 
 
+@pytest.mark.parametrize(
+    (
+        "voice_samples_sent",
+        "expected_underfilled",
+        "expected_next_action",
+        "expected_user_action",
+    ),
+    [
+        (
+            False,
+            True,
+            "send_missing_telegram_audiobook_voice_samples_before_user_choice",
+            False,
+        ),
+        (True, False, "choose_sent_replacement_voice_sample", True),
+    ],
+)
 def test_live_telegram_audiobook_delivery_receipt_surfaces_explicit_replacement_choice_pending(
     tmp_path: Path,
+    voice_samples_sent: bool,
+    expected_underfilled: bool,
+    expected_next_action: str,
+    expected_user_action: bool,
 ) -> None:
     module = _load_script("materialize_telegram_audiobook_live_delivery_receipt")
 
@@ -777,6 +870,7 @@ def test_live_telegram_audiobook_delivery_receipt_surfaces_explicit_replacement_
                 telegram_delivery_status="",
                 telegram_message_present=False,
                 replacement_choice_pending=True,
+                voice_samples_sent=voice_samples_sent,
             ),
         ],
         generated_at="2026-06-20T11:20:00Z",
@@ -786,7 +880,16 @@ def test_live_telegram_audiobook_delivery_receipt_surfaces_explicit_replacement_
     assert receipt["live_delivery_claim_allowed"] is False
     assert "user_selected_voice_delivery_not_ready" in receipt["failed_codes"]
     assert "explicit_replacement_voice_choice_pending" in receipt["failed_codes"]
-    assert receipt["next_action"] == "choose_sent_replacement_voice_sample"
+    assert (
+        "voice_sample_delivery_underfilled" in receipt["failed_codes"]
+    ) is expected_underfilled
+    assert receipt["next_action"] == expected_next_action
+    packet = receipt["operator_action_packet"]
+    assert packet["user_action_required"] is expected_user_action
+    if expected_underfilled:
+        assert packet["voice_sample_delivery_missing_count"] == 1
+    else:
+        assert packet["sent_samples_cover_expected"] is True
     pending = receipt["pending_user_selected_voice_jobs"][0]
     assert pending["voice_selection_status"] == "waiting_user_choice"
     assert pending["voice_selection_reason"] == "selected_voice_provider_balance_blocked"
@@ -797,8 +900,142 @@ def test_live_telegram_audiobook_delivery_receipt_surfaces_explicit_replacement_
     assert "piper-local" not in serialized
 
 
+def test_live_telegram_audiobook_delivery_packet_targets_underfilled_row_after_sent_row(
+    tmp_path: Path,
+) -> None:
+    module = _load_script("materialize_telegram_audiobook_live_delivery_receipt")
+    sent = _job_receipt(
+        job_id="sent-samples-first",
+        status="waiting_voice_selection",
+        render_status="waiting_voice_selection",
+        public_share_status="",
+        telegram_delivery_status="",
+        telegram_message_present=False,
+        replacement_choice_pending=True,
+        voice_samples_sent=True,
+    )
+    underfilled = _job_receipt(
+        job_id="underfilled-samples-second",
+        status="waiting_voice_selection",
+        render_status="waiting_voice_selection",
+        public_share_status="",
+        telegram_delivery_status="",
+        telegram_message_present=False,
+        replacement_choice_pending=True,
+        voice_samples_sent=False,
+    )
+    underfilled["source"]["source_sha256"] = "a" * 64
+
+    receipt = module.build_receipt(
+        output_path=tmp_path / "mixed-sample-delivery.generated.json",
+        job_receipts=[sent, underfilled],
+        generated_at="2026-06-20T11:22:00Z",
+    )
+
+    assert receipt["next_action"] == (
+        "send_missing_telegram_audiobook_voice_samples_before_user_choice"
+    )
+    packet = receipt["operator_action_packet"]
+    assert packet["reason"] == "voice_sample_delivery_underfilled"
+    assert packet["voice_sample_delivery_expected_count"] == 1
+    assert packet["voice_sample_delivery_sent_count"] == 0
+    assert packet["voice_sample_delivery_required_count"] == 1
+    assert packet["voice_sample_delivery_missing_count"] == 1
+
+
+def test_live_telegram_receipt_mixed_accepted_and_pending_normalizes_root_claims_and_verifies(
+    tmp_path: Path,
+) -> None:
+    materializer = _load_script(
+        "materialize_telegram_audiobook_live_delivery_receipt"
+    )
+    verifier = _load_script("verify_telegram_audiobook_live_delivery_receipt")
+    accepted = _job_receipt(
+        job_id="accepted-completed-delivery",
+        playback_accepted=True,
+    )
+    pending = _job_receipt(
+        job_id="distinct-pending-delivery",
+        status="waiting_voice_selection",
+        render_status="waiting_voice_selection",
+        public_share_status="",
+        telegram_delivery_status="",
+        telegram_message_present=False,
+        replacement_choice_pending=True,
+        voice_samples_sent=False,
+    )
+    pending["source"]["source_sha256"] = "a" * 64
+    receipt_path = tmp_path / "mixed-accepted-pending.generated.json"
+
+    receipt = materializer.build_receipt(
+        output_path=receipt_path,
+        job_receipts=[accepted, pending],
+        generated_at="2026-06-19T21:20:00Z",
+    )
+
+    assert receipt["status"] == "blocked"
+    for field in (
+        "live_delivery_claim_allowed",
+        "machine_playback_e2e_verified",
+        "real_user_playback_acceptance_verified",
+        "human_playback_acceptance_claim_allowed",
+        "canary_completion_claim_allowed",
+        "goal_completion_claim_allowed",
+    ):
+        assert receipt[field] is False
+    selected = receipt["selected_delivery"]
+    assert selected["job_id_sha256"] == _sha256("accepted-completed-delivery")
+    assert selected["projection_scope"] == "historical_non_claim_evidence"
+    assert selected["current_claim_allowed"] is False
+    assert selected["historical_human_acceptance_observed"] is True
+    assert selected["playback_acceptance_verified"] is False
+    assert selected["canary_completion_claim_allowed"] is False
+    assert selected["human_listened_canary"]["claim_allowed"] is False
+    assert selected["human_listened_canary"]["projection_scope"] == (
+        "historical_non_claim_evidence"
+    )
+    assert verifier.verify(
+        receipt_path,
+        now=datetime(2026, 6, 19, 21, 25, tzinfo=UTC),
+    ) == []
+
+
+@pytest.mark.parametrize(
+    (
+        "voice_samples_sent",
+        "expected_underfilled",
+        "expected_next_action",
+        "expected_href",
+        "expected_label",
+        "expected_user_action",
+    ),
+    [
+        (
+            False,
+            True,
+            "send_missing_telegram_audiobook_voice_samples_before_user_choice",
+            "/app/channel-loop",
+            "Open channel loop",
+            False,
+        ),
+        (
+            True,
+            False,
+            "choose_sent_replacement_voice_sample",
+            "/integrations/telegram",
+            "Open Telegram",
+            True,
+        ),
+    ],
+)
 def test_live_telegram_audiobook_delivery_receipt_surfaces_replacement_choice_without_prior_delivery(
     tmp_path: Path,
+    voice_samples_sent: bool,
+    expected_underfilled: bool,
+    expected_next_action: str,
+    expected_href: str,
+    expected_label: str,
+    expected_user_action: bool,
 ) -> None:
     module = _load_script("materialize_telegram_audiobook_live_delivery_receipt")
 
@@ -813,6 +1050,7 @@ def test_live_telegram_audiobook_delivery_receipt_surfaces_replacement_choice_wi
                 telegram_delivery_status="",
                 telegram_message_present=False,
                 replacement_choice_pending=True,
+                voice_samples_sent=voice_samples_sent,
             )
         ],
         generated_at="2026-06-20T11:25:00Z",
@@ -822,10 +1060,19 @@ def test_live_telegram_audiobook_delivery_receipt_surfaces_replacement_choice_wi
     assert receipt["live_delivery_claim_allowed"] is False
     assert "valid_live_audiobook_delivery_missing" in receipt["failed_codes"]
     assert "explicit_replacement_voice_choice_pending" in receipt["failed_codes"]
-    assert receipt["next_action"] == "choose_sent_replacement_voice_sample"
-    assert receipt["next_action_href"] == "/integrations/telegram"
-    assert receipt["next_action_label"] == "Open Telegram"
+    assert (
+        "voice_sample_delivery_underfilled" in receipt["failed_codes"]
+    ) is expected_underfilled
+    assert receipt["next_action"] == expected_next_action
+    assert receipt["next_action_href"] == expected_href
+    assert receipt["next_action_label"] == expected_label
     assert receipt["next_action_method"] == "get"
+    packet = receipt["operator_action_packet"]
+    assert packet["user_action_required"] is expected_user_action
+    if expected_underfilled:
+        assert packet["voice_sample_delivery_missing_count"] == 1
+    else:
+        assert packet["sent_samples_cover_expected"] is True
     assert receipt["pending_user_selected_voice_job_count"] == 1
     assert receipt["pending_user_selected_voice_jobs"][0]["replacement_choice_pending"] is True
 
@@ -1194,3 +1441,32 @@ def test_live_telegram_receipt_isolates_malformed_numeric_job_per_candidate(
     ]
     serialized = json.dumps(receipt, allow_nan=False, sort_keys=True)
     assert "PRIVATE MALFORMED TELEGRAM TITLE" not in serialized
+
+
+def test_live_telegram_receipt_isolates_malformed_pending_sample_count(
+    tmp_path: Path,
+) -> None:
+    module = _load_script("materialize_telegram_audiobook_live_delivery_receipt")
+    malformed = _job_receipt(
+        job_id="malformed-pending-sample-count",
+        status="waiting_voice_selection",
+        render_status="waiting_voice_selection",
+        public_share_status="",
+        telegram_delivery_status="",
+        telegram_message_present=False,
+        replacement_choice_pending=True,
+        voice_samples_sent=False,
+    )
+    malformed["telegram"]["voice_sample_delivery_expected_count"] = "not-an-int"
+
+    receipt = module.build_receipt(
+        output_path=tmp_path / "malformed-pending-sample.generated.json",
+        job_receipts=[malformed],
+        generated_at="2026-06-19T21:20:00Z",
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["live_delivery_claim_allowed"] is False
+    assert receipt["pending_user_selected_voice_job_count"] == 0
+    assert "malformed_job_receipt" in receipt["failed_codes"]
+    assert receipt["failed_candidates"][0]["status"] == "malformed_job_receipt"

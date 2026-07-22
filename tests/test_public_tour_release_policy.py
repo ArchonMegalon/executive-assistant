@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 
@@ -20,12 +22,16 @@ from app.services.public_tour_release_policy import (
 )
 
 
-def _generated_video_source_manifest(*, source_path: str = "pcloud://propertyquarry/source/floorplan.jpg") -> bytes:
+def _generated_video_source_manifest(
+    *, source_path: str = "pcloud://propertyquarry/source/floorplan.jpg"
+) -> bytes:
     return json.dumps(
         {
             "provider": "propertyquarry_generated_reconstruction",
             "floorplan": {"source_path": source_path},
-            "photos": [{"source_path": "pcloud://propertyquarry/source/living-room.jpg"}],
+            "photos": [
+                {"source_path": "pcloud://propertyquarry/source/living-room.jpg"}
+            ],
         },
         sort_keys=True,
     ).encode("utf-8")
@@ -125,14 +131,23 @@ def _generated_viewer_payload() -> dict[str, object]:
     assets = _generated_viewer_assets()
     roles = {
         "generated-reconstruction/viewer.html": ("text/html", "viewer_document"),
-        "generated-reconstruction/reconstruction.json": ("application/json", "reconstruction_manifest"),
+        "generated-reconstruction/reconstruction.json": (
+            "application/json",
+            "reconstruction_manifest",
+        ),
         "generated-reconstruction/floorplan.png": ("image/png", "floorplan_texture"),
-        "generated-reconstruction/vendor/three.module.js": ("text/javascript", "viewer_module"),
+        "generated-reconstruction/vendor/three.module.js": (
+            "text/javascript",
+            "viewer_module",
+        ),
         "generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js": (
             "text/javascript",
             "viewer_module",
         ),
-        "generated-reconstruction/photos/living-room.jpg": ("image/jpeg", "photo_texture"),
+        "generated-reconstruction/photos/living-room.jpg": (
+            "image/jpeg",
+            "photo_texture",
+        ),
     }
     return {
         "slug": "generated-viewer-tour",
@@ -198,7 +213,58 @@ def _write_generated_viewer_bundle(
     return bundle, payload
 
 
-def test_generated_viewer_release_requires_every_bound_asset_and_review_receipt() -> None:
+def _invoke_file_response(
+    response: object,
+    *,
+    method: str = "GET",
+    range_header: str = "",
+) -> tuple[int, dict[str, str], bytes]:
+    async def run_response() -> list[dict[str, object]]:
+        messages: list[dict[str, object]] = []
+
+        async def receive() -> dict[str, object]:
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message: dict[str, object]) -> None:
+            messages.append(message)
+
+        headers = [(b"range", range_header.encode("ascii"))] if range_header else []
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.4"},
+            "http_version": "1.1",
+            "method": method,
+            "scheme": "http",
+            "path": "/test-file",
+            "raw_path": b"/test-file",
+            "query_string": b"",
+            "root_path": "",
+            "headers": headers,
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+            "extensions": {"http.response.pathsend": {}},
+            "state": {},
+        }
+        await response(scope, receive, send)
+        return messages
+
+    messages = asyncio.run(run_response())
+    start = next(message for message in messages if message["type"] == "http.response.start")
+    response_headers = {
+        bytes(key).decode("latin-1"): bytes(value).decode("latin-1")
+        for key, value in start["headers"]
+    }
+    body = b"".join(
+        bytes(message.get("body") or b"")
+        for message in messages
+        if message["type"] == "http.response.body"
+    )
+    return int(start["status"]), response_headers, body
+
+
+def test_generated_viewer_release_requires_every_bound_asset_and_review_receipt() -> (
+    None
+):
     payload = _generated_viewer_payload()
 
     decision = evaluate_public_tour_generated_viewer_release(payload)
@@ -223,8 +289,13 @@ def test_generated_viewer_release_requires_every_bound_asset_and_review_receipt(
     }
 
     malformed_binding = json.loads(json.dumps(payload))
-    malformed_binding["generated_viewer_release"]["asset_bindings"][0]["sha256"] = "not-a-digest"
-    assert evaluate_public_tour_generated_viewer_release(malformed_binding)["released"] is False
+    malformed_binding["generated_viewer_release"]["asset_bindings"][0]["sha256"] = (
+        "not-a-digest"
+    )
+    assert (
+        evaluate_public_tour_generated_viewer_release(malformed_binding)["released"]
+        is False
+    )
 
     extra_binding = json.loads(json.dumps(payload))
     extra_binding["generated_viewer_release"]["asset_bindings"].append(
@@ -236,7 +307,46 @@ def test_generated_viewer_release_requires_every_bound_asset_and_review_receipt(
             "role": "photo_texture",
         }
     )
-    assert evaluate_public_tour_generated_viewer_release(extra_binding)["released"] is False
+    assert (
+        evaluate_public_tour_generated_viewer_release(extra_binding)["released"]
+        is False
+    )
+
+
+def test_generated_viewer_release_accepts_explicit_layout_only_bundle() -> None:
+    payload = _generated_viewer_payload()
+    generated = payload["generated_reconstruction"]
+    generated.pop("photo_relpaths")
+    generated["photo_reference_panel_count"] = 0
+    payload["generated_viewer_release"]["asset_bindings"] = [
+        row
+        for row in payload["generated_viewer_release"]["asset_bindings"]
+        if row["role"] != "photo_texture"
+    ]
+
+    decision = evaluate_public_tour_generated_viewer_release(payload)
+
+    assert decision["released"] is True
+    assert all(
+        row["role"] != "photo_texture" for row in decision["bindings"].values()
+    )
+
+
+@pytest.mark.parametrize("invalid_count", [False, None, "0", -1, 1])
+def test_generated_viewer_layout_only_marker_fails_closed_when_not_exact_zero(
+    invalid_count: object,
+) -> None:
+    payload = _generated_viewer_payload()
+    generated = payload["generated_reconstruction"]
+    generated.pop("photo_relpaths")
+    generated["photo_reference_panel_count"] = invalid_count
+    payload["generated_viewer_release"]["asset_bindings"] = [
+        row
+        for row in payload["generated_viewer_release"]["asset_bindings"]
+        if row["role"] != "photo_texture"
+    ]
+
+    assert evaluate_public_tour_generated_viewer_release(payload)["released"] is False
 
 
 @pytest.mark.parametrize(
@@ -279,16 +389,28 @@ def test_generated_viewer_release_fails_closed_without_each_proof(
     [
         ("generated_reconstruction", "verified_provider_capture", True),
         ("generated_reconstruction", "satisfies_verified_tour_gate", True),
-        ("generated_reconstruction", "viewer_version", "propertyquarry_3d_tour_viewer_v2"),
+        (
+            "generated_reconstruction",
+            "viewer_version",
+            "propertyquarry_3d_tour_viewer_v2",
+        ),
         ("generated_reconstruction", "photo_relpaths", []),
         (
             "generated_reconstruction",
             "photo_relpaths",
             ["generated-reconstruction/photos/living-room.jpg", "../unbound.jpg"],
         ),
-        ("generated_viewer_release", "contract", "ea.public-tour-generated-viewer-release.v0"),
+        (
+            "generated_viewer_release",
+            "contract",
+            "ea.public-tour-generated-viewer-release.v0",
+        ),
         ("generated_viewer_release", "provider", "unreviewed_renderer"),
-        ("generated_viewer_release", "viewer_relpath", "generated-reconstruction/other.html"),
+        (
+            "generated_viewer_release",
+            "viewer_relpath",
+            "generated-reconstruction/other.html",
+        ),
     ],
 )
 def test_generated_viewer_release_rejects_metadata_or_truth_claim_drift(
@@ -305,7 +427,13 @@ def test_generated_viewer_release_rejects_metadata_or_truth_claim_drift(
     assert decision["reason"] == "generated_viewer_release_unverified"
 
 
-@pytest.mark.parametrize(("terminal_field", "reason"), [("revoked", "generated_viewer_revoked"), ("disqualified", "generated_viewer_disqualified")])
+@pytest.mark.parametrize(
+    ("terminal_field", "reason"),
+    [
+        ("revoked", "generated_viewer_revoked"),
+        ("disqualified", "generated_viewer_disqualified"),
+    ],
+)
 def test_generated_viewer_terminal_release_states_cannot_be_reactivated_by_valid_proof(
     terminal_field: str,
     reason: str,
@@ -336,7 +464,9 @@ def test_generated_viewer_route_serves_only_bound_assets_with_isolated_headers(
         if getattr(route, "path", "") == "/tours/viewer/{slug}/{asset_path:path}"
     ]
 
-    assert {method for route in viewer_routes for method in (route.methods or set())} >= {"GET", "HEAD"}
+    assert {
+        method for route in viewer_routes for method in (route.methods or set())
+    } >= {"GET", "HEAD"}
 
     file_path, binding, decision = public_tours._generated_viewer_file(
         "generated-viewer-tour",
@@ -358,9 +488,10 @@ def test_generated_viewer_route_serves_only_bound_assets_with_isolated_headers(
     assert headers["cache-control"] == "no-store"
     assert headers["cross-origin-resource-policy"] == "cross-origin"
     assert headers["x-content-type-options"] == "nosniff"
-    assert headers["x-propertyquarry-asset-sha256"] == hashlib.sha256(
-        _generated_viewer_assets()[viewer_relpath]
-    ).hexdigest()
+    assert (
+        headers["x-propertyquarry-asset-sha256"]
+        == hashlib.sha256(_generated_viewer_assets()[viewer_relpath]).hexdigest()
+    )
     assert headers["x-propertyquarry-viewer-revision"] == "release-2026-07-13.1"
     assert headers["content-type"].startswith("text/html")
     assert "default-src 'none'" in csp
@@ -379,7 +510,9 @@ def test_generated_viewer_route_serves_only_bound_assets_with_isolated_headers(
         module_relpath,
     )
     assert module_response.headers["access-control-allow-origin"] == "*"
-    assert module_response.headers["cache-control"] == "public, max-age=86400, immutable"
+    assert (
+        module_response.headers["cache-control"] == "public, max-age=86400, immutable"
+    )
     assert "content-security-policy" not in module_response.headers
     assert module_response.headers["content-type"].startswith("text/javascript")
 
@@ -400,6 +533,31 @@ def test_generated_viewer_route_serves_only_bound_assets_with_isolated_headers(
         "synthetic": True,
         "verified_provider_capture": False,
     }
+
+
+def test_generated_viewer_route_serves_the_verified_inode_after_atomic_replace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, _ = _write_generated_viewer_bundle(tmp_path, monkeypatch)
+    viewer_relpath = "generated-reconstruction/viewer.html"
+    viewer_path = bundle / viewer_relpath
+    expected = viewer_path.read_bytes()
+
+    response = public_tours.public_tour_generated_viewer_file(
+        "generated-viewer-tour",
+        viewer_relpath,
+    )
+    replacement = bundle / "replacement-viewer.html"
+    replacement.write_bytes(b"<!doctype html><p>unverified replacement</p>")
+    os.replace(replacement, viewer_path)
+
+    status, headers, body = _invoke_file_response(response)
+
+    assert status == 200
+    assert body == expected
+    assert body != viewer_path.read_bytes()
+    assert headers["accept-ranges"] == "bytes"
 
 
 def test_generated_viewer_file_fails_closed_for_unbound_proof_asset_and_digest_drift(
@@ -473,6 +631,54 @@ def test_generated_viewer_route_rejects_tmp_or_test_source_provenance(
     assert provenance_error.value.detail == "tour_viewer_integrity_failed"
 
 
+def test_generated_viewer_provenance_parses_the_digest_bound_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, payload = _write_generated_viewer_bundle(tmp_path, monkeypatch)
+    manifest_relpath = "generated-reconstruction/reconstruction.json"
+    manifest_path = bundle / manifest_relpath
+    unsafe_manifest = (
+        b'{"viewer_version":"propertyquarry_3d_tour_viewer_v3",'
+        b'"floorplan":{"source_path":"/tmp/private-debug-floorplan.jpg"}}'
+    )
+    safe_manifest = _generated_viewer_assets()[manifest_relpath]
+    manifest_path.write_bytes(unsafe_manifest)
+    manifest_binding = next(
+        row
+        for row in payload["generated_viewer_release"]["asset_bindings"]
+        if row["path"] == manifest_relpath
+    )
+    manifest_binding["sha256"] = hashlib.sha256(unsafe_manifest).hexdigest()
+    manifest_binding["size_bytes"] = len(unsafe_manifest)
+    (bundle / "tour.json").write_text(json.dumps(payload), encoding="utf-8")
+    original_open = public_tours._public_tour_open_hashed_file
+
+    def replace_manifest_after_hash(path: str, **kwargs: object) -> tuple[int, str, bytes | None]:
+        opened = original_open(path, **kwargs)
+        if path == str(manifest_path) and kwargs.get("capture_bytes") is True:
+            replacement = bundle / "replacement-reconstruction.json"
+            replacement.write_bytes(safe_manifest)
+            os.replace(replacement, manifest_path)
+        return opened
+
+    monkeypatch.setattr(
+        public_tours,
+        "_public_tour_open_hashed_file",
+        replace_manifest_after_hash,
+    )
+
+    with pytest.raises(HTTPException) as provenance_error:
+        public_tours._generated_viewer_file(
+            "generated-viewer-tour",
+            "generated-reconstruction/viewer.html",
+        )
+
+    assert provenance_error.value.status_code == 410
+    assert provenance_error.value.detail == "tour_viewer_integrity_failed"
+    assert manifest_path.read_bytes() == safe_manifest
+
+
 def test_generated_viewer_revocation_is_terminal_at_the_file_route(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -529,8 +735,13 @@ def test_parent_tour_embeds_released_viewer_without_same_origin_authority() -> N
     assert 'sandbox="allow-scripts"' in iframe
     assert "allow-same-origin" not in iframe
     assert 'aria-describedby="generated-viewer-disclosure"' in iframe
-    assert 'src="/tours/viewer/generated-viewer-tour/generated-reconstruction/viewer.html"' in iframe
-    assert 'href="#generated-3d-viewer">Open interactive 3D reconstruction</a>' in rendered
+    assert (
+        'src="/tours/viewer/generated-viewer-tour/generated-reconstruction/viewer.html"'
+        in iframe
+    )
+    assert (
+        'href="#generated-3d-viewer">Open interactive 3D reconstruction</a>' in rendered
+    )
     assert "not a captured or provider-verified 3D scan" in rendered
 
 
@@ -554,7 +765,9 @@ def test_generated_reconstruction_video_requires_consistent_truthful_coverage() 
     }
 
     tampered = json.loads(json.dumps(payload))
-    tampered["generated_reconstruction"]["walkthrough_coverage_proof"]["segments_visited"] = ["entry"]
+    tampered["generated_reconstruction"]["walkthrough_coverage_proof"][
+        "segments_visited"
+    ] = ["entry"]
     denied = evaluate_public_tour_video_release(tampered)
     assert denied == {
         "released": False,
@@ -572,7 +785,9 @@ def test_generated_reconstruction_video_requires_consistent_truthful_coverage() 
 
     misleading_disclosure = json.loads(json.dumps(payload))
     misleading_disclosure["video_release"]["disclosure"] = "Verified captured tour."
-    assert evaluate_public_tour_video_release(misleading_disclosure)["released"] is False
+    assert (
+        evaluate_public_tour_video_release(misleading_disclosure)["released"] is False
+    )
 
 
 @pytest.mark.parametrize(
@@ -610,19 +825,30 @@ def test_generated_reconstruction_video_fails_closed_without_bound_release_evide
     }
 
 
-def test_provider_video_requires_digest_bound_release_and_terminal_states_fail_closed() -> None:
+def test_provider_video_requires_digest_bound_release_and_terminal_states_fail_closed() -> (
+    None
+):
     payload = _released_magicfit_payload()
     assert evaluate_public_tour_video_release(payload)["released"] is True
     public_payload = public_tours._redacted_public_tour_payload(payload)
-    assert public_payload["video_release"]["contract"] == PUBLIC_TOUR_VIDEO_RELEASE_CONTRACT
-    assert public_payload["video_release"]["release_revision"] == "video-release-2026-07-13.1"
-    assert public_payload["video_release"]["asset_sha256"] == hashlib.sha256(
-        b"reviewed-video"
-    ).hexdigest()
+    assert (
+        public_payload["video_release"]["contract"]
+        == PUBLIC_TOUR_VIDEO_RELEASE_CONTRACT
+    )
+    assert (
+        public_payload["video_release"]["release_revision"]
+        == "video-release-2026-07-13.1"
+    )
+    assert (
+        public_payload["video_release"]["asset_sha256"]
+        == hashlib.sha256(b"reviewed-video").hexdigest()
+    )
 
     unbound = dict(payload)
     unbound.pop("video_release")
-    assert evaluate_public_tour_video_release(unbound)["reason"] == "video_release_missing"
+    assert (
+        evaluate_public_tour_video_release(unbound)["reason"] == "video_release_missing"
+    )
 
     revoked = json.loads(json.dumps(payload))
     revoked["video_release"]["revoked"] = True
@@ -657,11 +883,17 @@ def test_external_embed_requires_exact_reviewed_origin_and_url_digest() -> None:
 
     redirected = json.loads(json.dumps(payload))
     redirected["external_embed_release"]["final_origin"] = "https://example.com"
-    assert evaluate_public_tour_embed_release(redirected)["reason"] == "embed_release_unverified"
+    assert (
+        evaluate_public_tour_embed_release(redirected)["reason"]
+        == "embed_release_unverified"
+    )
 
     hosted_cube = json.loads(json.dumps(payload))
     hosted_cube["scene_strategy"] = "pure_360_cube"
-    assert evaluate_public_tour_embed_release(hosted_cube)["reason"] == "hosted_cube_does_not_require_external_embed"
+    assert (
+        evaluate_public_tour_embed_release(hosted_cube)["reason"]
+        == "hosted_cube_does_not_require_external_embed"
+    )
 
 
 @pytest.mark.parametrize(
@@ -674,7 +906,11 @@ def test_external_embed_requires_exact_reviewed_origin_and_url_digest() -> None:
         ("https://example.com/path", True, "https://example.com/path"),
         ("/tours/example", True, "/tours/example"),
         ("//evil.example/path", True, ""),
-        ("http://127.0.0.1:8097/tours/example", False, "http://127.0.0.1:8097/tours/example"),
+        (
+            "http://127.0.0.1:8097/tours/example",
+            False,
+            "http://127.0.0.1:8097/tours/example",
+        ),
     ],
 )
 def test_navigation_urls_reject_script_credentials_and_unapproved_ports(
@@ -685,14 +921,19 @@ def test_navigation_urls_reject_script_credentials_and_unapproved_ports(
     assert safe_public_navigation_url(value, production=production) == expected
 
 
-def test_public_tour_html_hardening_adds_semantics_motion_and_selected_state_support() -> None:
+def test_public_tour_html_hardening_adds_semantics_motion_and_selected_state_support() -> (
+    None
+):
     source = """<!doctype html><html lang="de"><head><style>:root{--accent:#123;}</style></head><body>
     <div class="shell"><iframe id="stage-frame" src="" title="Floorplan"></iframe>
     <button class="thumb active">Scene</button></div></body></html>"""
 
     hardened = public_tours._harden_public_tour_html(
         source,
-        {"brand_name": "PropertyQuarry", "_tour_media_disclosure": "Generated reconstruction; not captured 3D."},
+        {
+            "brand_name": "PropertyQuarry",
+            "_tour_media_disclosure": "Generated reconstruction; not captured 3D.",
+        },
     )
 
     assert '<html lang="en">' in hardened
@@ -733,7 +974,14 @@ def test_public_asset_route_denies_undeclared_previews_and_unreleased_provider_v
         "slug": "magicfit-tour",
         "video_relpath": "tour.mp4",
         "video_provider": "magicfit",
-        "scenes": [{"name": "Photo", "role": "photo", "asset_relpath": "photo.jpg", "mime_type": "image/jpeg"}],
+        "scenes": [
+            {
+                "name": "Photo",
+                "role": "photo",
+                "asset_relpath": "photo.jpg",
+                "mime_type": "image/jpeg",
+            }
+        ],
     }
     (bundle / "photo.jpg").write_bytes(b"photo")
     (bundle / "tour.json").write_text(json.dumps(payload), encoding="utf-8")
@@ -758,7 +1006,14 @@ def test_released_provider_video_is_hash_verified_and_revocation_returns_410(
     bundle.mkdir(parents=True)
     (bundle / "tour.mp4").write_bytes(video)
     payload = _released_magicfit_payload(video)
-    payload["scenes"] = [{"name": "Photo", "role": "photo", "asset_relpath": "photo.jpg", "mime_type": "image/jpeg"}]
+    payload["scenes"] = [
+        {
+            "name": "Photo",
+            "role": "photo",
+            "asset_relpath": "photo.jpg",
+            "mime_type": "image/jpeg",
+        }
+    ]
     (bundle / "photo.jpg").write_bytes(b"photo")
     (bundle / "tour.json").write_text(json.dumps(payload), encoding="utf-8")
     monkeypatch.setattr(public_tours, "_tour_dir", lambda: root)
@@ -766,8 +1021,14 @@ def test_released_provider_video_is_hash_verified_and_revocation_returns_410(
 
     assert public_tours._asset_file("magicfit-tour", "tour.mp4") == bundle / "tour.mp4"
     response = public_tours.public_tour_file("magicfit-tour", "tour.mp4")
-    assert response.headers["x-propertyquarry-asset-sha256"] == hashlib.sha256(video).hexdigest()
-    assert response.headers["x-propertyquarry-media-revision"] == "video-release-2026-07-13.1"
+    assert (
+        response.headers["x-propertyquarry-asset-sha256"]
+        == hashlib.sha256(video).hexdigest()
+    )
+    assert (
+        response.headers["x-propertyquarry-media-revision"]
+        == "video-release-2026-07-13.1"
+    )
 
     (bundle / "tour.mp4").write_bytes(b"tampered-video")
     with pytest.raises(HTTPException) as tamper_error:
@@ -779,6 +1040,128 @@ def test_released_provider_video_is_hash_verified_and_revocation_returns_410(
     with pytest.raises(HTTPException) as revoked_error:
         public_tours._asset_file("magicfit-tour", "tour.mp4")
     assert revoked_error.value.status_code == 410
+
+
+def test_released_video_response_holds_the_verified_inode_for_get_range_and_head(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    video = b"reviewed-video"
+    replacement_video = b"tampered-video"
+    assert len(replacement_video) == len(video)
+    root = tmp_path / "public-tours"
+    bundle = root / "magicfit-tour"
+    bundle.mkdir(parents=True)
+    video_path = bundle / "tour.mp4"
+    video_path.write_bytes(video)
+    payload = _released_magicfit_payload(video)
+    payload["scenes"] = [
+        {
+            "name": "Photo",
+            "role": "photo",
+            "asset_relpath": "photo.jpg",
+            "mime_type": "image/jpeg",
+        }
+    ]
+    (bundle / "photo.jpg").write_bytes(b"photo")
+    (bundle / "tour.json").write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(public_tours, "_tour_dir", lambda: root)
+
+    def stale_hash_cache_must_not_be_used(*args: object, **kwargs: object) -> str:
+        raise AssertionError("public response path used the stale hash cache")
+
+    monkeypatch.setattr(
+        public_tours,
+        "_public_tour_cached_file_sha256",
+        stale_hash_cache_must_not_be_used,
+    )
+
+    def replace_video(content: bytes) -> None:
+        replacement = bundle / "replacement-tour.mp4"
+        replacement.write_bytes(content)
+        os.replace(replacement, video_path)
+
+    get_response = public_tours.public_tour_file("magicfit-tour", "tour.mp4")
+    replace_video(replacement_video)
+    get_status, get_headers, get_body = _invoke_file_response(get_response)
+    assert get_status == 200
+    assert get_body == video
+    assert get_headers["content-length"] == str(len(video))
+
+    replace_video(video)
+    range_response = public_tours.public_tour_file("magicfit-tour", "tour.mp4")
+    replace_video(replacement_video)
+    range_status, range_headers, range_body = _invoke_file_response(
+        range_response,
+        range_header="bytes=2-7",
+    )
+    assert range_status == 206
+    assert range_body == video[2:8]
+    assert range_headers["content-range"] == f"bytes 2-7/{len(video)}"
+
+    replace_video(video)
+    head_response = public_tours.public_tour_file("magicfit-tour", "tour.mp4")
+    replace_video(replacement_video)
+    head_status, head_headers, head_body = _invoke_file_response(
+        head_response,
+        method="HEAD",
+    )
+    assert head_status == 200
+    assert head_body == b""
+    assert head_headers["content-length"] == str(len(video))
+
+
+def test_released_video_headers_and_body_share_one_manifest_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_video = b"reviewed-video"
+    next_video = b"tampered-video"
+    root = tmp_path / "public-tours"
+    bundle = root / "magicfit-tour"
+    bundle.mkdir(parents=True)
+    video_path = bundle / "tour.mp4"
+    video_path.write_bytes(first_video)
+    first_payload = _released_magicfit_payload(first_video)
+    next_payload = _released_magicfit_payload(next_video)
+    for payload in (first_payload, next_payload):
+        payload["scenes"] = [
+            {
+                "name": "Photo",
+                "role": "photo",
+                "asset_relpath": "photo.jpg",
+                "mime_type": "image/jpeg",
+            }
+        ]
+    (bundle / "photo.jpg").write_bytes(b"photo")
+    (bundle / "tour.json").write_text(json.dumps(first_payload), encoding="utf-8")
+    monkeypatch.setattr(public_tours, "_tour_dir", lambda: root)
+    load_count = 0
+
+    def swapping_load(_: str) -> dict[str, object]:
+        nonlocal load_count
+        load_count += 1
+        if load_count == 1:
+            return first_payload
+        replacement = bundle / "next-tour.mp4"
+        replacement.write_bytes(next_video)
+        os.replace(replacement, video_path)
+        (bundle / "tour.json").write_text(json.dumps(next_payload), encoding="utf-8")
+        return next_payload
+
+    monkeypatch.setattr(public_tours, "_load_tour", swapping_load)
+
+    response = public_tours.public_tour_file("magicfit-tour", "tour.mp4")
+    replacement = bundle / "post-response-tour.mp4"
+    replacement.write_bytes(next_video)
+    os.replace(replacement, video_path)
+    status, headers, body = _invoke_file_response(response)
+
+    assert load_count == 1
+    assert status == 200
+    assert body == first_video
+    assert headers["x-propertyquarry-asset-sha256"] == hashlib.sha256(body).hexdigest()
+    assert headers["x-propertyquarry-media-revision"] == "video-release-2026-07-13.1"
 
 
 def test_released_generated_video_is_hash_verified_and_terminal_states_return_410(
@@ -799,10 +1182,13 @@ def test_released_generated_video_is_hash_verified_and_terminal_states_return_41
     monkeypatch.setattr(public_tours, "_tour_dir", lambda: root)
     public_tours._public_tour_cached_file_sha256.cache_clear()
 
-    assert public_tours._asset_file(
-        "generated-tour",
-        "generated-reconstruction/generated-walkthrough.mp4",
-    ) == video_path
+    assert (
+        public_tours._asset_file(
+            "generated-tour",
+            "generated-reconstruction/generated-walkthrough.mp4",
+        )
+        == video_path
+    )
 
     video_path.write_bytes(b"tampered-generated-video")
     with pytest.raises(HTTPException) as tamper_error:

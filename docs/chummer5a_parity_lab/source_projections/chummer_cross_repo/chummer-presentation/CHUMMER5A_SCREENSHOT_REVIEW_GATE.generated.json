@@ -1,0 +1,14 @@
+{
+  "contract_name": "projection.chummer5a_screenshot_review_gate",
+  "generated_at": "2026-07-15T00:00:00Z",
+  "projection_redacted": true,
+  "proof_tokens": [
+    "05-dense-section-light.png",
+    "06-dense-section-dark.png",
+    "dense_builder",
+    "legacy_dense_builder_rhythm",
+    "04-loaded-runner-light.png",
+    "menu:dice_roller_or_workflow:initiative_screenshot",
+    "initiative_screenshot"
+  ]
+}
