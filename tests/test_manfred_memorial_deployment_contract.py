@@ -540,7 +540,11 @@ def test_candidate_keeps_governed_spatial_http_routes_retired(
     assert "/v1/internal/governed-spatial-render/build" not in paths
 
 
-def test_public_memorial_singular_alias_is_permanent_safe_and_schema_hidden() -> None:
+def test_public_memorial_singular_alias_is_permanent_safe_and_schema_hidden(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_origin = "https://memorial.example.test"
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", public_origin)
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
@@ -548,7 +552,7 @@ def test_public_memorial_singular_alias_is_permanent_safe_and_schema_hidden() ->
 
     app = FastAPI()
     app.include_router(router)
-    client = TestClient(app)
+    client = TestClient(app, base_url=public_origin)
 
     for method in ("GET", "HEAD"):
         response = client.request(
