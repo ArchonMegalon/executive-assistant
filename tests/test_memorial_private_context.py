@@ -286,7 +286,11 @@ def test_public_surface_excludes_public_looking_private_overlay(
     assert "PRIVATE_PROJECTION_CANARY" not in public_json
     assert "PRIVATE_PROJECTION_CANARY" not in public_html
     assert "TRACKED_PUBLIC_CANARY" in public_json
-    assert "TRACKED_PUBLIC_CANARY" in public_html
+    # The minimal public landing page is conversation-only. Approved public
+    # archive material remains available through the JSON/asset projection but
+    # must not be rendered back into the landing-page document.
+    assert "TRACKED_PUBLIC_CANARY" not in public_html
+    assert "Tracked public body" not in public_html
 
     bundle = tmp_path / "bundle"
     (bundle / "audio").mkdir(parents=True)
