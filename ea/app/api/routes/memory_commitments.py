@@ -20,7 +20,7 @@ class CommitmentIn(BaseModel):
     commitment_id: str | None = Field(default=None, max_length=200)
 
 
-class CommitmentOut(BaseModel):
+class MemoryCommitmentOut(BaseModel):
     commitment_id: str
     principal_id: str
     title: str
@@ -33,8 +33,8 @@ class CommitmentOut(BaseModel):
     updated_at: str
 
 
-def _commitment_out(row) -> CommitmentOut:  # type: ignore[no-untyped-def]
-    return CommitmentOut(
+def _commitment_out(row) -> MemoryCommitmentOut:  # type: ignore[no-untyped-def]
+    return MemoryCommitmentOut(
         commitment_id=row.commitment_id,
         principal_id=row.principal_id,
         title=row.title,
@@ -53,7 +53,7 @@ def upsert_memory_commitment(
     body: CommitmentIn,
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
-) -> CommitmentOut:
+) -> MemoryCommitmentOut:
     row = container.memory_runtime.upsert_commitment(
         principal_id=resolve_principal_id(body.principal_id, context),
         title=body.title,
@@ -74,7 +74,7 @@ def list_memory_commitments(
     status: str | None = Query(default=None),
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
-) -> list[CommitmentOut]:
+) -> list[MemoryCommitmentOut]:
     rows = container.memory_runtime.list_commitments(
         principal_id=resolve_principal_id(principal_id, context),
         limit=limit,
@@ -89,7 +89,7 @@ def get_memory_commitment(
     principal_id: str | None = Query(default=None, min_length=1, max_length=200),
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
-) -> CommitmentOut:
+) -> MemoryCommitmentOut:
     row = container.memory_runtime.get_commitment(
         commitment_id,
         principal_id=resolve_principal_id(principal_id, context),
