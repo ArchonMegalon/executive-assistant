@@ -10210,7 +10210,8 @@ class MemorialDeployLane:
                 or parsed_url.fragment
             ):
                 raise DeployError("public_spatial_external_request_rejected")
-            for method in ("GET", "HEAD"):
+            methods = ("GET",) if label == "version" else ("GET", "HEAD")
+            for method in methods:
                 response = self.http_no_redirect(
                     url,
                     self.request_timeout_seconds,

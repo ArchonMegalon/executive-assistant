@@ -723,16 +723,20 @@ def _public_response(
     source_revision: str = SOURCE_REVISION,
 ) -> ingress.HttpResponse:
     path = urllib.parse.urlsplit(url).path
-    content_type = "application/json" if path.endswith(".json") or path == "/version" else "text/html; charset=utf-8"
+    content_type = (
+        "application/json"
+        if path.endswith(".json") or path == "/version"
+        else "text/html; charset=utf-8"
+    )
     body = (
-        json.dumps({"commit_sha": source_revision}).encode("utf-8")
+        json.dumps({"app_name": "ea-rewrite", "version": "0.3.0"}).encode("utf-8")
         if path == "/version"
         else json.dumps({"slug": "manfred"}).encode("utf-8")
         if content_type == "application/json"
         else b"<!doctype html><title>Manfred</title>"
     )
     return ingress.HttpResponse(
-        200,
+        405 if path == "/version" and method == "HEAD" else 200,
         content_type,
         b"" if method == "HEAD" else body,
         source_revision,
@@ -740,14 +744,25 @@ def _public_response(
     )
 
 
-def test_public_verification_proves_get_and_head_on_all_surfaces(tmp_path: Path) -> None:
+def test_public_verification_uses_version_get_and_get_head_elsewhere(
+    tmp_path: Path,
+) -> None:
     lane = _lane(tmp_path, http_no_redirect=_public_response)
 
     result = lane.run(verify_public_only=True)
 
     assert result["receipt"]["status"] == "public_verification_pass"
-    assert len(result["evidence"]) == len(ingress.PUBLIC_PROBES) * 2
+    assert len(result["evidence"]) == len(ingress.PUBLIC_PROBES) * 2 - 1
     assert {row["method"] for row in result["evidence"].values()} == {"GET", "HEAD"}
+    assert "version_head" not in result["evidence"]
+    assert result["evidence"]["version_get"][
+        "source_revision_header_verified"
+    ] is True
+    assert all(
+        f"{probe.label}_head" in result["evidence"]
+        for probe in ingress.PUBLIC_PROBES
+        if probe.label != "version"
+    )
 
 
 def test_public_verification_rejects_wrong_revision(tmp_path: Path) -> None:

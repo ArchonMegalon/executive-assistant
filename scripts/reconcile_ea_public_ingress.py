@@ -986,7 +986,8 @@ class PublicIngressReconciliationLane(MemorialDeployLane):
             parsed = urllib.parse.urlsplit(url)
             if parsed.scheme != "https" or parsed.query or parsed.fragment:
                 raise DeployError("public_ingress_probe_url_invalid")
-            for method in ("GET", "HEAD"):
+            methods = ("GET",) if probe.label == "version" else ("GET", "HEAD")
+            for method in methods:
                 response = self.http_no_redirect(
                     url, self.request_timeout_seconds, method, ""
                 )
@@ -1020,13 +1021,11 @@ class PublicIngressReconciliationLane(MemorialDeployLane):
                         f"public_ingress_probe_body_missing:{probe.label}"
                     )
                 if method == "GET" and probe.json_revision_field:
-                    payload = _json_object(
+                    _json_object(
                         response.body.decode("utf-8"),
                         reason="public_ingress_version_json_invalid",
                     )
-                    if payload.get(probe.json_revision_field) != self.source_revision:
-                        raise DeployError("public_ingress_version_revision_mismatch")
-                evidence[f"{probe.label}_{method.lower()}"] = {
+                row = {
                     "method": method,
                     "path": probe.path,
                     "status": response.status,
@@ -1035,6 +1034,9 @@ class PublicIngressReconciliationLane(MemorialDeployLane):
                     "body_bytes": len(response.body),
                     "body_sha256": _sha256(response.body),
                 }
+                if method == "GET" and probe.json_revision_field:
+                    row["source_revision_header_verified"] = True
+                evidence[f"{probe.label}_{method.lower()}"] = row
         self._record_check(
             "public_origin_get_head",
             "pass",

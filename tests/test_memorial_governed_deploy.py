@@ -274,6 +274,8 @@ def _public_spatial_response(
         body = body_overrides[path]
     if status_overrides and path in status_overrides:
         status = status_overrides[path]
+    if path == "/version" and method == "HEAD":
+        status = 405
     return deploy.HttpResponse(
         status,
         content_type,
@@ -3814,7 +3816,10 @@ def test_happy_path_mutates_only_redis_and_api(
     assert spatial_handoff["ea_public_activation_authority"] is False
     assert spatial_handoff["provider_calls_performed"] is False
     public_spatial = receipt["public_spatial_tour"]
-    assert public_spatial["request_count"] == 16
+    assert public_spatial["request_count"] == 15
+    assert public_spatial["get_count"] == 8
+    assert public_spatial["head_count"] == 7
+    assert "version_head" not in public_spatial["routes"]
     assert public_spatial["proof_only_404"] is True
     assert public_spatial["redirect_count"] == 0
     assert public_spatial["external_request_count"] == 0
@@ -5587,14 +5592,14 @@ def test_deployed_surface_probes_canonical_and_singular_alias_origins(
         "property_authority",
     }
     assert spatial["status"] == "pass"
-    assert spatial["request_count"] == 16
-    assert spatial["get_count"] == spatial["head_count"] == 8
+    assert spatial["request_count"] == 15
+    assert spatial["get_count"] == 8
+    assert spatial["head_count"] == 7
     assert spatial["provider_calls_performed"] is False
     assert spatial["external_request_count"] == 0
-    assert set(spatial["routes"]) == {
+    assert set(spatial["routes"]) == {"version_get"} | {
         f"{label}_{method}"
         for label in (
-            "version",
             "landing",
             "tour_json",
             "viewer",
@@ -5636,7 +5641,6 @@ def test_deployed_surface_probes_canonical_and_singular_alias_origins(
     assert all(
         set(spatial["routes"][f"{label}_head"]) == base_route_fields
         for label in (
-            "version",
             "landing",
             "tour_json",
             "viewer",
