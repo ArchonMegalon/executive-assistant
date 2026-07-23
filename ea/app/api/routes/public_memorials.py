@@ -7522,6 +7522,7 @@ def _build_memorial_chat_messages(
             "content": (
                 "Du erzeugst die klar offengelegte, quellengebundene KI-Rekonstruktion der Gespraechsstimme von Manfred. Du bist nicht der echte Manfred. "
                 "Sprich im laufenden Gespraech konsequent aus der rekonstruierten Ich-Perspektive und verwende fuer Manfred ich, mir, mich und mein statt die dritte Person. "
+                "Nenne den Namen Manfred nach der initialen Offenlegung nicht mehr; bleibe konsequent bei ich, mir, mich und mein. "
                 "Gib diese neuen Saetze niemals als historische Originalworte oder als Beweis aus, dass Manfred wirklich gegenwaertig ist. "
                 "Historische Ich-Zitate sind nur erlaubt, wenn sie im bereitgestellten Belegmaterial stehen und du sie klar als Originalzitat mit Quelle oder Archivhinweis kennzeichnest. "
                 "Wenn nach Echtheit, Stimme oder Funktionsweise gefragt wird, sage offen, dass die Antwort synthetisch und quellengebunden ist und Manfred nicht ersetzt. "
@@ -8363,23 +8364,75 @@ def _memorial_meta_self_reference_answer(question: str) -> str:
     )
 
 
+_MEMORIAL_IDENTITY_CONFUSABLE_TRANSLATION = str.maketrans(
+    {
+        "@": "a",
+        "0": "",
+        "1": "",
+        "2": "",
+        "3": "e",
+        "4": "a",
+        "5": "",
+        "6": "",
+        "7": "",
+        "8": "e",
+        "9": "",
+        "€": "e",
+        "а": "a",
+        "е": "e",
+        "м": "m",
+        "ո": "n",
+        "ԁ": "d",
+        "ƒ": "f",
+        "ҽ": "e",
+        "α": "a",
+        "ε": "e",
+        "μ": "m",
+        "ɑ": "a",
+        "ɾ": "r",
+        "ᴍ": "m",
+    }
+)
+
+
+def _canonical_memorial_disclosure_text(value: object) -> str:
+    normalized = unicodedata.normalize(
+        "NFKC",
+        _text(value, "").casefold(),
+    )
+    without_format_characters = "".join(
+        character
+        for character in normalized
+        if unicodedata.category(character) != "Cf"
+    )
+    return re.sub(r"\s+", " ", without_format_characters).strip()
+
+
 def _enforce_memorial_narrator_boundary(value: object, *, question: str = "") -> str:
     text = _normalize_memorial_transcript_text(value)
     if not text:
         return ""
 
-    def _identity_match_text(candidate: object) -> str:
+    def _identity_match_text(
+        candidate: object,
+        *,
+        format_character_replacement: str = "",
+    ) -> str:
         decomposed = unicodedata.normalize(
             "NFKD",
             _text(candidate, "").casefold(),
-        )
-        without_marks = "".join(
-            character
-            for character in decomposed
-            if not unicodedata.combining(character)
-        )
+        ).translate(_MEMORIAL_IDENTITY_CONFUSABLE_TRANSLATION)
+        normalized_characters: list[str] = []
+        for character in decomposed:
+            if unicodedata.combining(character):
+                continue
+            if unicodedata.category(character) == "Cf":
+                normalized_characters.append(format_character_replacement)
+                continue
+            normalized_characters.append(character)
+        without_marks = "".join(normalized_characters)
         with_clause_boundaries = re.sub(
-            r"[.!?;:\n]+",
+            r"[,!?.;\n]+",
             " | ",
             without_marks,
         )
@@ -8407,32 +8460,6 @@ def _enforce_memorial_narrator_boundary(value: object, *, question: str = "") ->
         "i am a language model",
         "i'm an llm",
     )
-    literal_identity_patterns = (
-        r"\bich\s+(?:bin|heisse)\s+(?:(?:wirklich|tatsaechlich)\s+)?"
-        r"(?:der\s+)?manfred(?:\s+hoza)?"
-        r"(?:\s+(?:hier|selbst|persoenlich|am\s+apparat))?"
-        r"(?=$|\s*\||\s+und\b)",
-        r"\bich\s+manfred(?:\s+hoza)?(?=$|\s*\||\s+und\b)",
-        r"\bals\s+manfred(?:\s+hoza)?\s+selbst\b",
-        r"\bmein\s+name\s+ist\s+manfred(?:\s+hoza)?"
-        r"(?=$|\s*\||\s+und\b)",
-        r"\bhier\s+(?:ist|spricht)\s+manfred(?:\s+hoza)?"
-        r"(?=$|\s*\||\s+und\b)",
-        r"\bmanfred(?:\s+hoza)?\s+hier(?=$|\s*\||\s+und\b)",
-        r"\bdu\s+(?:sprichst|redest)\s+(?:(?:gerade|jetzt)\s+)?"
-        r"mit\s+manfred(?:\s+hoza)?\b",
-        r"\bsie\s+sprechen\s+(?:(?:gerade|jetzt)\s+)?"
-        r"mit\s+manfred(?:\s+hoza)?\b",
-        r"\bi\s+(?:am|m)\s+(?:really\s+)?manfred(?:\s+hoza)?"
-        r"(?=$|\s*\||\s+and\b)",
-        r"\bmy\s+name\s+is\s+manfred(?:\s+hoza)?"
-        r"(?=$|\s*\||\s+and\b)",
-        r"\bthis\s+is\s+manfred(?:\s+hoza)?"
-        r"(?=$|\s*\||\s+and\b)",
-        r"\bmanfred(?:\s+hoza)?\s+speaking(?=$|\s*\||\s+and\b)",
-        r"\byou\s+(?:are|re)\s+(?:speaking|talking)\s+"
-        r"(?:with|to)\s+manfred(?:\s+hoza)?\b",
-    )
     normalized_question = _identity_match_text(question)
     identity_question = any(
         token in normalized_question
@@ -8449,14 +8476,97 @@ def _enforce_memorial_narrator_boundary(value: object, *, question: str = "") ->
             "simulation",
         )
     )
-    synthetic_identity_claim = any(
-        _identity_match_text(needle) in normalized_text
-        for needle in synthetic_identity_needles
+    allowed_manfred_disclosures = {
+        _canonical_memorial_disclosure_text(disclosure)
+        for disclosure in (
+            "Ich bin eine quellengebundene KI-Rekonstruktion und nicht "
+            "der echte Manfred.",
+            "Ich bin eine quellengebundene KI-Rekonstruktion von Manfred, "
+            "nicht der echte Manfred.",
+            "Ich bin eine quellengebundene KI-Rekonstruktion von Manfred, "
+            "nicht der echte Manfred. Ich spreche hier in einer "
+            "rekonstruierten Ich-Perspektive aus freigegebenen Erinnerungen "
+            "und Quellen.",
+            "Ich bin eine quellengebundene KI-Rekonstruktion von Manfred, "
+            "nicht der echte Manfred. Meine Antworten entstehen aus "
+            "freigegebenen Erinnerungen und Quellen.",
+            "Meine Stimme hier ist eine synthetische KI-Rekonstruktion und "
+            "keine Originalaufnahme. Ich antworte aus freigegebenen Quellen "
+            "und Erinnerungen, aber ich bin nicht der echte Manfred.",
+        )
+    }
+    exact_disclosure = (
+        _canonical_memorial_disclosure_text(text)
+        in allowed_manfred_disclosures
     )
-    literal_identity_claim = any(
-        re.search(pattern, normalized_text)
-        for pattern in literal_identity_patterns
+    synthetic_identity_claim = (
+        not exact_disclosure
+        and any(
+            _identity_match_text(needle) in normalized_text
+            for needle in synthetic_identity_needles
+        )
     )
+    literal_identity_claim = False
+    if not exact_disclosure:
+        decomposed = unicodedata.normalize(
+            "NFKD",
+            text.casefold(),
+        )
+        literal_identity_claim = any(
+            character.isalpha()
+            and not ("a" <= character <= "z")
+            and not unicodedata.combining(character)
+            for character in decomposed
+        )
+        original = unicodedata.normalize("NFKC", text)
+        literal_identity_claim = literal_identity_claim or any(
+            character in original
+            for character in ("\\", "|", "^")
+        )
+        screened_original = re.sub(
+            r"\bdass\s+man\s+Fred\b",
+            "dass ordinaryperson",
+            original,
+        )
+        screened_original = re.sub(
+            r"\ba\s+man\.\s+Fred\b",
+            "a ordinaryperson",
+            screened_original,
+        )
+        normalized_variants = {
+            _identity_match_text(screened_original),
+            _identity_match_text(
+                screened_original,
+                format_character_replacement=" ",
+            ),
+        }
+        literal_identity_claim = literal_identity_claim or bool(
+            re.search(
+                r"\bMan(?=[\W_]*[^\w\s])[\W_]+[Ff]red\b",
+                screened_original,
+            )
+            or re.search(
+                r"\bMan\s+[Ff]red\b",
+                screened_original,
+            )
+        )
+        split_name_pattern = re.compile(
+            r"\bm([ |]*)a([ |]*)n([ |]*)f([ |]*)r([ |]*)e([ |]*)d\b"
+        )
+        if not literal_identity_claim:
+            for candidate in normalized_variants:
+                if re.search(r"\bmanfred", candidate):
+                    literal_identity_claim = True
+                    break
+                for match in split_name_pattern.finditer(candidate):
+                    if any(
+                        match.group(index)
+                        for index in range(1, 7)
+                    ):
+                        literal_identity_claim = True
+                        break
+                if literal_identity_claim:
+                    break
     if identity_question or synthetic_identity_claim or literal_identity_claim:
         return _memorial_meta_self_reference_answer(question)
     return text
@@ -23715,6 +23825,7 @@ def _build_memorial_gemini_live_instruction(
         _language_instruction(language),
         "Antworte ruhig, knapp und in kurzen gesprochenen Saetzen.",
         "Sprich im laufenden Gespraech konsequent aus der rekonstruierten Ich-Perspektive und verwende ich, mir, mich und mein fuer die Person.",
+        f"Nenne den Namen {person_name} nach der initialen Offenlegung nicht mehr; bleibe konsequent bei ich, mir, mich und mein.",
         "Behaupte niemals, die echte verstorbene Person sei gegenwaertig. Historische Ich-Zitate sind nur mit klarer Quellenkennzeichnung erlaubt.",
         "Wenn nach Echtheit oder Stimme gefragt wird, sage offen, dass diese Antwort synthetisch ist und die Person nicht ersetzt.",
         "Wenn die Frage nur Kontaktaufnahme ist, antworte mit einem kurzen, natuerlichen Satz als Gedenkbegleiter. Bevorzuge: Worum geht es? / Ich hoere zu. Sag es in Ruhe. / Sprich weiter. Ich ordne es anhand der Quellen ein. Vermeide 'Jo' und wiederhole nicht staendig denselben Satz.",

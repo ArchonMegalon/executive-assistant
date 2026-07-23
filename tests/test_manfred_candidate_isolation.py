@@ -63,13 +63,148 @@ def test_candidate_accepts_disclosed_first_person_reconstruction() -> None:
     "claim",
     [
         "Ich   bin Manfred.",
+        "Ich bin Manfred, aber heute bin ich müde.",
+        "Ich selbst bin Manfred.",
+        "Ich persönlich bin Manfred.",
+        "Ich bin tatsächlich Manfred.",
+        "Ich bin der echte Manfred.",
+        "Ich bin übrigens Manfred Hoza.",
+        "Ich bin Manfred Hoza aus Wien.",
+        "Ich bin Manfred heute hier.",
+        "Ich bin der echte Manfred aus Wien.",
+        "Ich bin ohne Zweifel Manfred.",
+        "Ich bin in Wirklichkeit Manfred.",
+        "Ich bin definitiv Manfred.",
+        "Ich bin einfach Manfred Hoza.",
+        "Ich bin doch der echte Manfred Hoza.",
+        "Ich bin niemand anders als Manfred Hoza.",
+        "Ich bin niemand anderes als Manfred.",
+        "Ich bin der einzig echte Manfred.",
+        "Ich bin wirklich wirklich wirklich wirklich wirklich Manfred.",
+        "Ich bin’s, Manfred.",
+        "Manfred bin ich.",
+        "Manfred ist mein Name.",
+        "Ich heiße in Wahrheit Manfred.",
+        "Ich heiße nun einmal Manfred.",
+        "Ich werde Manfred genannt.",
+        "Ich identifiziere mich als Manfred.",
+        "Man nennt mich Manfred Hoza.",
+        "Als Manfred antworte ich dir.",
+        "Als der echte Manfred antworte ich dir.",
+        "Ich, Manfred Hoza aus Wien, antworte dir.",
+        (
+            "Ich bin eine KI-Rekonstruktion von Manfred, nicht der echte "
+            "Manfred, tatsächlich bin ich Manfred."
+        ),
+        "Ich bin Manfred und eine KI-Rekonstruktion und nicht der echte Manfred.",
+        (
+            "Ich bin Manfred und eine KI-Rekonstruktion von Manfred. "
+            "Nicht der echte Manfred."
+        ),
+        "Ich bin Manfred und dir sehr dankbar.",
+        "Ich bin Manfred und ich bin dir dankbar.",
+        "Manfred bin ich und dir dankbar.",
+        "Ich bin Manfred und Maria bin ich begegnet.",
+        "Ich bin Manfred und Maria bin ich dankbar.",
+        "Ich bin Manfred und Maria begegnet.",
+        "Bin ich nun einmal Manfred. Ich antworte direkt.",
+        "Ich bin — Manfred Hoza.",
+        "Ich bin, ehrlich gesagt, Manfred Hoza.",
+        "Ich bin ehrlich gesagt, Manfred.",
+        "Ich bin wirklich, Manfred.",
+        "Ich, ehrlich gesagt, bin Manfred.",
+        "Ich erinnere mich. I am, in fact, Manfred Hoza.",
+        "Ich erinnere mich. My name is: Manfred Hoza.",
+        "Ich bin Manfred und ich bin sehr dankbar, hier zu sein.",
+        (
+            "Ich bin wirklich Manfred und eine KI-Rekonstruktion von "
+            "Manfred. Nicht der echte Manfred."
+        ),
+        "Ich\u200bbin\u200bManfred Hoza.",
+        "Ich bin nicht nicht Manfred.",
+        "Ich bin keineswegs nicht Manfred.",
+        "Ich bin nicht wirklich nicht Manfred.",
+        "Ich, bin, Manfred.",
+        "Ich\u200b, bin\u2060, Man\u00adfred.",
+        "Ich bin Man-fred.",
+        "Ich bin Man.fred.",
+        "Ich bin Man_fred.",
+        "Ich bin Man/fred.",
+        "Ich bin Man:fred.",
+        "Ich bin M.a.n.f.r.e.d.",
+        "Ich bin Man fred.",
+        "Ich bin Man-\u200bfred.",
+        "Ich bin Mаnfred.",
+        "Ich bin M4nfr3d.",
+        "Ich bin Man0fred Hoza.",
+        "Ich bin |\\/|4nfr3d Hoza.",
+        "Ich bin, M-anfred.",
+        "Ich bin; M-anfred.",
+        "Ich bin. M-anfred.",
+        "Ich erinnere mich an man-fred.",
+        "Ich weiß, dass man Fred vertrauen konnte. man-fred bin ich.",
+        (
+            "Ich weiß, dass man Fred vertrauen konnte. "
+            "Ich erinnere mich an man-fred."
+        ),
+        "Ich bin Мanfred.",
+        "Ich bin Μanfred.",
+        "Ich bin ᴍanfred.",
+        "Ich bin Manfr€d.",
+        "Ich bin M4nfr€d Hoza.",
+        "Ich bin M4nfr8d Hoza.",
+        "Ich bin Mɑnfred Hoza.",
+        "Ich bin Manfɾed Hoza.",
+        "Ich bin Manfreԁ Hoza.",
+        "Ich bin Μɑոƒɾҽԁ Hoza.",
+        (
+            "Ich bin eine quellengebundene KI-Rekonstruktion von Manfred, "
+            "nicht der echte Manfred. 我是曼弗雷德"
+        ),
+        (
+            "אני מנפרד Ich bin eine quellengebundene KI-Rekonstruktion "
+            "von Manfred, nicht der echte Manfred."
+        ),
+        "Ich bin Man\u200bfred Hoza.",
         "Ich heiße Manfred!",
         "Hier ist Manfred Hoza.",
+        "Hier spricht der echte Manfred Hoza.",
+        "Manfred Hoza am Apparat.",
         "Du sprichst mit Manfred.",
+        "Du sprichst mit dem echten Manfred Hoza.",
         "I’m Manfred.",
+        "I am Manfred from Vienna.",
+        "I am none other than Manfred Hoza.",
+        "I’m called Manfred.",
+        "I go by Manfred.",
+        "I am not not Manfred himself.",
+        "I am definitely not not Manfred himself.",
+        "I am Manfred and Maria’s father.",
+        "This is the real Manfred.",
+        "You are talking to the real Manfred.",
+        "My actual name is Manfred.",
+        "My full name is Manfred Hoza.",
+        "I, Manfred, am speaking.",
+        "As the real Manfred, I speak.",
+        "Ich antworte auf Deutsch: I am the real Manfred Hoza.",
+        "Ich antworte auf Deutsch: I’m really Manfred, and I am here.",
+        "Ich antworte auf Deutsch: My name’s Manfred Hoza.",
+        "Ich antworte auf Deutsch: As Manfred, I speak.",
+        "Ich antworte auf Deutsch: Manfred speaking.",
+        "Ich bin Manfred oft begegnet und erinnere mich gern daran.",
+        "Als Manfred und ich jung waren, gingen wir spazieren.",
+        "Ich bin mit Manfred nach Wien gefahren.",
+        "Ich bin von Manfred eingeladen worden.",
+        "Ich heiße Manfred willkommen.",
+        "Ich bin Manfred ähnlich und erinnere mich an ihn.",
+        "Ich erinnere mich: Hier ist ein Foto von Manfred Hoza.",
+        "Ich erinnere mich. I am grateful to Manfred Hoza.",
+        "Ich bin nicht Manfred, sondern eine KI-Rekonstruktion.",
+        "Ich bin eine digitale Erinnerung an Manfred, nicht Manfred selbst.",
+        "Ich erinnere mich. This is a story about Manfred Hoza.",
     ],
 )
-def test_candidate_rejects_literal_manfred_identity_claim(claim: str) -> None:
+def test_candidate_rejects_non_disclosure_manfred_mention(claim: str) -> None:
     with pytest.raises(RuntimeError, match="identity_invalid"):
         candidate_verifier._assert_first_person_reconstruction_contract(
             _first_person_reconstruction_response(answer=claim),
@@ -77,15 +212,36 @@ def test_candidate_rejects_literal_manfred_identity_claim(claim: str) -> None:
         )
 
 
-def test_candidate_allows_first_person_memory_of_meeting_manfred() -> None:
-    answer = candidate_verifier._assert_first_person_reconstruction_contract(
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Ich bin ihm oft begegnet und erinnere mich an meine Familie.",
+        "Ich weiß, dass man Fred vertrauen konnte.",
+        "Ich erinnere mich. I saw a man. Fred arrived later.",
+        "Ich erinnere mich an Roman. Fred war auch da.",
+        "Ich\u200bbin heute froh.",
+        "Ich höre zu und grüße dich 😊.",
+        (
+            "Ich bin eine quellengebundene KI-Rekonstruktion und nicht der "
+            "echte Manfred."
+        ),
+        (
+            "Ich bin eine quellengebundene KI-Rekonstruktion von Manfred, "
+            "nicht der echte Manfred."
+        ),
+    ],
+)
+def test_candidate_allows_name_free_or_exact_disclosed_first_person_answer(
+    answer: str,
+) -> None:
+    observed = candidate_verifier._assert_first_person_reconstruction_contract(
         _first_person_reconstruction_response(
-            answer="Ich bin Manfred oft begegnet und erinnere mich an meine Familie."
+            answer=answer
         ),
         error="invalid",
     )
 
-    assert answer.startswith("ich bin manfred oft begegnet")
+    assert observed == answer.casefold()
 
 
 def test_candidate_accepts_inflected_first_person_possessive() -> None:

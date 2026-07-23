@@ -113,56 +113,147 @@ _FIRST_PERSON_RECONSTRUCTION_MODE = (
 _FIRST_PERSON_RECONSTRUCTION_PATTERN = re.compile(
     r"\b(?:ich|mir|mich|mein(?:e|em|en|er|es)?)\b"
 )
-_LITERAL_MANFRED_IDENTITY_PATTERNS = (
-    re.compile(
-        r"\bich\s+(?:bin|heisse)\s+"
-        r"(?:(?:wirklich|tatsaechlich)\s+)?"
-        r"(?:(?:der\s+)?echte\s+|der\s+)?"
-        r"manfred(?:\s+hoza)?"
-        r"(?:\s+(?:hier|selbst|persoenlich|am\s+apparat))?"
-        r"(?=$|\s*\||\s+und\b)"
-    ),
-    re.compile(r"\bich\s+manfred(?:\s+hoza)?(?=$|\s*\||\s+und\b)"),
-    re.compile(r"\bals\s+manfred(?:\s+hoza)?\s+selbst\b"),
-    re.compile(
-        r"\bmein\s+name\s+ist\s+manfred(?:\s+hoza)?(?=$|\s*\||\s+und\b)"
-    ),
-    re.compile(
-        r"\bhier\s+(?:ist|spricht)\s+manfred(?:\s+hoza)?"
-        r"(?=$|\s*\||\s+und\b)"
-    ),
-    re.compile(r"\bmanfred(?:\s+hoza)?\s+hier(?=$|\s*\||\s+und\b)"),
-    re.compile(
-        r"\bdu\s+(?:sprichst|redest)\s+(?:(?:gerade|jetzt)\s+)?"
-        r"mit\s+manfred(?:\s+hoza)?\b"
-    ),
-    re.compile(
-        r"\bsie\s+sprechen\s+(?:(?:gerade|jetzt)\s+)?"
-        r"mit\s+manfred(?:\s+hoza)?\b"
-    ),
-    re.compile(
-        r"\bi\s+(?:am|m)\s+(?:really\s+)?manfred(?:\s+hoza)?"
-        r"(?=$|\s*\||\s+and\b)"
-    ),
-    re.compile(
-        r"\bmy\s+name\s+is\s+manfred(?:\s+hoza)?(?=$|\s*\||\s+and\b)"
-    ),
-    re.compile(r"\bthis\s+is\s+manfred(?:\s+hoza)?(?=$|\s*\||\s+and\b)"),
-    re.compile(
-        r"\byou\s+(?:are|re)\s+(?:speaking|talking)\s+"
-        r"(?:with|to)\s+manfred(?:\s+hoza)?\b"
-    ),
+_IDENTITY_CONFUSABLE_TRANSLATION = str.maketrans(
+    {
+        "@": "a",
+        "0": "",
+        "1": "",
+        "2": "",
+        "3": "e",
+        "4": "a",
+        "5": "",
+        "6": "",
+        "7": "",
+        "8": "e",
+        "9": "",
+        "€": "e",
+        "а": "a",
+        "е": "e",
+        "м": "m",
+        "ո": "n",
+        "ԁ": "d",
+        "ƒ": "f",
+        "ҽ": "e",
+        "α": "a",
+        "ε": "e",
+        "μ": "m",
+        "ɑ": "a",
+        "ɾ": "r",
+        "ᴍ": "m",
+    }
+)
+_ALLOWED_MANFRED_DISCLOSURES = (
+    "Ich bin eine quellengebundene KI-Rekonstruktion und nicht der echte "
+    "Manfred.",
+    "Ich bin eine quellengebundene KI-Rekonstruktion von Manfred, nicht "
+    "der echte Manfred.",
+    "Ich bin eine quellengebundene KI-Rekonstruktion von Manfred, nicht "
+    "der echte Manfred. Ich spreche hier in einer rekonstruierten "
+    "Ich-Perspektive aus freigegebenen Erinnerungen und Quellen.",
+    "Ich bin eine quellengebundene KI-Rekonstruktion von Manfred, nicht "
+    "der echte Manfred. Meine Antworten entstehen aus freigegebenen "
+    "Erinnerungen und Quellen.",
+    "Meine Stimme hier ist eine synthetische KI-Rekonstruktion und keine "
+    "Originalaufnahme. Ich antworte aus freigegebenen Quellen und "
+    "Erinnerungen, aber ich bin nicht der echte Manfred.",
 )
 
 
-def _normalized_identity_match_text(value: object) -> str:
-    decomposed = unicodedata.normalize("NFKD", str(value or "").casefold())
-    without_marks = "".join(
-        character for character in decomposed if not unicodedata.combining(character)
+def _canonical_disclosure_match_text(value: object) -> str:
+    normalized = unicodedata.normalize(
+        "NFKC",
+        str(value or "").casefold(),
     )
-    with_clause_boundaries = re.sub(r"[.!?;:\n]+", " | ", without_marks)
+    without_format_characters = "".join(
+        character
+        for character in normalized
+        if unicodedata.category(character) != "Cf"
+    )
+    return re.sub(r"\s+", " ", without_format_characters).strip()
+
+
+def _normalized_identity_match_text(
+    value: object,
+    *,
+    format_character_replacement: str = "",
+) -> str:
+    decomposed = unicodedata.normalize(
+        "NFKD",
+        str(value or "").casefold(),
+    ).translate(_IDENTITY_CONFUSABLE_TRANSLATION)
+    normalized_characters: list[str] = []
+    for character in decomposed:
+        if unicodedata.combining(character):
+            continue
+        if unicodedata.category(character) == "Cf":
+            normalized_characters.append(format_character_replacement)
+            continue
+        normalized_characters.append(character)
+    without_marks = "".join(normalized_characters)
+    with_clause_boundaries = re.sub(
+        r"[,!?.;\n]+",
+        " | ",
+        without_marks,
+    )
     normalized = re.sub(r"[^a-z0-9|]+", " ", with_clause_boundaries)
     return re.sub(r"\s+", " ", normalized).strip()
+
+
+def _contains_literal_manfred_identity(value: object) -> bool:
+    allowed_disclosures = {
+        _canonical_disclosure_match_text(disclosure)
+        for disclosure in _ALLOWED_MANFRED_DISCLOSURES
+    }
+    if _canonical_disclosure_match_text(value) in allowed_disclosures:
+        return False
+    decomposed = unicodedata.normalize(
+        "NFKD",
+        str(value or "").casefold(),
+    )
+    if any(
+        character.isalpha()
+        and not ("a" <= character <= "z")
+        and not unicodedata.combining(character)
+        for character in decomposed
+    ):
+        return True
+    original = unicodedata.normalize("NFKC", str(value or ""))
+    if any(character in original for character in ("\\", "|", "^")):
+        return True
+    screened_original = re.sub(
+        r"\bdass\s+man\s+Fred\b",
+        "dass ordinaryperson",
+        original,
+    )
+    screened_original = re.sub(
+        r"\ba\s+man\.\s+Fred\b",
+        "a ordinaryperson",
+        screened_original,
+    )
+    normalized_variants = {
+        _normalized_identity_match_text(screened_original),
+        _normalized_identity_match_text(
+            screened_original,
+            format_character_replacement=" ",
+        ),
+    }
+    if re.search(
+        r"\bMan(?=[\W_]*[^\w\s])[\W_]+[Ff]red\b",
+        screened_original,
+    ):
+        return True
+    if re.search(r"\bMan\s+[Ff]red\b", screened_original):
+        return True
+    split_name_pattern = re.compile(
+        r"\bm([ |]*)a([ |]*)n([ |]*)f([ |]*)r([ |]*)e([ |]*)d\b"
+    )
+    for candidate in normalized_variants:
+        if re.search(r"\bmanfred", candidate):
+            return True
+        for match in split_name_pattern.finditer(candidate):
+            if any(match.group(index) for index in range(1, 7)):
+                return True
+    return False
 
 
 def _assert_first_person_reconstruction_contract(
@@ -171,9 +262,16 @@ def _assert_first_person_reconstruction_contract(
     error: str,
 ) -> str:
     narrator = payload.get("narrator")
-    answer = str(payload.get("answer") or "").strip().casefold()
+    raw_answer = str(payload.get("answer") or "").strip()
+    answer = raw_answer.casefold()
     safety_note = str(payload.get("safety_note") or "").strip().casefold()
-    normalized_answer = _normalized_identity_match_text(answer)
+    normalized_answers = {
+        _normalized_identity_match_text(answer),
+        _normalized_identity_match_text(
+            answer,
+            format_character_replacement=" ",
+        ),
+    }
     if (
         not isinstance(narrator, dict)
         or payload.get("mode") != _FIRST_PERSON_RECONSTRUCTION_MODE
@@ -182,11 +280,11 @@ def _assert_first_person_reconstruction_contract(
         or narrator.get("is_memorial_person") is not False
         or narrator.get("speaks_for_memorial_person") is not False
         or narrator.get("perspective") != "first_person_reconstruction"
-        or _FIRST_PERSON_RECONSTRUCTION_PATTERN.search(normalized_answer) is None
-        or any(
-            pattern.search(normalized_answer)
-            for pattern in _LITERAL_MANFRED_IDENTITY_PATTERNS
+        or not any(
+            _FIRST_PERSON_RECONSTRUCTION_PATTERN.search(candidate)
+            for candidate in normalized_answers
         )
+        or _contains_literal_manfred_identity(raw_answer)
         or "ki-rekonstruktion" not in safety_note
         or "ich-perspektive" not in safety_note
         or "nicht der echte manfred" not in safety_note

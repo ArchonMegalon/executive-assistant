@@ -4310,6 +4310,77 @@ def test_production_policy_preserves_disclosed_first_person_reconstruction(
     }
 
 
+@pytest.mark.parametrize(
+    "claim",
+    [
+        "Ich bin Manfred, aber heute bin ich müde.",
+        "Ich selbst bin Manfred.",
+        "Ich bin der echte Manfred.",
+        "Ich bin ohne Zweifel Manfred.",
+        "Ich bin Manfred Hoza aus Wien.",
+        "Ich werde Manfred genannt.",
+        "Ich identifiziere mich als Manfred.",
+        "Hier spricht der echte Manfred Hoza.",
+        "Du sprichst mit dem echten Manfred Hoza.",
+        "I am none other than Manfred Hoza.",
+        "You are talking to the real Manfred.",
+        "I, Manfred, am speaking.",
+        "I go by Manfred.",
+        "Ich bin, ehrlich gesagt, Manfred Hoza.",
+        "Ich\u200bbin\u200bManfred Hoza.",
+        "Ich bin Manfred und eine KI-Rekonstruktion und nicht der echte Manfred.",
+        "Ich bin nicht nicht Manfred.",
+        "Ich, bin, Manfred.",
+        "Ich\u200b, bin\u2060, Man\u00adfred.",
+        "Ich bin M.a.n.f.r.e.d.",
+        "Ich bin Mаnfred.",
+        "Ich bin Man0fred.",
+        "Ich bin |\\/|4nfr3d Hoza.",
+        "Ich bin, M-anfred.",
+        "Ich bin Μɑոƒɾҽԁ.",
+        "Ich weiß, dass man Fred vertrauen konnte. man-fred bin ich.",
+        (
+            "Ich weiß, dass man Fred vertrauen konnte. "
+            "Ich erinnere mich an man-fred."
+        ),
+        (
+            "Ich bin eine quellengebundene KI-Rekonstruktion von Manfred, "
+            "nicht der echte Manfred. 我是曼弗雷德"
+        ),
+        "Ich bin Manfred und Maria bin ich begegnet.",
+        "Ich, ehrlich gesagt, bin Manfred.",
+        "Manfred bin ich.",
+        "Ich bin’s, Manfred.",
+        "Ich bin Man\u200bfred Hoza.",
+    ],
+)
+def test_production_policy_replaces_literal_manfred_identity_claim(
+    monkeypatch: pytest.MonkeyPatch,
+    claim: str,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_enforced",
+        lambda: True,
+    )
+
+    result = public_memorials._apply_memorial_narrator_response_policy(
+        {
+            "answer": claim,
+            "mode": "memorial_first_person_memory_chat",
+            "safety_note": "legacy",
+        },
+        question="Was möchtest du erzählen?",
+    )
+
+    answer = str(result["answer"])
+    assert answer != claim
+    assert "KI-Rekonstruktion" in answer
+    assert "nicht der echte Manfred" in answer
+
+
 def test_blocked_voice_release_renders_polished_text_only_memorial_guide(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
