@@ -7,6 +7,24 @@ from pathlib import Path
 import pytest
 
 
+def _minimal_conversation_page(*, extra_html: str = "") -> str:
+    return (
+        '<html><body><main id="memorial-conversation-region" tabindex="-1" '
+        'data-public-memorial-surface="conversation-only">'
+        '<button type="button" id="memorial-conversation" '
+        'data-hero-action="conversation" aria-label="Gespräch beginnen" '
+        'aria-describedby="memorial-conversation-disclosure">'
+        "Gespräch beginnen"
+        "</button>"
+        '<p id="memorial-conversation-disclosure">'
+        "KI-Rekonstruktion in Ich-Perspektive – nicht der echte Manfred. "
+        "Die Stimme ist künstlich erzeugt. Mikrofon und Audio werden erst "
+        "nach „Gespräch beginnen“ verarbeitet."
+        "</p>"
+        f"{extra_html}</main></body></html>"
+    )
+
+
 def test_preflight_missing_public_manifest_is_structured(monkeypatch, tmp_path) -> None:
     import scripts.memorial_flagship_preflight as preflight
 
@@ -1304,11 +1322,7 @@ def test_preflight_live_accepts_internal_archive_evidence_without_external_sourc
         ),
         "https://example.test/memorials/manfred": (
             200,
-            '<html><main id="memorial-story" tabindex="-1">Erinnerungen und belegte Quellen</main>'
-            '<a href="#memorial-conversation-region">Gespräch</a>'
-            '<aside id="memorial-conversation-region" tabindex="-1">'
-            '<button id="memorial-conversation"></button><button id="memorial-retry-button"></button>'
-            "</aside></html>",
+            _minimal_conversation_page(),
         ),
         "https://example.test/memorials/manfred/voice-config": (200, "{}"),
         "https://example.test/memorials/manfred/archive.json": (
@@ -1351,7 +1365,9 @@ def test_preflight_live_accepts_internal_archive_evidence_without_external_sourc
         for item in report.findings
     )
     finding = next(
-        item for item in report.findings if item.code == "live_public_page_source_first"
+        item
+        for item in report.findings
+        if item.code == "live_public_page_conversation_only"
     )
     assert finding.status == "pass"
     assert finding.detail["public_source_count"] == 0
@@ -1399,11 +1415,7 @@ def test_preflight_live_accepts_exact_unpublished_archive_gate_with_verified_reg
         ),
         "https://example.test/memorials/manfred": (
             200,
-            '<html><main id="memorial-story" tabindex="-1">Erinnerungen und belegte Quellen</main>'
-            '<a href="#memorial-conversation-region">Gespräch</a>'
-            '<aside id="memorial-conversation-region" tabindex="-1">'
-            '<button id="memorial-conversation"></button><button id="memorial-retry-button"></button>'
-            "</aside></html>",
+            _minimal_conversation_page(),
         ),
         "https://example.test/memorials/manfred/voice-config": (200, "{}"),
         "https://example.test/memorials/manfred/archive.json": (
@@ -1436,12 +1448,14 @@ def test_preflight_live_accepts_exact_unpublished_archive_gate_with_verified_reg
         "projection_source": "verified_public_registry_not_live_evidence",
         "live_binding": "deployed_registry_sha256",
     }
-    source_first = next(
-        item for item in report.findings if item.code == "live_public_page_source_first"
+    conversation_only = next(
+        item
+        for item in report.findings
+        if item.code == "live_public_page_conversation_only"
     )
-    assert source_first.status == "pass"
-    assert source_first.detail["public_source_count"] == 1
-    assert source_first.detail["public_archive_source_count"] == 0
+    assert conversation_only.status == "pass"
+    assert conversation_only.detail["public_source_count"] == 1
+    assert conversation_only.detail["public_archive_source_count"] == 0
 
 
 def test_preflight_live_rejects_generic_archive_404_with_live_memorial(
@@ -1710,7 +1724,7 @@ def test_preflight_unpublished_archive_gate_rejects_unmounted_generic_404(
     assert projection is None
 
 
-def test_preflight_live_checks_current_source_first_surface(monkeypatch) -> None:
+def test_preflight_live_checks_current_conversation_only_surface(monkeypatch) -> None:
     import scripts.memorial_flagship_preflight as preflight
 
     responses = {
@@ -1734,11 +1748,7 @@ def test_preflight_live_checks_current_source_first_surface(monkeypatch) -> None
         ),
         "https://example.test/memorials/manfred": (
             200,
-            '<html><body><a href="#memorial-conversation-region">Zum Gespräch springen</a>'
-            '<main id="memorial-story" tabindex="-1">Erinnerungen und belegte Quellen</main>'
-            '<aside id="memorial-conversation-region" tabindex="-1">Gespräch beginnen'
-            '<button id="memorial-conversation">Gespräch beginnen</button>'
-            '<button id="memorial-retry-button">Bitte noch einmal sprechen</button></aside></body></html>',
+            _minimal_conversation_page(),
         ),
         "https://example.test/memorials/manfred/voice-config": (
             200,
@@ -1784,7 +1794,8 @@ def test_preflight_live_checks_current_source_first_surface(monkeypatch) -> None
 
     assert report.failed is False
     assert any(
-        item.code == "live_public_page_source_first" and item.status == "pass"
+        item.code == "live_public_page_conversation_only"
+        and item.status == "pass"
         for item in report.findings
     )
     assert any(
@@ -1829,13 +1840,12 @@ def test_preflight_live_checks_avatar_video_when_public_json_enabled(
         ),
         "https://example.test/memorials/manfred": (
             200,
-            '<html><body><a href="#memorial-conversation-region">Zum Gespräch springen</a>'
-            '<main id="memorial-story" tabindex="-1">Erinnerungen und belegte Quellen</main>'
-            '<aside id="memorial-conversation-region" tabindex="-1">Gespräch beginnen'
-            '<button id="memorial-conversation">Gespräch beginnen</button>'
-            '<button id="memorial-retry-button">Bitte noch einmal sprechen</button>'
-            '<video id="memorial-video-call-avatar-video" src="/memorials/files/manfred/video/avatar.mp4"></video>'
-            "</aside></body></html>",
+            _minimal_conversation_page(
+                extra_html=(
+                    '<video id="memorial-video-call-avatar-video" '
+                    'src="/memorials/files/manfred/video/avatar.mp4"></video>'
+                )
+            ),
         ),
         "https://example.test/memorials/manfred/voice-config": (
             200,

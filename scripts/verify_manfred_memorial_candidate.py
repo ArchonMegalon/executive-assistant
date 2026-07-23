@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from html.parser import HTMLParser
 from http.cookies import CookieError, SimpleCookie
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Mapping
 from urllib.parse import unquote, urlparse
 
 
@@ -42,7 +42,23 @@ MEMORIAL_ARCHIVE_GATE_SCHEMA = "ea.memorial_archive_gate.v1"
 MEMORIAL_ARCHIVE_GATE_STATE = "intentionally_unpublished"
 MEMORIAL_SURFACE = "conversation_only"
 SPATIAL_SCOPE = "separate_propertyquarry_lane"
-CONVERSATION_ONLY_BLOCKED_ACTION_LABEL = "Frage schreiben"
+VOICE_RELEASE_EXPECTATION_FIELDS = frozenset(
+    {
+        "source_revision",
+    }
+)
+VOICE_RELEASE_AUTHORIZATION_PROOF = (
+    "authorization_precedes_empty_text_validation_without_provider_call"
+)
+VOICE_RELEASE_BROWSER_STATES = frozenset({"available", "blocked"})
+VOICE_ACCESS_BROWSER_STATES = frozenset({"public-release", "text-only"})
+VOICE_BROWSER_STATE_PAIRS = frozenset(
+    {
+        ("available", "public-release"),
+        ("blocked", "text-only"),
+    }
+)
+CONVERSATION_ONLY_BLOCKED_ACTION_LABEL = "Gespräch beginnen"
 CONVERSATION_ONLY_TEXT_PLACEHOLDER = "Was möchtest du fragen?"
 _CANDIDATE_HREF_MAX_CHARS = 4096
 _CANDIDATE_HREF_MAX_DECODE_ROUNDS = 4
@@ -1071,11 +1087,7 @@ def verify_conversation_only_page_html(page_body: bytes) -> dict[str, object]:
     conversation_button_label = " ".join(
         " ".join(parser._id_text.get("memorial-conversation", ())).split()
     )
-    expected_conversation_button_label = (
-        "Gespräch beginnen"
-        if parser.voice_access == "public-release"
-        else "Frage schreiben"
-    )
+    expected_conversation_button_label = "Gespräch beginnen"
     contract = {
         "status": "pass",
         "public_surface": parser.public_surface,
@@ -1175,7 +1187,29 @@ def audit_browser_surface(
     base_url: str,
     *,
     public_origin: str | None = None,
+    expected_voice_release: str = "blocked",
+    expected_voice_access: str = "text-only",
+    expected_source_revision: str | None = None,
 ) -> dict[str, object]:
+    if expected_voice_release not in VOICE_RELEASE_BROWSER_STATES:
+        raise ValueError("candidate_browser_voice_release_expectation_invalid")
+    if expected_voice_access not in VOICE_ACCESS_BROWSER_STATES:
+        raise ValueError("candidate_browser_voice_access_expectation_invalid")
+    if (
+        expected_voice_release,
+        expected_voice_access,
+    ) not in VOICE_BROWSER_STATE_PAIRS:
+        raise ValueError("candidate_browser_voice_state_pair_invalid")
+    if expected_source_revision is not None and (
+        len(expected_source_revision) != 40
+        or any(
+            character not in "0123456789abcdef"
+            for character in expected_source_revision
+        )
+    ):
+        raise ValueError("candidate_browser_source_revision_expectation_invalid")
+    if expected_voice_release == "available" and expected_source_revision is None:
+        raise ValueError("candidate_browser_source_revision_expectation_required")
     try:
         from playwright.sync_api import Error as PlaywrightError
         from playwright.sync_api import sync_playwright
@@ -1244,6 +1278,14 @@ def audit_browser_surface(
             )
             if response is None or response.status != 200:
                 raise RuntimeError("candidate_browser_page_unavailable")
+            observed_source_revision = str(
+                response.headers.get("x-ea-source-revision") or ""
+            ).strip()
+            if (
+                expected_source_revision is not None
+                and observed_source_revision != expected_source_revision
+            ):
+                raise RuntimeError("candidate_browser_source_revision_mismatch")
             page.wait_for_timeout(900)
             page.evaluate(
                 """() => document.getElementById("memorial-conversation")?.click()"""
@@ -1414,8 +1456,10 @@ def audit_browser_surface(
                       );
                     }
                   }
-                  const controls = Array.from(document.querySelectorAll("input, textarea, button"))
+                  const controls = Array.from(document.querySelectorAll("input, textarea, select, button"))
                     .filter((element) => visible(element) && String(element.type || "") !== "hidden");
+                  const visibleButtons = controls.filter((element) => element.tagName === "BUTTON");
+                  const visibleNonButtonControls = controls.filter((element) => element.tagName !== "BUTTON");
                   const unlabeled = controls.filter((element) => {
                     if (element.tagName === "BUTTON") {
                       return !String(element.innerText || element.textContent || element.getAttribute("aria-label") || element.title || "").trim();
@@ -1444,11 +1488,23 @@ def audit_browser_surface(
                     personal_memory_forget_present: Boolean(document.getElementById("memorial-personal-memory-forget")),
                     conversation_enabled: !Boolean(document.getElementById("memorial-conversation")?.disabled),
                     conversation_label: String(document.getElementById("memorial-conversation")?.textContent || "").trim(),
+                    visible_button_ids: visibleButtons.map((element) => element.id || ""),
+                    visible_button_labels: visibleButtons.map(
+                      (element) => String(element.innerText || element.textContent || "").trim(),
+                    ),
+                    visible_non_button_control_ids: visibleNonButtonControls.map(
+                      (element) => element.id || element.name || element.tagName,
+                    ),
                     voice_release: String(document.getElementById("memorial-conversation-region")?.dataset.voiceRelease || ""),
+                    voice_access: String(document.getElementById("memorial-conversation-region")?.dataset.voiceAccess || ""),
                     guidance: String(document.querySelector("#memorial-conversation-region .hero-guidance")?.textContent || "").trim(),
                     text_form_visible: visible(document.getElementById("memorial-text-turn-form")),
                     text_input_focused: document.activeElement === document.getElementById("memorial-text-turn-input"),
                     text_placeholder: String(document.getElementById("memorial-text-turn-input")?.getAttribute("placeholder") || ""),
+                    retry_visible: visible(document.getElementById("memorial-retry-button")),
+                    settings_visible: visible(document.querySelector("details.conversation-settings")),
+                    answer_tools_visible: visible(document.getElementById("memorial-chat-tools")),
+                    answer_status_visible: visible(document.getElementById("memorial-chat-status")),
                     voice_autostart_hidden: !visible(document.getElementById("memorial-autostart-optin")?.closest(".conversation-toggle")),
                     old_impersonation_copy_visible: document.body.innerText.includes("Was möchtest du Manfred fragen?") || document.body.innerText.includes("synthetischen Manfred-Stimme"),
                     reduced_motion: matchMedia("(prefers-reduced-motion: reduce)").matches,
@@ -1498,14 +1554,22 @@ def audit_browser_surface(
                 or accessibility.get("conversation_enabled") is not True
                 or accessibility.get("conversation_label")
                 != CONVERSATION_ONLY_BLOCKED_ACTION_LABEL
-                or accessibility.get("voice_release") != "blocked"
+                or accessibility.get("visible_button_ids")
+                != ["memorial-conversation"]
+                or accessibility.get("visible_button_labels")
+                != [CONVERSATION_ONLY_BLOCKED_ACTION_LABEL]
+                or accessibility.get("visible_non_button_control_ids")
+                or accessibility.get("voice_release") != expected_voice_release
+                or accessibility.get("voice_access") != expected_voice_access
                 or "ist nicht Manfred" not in str(accessibility.get("guidance") or "")
                 or "spricht nicht für ihn"
                 not in str(accessibility.get("guidance") or "")
-                or accessibility.get("text_form_visible") is not True
-                or accessibility.get("text_input_focused") is not True
-                or accessibility.get("text_placeholder")
-                != CONVERSATION_ONLY_TEXT_PLACEHOLDER
+                or accessibility.get("text_form_visible") is not False
+                or accessibility.get("text_input_focused") is not False
+                or accessibility.get("retry_visible") is not False
+                or accessibility.get("settings_visible") is not False
+                or accessibility.get("answer_tools_visible") is not False
+                or accessibility.get("answer_status_visible") is not False
                 or accessibility.get("voice_autostart_hidden") is not True
                 or accessibility.get("old_impersonation_copy_visible") is True
                 or accessibility.get("reduced_motion") is not True
@@ -1588,6 +1652,17 @@ def audit_browser_surface(
         "memorial_surface": MEMORIAL_SURFACE,
         "spatial_scope": SPATIAL_SCOPE,
         "unlabeled_controls": 0,
+        "visible_button_ids": accessibility["visible_button_ids"],
+        "visible_button_labels": accessibility["visible_button_labels"],
+        "visible_non_button_control_ids": accessibility[
+            "visible_non_button_control_ids"
+        ],
+        "voice_release": accessibility["voice_release"],
+        "voice_access": accessibility["voice_access"],
+        "source_revision": observed_source_revision,
+        "text_form_visible": accessibility["text_form_visible"],
+        "text_input_focused": accessibility["text_input_focused"],
+        "separate_retry_visible": accessibility["retry_visible"],
         "automatic_provider_requests": 0,
         "automatic_websockets": 0,
         "external_requests": 0,
@@ -1698,6 +1773,79 @@ def _withdraw_contribution(base_url: str, receipt_path: Path) -> dict[str, objec
     }
 
 
+def _validated_voice_release_expectation(
+    value: Mapping[str, object] | None,
+) -> dict[str, object] | None:
+    if value is None:
+        return None
+    expectation = dict(value)
+    source_revision = str(expectation.get("source_revision") or "")
+    if (
+        set(expectation) != VOICE_RELEASE_EXPECTATION_FIELDS
+        or re.fullmatch(r"[0-9a-f]{40}", source_revision) is None
+    ):
+        raise ValueError("candidate_voice_release_expectation_invalid")
+    return {
+        "source_revision": source_revision,
+    }
+
+
+def _verify_voice_provider_boundary(
+    base_url: str,
+    *,
+    voice_release_expectation: Mapping[str, object] | None,
+    request_fn: Callable[..., tuple[int, bytes, dict[str, str]]] = _request,
+) -> dict[str, object]:
+    expectation = _validated_voice_release_expectation(voice_release_expectation)
+    if expectation is None:
+        _status, body, _headers = request_fn(
+            base_url,
+            "/memorials/manfred/speech-synthesize",
+            method="POST",
+            payload={"text": "Diese Sprachfunktion darf nicht starten."},
+            expected={409},
+        )
+        blocked = _json_body(
+            body,
+            path="/memorials/manfred/speech-synthesize",
+        )
+        if str(blocked.get("detail") or "") != "memorial_voice_release_not_verified":
+            raise RuntimeError("candidate_voice_release_boundary_invalid")
+        return {
+            "mode": "phase_one_voice_blocked",
+            "status_code": 409,
+            "detail": "memorial_voice_release_not_verified",
+            "provider_calls_performed": False,
+        }
+
+    status, body, headers = request_fn(
+        base_url,
+        "/memorials/manfred/speech-synthesize",
+        method="POST",
+        payload={},
+        expected={400},
+    )
+    released = _json_body(
+        body,
+        path="/memorials/manfred/speech-synthesize",
+    )
+    if (
+        status != 400
+        or str(released.get("detail") or "") != "tts_text_missing"
+        or str(headers.get("x-ea-source-revision") or "")
+        != expectation["source_revision"]
+    ):
+        raise RuntimeError("candidate_voice_release_authorization_boundary_invalid")
+    return {
+        "mode": "signed_voice_release_authorized",
+        "status_code": 400,
+        "detail": "tts_text_missing",
+        "authorization_proof": VOICE_RELEASE_AUTHORIZATION_PROOF,
+        "provider_calls_performed": False,
+        **expectation,
+    }
+
+
 def verify_candidate(
     *,
     base_url: str,
@@ -1707,7 +1855,11 @@ def verify_candidate(
     withdraw_receipt: Path | None,
     browser_audit: bool = False,
     transport_request: Callable[..., tuple[int, bytes, dict[str, str]]] | None = None,
+    voice_release_expectation: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
+    voice_release_expectation = _validated_voice_release_expectation(
+        voice_release_expectation
+    )
     _wait_for_health(base_url, wait_seconds)
     checks: list[str] = ["healthz"]
     _request(base_url, "/health/live?probe=memorial")
@@ -1815,20 +1967,15 @@ def verify_candidate(
         raise RuntimeError("candidate_identity_disclosure_invalid")
     checks.append("synthetic_identity_disclosure_boundary")
 
-    _status, blocked_tts_body, _headers = _request(
+    voice_release_verification = _verify_voice_provider_boundary(
         base_url,
-        "/memorials/manfred/speech-synthesize",
-        method="POST",
-        payload={"text": "Diese Sprachfunktion darf nicht starten."},
-        expected={409},
+        voice_release_expectation=voice_release_expectation,
     )
-    blocked_tts = _json_body(
-        blocked_tts_body,
-        path="/memorials/manfred/speech-synthesize",
+    checks.append(
+        "voice_release_authorization_verified_provider_not_called"
+        if voice_release_expectation is not None
+        else "voice_provider_boundary_blocked"
     )
-    if str(blocked_tts.get("detail") or "") != "memorial_voice_release_not_verified":
-        raise RuntimeError("candidate_voice_release_boundary_invalid")
-    checks.append("voice_provider_boundary_blocked")
 
     _status, share_body, _headers = _request(
         base_url,
@@ -1865,12 +2012,33 @@ def verify_candidate(
 
     browser_evidence: dict[str, object] = {"status": "not_run"}
     if browser_audit:
+        expected_voice_release = (
+            "available" if voice_release_expectation is not None else "blocked"
+        )
+        expected_voice_access = (
+            "public-release" if voice_release_expectation is not None else "text-only"
+        )
         browser_evidence = audit_browser_surface(
             base_url,
             public_origin=public_origin,
+            expected_voice_release=expected_voice_release,
+            expected_voice_access=expected_voice_access,
+            expected_source_revision=(
+                str(voice_release_expectation["source_revision"])
+                if voice_release_expectation is not None
+                else None
+            ),
         )
-        if browser_evidence.get("status") != "pass" or not _has_exact_zero_counts(
-            browser_evidence
+        if (
+            browser_evidence.get("status") != "pass"
+            or browser_evidence.get("voice_release") != expected_voice_release
+            or browser_evidence.get("voice_access") != expected_voice_access
+            or (
+                voice_release_expectation is not None
+                and browser_evidence.get("source_revision")
+                != voice_release_expectation["source_revision"]
+            )
+            or not _has_exact_zero_counts(browser_evidence)
         ):
             raise RuntimeError("candidate_browser_provider_boundary_invalid")
         checks.append("browser_provider_websocket_boundary")
@@ -1886,6 +2054,7 @@ def verify_candidate(
         "checks": checks,
         "conversation_only_public_surface": conversation_surface,
         "provider_calls_performed": False,
+        "voice_release_verification": voice_release_verification,
         "page_get_performed": True,
         "operator_surface_used": False,
         "private_audio_served": False,
@@ -1910,6 +2079,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Exercise the rendered surface and fail on provider requests or WebSockets.",
     )
+    parser.add_argument(
+        "--expect-signed-voice-release",
+        action="store_true",
+        help=(
+            "Expect the runtime's already signed, source/image/voice-bound "
+            "release authorization. The proof uses an empty-text request and "
+            "must stop before provider work."
+        ),
+    )
+    parser.add_argument("--expected-source-revision", default="")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--submit-contribution-receipt", default="")
     modes.add_argument("--withdraw-contribution-receipt", default="")
@@ -1918,6 +2097,22 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    expected_source_revision = str(args.expected_source_revision or "")
+    if not args.expect_signed_voice_release and expected_source_revision:
+        raise SystemExit(
+            "release binding arguments require --expect-signed-voice-release"
+        )
+    if args.expect_signed_voice_release and not args.browser_audit:
+        raise SystemExit(
+            "--expect-signed-voice-release requires --browser-audit"
+        )
+    voice_release_expectation = (
+        {
+            "source_revision": expected_source_revision,
+        }
+        if args.expect_signed_voice_release
+        else None
+    )
     try:
         receipt = verify_candidate(
             base_url=str(args.base_url).rstrip("/"),
@@ -1930,6 +2125,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.withdraw_contribution_receipt
             else None,
             browser_audit=bool(args.browser_audit),
+            voice_release_expectation=voice_release_expectation,
         )
     except (
         OSError,

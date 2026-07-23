@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -8,6 +9,18 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _private_review_session(module, *, revision: str, token: str):
+    return module.ReviewSessionClientAuth(
+        origin="https://myexternalbrain.com",
+        slug="manfred",
+        source_revision=revision,
+        image_id=f"sha256:{'b' * 64}",
+        voice_identity_sha256="c" * 64,
+        expires_at=2_000_000_000,
+        _token=token,
+    )
 
 
 def _load_module():
@@ -226,6 +239,65 @@ def test_prewarm_memorial_origin_reports_ready_payload(monkeypatch: pytest.Monke
     assert ("GET", "https://example.com/memorials/manfred/warmup-status") in calls
 
 
+def test_private_review_headers_reach_prewarm_request_and_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    review_session = _private_review_session(
+        module,
+        revision="a" * 40,
+        token="private-review-token",
+    )
+    expected_headers = review_session.request_headers()
+    calls: list[dict[str, object]] = []
+
+    def fake_http_json(
+        url: str,
+        *,
+        method: str = "GET",
+        payload=None,
+        timeout: float = 20.0,
+        request_headers: dict[str, str] | None = None,
+    ):
+        calls.append(
+            {
+                "url": url,
+                "method": method,
+                "request_headers": request_headers,
+            }
+        )
+        if method == "POST":
+            return 202, {"status": "queued"}
+        return 200, {
+            "warm": True,
+            "voice_required": True,
+            "voice_ready": True,
+        }
+
+    monkeypatch.setattr(module, "_http_json", fake_http_json)
+
+    receipt = module._prewarm_memorial_origin(
+        "https://myexternalbrain.com",
+        "manfred",
+        timeout_seconds=0.1,
+        request_headers=expected_headers,
+    )
+
+    assert receipt["ready"] is True
+    assert calls == [
+        {
+            "url": "https://myexternalbrain.com/memorials/manfred/warmup",
+            "method": "POST",
+            "request_headers": expected_headers,
+        },
+        {
+            "url": "https://myexternalbrain.com/memorials/manfred/warmup-status",
+            "method": "GET",
+            "request_headers": expected_headers,
+        },
+    ]
+
+
 def test_prompt_wav_bytes_for_measure_prefers_memorial_speech_synthesize(monkeypatch: pytest.MonkeyPatch) -> None:
     module = _load_module()
 
@@ -239,6 +311,43 @@ def test_prompt_wav_bytes_for_measure_prefers_memorial_speech_synthesize(monkeyp
     payload = module._prompt_wav_bytes_for_measure("https://example.com", "manfred", "Was war dir wichtig?")
 
     assert payload == b"memorial-wav"
+
+
+def test_private_review_headers_reach_prompt_synthesis(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    review_session = _private_review_session(
+        module,
+        revision="a" * 40,
+        token="private-review-token",
+    )
+    expected_headers = review_session.request_headers()
+    calls: list[dict[str, object]] = []
+
+    def fake_http_bytes(url: str, **kwargs):
+        calls.append({"url": url, **kwargs})
+        return 200, b"memorial-wav", "audio/wav"
+
+    monkeypatch.setattr(module, "_http_bytes", fake_http_bytes)
+
+    payload = module._prompt_wav_bytes_for_measure(
+        "https://myexternalbrain.com",
+        "manfred",
+        "Was war dir wichtig?",
+        request_headers=expected_headers,
+    )
+
+    assert payload == b"memorial-wav"
+    assert calls == [
+        {
+            "url": "https://myexternalbrain.com/memorials/manfred/speech-synthesize",
+            "method": "POST",
+            "payload": {"text": "Was war dir wichtig?"},
+            "timeout": 45.0,
+            "request_headers": expected_headers,
+        }
+    ]
 
 
 def test_prompt_wav_bytes_for_measure_falls_back_when_synth_route_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -471,6 +580,105 @@ def test_browser_gold_receipt_accepts_only_https_live_public_proof(
     assert receipt["launch_proof_scope"] == "real_public_microphone"
 
 
+def test_private_review_browser_receipt_is_safe_non_gold_exact_revision_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    revision = "a" * 40
+    raw_token = "super-secret-review-token"
+    review_session = _private_review_session(
+        module,
+        revision=revision,
+        token=raw_token,
+    )
+    monkeypatch.setattr(module, "_git_dirty", lambda: False)
+    monkeypatch.setattr(module, "_git_head", lambda: revision)
+    monkeypatch.setattr(module, "_source_tree_fingerprint", lambda: "tree")
+    monkeypatch.setattr(
+        module,
+        "resolve_source_worktree_fingerprint",
+        lambda _root: "state",
+    )
+    monkeypatch.setattr(module, "_is_https_public_origin", lambda _url: True)
+    result = _passing_browser_result()
+    result["base_url"] = "https://myexternalbrain.com"
+    result["runtime_source_revision"] = revision
+
+    receipt = module._with_exit_gate_status(
+        result,
+        exit_gate=True,
+        gold_mode=True,
+        require_public_origin=True,
+        max_first_answer_ms=4500,
+        review_session=review_session,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["access_mode"] == "private_review_session"
+    assert receipt["evidence_scope"] == "private_authenticated_review"
+    assert receipt["review_session_authenticated"] is True
+    assert receipt["review_session_binding"] == review_session.public_binding()
+    assert (
+        receipt["launch_proof_scope"]
+        == "real_public_private_review_microphone"
+    )
+    assert receipt["gold_claim_allowed"] is False
+    assert receipt["private_review_evidence_allowed"] is True
+
+    rendered = json.dumps(receipt, sort_keys=True)
+    assert raw_token not in rendered
+    assert "ea_manfred_voice_review" not in rendered
+    assert '"Cookie"' not in rendered
+    assert '"Origin"' not in rendered
+    assert "request_headers" not in rendered
+    assert "review-session-cookie-file" not in rendered
+
+
+def test_private_review_browser_receipt_rejects_dirty_or_revision_mismatched_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    revision = "a" * 40
+    review_session = _private_review_session(
+        module,
+        revision=revision,
+        token="private-review-token",
+    )
+    monkeypatch.setattr(module, "_git_head", lambda: revision)
+    monkeypatch.setattr(module, "_source_tree_fingerprint", lambda: "tree")
+    monkeypatch.setattr(
+        module,
+        "resolve_source_worktree_fingerprint",
+        lambda _root: "state",
+    )
+    monkeypatch.setattr(module, "_is_https_public_origin", lambda _url: True)
+
+    for dirty, runtime_revision in (
+        (True, revision),
+        (False, "d" * 40),
+    ):
+        monkeypatch.setattr(
+            module,
+            "_git_dirty",
+            lambda dirty=dirty: dirty,
+        )
+        result = _passing_browser_result()
+        result["base_url"] = "https://myexternalbrain.com"
+        result["runtime_source_revision"] = runtime_revision
+
+        receipt = module._with_exit_gate_status(
+            result,
+            exit_gate=True,
+            gold_mode=True,
+            require_public_origin=True,
+            max_first_answer_ms=4500,
+            review_session=review_session,
+        )
+
+        assert receipt["gold_claim_allowed"] is False
+        assert receipt["private_review_evidence_allowed"] is False
+
+
 def test_browser_exit_gate_fails_when_conversation_teardown_is_unproven(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -627,3 +835,118 @@ def test_preferred_answer_preview_prefers_final_payload_answer_over_streamed_dra
 
     assert "konkreten punkt" not in preferred.lower()
     assert "juristisch" in preferred.lower()
+
+
+def test_private_review_cookie_is_injected_before_page_navigation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    review_session = _private_review_session(
+        module,
+        revision="a" * 40,
+        token="private-review-token",
+    )
+    events: list[str] = []
+    cookies: list[dict[str, object]] = []
+    direct_headers: list[dict[str, str] | None] = []
+
+    class FakePage:
+        def goto(self, *_args, **_kwargs):
+            events.append("page_goto")
+            raise RuntimeError("stop_after_navigation")
+
+    class FakeContext:
+        def add_cookies(self, values):
+            events.append("add_cookies")
+            cookies.extend(values)
+
+        def grant_permissions(self, *_args, **_kwargs):
+            events.append("grant_permissions")
+
+        def add_init_script(self, *_args, **_kwargs):
+            events.append("add_init_script")
+
+        def new_page(self):
+            events.append("new_page")
+            return FakePage()
+
+        def close(self):
+            events.append("context_close")
+
+    class FakeBrowser:
+        def new_context(self, **_kwargs):
+            events.append("new_context")
+            return FakeContext()
+
+        def close(self):
+            events.append("browser_close")
+
+    class FakePlaywrightContext:
+        def __enter__(self):
+            events.append("playwright_enter")
+            return object()
+
+        def __exit__(self, *_args):
+            events.append("playwright_exit")
+
+    browser = FakeBrowser()
+
+    def fake_prompt(
+        _base_url: str,
+        _slug: str,
+        _prompt_text: str,
+        *,
+        request_headers: dict[str, str] | None = None,
+    ) -> bytes:
+        direct_headers.append(request_headers)
+        return b"RIFF\x00\x00\x00\x00WAVE"
+
+    def fake_prewarm(
+        _base_url: str,
+        _slug: str,
+        *,
+        timeout_seconds: float,
+        request_headers: dict[str, str] | None = None,
+    ) -> dict[str, object]:
+        assert timeout_seconds == 25.0
+        direct_headers.append(request_headers)
+        return {"ready": True}
+
+    monkeypatch.setattr(module, "_require_playwright", lambda: FakePlaywrightContext)
+    monkeypatch.setattr(
+        module,
+        "_prompt_wav_bytes_for_measure",
+        fake_prompt,
+    )
+    monkeypatch.setattr(
+        module,
+        "_prewarm_memorial_origin",
+        fake_prewarm,
+    )
+    monkeypatch.setattr(
+        module,
+        "_resolve_chromium_executable",
+        lambda _playwright: (None, "unit_test"),
+    )
+    monkeypatch.setattr(
+        module,
+        "_launch_chromium_with_startup_retry",
+        lambda *_args, **_kwargs: (browser, 1, []),
+    )
+
+    with pytest.raises(RuntimeError, match="stop_after_navigation"):
+        module._measure(
+            "https://myexternalbrain.com",
+            "manfred",
+            "Hallo Manfred",
+            stub_transcribe=False,
+            review_session=review_session,
+        )
+
+    assert direct_headers == [
+        review_session.request_headers(),
+        review_session.request_headers(),
+    ]
+    assert cookies == [review_session.playwright_cookie()]
+    assert events.index("add_cookies") < events.index("new_page")
+    assert events.index("add_cookies") < events.index("page_goto")

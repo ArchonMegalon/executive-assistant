@@ -1005,6 +1005,21 @@ def test_preview_cookie_allows_http_voice_fallback_with_guards_and_limits(
         guarded_routes.append("conversation_turn")
         return _Turn()
 
+    class _Transcription:
+        stt_ms = 12.0
+
+        def as_public_payload(self) -> dict[str, object]:
+            return {
+                "transcription_status": "transcribed",
+                "transcript_text": "Ich bin da.",
+                "transcript_original_text": "Ich bin da.",
+                "transcriber": "review-test",
+            }
+
+    def _guarded_transcribe(**_kwargs: object) -> _Transcription:
+        guarded_routes.append("speech_transcribe")
+        return _Transcription()
+
     monkeypatch.setattr(
         public_memorials,
         "_render_memorial_tts_audio",
@@ -1014,6 +1029,21 @@ def test_preview_cookie_allows_http_voice_fallback_with_guards_and_limits(
         public_memorial_turn_support,
         "build_public_memorial_turn",
         _guarded_turn,
+    )
+    monkeypatch.setattr(
+        public_memorial_turn_support,
+        "transcribe_public_memorial_audio",
+        _guarded_transcribe,
+    )
+    monkeypatch.setattr(
+        public_memorial_turn_support,
+        "classify_memorial_stt_issue",
+        lambda **_kwargs: "",
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_log_memorial_timing",
+        lambda *_args, **_kwargs: None,
     )
 
     app = FastAPI()
@@ -1038,12 +1068,31 @@ def test_preview_cookie_allows_http_voice_fallback_with_guards_and_limits(
         },
         content=b"RIFF-review-input",
     )
+    transcribed = client.post(
+        "/memorials/manfred/speech-transcribe",
+        headers={
+            "Cookie": cookie,
+            "Content-Type": "audio/wav",
+            "Origin": _ORIGIN,
+        },
+        content=b"RIFF-review-input",
+    )
 
     assert synthesized.status_code == 200
     assert conversation.status_code == 200
+    assert transcribed.status_code == 200
+    assert transcribed.json()["transcript_text"] == "Ich bin da."
     assert set(consent_actions) == {"synthesize", "conversation_turn"}
-    assert rate_buckets == ["speech_synthesize", "conversation_turn"]
-    assert guarded_routes == ["speech_synthesize", "conversation_turn"]
+    assert rate_buckets == [
+        "speech_synthesize",
+        "conversation_turn",
+        "speech_transcribe",
+    ]
+    assert guarded_routes == [
+        "speech_synthesize",
+        "conversation_turn",
+        "speech_transcribe",
+    ]
 
 
 @pytest.mark.parametrize(

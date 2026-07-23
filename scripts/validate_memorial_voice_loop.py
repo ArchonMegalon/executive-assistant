@@ -7,9 +7,15 @@ import json
 import re
 import urllib.error
 import urllib.request
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
+
+try:
+    from scripts.manfred_voice_review_client_auth import open_review_request
+except ModuleNotFoundError:  # pragma: no cover - script execution path
+    from manfred_voice_review_client_auth import open_review_request
 
 
 @dataclass
@@ -78,31 +84,88 @@ def _token_overlap(expected: str, actual: str) -> dict[str, float]:
     return {"precision": precision, "recall": recall, "f1": f1}
 
 
-def _post_json(url: str, payload: dict[str, object], *, timeout: float = 90.0):
+def _post_json(
+    url: str,
+    payload: dict[str, object],
+    *,
+    timeout: float = 90.0,
+    request_headers: Mapping[str, str] | None = None,
+):
+    headers = dict(request_headers or {})
+    headers["content-type"] = "application/json"
     req = urllib.request.Request(
         url,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         method="POST",
-        headers={"content-type": "application/json"},
+        headers=headers,
     )
-    with urllib.request.urlopen(req, timeout=timeout) as response:
+    response_context = (
+        open_review_request(
+            req,
+            expected_origin=str(headers.get("Origin") or ""),
+            timeout=timeout,
+        )
+        if request_headers
+        else urllib.request.urlopen(req, timeout=timeout)
+    )
+    with response_context as response:
         return int(getattr(response, "status", 200) or 200), json.loads(response.read().decode("utf-8"))
 
 
-def _post_binary(url: str, payload: bytes, *, content_type: str, timeout: float = 120.0):
-    req = urllib.request.Request(url, data=payload, method="POST", headers={"content-type": content_type})
-    with urllib.request.urlopen(req, timeout=timeout) as response:
+def _post_binary(
+    url: str,
+    payload: bytes,
+    *,
+    content_type: str,
+    timeout: float = 120.0,
+    request_headers: Mapping[str, str] | None = None,
+):
+    headers = dict(request_headers or {})
+    headers["content-type"] = content_type
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        method="POST",
+        headers=headers,
+    )
+    response_context = (
+        open_review_request(
+            req,
+            expected_origin=str(headers.get("Origin") or ""),
+            timeout=timeout,
+        )
+        if request_headers
+        else urllib.request.urlopen(req, timeout=timeout)
+    )
+    with response_context as response:
         return int(getattr(response, "status", 200) or 200), json.loads(response.read().decode("utf-8"))
 
 
-def _post_json_binary_response(url: str, payload: dict[str, object], *, timeout: float = 120.0):
+def _post_json_binary_response(
+    url: str,
+    payload: dict[str, object],
+    *,
+    timeout: float = 120.0,
+    request_headers: Mapping[str, str] | None = None,
+):
+    headers = dict(request_headers or {})
+    headers["content-type"] = "application/json"
     req = urllib.request.Request(
         url,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         method="POST",
-        headers={"content-type": "application/json"},
+        headers=headers,
     )
-    with urllib.request.urlopen(req, timeout=timeout) as response:
+    response_context = (
+        open_review_request(
+            req,
+            expected_origin=str(headers.get("Origin") or ""),
+            timeout=timeout,
+        )
+        if request_headers
+        else urllib.request.urlopen(req, timeout=timeout)
+    )
+    with response_context as response:
         return int(getattr(response, "status", 200) or 200), response.read(), str(response.headers.get("content-type") or "audio/wav")
 
 
@@ -166,14 +229,21 @@ def validate_memorial_voice_loop(
     direct_min_f1: float = 0.8,
     conversation_min_f1: float = 0.8,
     critical_tokens: tuple[str, ...] = (),
+    request_headers: Mapping[str, str] | None = None,
 ) -> ValidationReport:
     output_dir.mkdir(parents=True, exist_ok=True)
     report = ValidationReport(slug=slug, base_url=base_url, output_dir=str(output_dir))
     request_stage = "speech_synthesize"
     try:
+        synth_kwargs = (
+            {"request_headers": request_headers}
+            if request_headers
+            else {}
+        )
         synth_status, direct_audio, direct_type = _post_json_binary_response(
             f"{base_url.rstrip('/')}/memorials/{slug}/speech-synthesize",
             {"text": direct_text},
+            **synth_kwargs,
         )
     except Exception as exc:
         report.add("fail", f"{request_stage}_request_failed", **_request_error_detail(exc))
@@ -183,10 +253,16 @@ def validate_memorial_voice_loop(
     report.artifacts["direct_tts_audio"] = str(direct_path)
     request_stage = "direct_tts_transcribe"
     try:
+        transcribe_kwargs = (
+            {"request_headers": request_headers}
+            if request_headers
+            else {}
+        )
         transcribe_status, transcribe_payload = _post_binary(
             f"{base_url.rstrip('/')}/memorials/{slug}/speech-transcribe",
             direct_audio,
             content_type=direct_type,
+            **transcribe_kwargs,
         )
     except Exception as exc:
         report.add("fail", f"{request_stage}_request_failed", **_request_error_detail(exc))
@@ -210,7 +286,16 @@ def validate_memorial_voice_loop(
 
     request_stage = "present_world_chat"
     try:
-        world_status, world_payload = _post_json(f"{base_url.rstrip('/')}/memorials/{slug}/chat", {"question": present_world_question})
+        world_kwargs = (
+            {"request_headers": request_headers}
+            if request_headers
+            else {}
+        )
+        world_status, world_payload = _post_json(
+            f"{base_url.rstrip('/')}/memorials/{slug}/chat",
+            {"question": present_world_question},
+            **world_kwargs,
+        )
     except Exception as exc:
         report.add("fail", f"{request_stage}_request_failed", **_request_error_detail(exc))
         return report
@@ -226,7 +311,16 @@ def validate_memorial_voice_loop(
 
     request_stage = "conversation_chat"
     try:
-        chat_status, chat_payload = _post_json(f"{base_url.rstrip('/')}/memorials/{slug}/chat", {"question": conversation_question})
+        chat_kwargs = (
+            {"request_headers": request_headers}
+            if request_headers
+            else {}
+        )
+        chat_status, chat_payload = _post_json(
+            f"{base_url.rstrip('/')}/memorials/{slug}/chat",
+            {"question": conversation_question},
+            **chat_kwargs,
+        )
     except Exception as exc:
         report.add("fail", f"{request_stage}_request_failed", **_request_error_detail(exc))
         return report
@@ -235,10 +329,16 @@ def validate_memorial_voice_loop(
     for attempt in range(2):
         request_stage = "conversation_turn" if attempt == 0 else "conversation_turn_retry"
         try:
+            turn_kwargs = (
+                {"request_headers": request_headers}
+                if request_headers
+                else {}
+            )
             turn_status, turn_payload = _post_binary(
                 f"{base_url.rstrip('/')}/memorials/{slug}/conversation-turn",
                 _neutral_prompt_wav_bytes(conversation_question),
                 content_type="audio/wav",
+                **turn_kwargs,
             )
         except Exception as exc:
             report.add("fail", f"{request_stage}_request_failed", **_request_error_detail(exc))
@@ -257,10 +357,16 @@ def validate_memorial_voice_loop(
         report.artifacts["conversation_turn_audio"] = str(answer_path)
     request_stage = "conversation_answer_transcribe"
     try:
+        answer_transcribe_kwargs = (
+            {"request_headers": request_headers}
+            if request_headers
+            else {}
+        )
         turn_transcribe_status, turn_transcribe_payload = _post_binary(
             f"{base_url.rstrip('/')}/memorials/{slug}/speech-transcribe",
             answer_audio or direct_audio,
             content_type=str(final_turn.get("audio_content_type") or "audio/wav"),
+            **answer_transcribe_kwargs,
         )
     except Exception as exc:
         report.add("fail", f"{request_stage}_request_failed", **_request_error_detail(exc))

@@ -86,7 +86,11 @@ EVIDENCE_MAX_AGE_SECONDS = {
     "room_audio_attestation_packet": 7 * 24 * 60 * 60,
 }
 READINESS_MAX_AGE_SECONDS = 24 * 60 * 60
+PRIVATE_REVIEW_MAX_AGE_SECONDS = 24 * 60 * 60
 MAX_FUTURE_SKEW_SECONDS = 5 * 60
+PRIVATE_REVIEW_EVIDENCE_SCOPE = "private_authenticated_review"
+ANONYMOUS_PUBLIC_EVIDENCE_SCOPE = "anonymous_public"
+PRIVATE_REVIEW_BROWSER_LAUNCH_SCOPE = "real_public_private_review_microphone"
 MANFRED_VOICE_GOLD_PATH = "/admin/memorials/manfred/gold"
 MANFRED_VOICE_GOLD_LABEL = "Open voice gold"
 MANFRED_PROOF_PATH = "/memorials/manfred/voice-config"
@@ -164,6 +168,29 @@ ALLOWED_RAW_CONTROL_KEYS = {
     "raw_transcript_fields",
     "redacted_text_fields",
 }
+RAW_CREDENTIAL_KEYS = {
+    "access_token",
+    "api_key",
+    "authorization",
+    "bearer",
+    "bearer_token",
+    "cookie",
+    "cookie_header",
+    "cookie_value",
+    "password",
+    "proxy_authorization",
+    "refresh_token",
+    "secret",
+    "session_token",
+    "set_cookie",
+}
+RAW_CREDENTIAL_STRING_PREFIXES = (
+    "authorization:",
+    "bearer ",
+    "bearer:",
+    "cookie:",
+    "set-cookie:",
+)
 ATTESTATION_GENERATED_BY = "scripts/materialize_memorial_room_audio_attestation_packet.py"
 MAX_LOCAL_JSON_BYTES = 4 * 1024 * 1024
 LOCAL_FILE_READ_CHUNK_BYTES = 64 * 1024
@@ -596,6 +623,169 @@ def _valid_sha256(value: object) -> bool:
         and len(value) == 64
         and value == value.lower()
         and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _raw_credential_material_exposed(value: object) -> bool:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if str(key).strip().casefold() in RAW_CREDENTIAL_KEYS:
+                return True
+            if _raw_credential_material_exposed(item):
+                return True
+        return False
+    if isinstance(value, (list, tuple)):
+        return any(_raw_credential_material_exposed(item) for item in value)
+    if isinstance(value, str):
+        normalized = value.lstrip().casefold()
+        return any(
+            normalized.startswith(prefix)
+            for prefix in RAW_CREDENTIAL_STRING_PREFIXES
+        )
+    return False
+
+
+def _private_review_binding_is_valid(receipt: dict[str, Any]) -> bool:
+    binding = _mapping(receipt.get("review_session_binding"))
+    expected_fields = {
+        "contract_name",
+        "access_mode",
+        "source_revision",
+        "image_id",
+        "voice_identity_sha256",
+        "expires_at_epoch",
+        "bearer_material_exposed",
+    }
+    source_revision = str(receipt.get("source_git_head") or "")
+    runtime_revision = str(receipt.get("runtime_source_revision") or "")
+    image_id = str(binding.get("image_id") or "")
+    expires_at = binding.get("expires_at_epoch")
+    generated_at_value = _safe_timestamp(receipt.get("generated_at"))
+    if not _evidence_is_fresh(
+        generated_at_value,
+        max_age_seconds=PRIVATE_REVIEW_MAX_AGE_SECONDS,
+    ):
+        return False
+    generated_at = datetime.fromisoformat(
+        generated_at_value.replace("Z", "+00:00")
+    )
+    return bool(
+        set(binding) == expected_fields
+        and binding.get("contract_name")
+        == "ea.manfred_voice_review.v1"
+        and binding.get("access_mode") == "private_review_session"
+        and receipt.get("access_mode") == "private_review_session"
+        and receipt.get("review_session_authenticated") is True
+        and receipt.get("evidence_scope") == PRIVATE_REVIEW_EVIDENCE_SCOPE
+        and receipt.get("private_review_evidence_allowed") is True
+        and receipt.get("gold_claim_allowed") is False
+        and receipt.get("base_url") == "https://myexternalbrain.com"
+        and receipt.get("slug") == "manfred"
+        and binding.get("source_revision") == source_revision
+        and runtime_revision == source_revision
+        and len(source_revision) == 40
+        and all(
+            character in "0123456789abcdef"
+            for character in source_revision
+        )
+        and image_id.startswith("sha256:")
+        and _valid_sha256(image_id.removeprefix("sha256:"))
+        and _valid_sha256(binding.get("voice_identity_sha256"))
+        and type(expires_at) is int
+        and expires_at > int(generated_at.timestamp())
+        and binding.get("bearer_material_exposed") is False
+        and not _raw_credential_material_exposed(receipt)
+    )
+
+
+def _release_evidence_claim_allowed(
+    receipt: dict[str, Any],
+) -> bool:
+    scope = str(receipt.get("evidence_scope") or "").strip()
+    if scope == PRIVATE_REVIEW_EVIDENCE_SCOPE:
+        return _private_review_binding_is_valid(receipt)
+    if scope == ANONYMOUS_PUBLIC_EVIDENCE_SCOPE:
+        return bool(
+            receipt.get("gold_claim_allowed") is True
+            and receipt.get("review_session_authenticated") is not True
+            and receipt.get("private_review_evidence_allowed") is not True
+            and not _mapping(receipt.get("review_session_binding"))
+            and not _raw_credential_material_exposed(receipt)
+        )
+    if (
+        receipt.get("review_session_authenticated") is True
+        or receipt.get("private_review_evidence_allowed") is True
+        or _mapping(receipt.get("review_session_binding"))
+        or scope
+    ):
+        return False
+    # Scope-less receipts are retained as a compatibility seam for the
+    # pre-scope receipt contracts. They retain their original gold semantics;
+    # new receipts must use an explicit scope.
+    contract_name = str(receipt.get("contract_name") or "")
+    if contract_name in {
+        EVIDENCE_RECEIPTS["voice_roundtrip"][1],
+        EVIDENCE_RECEIPTS["room_audio"][1],
+    }:
+        return bool(
+            receipt.get("gold_claim_allowed") is True
+            and not _raw_credential_material_exposed(receipt)
+        )
+    if contract_name == EVIDENCE_RECEIPTS["realtime_browser"][1]:
+        return bool(
+            (
+                receipt.get("gold_claim_allowed") is None
+                or receipt.get("gold_claim_allowed") is True
+            )
+            and not _raw_credential_material_exposed(receipt)
+        )
+    return False
+
+
+def _release_evidence_scopes_are_consistent(
+    *receipts: dict[str, Any],
+) -> bool:
+    scopes = [
+        str(receipt.get("evidence_scope") or "").strip()
+        for receipt in receipts
+    ]
+    if not any(scopes):
+        return True
+    if any(not scope for scope in scopes) or len(set(scopes)) != 1:
+        return False
+    if scopes[0] == ANONYMOUS_PUBLIC_EVIDENCE_SCOPE:
+        return True
+    if scopes[0] != PRIVATE_REVIEW_EVIDENCE_SCOPE:
+        return False
+    bindings = [
+        _mapping(receipt.get("review_session_binding"))
+        for receipt in receipts
+    ]
+    return bool(
+        all(_private_review_binding_is_valid(receipt) for receipt in receipts)
+        and bindings
+        and all(binding == bindings[0] for binding in bindings[1:])
+    )
+
+
+def _browser_release_evidence_is_valid(receipt: dict[str, Any]) -> bool:
+    scope = str(receipt.get("evidence_scope") or "").strip()
+    if not scope:
+        return True
+    if (
+        receipt.get("gold_mode") is not True
+        or receipt.get("require_public_origin") is not True
+        or receipt.get("speech_transcribe_mode") != "live"
+    ):
+        return False
+    if scope == PRIVATE_REVIEW_EVIDENCE_SCOPE:
+        return (
+            receipt.get("launch_proof_scope")
+            == PRIVATE_REVIEW_BROWSER_LAUNCH_SCOPE
+        )
+    return bool(
+        scope == ANONYMOUS_PUBLIC_EVIDENCE_SCOPE
+        and receipt.get("launch_proof_scope") == "real_public_microphone"
     )
 
 
@@ -1561,6 +1751,10 @@ def _load_evidence_receipt(
         evidence["status"] = "invalid_shape"
         return {}, evidence
     payload = dict(parsed)
+    if _raw_credential_material_exposed(payload):
+        evidence["raw_credentials_exposed"] = True
+        evidence["status"] = "invalid"
+        return {}, evidence
     contract_name = str(payload.get("contract_name") or "").strip()
     contract_valid = contract_name == expected_contract
     recorded_head = str(payload.get("source_git_head") or "").strip()
@@ -1582,6 +1776,12 @@ def _load_evidence_receipt(
         else "unknown"
     )
     generated_at = _safe_timestamp(payload.get("generated_at") or payload.get("checked_at"))
+    effective_max_age_seconds = int(max_age_seconds)
+    if payload.get("evidence_scope") == PRIVATE_REVIEW_EVIDENCE_SCOPE:
+        effective_max_age_seconds = min(
+            effective_max_age_seconds,
+            PRIVATE_REVIEW_MAX_AGE_SECONDS,
+        )
     evidence.update(
         {
             "contract_valid": contract_valid,
@@ -1589,8 +1789,9 @@ def _load_evidence_receipt(
             "generated_at": generated_at,
             "fresh": _evidence_is_fresh(
                 generated_at,
-                max_age_seconds=max_age_seconds,
+                max_age_seconds=effective_max_age_seconds,
             ),
+            "max_age_seconds": effective_max_age_seconds,
             "source_git_head_present": bool(recorded_head),
             "source_git_head_matches_current": bool(
                 recorded_head and current_head and recorded_head == current_head
@@ -1800,33 +2001,45 @@ def _operator_status_from_open_receipts(
 
     roundtrip = receipts["voice_roundtrip"]
     roundtrip_evidence = evidence["voice_roundtrip"]
+    browser = receipts["realtime_browser"]
+    room_audio = receipts["room_audio"]
+    release_evidence_scopes_consistent = (
+        _release_evidence_scopes_are_consistent(
+            roundtrip,
+            browser,
+            room_audio,
+        )
+    )
     roundtrip_ready = bool(
         roundtrip_evidence.get("contract_valid")
         and roundtrip_evidence.get("source_state_matches_current")
         and roundtrip_evidence.get("fresh")
         and roundtrip.get("status") == "pass"
-        and roundtrip.get("gold_claim_allowed") is True
+        and _release_evidence_claim_allowed(roundtrip)
+        and release_evidence_scopes_consistent
         and _failure_codes_are_empty(roundtrip.get("failed_codes"))
     )
-    browser = receipts["realtime_browser"]
     browser_evidence = evidence["realtime_browser"]
     browser_ready = bool(
         browser_evidence.get("contract_valid")
         and browser_evidence.get("source_state_matches_current")
         and browser_evidence.get("fresh")
         and browser.get("status") == "pass"
+        and _release_evidence_claim_allowed(browser)
+        and _browser_release_evidence_is_valid(browser)
+        and release_evidence_scopes_consistent
         and _failure_codes_are_empty(browser.get("failed_codes"))
         and browser.get("audio_ready_for_ui") is True
         and _safe_nonnegative_int(browser.get("ui_audio_play_ended")) >= 1
     )
-    room_audio = receipts["room_audio"]
     room_evidence = evidence["room_audio"]
     room_audio_ready = bool(
         room_evidence.get("contract_valid")
         and room_evidence.get("source_state_matches_current")
         and room_evidence.get("fresh")
         and room_audio.get("status") == "pass"
-        and room_audio.get("gold_claim_allowed") is True
+        and _release_evidence_claim_allowed(room_audio)
+        and release_evidence_scopes_consistent
         and _failure_codes_are_empty(room_audio.get("failed_codes"))
     )
     roundtrip_metrics = dict(roundtrip.get("metrics") or {})

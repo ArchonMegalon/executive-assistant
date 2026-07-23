@@ -341,25 +341,36 @@ def test_memorial_flagship_preflight_cli_passes_against_runtime(memorial_flagshi
     payload = json.loads(result.stdout)
     assert payload["status"] == "pass"
     codes = {item["code"] for item in payload["findings"]}
-    assert "live_public_page_source_first" in codes
+    assert "live_public_page_conversation_only" in codes
     assert "live_public_tts_rejects_override" in codes
     assert "archive_registry_public_only" in codes
     assert "live_public_payload_private_shapes_omitted" in codes
     assert "live_public_payload_empty_private_fields" not in codes
 
 
-def test_memorial_flagship_http_surface_is_source_first_and_private_by_default(
+def test_memorial_flagship_http_surface_is_conversation_only_and_private_by_default(
     memorial_flagship_server: dict[str, object],
 ) -> None:
+    from scripts import memorial_flagship_preflight
+
     base_url = str(memorial_flagship_server["base_url"])
     with urllib.request.urlopen(f"{base_url}/memorials/manfred", timeout=5.0) as response:
         body = response.read().decode("utf-8", errors="replace")
     with urllib.request.urlopen(f"{base_url}/memorials/manfred.json", timeout=5.0) as response:
         public_payload = json.loads(response.read().decode("utf-8", errors="replace"))
 
-    assert "Gespräch starten" in body
-    assert 'data-public-memorial-surface="conversation-only"' in body
-    assert "freigegebener Erinnerungen und Quellen" in body
+    page_contract_ok, page_contract = (
+        memorial_flagship_preflight._conversation_only_public_page_contract(body)
+    )
+    assert page_contract_ok is True
+    assert page_contract["visible_button_count"] == 1
+    assert page_contract["visible_button_ids"] == ["memorial-conversation"]
+    assert page_contract["visible_button_labels"] == ["Gespräch beginnen"]
+    assert page_contract["sole_visible_cta_exact"] is True
+    assert page_contract["disclosure_described_by_cta"] is True
+    assert page_contract["disclosure_complete"] is True
+    assert page_contract["visible_form_control_count"] == 0
+    assert page_contract["visible_management_element_ids"] == []
     assert 'id="memorial-story"' not in body
     assert "Optional: Am Handy/Desktop installieren." not in body
     assert "Behutsam bewahrte Spuren" not in body
@@ -369,6 +380,10 @@ def test_memorial_flagship_http_surface_is_source_first_and_private_by_default(
     assert 'https://sources.example/manfred/' not in body
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in body
     assert "Stimmvergleich und Feedback" not in body
+    assert 'aria-describedby="memorial-conversation-disclosure"' in body
+    assert "KI-Rekonstruktion" in body
+    assert "nicht der echte Manfred" in body
+    assert "Die Stimme ist künstlich erzeugt." in body
     assert public_payload["audio_clips"] == []
     assert len(public_payload["memory_cards"]) == 6
     assert len(public_payload["external_sources"]) == 8
@@ -389,6 +404,40 @@ def test_memorial_flagship_http_surface_is_source_first_and_private_by_default(
             timeout=5.0,
         )
     assert exc_info.value.code == 404
+
+
+def test_memorial_flagship_page_contract_rejects_extra_or_stale_visible_cta(
+    memorial_flagship_server: dict[str, object],
+) -> None:
+    from scripts import memorial_flagship_preflight
+
+    base_url = str(memorial_flagship_server["base_url"])
+    with urllib.request.urlopen(f"{base_url}/memorials/manfred", timeout=5.0) as response:
+        body = response.read().decode("utf-8", errors="replace")
+
+    extra_cta = body.replace(
+        "</main>",
+        '<button type="button" id="settings">Einstellungen</button></main>',
+        1,
+    )
+    stale_cta = body.replace(
+        ">Gespräch beginnen</button>",
+        ">Gespräch starten</button>",
+        1,
+    )
+    undisclosed_cta = body.replace(
+        ' aria-describedby="memorial-conversation-disclosure"',
+        "",
+        1,
+    )
+
+    for invalid_body in (extra_cta, stale_cta, undisclosed_cta):
+        page_contract_ok, _detail = (
+            memorial_flagship_preflight._conversation_only_public_page_contract(
+                invalid_body
+            )
+        )
+        assert page_contract_ok is False
 
 
 def test_memorial_flagship_live_browser_measurement_passes(

@@ -631,3 +631,91 @@ def test_validate_memorial_voice_loop_accepts_weather_location_boundary(tmp_path
 
     assert report.status == "pass"
     assert any(item.code == "present_world_route_ok" for item in report.checks)
+
+
+def test_validate_memorial_voice_loop_applies_private_review_headers_to_every_request(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import scripts.validate_memorial_voice_loop as validator
+
+    direct_wav = _generated_wav(b"Worum geht es?")
+    observed: list[dict[str, str]] = []
+    expected_headers = {
+        "Cookie": "ea_manfred_voice_review=opaque",
+        "Origin": "https://myexternalbrain.com",
+    }
+
+    def observe(headers: object) -> None:
+        assert headers == expected_headers
+        observed.append(dict(headers))  # type: ignore[arg-type]
+
+    def fake_post_json(
+        url: str,
+        payload: dict[str, object],
+        *,
+        timeout: float = 90.0,
+        request_headers: dict[str, str] | None = None,
+    ):
+        observe(request_headers)
+        if payload.get("question") == "Welches Wetter haben wir heute?":
+            return 200, {
+                "answer": "Das Wetter sehe ich nicht.",
+                "fallback_reason": "present_world_guardrail",
+                "sources": [],
+            }
+        return 200, {"answer": "Worum geht es?"}
+
+    def fake_post_binary(
+        url: str,
+        payload: bytes,
+        *,
+        content_type: str,
+        timeout: float = 120.0,
+        request_headers: dict[str, str] | None = None,
+    ):
+        observe(request_headers)
+        if url.endswith("/conversation-turn"):
+            import base64
+
+            return 200, {
+                "answer": "Worum geht es?",
+                "audio_base64": base64.b64encode(direct_wav).decode(
+                    "ascii"
+                ),
+                "audio_content_type": "audio/wav",
+            }
+        return 200, {
+            "transcript_text": "Worum geht es?",
+            "transcriber": "stub",
+        }
+
+    def fake_synthesize(
+        url: str,
+        payload: dict[str, object],
+        *,
+        timeout: float = 120.0,
+        request_headers: dict[str, str] | None = None,
+    ):
+        observe(request_headers)
+        return 200, direct_wav, "audio/wav"
+
+    monkeypatch.setattr(validator, "_post_json", fake_post_json)
+    monkeypatch.setattr(validator, "_post_binary", fake_post_binary)
+    monkeypatch.setattr(
+        validator,
+        "_post_json_binary_response",
+        fake_synthesize,
+    )
+
+    report = validator.validate_memorial_voice_loop(
+        slug="manfred",
+        base_url="https://myexternalbrain.com",
+        output_dir=tmp_path,
+        direct_text="Worum geht es?",
+        conversation_question="Hallo Manfred",
+        request_headers=expected_headers,
+    )
+
+    assert report.status == "pass"
+    assert len(observed) == 6

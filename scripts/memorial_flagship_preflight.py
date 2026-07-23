@@ -11,6 +11,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass, field
+from html.parser import HTMLParser
 from pathlib import Path
 
 _NONBLOCKING_WARN_CODES = {
@@ -197,6 +198,246 @@ class Report:
 @dataclass(frozen=True)
 class RouteGatedArchiveProof:
     live_binding: str
+
+
+@dataclass
+class PublicPageElement:
+    tag: str
+    element_id: str
+    classes: tuple[str, ...]
+    attrs: dict[str, str]
+    hidden: bool
+    text_parts: list[str] = field(default_factory=list)
+
+    @property
+    def text(self) -> str:
+        return " ".join(" ".join(self.text_parts).split())
+
+
+class _PublicPageContractParser(HTMLParser):
+    _INTERACTIVE_TAGS = frozenset(
+        {"button", "form", "input", "select", "summary", "textarea"}
+    )
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.elements: list[PublicPageElement] = []
+        self._stack: list[tuple[str, bool, int | None]] = []
+
+    @staticmethod
+    def _attribute_map(attrs: list[tuple[str, str | None]]) -> dict[str, str]:
+        return {
+            str(name or "").strip().lower(): str(value or "").strip()
+            for name, value in attrs
+            if str(name or "").strip()
+        }
+
+    @staticmethod
+    def _style_hides_element(style: str) -> bool:
+        compact = re.sub(r"\s+", "", str(style or "")).lower()
+        return "display:none" in compact or "visibility:hidden" in compact
+
+    def _start_element(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+        *,
+        push: bool,
+    ) -> None:
+        normalized_tag = str(tag or "").strip().lower()
+        attributes = self._attribute_map(attrs)
+        parent_hidden = self._stack[-1][1] if self._stack else False
+        hidden = bool(
+            parent_hidden
+            or normalized_tag == "template"
+            or "hidden" in attributes
+            or "inert" in attributes
+            or attributes.get("aria-hidden", "").lower() == "true"
+            or (
+                normalized_tag == "input"
+                and attributes.get("type", "").lower() == "hidden"
+            )
+            or self._style_hides_element(attributes.get("style", ""))
+        )
+        element_id = attributes.get("id", "")
+        classes = tuple(
+            item for item in attributes.get("class", "").split() if item
+        )
+        record_index: int | None = None
+        if (
+            element_id
+            or classes
+            or normalized_tag in self._INTERACTIVE_TAGS
+            or "data-public-memorial-surface" in attributes
+        ):
+            record_index = len(self.elements)
+            self.elements.append(
+                PublicPageElement(
+                    tag=normalized_tag,
+                    element_id=element_id,
+                    classes=classes,
+                    attrs=attributes,
+                    hidden=hidden,
+                )
+            )
+        if push:
+            self._stack.append((normalized_tag, hidden, record_index))
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        self._start_element(tag, attrs, push=True)
+
+    def handle_startendtag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        self._start_element(tag, attrs, push=False)
+
+    def handle_endtag(self, tag: str) -> None:
+        normalized_tag = str(tag or "").strip().lower()
+        for index in range(len(self._stack) - 1, -1, -1):
+            if self._stack[index][0] == normalized_tag:
+                del self._stack[index:]
+                return
+
+    def handle_data(self, data: str) -> None:
+        if not str(data or "").strip():
+            return
+        for _tag, _hidden, record_index in self._stack:
+            if record_index is not None:
+                self.elements[record_index].text_parts.append(data)
+
+
+def _conversation_only_public_page_contract(
+    public_page: str,
+) -> tuple[bool, dict[str, object]]:
+    parser = _PublicPageContractParser()
+    try:
+        parser.feed(str(public_page or ""))
+        parser.close()
+    except Exception:
+        return False, {"html_parse_ok": False}
+
+    elements = parser.elements
+    surface_marker_present = any(
+        element.attrs.get("data-public-memorial-surface") == "conversation-only"
+        for element in elements
+    )
+    visible_buttons = [
+        element
+        for element in elements
+        if element.tag == "button" and not element.hidden
+    ]
+    visible_button_labels = [element.text for element in visible_buttons]
+    visible_button_ids = [element.element_id for element in visible_buttons]
+    cta = next(
+        (
+            element
+            for element in visible_buttons
+            if element.element_id == "memorial-conversation"
+        ),
+        None,
+    )
+    disclosure = next(
+        (
+            element
+            for element in elements
+            if element.element_id == "memorial-conversation-disclosure"
+        ),
+        None,
+    )
+    disclosure_text = disclosure.text if disclosure is not None else ""
+    disclosure_text_lower = disclosure_text.lower()
+    disclosure_described_by = (
+        cta is not None
+        and "memorial-conversation-disclosure"
+        in cta.attrs.get("aria-describedby", "").split()
+    )
+    disclosure_is_complete = bool(
+        disclosure is not None
+        and not disclosure.hidden
+        and "ki-rekonstruktion" in disclosure_text_lower
+        and "nicht der echte manfred" in disclosure_text_lower
+        and "stimme" in disclosure_text_lower
+        and "künstlich" in disclosure_text_lower
+        and "mikrofon" in disclosure_text_lower
+        and "audio" in disclosure_text_lower
+        and "erst nach" in disclosure_text_lower
+        and "gespräch beginnen" in disclosure_text_lower
+    )
+    cta_is_exact = bool(
+        len(visible_buttons) == 1
+        and cta is visible_buttons[0]
+        and cta.text == "Gespräch beginnen"
+        and cta.attrs.get("aria-label") == "Gespräch beginnen"
+        and cta.attrs.get("data-hero-action") == "conversation"
+    )
+
+    visible_form_controls = [
+        element
+        for element in elements
+        if element.tag in {"form", "input", "select", "summary", "textarea"}
+        and not element.hidden
+    ]
+    management_prefixes = (
+        "memorial-contribution",
+        "memorial-personal-memory",
+        "memorial-text-turn",
+    )
+    management_ids = {
+        "memorial-chat-status",
+        "memorial-toggle-status",
+    }
+    management_classes = {
+        "conversation-settings",
+        "contribution-management",
+        "contribution-panel",
+        "source-list",
+        "text-turn-form",
+    }
+    visible_management_elements = [
+        element
+        for element in elements
+        if not element.hidden
+        and (
+            element.element_id in management_ids
+            or element.element_id.startswith(management_prefixes)
+            or bool(set(element.classes) & management_classes)
+        )
+    ]
+    story_surface_absent = not any(
+        element.element_id == "memorial-story" for element in elements
+    )
+    contract_ok = bool(
+        surface_marker_present
+        and cta_is_exact
+        and disclosure_described_by
+        and disclosure_is_complete
+        and not visible_form_controls
+        and not visible_management_elements
+        and story_surface_absent
+    )
+    return contract_ok, {
+        "html_parse_ok": True,
+        "surface_marker_present": surface_marker_present,
+        "visible_button_count": len(visible_buttons),
+        "visible_button_ids": visible_button_ids,
+        "visible_button_labels": visible_button_labels,
+        "sole_visible_cta_exact": cta_is_exact,
+        "disclosure_described_by_cta": disclosure_described_by,
+        "disclosure_complete": disclosure_is_complete,
+        "visible_form_control_count": len(visible_form_controls),
+        "visible_management_element_ids": [
+            element.element_id
+            for element in visible_management_elements
+            if element.element_id
+        ],
+        "story_surface_absent": story_surface_absent,
+    }
 
 
 _ARCHIVE_GATE_SCHEMA = "ea.memorial_archive_gate.v1"
@@ -956,32 +1197,9 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
     public_source_evidence_ok = bool(
         public_sources or approved_archive_publications or approved_public_profiles
     )
-    legacy_source_first_page_ok = all(
-        marker in public_page
-        for marker in (
-            '<main id="memorial-story" tabindex="-1">',
-            'id="memorial-conversation-region" tabindex="-1"',
-            'href="#memorial-conversation-region"',
-            "Erinnerungen und belegte Quellen",
-            "memorial-conversation",
-            "memorial-retry-button",
-        )
+    conversation_only_page_ok, page_contract_detail = (
+        _conversation_only_public_page_contract(public_page)
     )
-    conversation_only_page_ok = (
-        all(
-            marker in public_page
-            for marker in (
-                'data-public-memorial-surface="conversation-only"',
-                'id="memorial-conversation-region" tabindex="-1"',
-                'id="memorial-conversation"',
-                'id="memorial-text-turn-form"',
-                'id="memorial-retry-button"',
-                "freigegebener Erinnerungen und Quellen",
-            )
-        )
-        and 'id="memorial-story"' not in public_page
-    )
-    source_first_page_ok = legacy_source_first_page_ok or conversation_only_page_ok
     source_first_payload_ok = (
         bool(public_memories)
         and public_source_evidence_ok
@@ -995,26 +1213,23 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
         and archive_routes_ok
         and not _public_json_has_raw_transcript(public_json)
     )
-    if source_first_page_ok and source_first_payload_ok:
+    if conversation_only_page_ok and source_first_payload_ok:
         report.add(
             "pass",
-            "live_public_page_source_first",
+            "live_public_page_conversation_only",
             public_memory_count=len(public_memories),
             public_source_count=len(public_sources),
             public_archive_source_count=len(approved_archive_publications),
             public_profile_source_count=len(approved_public_profiles),
             public_prompt_count=len(public_prompts),
-            public_page_surface=(
-                "conversation_only"
-                if conversation_only_page_ok
-                else "legacy_source_first"
-            ),
+            public_page_surface="conversation_only",
+            **page_contract_detail,
         )
     else:
         report.add(
             "fail",
-            "live_public_page_source_first_failed",
-            page_contract_ok=source_first_page_ok,
+            "live_public_page_conversation_only_failed",
+            page_contract_ok=conversation_only_page_ok,
             payload_contract_ok=source_first_payload_ok,
             public_memory_count=len(public_memories),
             public_source_count=len(public_sources),
@@ -1024,6 +1239,7 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
             public_source_routes_ok=public_source_routes_ok,
             archive_routes_ok=archive_routes_ok,
             raw_transcript_present=_public_json_has_raw_transcript(public_json),
+            **page_contract_detail,
         )
     raw_live_avatar = public_json.get("video_call_avatar")
     avatar = dict(raw_live_avatar) if isinstance(raw_live_avatar, dict) else {}

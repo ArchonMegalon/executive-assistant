@@ -138,15 +138,21 @@ def _require_http_memorial_voice_authorization(
 
 async def public_memorial_speech_transcribe(slug: str, request: Request) -> JSONResponse:
     runtime = runtime_from_shared(shared)
+    operator_preview_session = None
     try:
-        memorial = shared._load_memorial(slug)
+        shared._load_memorial(slug)
         if shared._memorial_voice_release_enforced():
-            # This legacy endpoint accepts production conversation audio. Keep
-            # local rehearsal compatibility, but fail closed in production
-            # behind the same consent and release receipt as a voice turn.
-            shared._require_voice_consent(
-                shared._payload_with_slug(slug, memorial),
-                "conversation_turn",
+            operator_preview_session = (
+                _voice_review_operator_preview_session(
+                    slug=slug,
+                    request=request,
+                )
+            )
+            _require_http_memorial_voice_authorization(
+                slug=slug,
+                request=request,
+                action="conversation_turn",
+                operator_preview_session=operator_preview_session,
             )
         shared._enforce_public_memorial_rate_limit("speech_transcribe", request=request)
         content_length = shared._content_length_or_zero(request)
@@ -154,7 +160,21 @@ async def public_memorial_speech_transcribe(slug: str, request: Request) -> JSON
             return shared._public_memorial_error_response(413, "audio_too_large")
         payload = await request.body()
         content_type = str(request.headers.get("content-type") or "application/octet-stream")
+        if shared._memorial_voice_release_enforced():
+            _require_http_memorial_voice_authorization(
+                slug=slug,
+                request=request,
+                action="conversation_turn",
+                operator_preview_session=operator_preview_session,
+            )
         transcription = transcribe_public_memorial_audio(runtime=runtime, payload=payload, content_type=content_type)
+        if shared._memorial_voice_release_enforced():
+            _require_http_memorial_voice_authorization(
+                slug=slug,
+                request=request,
+                action="conversation_turn",
+                operator_preview_session=operator_preview_session,
+            )
         result = transcription.as_public_payload()
         issue_reason = classify_memorial_stt_issue(
             transcription_status=shared._text(result.get("transcription_status")),

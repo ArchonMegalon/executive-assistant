@@ -163,6 +163,395 @@ def test_candidate_rejects_legacy_third_person_narrator_contract() -> None:
         )
 
 
+def test_phase_one_voice_boundary_remains_blocked_and_provider_free() -> None:
+    requests: list[dict[str, object]] = []
+
+    def fake_request(
+        base_url: str,
+        path: str,
+        *,
+        method: str,
+        payload: dict[str, object],
+        expected: set[int],
+    ) -> tuple[int, bytes, dict[str, str]]:
+        requests.append(
+            {
+                "base_url": base_url,
+                "path": path,
+                "method": method,
+                "payload": payload,
+                "expected": expected,
+            }
+        )
+        return (
+            409,
+            json.dumps({"detail": "memorial_voice_release_not_verified"}).encode(),
+            {},
+        )
+
+    result = candidate_verifier._verify_voice_provider_boundary(
+        "https://memorial.example",
+        voice_release_expectation=None,
+        request_fn=fake_request,
+    )
+
+    assert result == {
+        "mode": "phase_one_voice_blocked",
+        "status_code": 409,
+        "detail": "memorial_voice_release_not_verified",
+        "provider_calls_performed": False,
+    }
+    assert requests == [
+        {
+            "base_url": "https://memorial.example",
+            "path": "/memorials/manfred/speech-synthesize",
+            "method": "POST",
+            "payload": {"text": "Diese Sprachfunktion darf nicht starten."},
+            "expected": {409},
+        }
+    ]
+
+
+def test_signed_voice_boundary_uses_empty_text_authorization_probe() -> None:
+    requests: list[dict[str, object]] = []
+    expectation = {
+        "source_revision": COMMIT,
+    }
+
+    def fake_request(
+        base_url: str,
+        path: str,
+        *,
+        method: str,
+        payload: dict[str, object],
+        expected: set[int],
+    ) -> tuple[int, bytes, dict[str, str]]:
+        requests.append(
+            {
+                "base_url": base_url,
+                "path": path,
+                "method": method,
+                "payload": payload,
+                "expected": expected,
+            }
+        )
+        return (
+            400,
+            json.dumps({"detail": "tts_text_missing"}).encode(),
+            {"x-ea-source-revision": COMMIT},
+        )
+
+    result = candidate_verifier._verify_voice_provider_boundary(
+        "https://memorial.example",
+        voice_release_expectation=expectation,
+        request_fn=fake_request,
+    )
+
+    assert result == {
+        "mode": "signed_voice_release_authorized",
+        "status_code": 400,
+        "detail": "tts_text_missing",
+        "authorization_proof": (candidate_verifier.VOICE_RELEASE_AUTHORIZATION_PROOF),
+        "provider_calls_performed": False,
+        **expectation,
+    }
+    assert requests == [
+        {
+            "base_url": "https://memorial.example",
+            "path": "/memorials/manfred/speech-synthesize",
+            "method": "POST",
+            "payload": {},
+            "expected": {400},
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("voice_release_expectation", "expected_voice_release", "expected_voice_access"),
+    [
+        (None, "blocked", "text-only"),
+        ({"source_revision": COMMIT}, "available", "public-release"),
+    ],
+)
+def test_candidate_browser_audit_binds_runtime_voice_state(
+    monkeypatch: pytest.MonkeyPatch,
+    voice_release_expectation: dict[str, object] | None,
+    expected_voice_release: str,
+    expected_voice_access: str,
+) -> None:
+    browser_calls: list[dict[str, object]] = []
+    base_url = "https://memorial.example"
+    public_origin = "https://memorial.example"
+    reconstruction = _first_person_reconstruction_response(
+        answer=(
+            "Ich bin eine quellengebundene KI-Rekonstruktion und nicht der echte "
+            "Manfred."
+        )
+    )
+
+    monkeypatch.setattr(candidate_verifier, "_wait_for_health", lambda *_args: None)
+    monkeypatch.setattr(
+        candidate_verifier,
+        "verify_conversation_only_page_html",
+        lambda _body: {"status": "pass"},
+    )
+    monkeypatch.setattr(
+        candidate_verifier,
+        "_verify_memorial_transport_security",
+        lambda *_args, **_kwargs: {"status": "pass"},
+    )
+    monkeypatch.setattr(
+        candidate_verifier,
+        "_verify_memorial_head_surface",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        candidate_verifier,
+        "_verify_singular_memorial_alias",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        candidate_verifier,
+        "_verify_memorial_archive_gate",
+        lambda *_args, **_kwargs: {"status": "pass"},
+    )
+    monkeypatch.setattr(
+        candidate_verifier,
+        "_verify_voice_provider_boundary",
+        lambda *_args, **_kwargs: {
+            "mode": (
+                "signed_voice_release_authorized"
+                if voice_release_expectation is not None
+                else "phase_one_voice_blocked"
+            ),
+            "provider_calls_performed": False,
+        },
+    )
+
+    def request(
+        _base_url: str,
+        path: str,
+        **_kwargs: object,
+    ) -> tuple[int, bytes, dict[str, str]]:
+        if path == "/memorials/manfred.json":
+            return 200, b'{"slug":"manfred"}', {"x-content-type-options": "nosniff"}
+        if path == "/memorials/manfred":
+            return 200, b"<!doctype html><html></html>", {
+                "x-content-type-options": "nosniff"
+            }
+        if path == "/memorials/manfred/chat":
+            return 200, json.dumps(reconstruction).encode("utf-8"), {}
+        if path == "/memorials/manfred/speech-synthesize":
+            if voice_release_expectation is None:
+                return (
+                    409,
+                    b'{"detail":"memorial_voice_release_not_verified"}',
+                    {},
+                )
+            return (
+                400,
+                b'{"detail":"tts_text_missing"}',
+                {"x-ea-source-revision": COMMIT},
+            )
+        if path == "/memorials/manfred/share-drafts":
+            return 200, b"{}", {}
+        if path.startswith("/memorials/files/"):
+            return 404, b"", {}
+        if path.startswith("/memorial_data/"):
+            return 404, b"", {}
+        return 200, b"", {}
+
+    def audit(
+        audit_base_url: str,
+        *,
+        public_origin: str | None,
+        expected_voice_release: str,
+        expected_voice_access: str,
+        expected_source_revision: str | None,
+    ) -> dict[str, object]:
+        browser_calls.append(
+            {
+                "base_url": audit_base_url,
+                "public_origin": public_origin,
+                "voice_release": expected_voice_release,
+                "voice_access": expected_voice_access,
+                "source_revision": expected_source_revision,
+            }
+        )
+        return {
+            "status": "pass",
+            "voice_release": expected_voice_release,
+            "voice_access": expected_voice_access,
+            "source_revision": expected_source_revision or "",
+            **{
+                field: 0
+                for field in candidate_verifier.BROWSER_ZERO_COUNT_FIELDS
+            },
+        }
+
+    monkeypatch.setattr(candidate_verifier, "_request", request)
+    monkeypatch.setattr(candidate_verifier, "audit_browser_surface", audit)
+
+    receipt = candidate_verifier.verify_candidate(
+        base_url=base_url,
+        public_origin=public_origin,
+        wait_seconds=1,
+        submit_receipt=None,
+        withdraw_receipt=None,
+        browser_audit=True,
+        voice_release_expectation=voice_release_expectation,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["browser_audit"]["voice_release"] == expected_voice_release
+    assert receipt["browser_audit"]["voice_access"] == expected_voice_access
+    assert browser_calls == [
+        {
+            "base_url": base_url,
+            "public_origin": public_origin,
+            "voice_release": expected_voice_release,
+            "voice_access": expected_voice_access,
+            "source_revision": (
+                COMMIT if voice_release_expectation is not None else None
+            ),
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("argument", "value", "error"),
+    [
+        (
+            "expected_voice_release",
+            "operator-preview",
+            "candidate_browser_voice_release_expectation_invalid",
+        ),
+        (
+            "expected_voice_access",
+            "operator-preview",
+            "candidate_browser_voice_access_expectation_invalid",
+        ),
+    ],
+)
+def test_candidate_browser_audit_rejects_unknown_voice_expectations(
+    argument: str,
+    value: str,
+    error: str,
+) -> None:
+    with pytest.raises(ValueError, match=error):
+        candidate_verifier.audit_browser_surface(
+            "https://memorial.example",
+            **{argument: value},
+        )
+
+
+def test_candidate_browser_audit_rejects_incoherent_release_access_pair() -> None:
+    with pytest.raises(
+        ValueError,
+        match="candidate_browser_voice_state_pair_invalid",
+    ):
+        candidate_verifier.audit_browser_surface(
+            "https://memorial.example",
+            expected_voice_release="available",
+            expected_voice_access="text-only",
+            expected_source_revision=COMMIT,
+        )
+
+
+def test_candidate_browser_audit_requires_release_source_revision() -> None:
+    with pytest.raises(
+        ValueError,
+        match="candidate_browser_source_revision_expectation_required",
+    ):
+        candidate_verifier.audit_browser_surface(
+            "https://memorial.example",
+            expected_voice_release="available",
+            expected_voice_access="public-release",
+        )
+
+
+def test_signed_candidate_cli_requires_browser_audit() -> None:
+    with pytest.raises(
+        SystemExit,
+        match="--expect-signed-voice-release requires --browser-audit",
+    ):
+        candidate_verifier.main(
+            [
+                "--public-origin",
+                "https://memorial.example",
+                "--expect-signed-voice-release",
+                "--expected-source-revision",
+                COMMIT,
+            ]
+        )
+
+
+@pytest.mark.parametrize(
+    ("status", "detail", "source_revision"),
+    [
+        (409, "memorial_voice_release_not_verified", COMMIT),
+        (400, "tts_text_missing", "d" * 40),
+        (400, "different_error", COMMIT),
+    ],
+)
+def test_signed_voice_boundary_fails_closed_on_runtime_mismatch(
+    status: int,
+    detail: str,
+    source_revision: str,
+) -> None:
+    expectation = {
+        "source_revision": COMMIT,
+    }
+
+    def fake_request(
+        _base_url: str,
+        _path: str,
+        **_kwargs: object,
+    ) -> tuple[int, bytes, dict[str, str]]:
+        return (
+            status,
+            json.dumps({"detail": detail}).encode(),
+            {"x-ea-source-revision": source_revision},
+        )
+
+    with pytest.raises(
+        RuntimeError,
+        match="candidate_voice_release_authorization_boundary_invalid",
+    ):
+        candidate_verifier._verify_voice_provider_boundary(
+            "https://memorial.example",
+            voice_release_expectation=expectation,
+            request_fn=fake_request,
+        )
+
+
+def test_signed_voice_boundary_rejects_unvalidated_expectation_before_http() -> None:
+    called = False
+
+    def fake_request(
+        _base_url: str,
+        _path: str,
+        **_kwargs: object,
+    ) -> tuple[int, bytes, dict[str, str]]:
+        nonlocal called
+        called = True
+        raise AssertionError("HTTP must not run")
+
+    with pytest.raises(
+        ValueError,
+        match="candidate_voice_release_expectation_invalid",
+    ):
+        candidate_verifier._verify_voice_provider_boundary(
+            "https://memorial.example",
+            voice_release_expectation={
+                "source_revision": COMMIT,
+                "image_id": IMAGE_ID,
+            },
+            request_fn=fake_request,
+        )
+    assert called is False
+
+
 def _candidate_env(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     env_file = (tmp_path / "candidate.env").resolve()
     release_root = (tmp_path / "releases" / "release-a").resolve()

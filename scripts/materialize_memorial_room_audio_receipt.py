@@ -18,6 +18,21 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
     from source_state_head import resolve_source_state_head
     from source_state_head import resolve_source_worktree_fingerprint
 
+try:
+    from scripts.manfred_voice_review_client_auth import (
+        ReviewSessionClientAuth,
+        ReviewSessionError,
+        load_review_session_auth,
+        write_private_review_receipt_text,
+    )
+except ModuleNotFoundError:  # pragma: no cover - script execution path
+    from manfred_voice_review_client_auth import (  # type: ignore[no-redef]
+        ReviewSessionClientAuth,
+        ReviewSessionError,
+        load_review_session_auth,
+        write_private_review_receipt_text,
+    )
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = ROOT / ".codex-studio/published/memorial_room_audio_public_origin.generated.json"
@@ -154,7 +169,12 @@ class _SameOriginRedirectHandler(HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, redirect_url)
 
 
-def _probe_runtime_source_revision(*, base_url: str, slug: str) -> tuple[str | None, str | None]:
+def _probe_runtime_source_revision(
+    *,
+    base_url: str,
+    slug: str,
+    request_headers: dict[str, str] | None = None,
+) -> tuple[str | None, str | None]:
     slug_text = str(slug or "").strip()
     if not slug_text or len(slug_text) > 128:
         return None, "request_invalid"
@@ -168,7 +188,9 @@ def _probe_runtime_source_revision(*, base_url: str, slug: str) -> tuple[str | N
     if expected_origin is None or base_parts.query or base_parts.fragment:
         return None, "request_invalid"
     try:
-        request = Request(endpoint, headers={"Accept": "application/json"}, method="GET")
+        headers = dict(request_headers or {})
+        headers["Accept"] = "application/json"
+        request = Request(endpoint, headers=headers, method="GET")
         opener = build_opener(_SameOriginRedirectHandler(expected_origin))
         with opener.open(request, timeout=RUNTIME_SOURCE_REVISION_TIMEOUT_SECONDS) as response:
             if _url_origin(str(response.geturl() or "")) != expected_origin:
@@ -195,6 +217,12 @@ def _probe_runtime_source_revision(*, base_url: str, slug: str) -> tuple[str | N
 
 def build_receipt(args: argparse.Namespace) -> dict[str, object]:
     source_git_head = _git_head()
+    review_session = getattr(args, "review_session", None)
+    if review_session is not None and not isinstance(
+        review_session,
+        ReviewSessionClientAuth,
+    ):
+        raise ValueError("review_session_invalid")
     checks = {
         key: bool(getattr(args, key, False))
         for key in ROOM_AUDIO_CHECK_REQUIREMENTS
@@ -233,9 +261,14 @@ def build_receipt(args: argparse.Namespace) -> dict[str, object]:
         failed_codes.append("manual_attestation_signed_at_invalid")
     if bool(args.require_public_origin) and _is_local_base_url(str(args.base_url or "")):
         failed_codes.append("public_origin_required")
+    probe_kwargs: dict[str, object] = {
+        "base_url": str(args.base_url or ""),
+        "slug": str(args.slug or "manfred"),
+    }
+    if review_session is not None:
+        probe_kwargs["request_headers"] = review_session.request_headers()
     probed_revision, _probe_reason = _probe_runtime_source_revision(
-        base_url=str(args.base_url or ""),
-        slug=str(args.slug or "manfred"),
+        **probe_kwargs,
     )
     runtime_source_revision = _validated_source_revision(probed_revision)
     if runtime_source_revision is None:
@@ -246,6 +279,7 @@ def build_receipt(args: argparse.Namespace) -> dict[str, object]:
     status = "pass" if not failed_codes else "fail"
     return {
         "contract_name": "ea.memorial_room_audio_public_origin",
+        "contract_version": 2,
         "generated_at": _utc_now(),
         "generated_by": "scripts/materialize_memorial_room_audio_receipt.py",
         "proof_type": "manual_room_attestation",
@@ -259,6 +293,22 @@ def build_receipt(args: argparse.Namespace) -> dict[str, object]:
         "base_url": str(args.base_url or "").rstrip("/"),
         "slug": str(args.slug or "manfred"),
         "require_public_origin": bool(args.require_public_origin),
+        "access_mode": (
+            "private_review_session"
+            if review_session is not None
+            else "anonymous_public"
+        ),
+        "evidence_scope": (
+            "private_authenticated_review"
+            if review_session is not None
+            else "anonymous_public"
+        ),
+        "review_session_authenticated": review_session is not None,
+        "review_session_binding": (
+            review_session.public_binding()
+            if review_session is not None
+            else {}
+        ),
         "runtime_source_revision_required": True,
         "runtime_source_revision": runtime_source_revision,
         "reviewer": reviewer,
@@ -276,7 +326,14 @@ def build_receipt(args: argparse.Namespace) -> dict[str, object]:
         },
         "notes": notes,
         "failed_codes": failed_codes,
-        "gold_claim_allowed": status == "pass",
+        "gold_claim_allowed": (
+            status == "pass" and review_session is None
+        ),
+        "private_review_evidence_allowed": (
+            status == "pass"
+            and review_session is not None
+            and runtime_source_revision == review_session.source_revision
+        ),
     }
 
 
@@ -293,6 +350,14 @@ def main() -> int:
     parser.add_argument("--manual-attestation-id", default="")
     parser.add_argument("--manual-attestation-signed-at", default="")
     parser.add_argument("--manual-attestation-source", default="operator_room_review")
+    parser.add_argument(
+        "--review-session-cookie-file",
+        default="",
+        help=(
+            "Optional absolute path to a private 0600 review-session bearer "
+            "file. The bearer is never included in the receipt."
+        ),
+    )
     parser.add_argument("--require-public-origin", action="store_true")
     parser.add_argument("--actual-device-checked", action="store_true")
     parser.add_argument("--actual-speaker-checked", action="store_true")
@@ -305,10 +370,70 @@ def main() -> int:
     parser.add_argument("--retry-path-confirmed", action="store_true")
     args = parser.parse_args()
 
+    review_cookie_file = str(args.review_session_cookie_file or "").strip()
+    args.review_session = None
+    if review_cookie_file:
+        if (
+            not args.require_public_origin
+            or args.slug != "manfred"
+        ):
+            parser.error(
+                "--review-session-cookie-file requires "
+                "--require-public-origin and --slug manfred"
+            )
+        try:
+            args.review_session = load_review_session_auth(
+                review_cookie_file,
+                public_origin=args.base_url,
+                slug=args.slug,
+                expected_source_revision=_git_head(),
+            )
+        except ReviewSessionError as exc:
+            parser.error(str(exc))
+
     receipt = build_receipt(args)
+    if args.review_session is not None:
+        try:
+            completed_review_session = load_review_session_auth(
+                review_cookie_file,
+                public_origin=args.base_url,
+                slug=args.slug,
+                expected_source_revision=_git_head(),
+            )
+        except ReviewSessionError as exc:
+            parser.error(str(exc))
+        if (
+            completed_review_session.request_headers()
+            != args.review_session.request_headers()
+        ):
+            parser.error("review_session_changed_during_attestation")
+        args.review_session = completed_review_session
+        receipt["review_session_binding"] = (
+            completed_review_session.public_binding()
+        )
     output = Path(args.output)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    rendered = json.dumps(receipt, ensure_ascii=False, indent=2)
+    if args.review_session is not None:
+        cookie_header = args.review_session.request_headers()["Cookie"]
+        opaque_token = cookie_header.partition("=")[2]
+        rendered_casefold = rendered.casefold()
+        if opaque_token and (
+            opaque_token in rendered
+            or cookie_header in rendered
+            or "ea_manfred_voice_review" in rendered_casefold
+            or "authorization:" in rendered_casefold
+            or "set-cookie:" in rendered_casefold
+            or "bearer " in rendered_casefold
+            or "cookie:" in rendered_casefold
+        ):
+            raise SystemExit("private_review_secret_material_exposed")
+        try:
+            write_private_review_receipt_text(output, rendered)
+        except ReviewSessionError as exc:
+            raise SystemExit(str(exc)) from None
+    else:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(rendered + "\n", encoding="utf-8")
     print(json.dumps({"status": receipt["status"], "output": str(output), "failed_codes": receipt["failed_codes"]}, ensure_ascii=False))
     return 0 if receipt["status"] == "pass" else 1
 

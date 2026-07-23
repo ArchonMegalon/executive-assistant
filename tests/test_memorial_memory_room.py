@@ -138,11 +138,6 @@ def test_manfred_page_keeps_memory_room_outside_conversation_only_surface(
         lambda slug: _memorial_payload(),
     )
     monkeypatch.setattr(public_memorial_surface, "_load_private_profile", lambda slug: {})
-    monkeypatch.setattr(
-        public_memorial_surface,
-        "_prime_memorial_live_warmup_on_page_render",
-        lambda slug: None,
-    )
     response = _client().get("/memorials/manfred")
 
     assert response.status_code == 200

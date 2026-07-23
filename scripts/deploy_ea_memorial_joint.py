@@ -372,6 +372,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         global_lock_path: Path | None = None,
         recovery_journal_path: Path | None = None,
         durable_root_check: Callable[[Path], None] | None = None,
+        require_signed_voice_release: bool = False,
     ) -> None:
         kwargs: dict[str, Any] = {
             "root": root,
@@ -391,6 +392,18 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         if durable_root_check is not None:
             kwargs["durable_root_check"] = durable_root_check
         super().__init__(**kwargs)
+        if type(require_signed_voice_release) is not bool:
+            raise DeployError("joint_voice_release_intent_invalid")
+        self.require_signed_voice_release = require_signed_voice_release
+        self.receipt["voice_release_intent"] = {
+            "mode": (
+                "signed_release_required"
+                if require_signed_voice_release
+                else "phase_one_allowed"
+            ),
+            "signed_release_required": require_signed_voice_release,
+            "preflight_verified": False,
+        }
         self.public_snapshot = public_snapshot
         raw_rollback_deadline = str(
             self.env.get("EA_MEMORIAL_JOINT_ROLLBACK_DEADLINE_SECONDS")
@@ -490,6 +503,171 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         if self._recovery_local_origin is not None:
             return self._recovery_local_origin
         return super()._local_origin()
+
+    def _release_enabled_candidate_verifier_expectation(
+        self,
+    ) -> dict[str, object] | None:
+        raw_evidence = self.receipt.get("candidate_promotion_evidence")
+        evidence = dict(raw_evidence) if isinstance(raw_evidence, Mapping) else {}
+        release_allowed = evidence.get("voice_release_allowed")
+        authority_revalidated = evidence.get("voice_release_authority_revalidated")
+        if release_allowed is not True:
+            if release_allowed not in {None, False} or authority_revalidated is True:
+                raise DeployError("joint_voice_release_candidate_state_invalid")
+            if self.require_signed_voice_release:
+                raise DeployError("joint_signed_voice_release_required")
+            return None
+        if authority_revalidated is not True:
+            raise DeployError("joint_voice_release_authority_not_revalidated")
+
+        voice_identity_raw = evidence.get("voice_identity")
+        voice_identity = (
+            dict(voice_identity_raw) if isinstance(voice_identity_raw, Mapping) else {}
+        )
+        source_revision = str(evidence.get("source_revision") or "")
+        image_id = str(evidence.get("image_id") or "")
+        voice_identity_sha256 = str(voice_identity.get("voice_identity_sha256") or "")
+        recorded_source_revision = str(self.receipt.get("source_revision") or "")
+        candidate_image = self.receipt.get("candidate_image")
+        recorded_image_id = (
+            str(dict(candidate_image).get("image_id") or "")
+            if isinstance(candidate_image, Mapping)
+            else ""
+        )
+        if (
+            len(source_revision) != 40
+            or any(character not in "0123456789abcdef" for character in source_revision)
+            or len(image_id) != 71
+            or not image_id.startswith("sha256:")
+            or any(character not in "0123456789abcdef" for character in image_id[7:])
+            or len(voice_identity_sha256) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in voice_identity_sha256
+            )
+            or recorded_source_revision != source_revision
+            or recorded_image_id != image_id
+        ):
+            raise DeployError("joint_voice_release_candidate_binding_invalid")
+        return {
+            "source_revision": source_revision,
+            "image_id": image_id,
+            "voice_identity_sha256": voice_identity_sha256,
+            "voice_release_allowed": True,
+            "voice_release_authority_revalidated": True,
+        }
+
+    def _verify_candidate_origin(
+        self,
+        *,
+        label: str,
+        base_url: str,
+        public_origin: str,
+    ) -> dict[str, Any]:
+        expectation = self._release_enabled_candidate_verifier_expectation()
+        if expectation is None:
+            return super()._verify_candidate_origin(
+                label=label,
+                base_url=base_url,
+                public_origin=public_origin,
+            )
+
+        payload = self._run_json_script(
+            "scripts/verify_manfred_memorial_candidate.py",
+            "--base-url",
+            base_url,
+            "--public-origin",
+            public_origin,
+            "--wait-seconds",
+            str(max(1, min(600, int(self.wait_seconds or 1)))),
+            "--browser-audit",
+            "--expect-signed-voice-release",
+            "--expected-source-revision",
+            str(expectation["source_revision"]),
+            origin=label,
+        )
+        required_checks = {
+            "archive_publication_gate",
+            "singular_memorial_alias",
+            "source_grounded_first_person_reconstruction_boundary",
+            "voice_release_authorization_verified_provider_not_called",
+            "browser_provider_websocket_boundary",
+        }
+        checks = {
+            str(item).strip()
+            for item in list(payload.get("checks") or [])
+            if str(item).strip()
+        }
+        browser = dict(payload.get("browser_audit") or {})
+        expected_verification = {
+            "mode": "signed_voice_release_authorized",
+            "status_code": 400,
+            "detail": "tts_text_missing",
+            "authorization_proof": (
+                "authorization_precedes_empty_text_validation_without_provider_call"
+            ),
+            "provider_calls_performed": False,
+            "source_revision": expectation["source_revision"],
+        }
+        browser_zero = all(
+            type(browser.get(field)) is int and browser[field] == 0
+            for field in (
+                "automatic_provider_requests",
+                "automatic_websockets",
+                "external_requests",
+                "failed_requests",
+                "page_errors",
+                "http_errors",
+            )
+        )
+        if (
+            str(payload.get("schema") or "") != "ea.manfred_memorial_candidate_smoke.v1"
+            or str(payload.get("status") or "").lower() != "pass"
+            or not required_checks <= checks
+            or payload.get("provider_calls_performed") is not False
+            or payload.get("page_get_performed") is not True
+            or payload.get("voice_release_verification") != expected_verification
+            or str(browser.get("status") or "").lower() != "pass"
+            or browser.get("voice_release") != "available"
+            or browser.get("voice_access") != "public-release"
+            or browser.get("source_revision") != expectation["source_revision"]
+            or not browser_zero
+        ):
+            self._record_check(
+                "candidate_verifier_origin",
+                "fail",
+                origin=label,
+                error_code=("candidate_voice_release_verifier_contract_failed"),
+            )
+            raise DeployError(
+                f"candidate_voice_release_verifier_contract_failed:{label}"
+            )
+        return {
+            "origin": label,
+            "status": "pass",
+            "checks": sorted(required_checks),
+            "provider_calls_performed": False,
+            "voice_release_verification": expected_verification,
+            "voice_release_candidate_binding": {
+                **expectation,
+                "binding_proof": (
+                    "validated_candidate_promotion_evidence_plus_"
+                    "signed_runtime_authorization"
+                ),
+            },
+            "browser": {
+                "status": "pass",
+                "voice_release": "available",
+                "voice_access": "public-release",
+                "source_revision": expectation["source_revision"],
+                "automatic_provider_requests": 0,
+                "automatic_websockets": 0,
+                "external_requests": 0,
+                "failed_requests": 0,
+                "page_errors": 0,
+                "http_errors": 0,
+            },
+        }
 
     @contextmanager
     def _rollback_deadline_scope(self) -> Iterator[None]:
@@ -4786,6 +4964,28 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
 
     def preflight(self) -> dict[str, Any]:
         context = super().preflight()
+        voice_release_expectation = (
+            self._release_enabled_candidate_verifier_expectation()
+        )
+        self.receipt["voice_release_intent"] = {
+            "mode": (
+                "signed_release_required"
+                if self.require_signed_voice_release
+                else "phase_one_allowed"
+            ),
+            "signed_release_required": self.require_signed_voice_release,
+            "preflight_verified": True,
+            "resolved_candidate_mode": (
+                "signed_voice_release"
+                if voice_release_expectation is not None
+                else "phase_one_voice_blocked"
+            ),
+        }
+        self._record_check(
+            "voice_release_intent",
+            "pass",
+            **dict(self.receipt["voice_release_intent"]),
+        )
         spatial_browser_binding = self._load_spatial_browser_binding(
             dict(context["candidate_promotion"])
         )
@@ -6201,6 +6401,14 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--poll-seconds", type=float, default=2.0)
     parser.add_argument("--request-timeout-seconds", type=float, default=10.0)
     parser.add_argument("--receipt-dir", type=Path, default=None)
+    parser.add_argument(
+        "--require-signed-voice-release",
+        action="store_true",
+        help=(
+            "Fail before mutation unless the exact candidate has revalidated, "
+            "source/image/voice-bound signed release authority."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -6234,6 +6442,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             poll_seconds=args.poll_seconds,
             request_timeout_seconds=args.request_timeout_seconds,
             receipt_dir=args.receipt_dir,
+            require_signed_voice_release=bool(
+                args.require_signed_voice_release
+            ),
         )
         with _deployment_signal_handlers():
             if args.finalize_committed_cleanup:

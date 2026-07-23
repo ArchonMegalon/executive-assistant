@@ -405,11 +405,16 @@ def _install_fake_audio_runtime(context) -> None:
         (() => {
           navigator.mediaDevices = navigator.mediaDevices || {};
           window.__memorialGetUserMediaCalls = 0;
+          window.__memorialTrackStopCalls = 0;
           navigator.mediaDevices.getUserMedia = async () => {
             window.__memorialGetUserMediaCalls += 1;
             return {
               getTracks() {
-                return [{ stop() {} }];
+                return [{
+                  stop() {
+                    window.__memorialTrackStopCalls += 1;
+                  },
+                }];
               },
             };
           };
@@ -547,6 +552,32 @@ def _await_conversation_ready(page: Page, *, timeout_ms: int = 12000) -> None:
         raise AssertionError(f"conversation readiness timeout: {json.dumps(diagnostics, ensure_ascii=False)}") from exc
 
 
+def _assert_minimal_memorial_single_button(page: Page, label: str) -> None:
+    conversation = page.locator("#memorial-conversation")
+    assert conversation.is_visible()
+    assert conversation.inner_text().strip() == label
+    assert conversation.get_attribute("aria-label") == label
+    assert conversation.get_attribute("title") == label
+    assert page.locator("button:visible").count() == 1
+    assert page.locator("button:visible").get_attribute("id") == "memorial-conversation"
+    assert page.locator("input:visible, textarea:visible, select:visible").count() == 0
+    for selector in (
+        "#memorial-text-turn-form",
+        "details.conversation-settings",
+        "#memorial-retry-button",
+        "#memorial-chat-tools",
+        "#memorial-chat-status",
+        "#memorial-read-answer",
+        "#memorial-replay-answer",
+        "#memorial-toggle-status",
+        "#memorial-voice-recovery-note",
+        "#memorial-install-hint",
+    ):
+        assert page.locator(selector).is_hidden(), selector
+    assert page.locator("#memorial-contribution").count() == 0
+    assert page.locator("#memorial-contribution-management").count() == 0
+
+
 def test_memorial_public_page_is_conversation_only_accessible_and_private_by_default(
     browser: Browser,
     memorial_browser_server: dict[str, object],
@@ -570,7 +601,7 @@ def test_memorial_public_page_is_conversation_only_accessible_and_private_by_def
             })"""
         )
         initial_label = str(button_labels["text"])
-        assert initial_label in {"Gespräch wird vorbereitet …", "Gespräch starten"}
+        assert initial_label == "Gespräch beginnen"
         assert button_labels["aria"] == initial_label
         assert button_labels["title"] == initial_label
 
@@ -596,12 +627,12 @@ def test_memorial_public_page_is_conversation_only_accessible_and_private_by_def
         text_form = page.locator("#memorial-text-turn-form")
         assert text_form.get_attribute("method") == "post"
         assert text_form.get_attribute("action") == f"/memorials/{slug}/chat"
-        assert text_form.get_attribute("data-js-ready") == "true"
-        assert text_form.get_attribute("hidden") is None
-        assert text_form.get_attribute("inert") is None
-        assert text_form.get_attribute("aria-hidden") is None
-        assert text_form.get_attribute("aria-disabled") is None
-        assert text_form.is_visible()
+        assert text_form.get_attribute("data-js-ready") == "false"
+        assert text_form.get_attribute("hidden") == ""
+        assert text_form.get_attribute("inert") == ""
+        assert text_form.get_attribute("aria-hidden") == "true"
+        assert text_form.get_attribute("aria-disabled") == "true"
+        assert text_form.is_hidden()
         page.locator('a.skip-link[href="#memorial-conversation-region"]').focus()
         page.keyboard.press("Enter")
         assert page.evaluate("() => document.activeElement && document.activeElement.id") == "memorial-conversation-region"
@@ -634,30 +665,32 @@ def test_memorial_public_page_is_conversation_only_accessible_and_private_by_def
         privacy_settings = conversation_main.locator("details.conversation-settings")
         assert privacy_settings.count() == 1
         assert page.locator("details.conversation-settings").count() == 1
-        privacy_summary = privacy_settings.locator("summary")
-        assert privacy_summary.is_visible()
-        assert privacy_summary.inner_text().strip() == "Datenschutz und Gespräch"
-        privacy_summary.click()
+        assert privacy_settings.get_attribute("hidden") == ""
+        assert privacy_settings.is_hidden()
         personal_memory_optin = privacy_settings.locator("#memorial-personal-memory-optin")
         personal_memory_status = privacy_settings.locator("#memorial-personal-memory-status")
         personal_memory_forget = privacy_settings.locator("#memorial-personal-memory-forget")
         assert personal_memory_optin.count() == 1
-        assert personal_memory_optin.is_visible()
-        assert personal_memory_optin.is_enabled()
-        assert personal_memory_optin.get_attribute("aria-disabled") == "false"
+        assert personal_memory_optin.is_hidden()
         assert personal_memory_optin.is_checked() is False
         assert personal_memory_status.count() == 1
-        assert personal_memory_status.is_visible()
-        assert personal_memory_status.inner_text().strip() == "Gastmodus · Gedächtnis aus."
+        assert personal_memory_status.is_hidden()
         assert personal_memory_forget.count() == 1
-        assert personal_memory_forget.is_visible()
+        assert personal_memory_forget.is_hidden()
         assert personal_memory_forget.is_disabled()
         assert personal_memory_forget.get_attribute("aria-disabled") == "true"
-        optin_target = personal_memory_optin.locator("xpath=..").bounding_box()
-        forget_target = personal_memory_forget.bounding_box()
-        assert optin_target is not None and float(optin_target["height"]) >= 44
-        assert forget_target is not None and float(forget_target["height"]) >= 44
         assert page.locator("#memorial-install-hint").count() == 0
+        assert page.locator("#memorial-retry-button").is_hidden()
+        assert page.locator("#memorial-chat-tools").is_hidden()
+        _assert_minimal_memorial_single_button(page, "Gespräch beginnen")
+
+        disclosure = page.locator("#memorial-conversation-disclosure")
+        assert disclosure.is_visible()
+        disclosure_text = disclosure.inner_text()
+        assert "KI-Rekonstruktion" in disclosure_text
+        assert "nicht der echte Manfred" in disclosure_text
+        assert "Die Stimme ist künstlich erzeugt." in disclosure_text
+        assert "erst nach „Gespräch beginnen“" in disclosure_text
 
         public_payload = page.evaluate(
             """async (currentSlug) => {
@@ -765,6 +798,7 @@ def test_memorial_no_javascript_conversation_fails_closed_without_leaking_privat
         assert personal_memory_forget.count() == 1
         assert personal_memory_forget.is_disabled()
         assert personal_memory_forget.get_attribute("aria-disabled") == "true"
+        assert privacy_settings.is_hidden()
         assert page.url == f"{base_url}/memorials/{slug}"
     finally:
         context.close()
@@ -840,17 +874,21 @@ def test_memorial_public_page_finishes_one_browser_turn_without_followup_overlap
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         _await_conversation_ready(page)
-        _await_realtime_turn_complete(
+        assert page.locator("#memorial-conversation").inner_text().strip() == "Gespräch beginnen"
+        turn_state = _await_realtime_turn_complete(
             page,
             slug,
             lambda: page.evaluate("window.__memorialStartConversation && window.__memorialStartConversation()"),
             timeout_ms=12000,
         )
+        assert turn_state["done"] is True
+        assert str(turn_state["answer"]).strip()
         active_button = page.locator("#memorial-conversation")
-        assert "Gespräch beenden" in ((active_button.text_content() or "").strip())
+        assert (active_button.text_content() or "").strip() == "Gespräch beenden"
         assert active_button.get_attribute("aria-label") == "Gespräch beenden"
         assert active_button.get_attribute("title") == "Gespräch beenden"
         assert active_button.get_attribute("aria-pressed") == "true"
+        _assert_minimal_memorial_single_button(page, "Gespräch beenden")
         default_memory = page.evaluate(
             """async (currentSlug) => {
               const response = await fetch(`/memorials/${currentSlug}/personal-memory`, {
@@ -880,17 +918,19 @@ def test_memorial_public_page_finishes_one_browser_turn_without_followup_overlap
                 button &&
                 button.getAttribute("aria-pressed") === "false" &&
                 button.textContent &&
-                button.textContent.includes("Gespräch starten")
+                button.textContent.trim() === "Gespräch beginnen"
               );
             }""",
             timeout=7000,
         )
         assert page.locator("#memorial-retry-button").is_hidden()
         stopped_button = page.locator("#memorial-conversation")
-        assert "Gespräch starten" in ((stopped_button.text_content() or "").strip())
-        assert stopped_button.get_attribute("aria-label") == "Gespräch starten"
-        assert stopped_button.get_attribute("title") == "Gespräch starten"
+        assert (stopped_button.text_content() or "").strip() == "Gespräch beginnen"
+        assert stopped_button.get_attribute("aria-label") == "Gespräch beginnen"
+        assert stopped_button.get_attribute("title") == "Gespräch beginnen"
         assert stopped_button.get_attribute("aria-pressed") == "false"
+        assert int(page.evaluate("() => window.__memorialTrackStopCalls || 0")) >= 1
+        _assert_minimal_memorial_single_button(page, "Gespräch beginnen")
         phase_text = page.locator("#memorial-speech-phase").text_content() or ""
         assert phase_text in {"Ich bin da.", "Bereit"}
     finally:
@@ -912,26 +952,11 @@ def test_memorial_personal_memory_route_persists_only_with_explicit_opt_in(
             "main#memorial-conversation-region details.conversation-settings"
         )
         assert privacy_settings.count() == 1
-        personal_memory_optin = privacy_settings.locator("#memorial-personal-memory-optin")
-        personal_memory_status = privacy_settings.locator("#memorial-personal-memory-status")
-        personal_memory_forget = privacy_settings.locator("#memorial-personal-memory-forget")
-        assert personal_memory_optin.count() == 1
-        assert personal_memory_optin.is_checked() is False
-        assert personal_memory_status.count() == 1
-        privacy_settings.locator("summary").click()
-        assert personal_memory_status.is_visible()
-        assert personal_memory_status.inner_text().strip() == "Gastmodus · Gedächtnis aus."
-        assert personal_memory_forget.count() == 1
-        assert personal_memory_forget.is_disabled()
-        assert personal_memory_forget.get_attribute("aria-disabled") == "true"
-        personal_memory_optin.check()
-        page.wait_for_function(
-            """() => {
-              const status = document.getElementById("memorial-personal-memory-status");
-              return Boolean(status && status.textContent.includes("Gedächtnis aktiv"));
-            }""",
-            timeout=5000,
-        )
+        assert privacy_settings.is_hidden()
+        assert privacy_settings.locator("#memorial-personal-memory-optin").is_hidden()
+        assert privacy_settings.locator("#memorial-personal-memory-status").is_hidden()
+        assert privacy_settings.locator("#memorial-personal-memory-forget").is_hidden()
+        assert page.locator("input:visible, textarea:visible, select:visible").count() == 0
 
         opted_out = context.request.get(
             f"{base_url}/memorials/{slug}/personal-memory",
@@ -961,48 +986,34 @@ def test_memorial_personal_memory_route_persists_only_with_explicit_opt_in(
         assert opted_in.json()["enabled"] is True
         assert opted_in.json()["item_count"] == 1
 
-        privacy_settings.locator("summary").click()
-        privacy_settings.locator("summary").click()
-        page.wait_for_function(
-            """() => {
-              const button = document.getElementById("memorial-personal-memory-forget");
-              return Boolean(button && !button.disabled && button.getAttribute("aria-disabled") === "false");
-            }""",
-            timeout=5000,
+        forgotten = context.request.delete(
+            f"{base_url}/memorials/{slug}/personal-memory",
+            headers={"x-memorial-personal-memory": "1"},
         )
-        personal_memory_forget.click()
-        page.wait_for_function(
-            """() => {
-              const optin = document.getElementById("memorial-personal-memory-optin");
-              const status = document.getElementById("memorial-personal-memory-status");
-              const forget = document.getElementById("memorial-personal-memory-forget");
-              return Boolean(
-                optin && !optin.checked &&
-                status && status.textContent.includes("Gedächtnis aus") &&
-                forget && forget.disabled && forget.getAttribute("aria-disabled") === "true"
-              );
-            }""",
-            timeout=5000,
-        )
+        assert forgotten.ok
+        assert forgotten.json()["status"] == "forgotten"
+        assert forgotten.json()["item_count"] == 0
+
         storage_value = page.evaluate(
             """(currentSlug) => window.localStorage.getItem(
               `memorial_personal_memory_enabled_${currentSlug}_v2`
             )""",
             slug,
         )
-        assert storage_value == "0"
+        assert storage_value is None
 
-        forgotten = context.request.get(
+        after_forget = context.request.get(
             f"{base_url}/memorials/{slug}/personal-memory",
-            headers={"x-memorial-personal-memory": "0"},
+            headers={"x-memorial-personal-memory": "1"},
         )
-        assert forgotten.ok
-        assert forgotten.json()["item_count"] == 0
+        assert after_forget.ok
+        assert after_forget.json()["enabled"] is True
+        assert after_forget.json()["item_count"] == 0
     finally:
         context.close()
 
 
-def test_memorial_browser_keyboard_text_turn_does_not_request_microphone(
+def test_memorial_browser_hides_keyboard_text_turn_until_voice_action(
     browser: Browser,
     memorial_browser_server: dict[str, object],
 ) -> None:
@@ -1015,26 +1026,21 @@ def test_memorial_browser_keyboard_text_turn_does_not_request_microphone(
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         _await_conversation_ready(page)
+        assert page.locator("#memorial-text-turn-form").is_hidden()
         text_input = page.locator("#memorial-text-turn-input")
-        text_input.fill("Woran soll ich mich heute erinnern?")
-        text_input.press("Enter")
-        page.wait_for_function(
-            """() => {
-              const answer = document.querySelector("#memorial-speech-transcript > .speech-turn.assistant:last-child p");
-              const input = document.getElementById("memorial-text-turn-input");
-              return Boolean(answer && answer.textContent.trim() && input && !input.disabled);
-            }""",
-            timeout=12000,
-        )
+        assert text_input.is_hidden()
+        text_input.focus()
+        assert page.evaluate("() => document.activeElement?.id || ''") != "memorial-text-turn-input"
         assert int(page.evaluate("() => window.__memorialGetUserMediaCalls || 0")) == 0
         assert page.locator("#memorial-conversation").get_attribute("aria-pressed") == "false"
-        assert page.locator("#memorial-speech-transcript > .speech-turn.assistant:last-child p").text_content()
+        assert page.locator("#memorial-conversation").inner_text().strip() == "Gespräch beginnen"
+        assert page.locator("button:visible").count() == 1
         assert page.locator("#memorial-chat-answer").is_hidden()
     finally:
         context.close()
 
 
-def test_memorial_browser_explains_microphone_permission_denial_and_keeps_text_fallback(
+def test_memorial_browser_explains_microphone_permission_denial_and_resets_primary_control(
     browser: Browser,
     memorial_browser_server: dict[str, object],
 ) -> None:
@@ -1058,6 +1064,8 @@ def test_memorial_browser_explains_microphone_permission_denial_and_keeps_text_f
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         _await_conversation_ready(page)
+        assert page.locator("#memorial-text-turn-form").is_hidden()
+        assert page.locator("#memorial-retry-button").is_hidden()
         page.locator("#memorial-conversation").click()
         page.wait_for_function(
             """() => {
@@ -1067,13 +1075,94 @@ def test_memorial_browser_explains_microphone_permission_denial_and_keeps_text_f
             timeout=7000,
         )
         assert "Browser-Einstellungen" in (page.locator("#memorial-speech-detail").text_content() or "")
-        assert page.locator("#memorial-text-turn-input").is_enabled()
-        assert page.locator("#memorial-retry-button").is_visible()
+        assert int(page.evaluate("() => window.__memorialGetUserMediaCalls || 0")) == 1
+        conversation = page.locator("#memorial-conversation")
+        assert conversation.is_enabled()
+        assert conversation.inner_text().strip() == "Gespräch beginnen"
+        assert conversation.get_attribute("aria-label") == "Gespräch beginnen"
+        assert conversation.get_attribute("title") == "Gespräch beginnen"
+        assert conversation.get_attribute("aria-pressed") == "false"
+        _assert_minimal_memorial_single_button(page, "Gespräch beginnen")
+        assert "Textfrage" not in (page.locator("#memorial-speech-detail").text_content() or "")
+
+        conversation.click()
+        page.wait_for_function(
+            "() => Number(window.__memorialGetUserMediaCalls || 0) >= 2",
+            timeout=7000,
+        )
+        page.wait_for_function(
+            """() => {
+              const message = document.getElementById("memorial-speech-message");
+              return Boolean(message && message.textContent.includes("Mikrofonzugriff ist blockiert"));
+            }""",
+            timeout=7000,
+        )
+        _assert_minimal_memorial_single_button(page, "Gespräch beginnen")
     finally:
         context.close()
 
 
-def test_memorial_browser_voice_warmup_failure_reaches_retry_and_text_fallback(
+@pytest.mark.parametrize("failure_stage", ("stt", "tts"))
+def test_memorial_browser_all_provider_errors_keep_conversation_as_only_visible_button(
+    browser: Browser,
+    memorial_browser_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+    failure_stage: str,
+) -> None:
+    from app.api.routes import public_memorials
+
+    def fail_provider(**kwargs):
+        raise RuntimeError(f"{failure_stage}_provider_unavailable")
+
+    if failure_stage == "stt":
+        monkeypatch.setattr(public_memorials, "_memorial_transcribe_audio_blob", fail_provider)
+    else:
+        monkeypatch.setattr(public_memorials, "_render_memorial_tts_audio", fail_provider)
+
+    base_url = str(memorial_browser_server["base_url"])
+    slug = str(memorial_browser_server["slug"])
+    context = browser.new_context(viewport={"width": 430, "height": 932})
+    _install_fake_audio_runtime(context)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(
+            f"{base_url}/memorials/{slug}",
+            wait_until="domcontentloaded",
+            timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS,
+        )
+        assert response is not None and response.ok
+        _await_conversation_ready(page)
+        page.locator("#memorial-conversation").click()
+        page.wait_for_function(
+            """() => {
+              const message = document.getElementById("memorial-speech-message");
+              return Boolean(message && message.textContent.includes("Bitte noch einmal sprechen"));
+            }""",
+            timeout=12000,
+        )
+        _assert_minimal_memorial_single_button(page, "Gespräch beginnen")
+        assert page.locator("#memorial-speech-note").is_visible()
+        assert page.locator("#memorial-speech-message").get_attribute("role") == "status"
+        assert int(page.evaluate("() => window.__memorialGetUserMediaCalls || 0")) == 1
+
+        page.locator("#memorial-conversation").click()
+        page.wait_for_function(
+            "() => Number(window.__memorialGetUserMediaCalls || 0) >= 2",
+            timeout=12000,
+        )
+        page.wait_for_function(
+            """() => {
+              const message = document.getElementById("memorial-speech-message");
+              return Boolean(message && message.textContent.includes("Bitte noch einmal sprechen"));
+            }""",
+            timeout=12000,
+        )
+        _assert_minimal_memorial_single_button(page, "Gespräch beginnen")
+    finally:
+        context.close()
+
+
+def test_memorial_browser_voice_warmup_failure_stays_minimal_and_exposes_recovery_api(
     browser: Browser,
     memorial_browser_server: dict[str, object],
     monkeypatch: pytest.MonkeyPatch,
@@ -1109,23 +1198,67 @@ def test_memorial_browser_voice_warmup_failure_reaches_retry_and_text_fallback(
     context = browser.new_context(viewport={"width": 430, "height": 932})
     _install_fake_audio_runtime(context)
     page: Page = context.new_page()
+    warmup_requests: list[str] = []
+    page.on(
+        "request",
+        lambda request: warmup_requests.append(request.url)
+        if request.url.endswith(f"/memorials/{slug}/warmup")
+        else None,
+    )
     try:
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
+        conversation = page.locator("#memorial-conversation")
+        assert conversation.is_enabled()
+        assert conversation.inner_text().strip() == "Gespräch beginnen"
+        assert conversation.get_attribute("aria-label") == "Gespräch beginnen"
+        assert conversation.get_attribute("title") == "Gespräch beginnen"
+        assert page.locator("#memorial-text-turn-form").is_hidden()
+        assert page.locator("#memorial-retry-button").is_hidden()
+        assert page.locator("button:visible").count() == 1
+
+        queued = context.request.post(
+            f"{base_url}/memorials/{slug}/warmup",
+            headers={"Accept": "application/json"},
+        )
+        assert queued.status == 202
+        assert queued.json()["status"] == "queued"
+        status = context.request.get(
+            f"{base_url}/memorials/{slug}/warmup-status",
+            headers={"Accept": "application/json"},
+        )
+        assert status.ok
+        status_payload = status.json()
+        assert status_payload["ready"] is False
+        assert status_payload["operator_action_required"] is True
+        assert status_payload["errors"] == ["provider_unavailable"]
+        assert status_payload["voice_errors"] == ["provider_unavailable"]
+
+        conversation.click()
         page.wait_for_function(
             """() => {
               const message = document.getElementById("memorial-speech-message");
-              const retry = document.getElementById("memorial-retry-button");
-              return Boolean(
-                message && message.textContent.includes("Sprechen ist gerade nicht möglich") &&
-                retry && !retry.hidden && retry.textContent.includes("Sprachfunktion erneut versuchen")
-              );
+              return Boolean(message && message.textContent.includes("Sprechen ist gerade nicht möglich"));
             }""",
             timeout=7000,
         )
-        assert page.locator("#memorial-conversation").is_disabled()
-        assert page.locator("#memorial-text-turn-input").is_enabled()
-        assert "Du kannst schreiben" in (page.locator("#memorial-speech-detail").text_content() or "")
+        _assert_minimal_memorial_single_button(page, "Gespräch beginnen")
+        assert len(warmup_requests) == 1
+
+        conversation.click()
+        page.wait_for_function(
+            """() => {
+              const message = document.getElementById("memorial-speech-message");
+              return Boolean(message && message.textContent.includes("Sprechen ist gerade nicht möglich"));
+            }""",
+            timeout=7000,
+        )
+        page.wait_for_function(
+            "() => document.getElementById('memorial-conversation').disabled === false",
+            timeout=7000,
+        )
+        assert len(warmup_requests) == 2
+        _assert_minimal_memorial_single_button(page, "Gespräch beginnen")
     finally:
         context.close()
 
@@ -1376,7 +1509,7 @@ def test_memorial_recovery_receipts_remain_portable_without_public_management_ui
         )
         assert response is not None and response.ok
         assert storage_page.locator("#memorial-contribution").count() == 0
-        assert storage_page.locator("#memorial-text-turn-form").is_visible()
+        _assert_minimal_memorial_single_button(storage_page, "Gespräch beginnen")
         direct = storage_blocked_context.request.post(
             f"{base_url}/memorials/{slug}/contributions",
             headers={"Accept": "application/json", "Content-Type": "application/json"},
@@ -1403,7 +1536,7 @@ def test_memorial_recovery_receipts_remain_portable_without_public_management_ui
 
 
 
-def test_memorial_browser_reduced_motion_avoids_smooth_answer_scroll(
+def test_memorial_browser_reduced_motion_keeps_minimal_control_focus_stable(
     browser: Browser,
     memorial_browser_server: dict[str, object],
 ) -> None:
@@ -1427,21 +1560,16 @@ def test_memorial_browser_reduced_motion_avoids_smooth_answer_scroll(
     try:
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
-        page.evaluate(
-            """() => {
-              const answer = document.getElementById("memorial-chat-answer");
-              const tools = document.getElementById("memorial-chat-tools");
-              const read = document.getElementById("memorial-read-answer");
-              answer.hidden = false;
-              answer.textContent = "Eine sichtbare Antwort.";
-              tools.hidden = false;
-              read.hidden = false;
-            }"""
-        )
-        page.locator("#memorial-read-answer").click()
+        _await_conversation_ready(page)
+        conversation = page.locator("#memorial-conversation")
+        assert conversation.inner_text().strip() == "Gespräch beginnen"
+        assert page.locator("#memorial-chat-tools").is_hidden()
+        assert page.locator("#memorial-read-answer").is_hidden()
+        assert page.locator("button:visible").count() == 1
+        conversation.focus()
+        assert page.evaluate("() => document.activeElement?.id || ''") == "memorial-conversation"
         options = page.evaluate("() => window.__memorialScrollOptions.slice()")
-        assert options
-        assert options[-1]["behavior"] == "auto"
+        assert options == []
     finally:
         context.close()
 
@@ -1480,7 +1608,12 @@ def test_memorial_browser_can_defer_all_provider_warmup_until_user_action(
         ]
         conversation = page.locator("#memorial-conversation")
         assert conversation.is_enabled()
-        assert conversation.inner_text().strip() == "Gespräch starten"
-        assert page.locator("#memorial-speech-message").inner_text().strip() == "Bereit für deine Frage."
+        assert conversation.inner_text().strip() == "Gespräch beginnen"
+        assert conversation.get_attribute("aria-label") == "Gespräch beginnen"
+        assert conversation.get_attribute("title") == "Gespräch beginnen"
+        assert page.locator("#memorial-speech-message").is_hidden()
+        assert page.locator("#memorial-text-turn-form").is_hidden()
+        assert page.locator("#memorial-retry-button").is_hidden()
+        _assert_minimal_memorial_single_button(page, "Gespräch beginnen")
     finally:
         context.close()

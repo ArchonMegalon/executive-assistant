@@ -677,21 +677,43 @@ def test_memorial_blocked_voice_release_fails_closed_without_requesting_micropho
         assert response is not None and response.ok
         page.wait_for_timeout(500)
         assert page.locator("#memorial-conversation-region").get_attribute("data-voice-release") == "blocked"
-        assert page.locator("#memorial-conversation").is_hidden()
+        conversation = page.get_by_role("button", name="Gespräch beginnen", exact=True)
+        assert conversation.is_visible()
+        assert conversation.is_enabled()
+        assert conversation.get_attribute("aria-label") == "Gespräch beginnen"
+        assert conversation.get_attribute("title") == "Gespräch beginnen"
         assert page.locator("#memorial-text-turn-form").is_hidden()
+        assert page.locator("#memorial-retry-button").is_hidden()
         assert page.locator("#memorial-voice-recovery-note").is_hidden()
         assert page.locator("#memorial-conversation-disclosure").get_by_text(
             "Sprechen ist derzeit nicht verfügbar", exact=False
         ).is_visible()
-        assert page.locator("#memorial-speech-message").text_content() == "Schreiben ist bereit."
         assert page.evaluate("window.__getUserMediaCalls") == 0
-        assert page.locator("button:visible").count() == 0
+        assert page.locator("button:visible").count() == 1
         assert page.locator("input:visible,textarea:visible,select:visible").count() == 0
+
+        conversation.click()
+        page.wait_for_function(
+            """() => {
+              const message = document.getElementById("memorial-speech-message");
+              return Boolean(
+                message
+                && message.textContent.includes("Sprechen ist derzeit nicht verfügbar")
+              );
+            }""",
+            timeout=3000,
+        )
+        assert page.evaluate("window.__getUserMediaCalls") == 0
+        assert page.locator("button:visible").count() == 1
+        assert page.locator("input:visible,textarea:visible,select:visible").count() == 0
+        assert page.locator("#memorial-text-turn-form").is_hidden()
+        assert page.locator("#memorial-retry-button").is_hidden()
+        assert conversation.inner_text().strip() == "Gespräch beginnen"
     finally:
         context.close()
 
 
-def test_candidate_browser_audit_accepts_current_blocked_talk_copy(
+def test_candidate_browser_audit_requires_single_blocked_action(
     memorial_minimal_server: dict[str, object],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -730,11 +752,17 @@ def test_candidate_browser_audit_accepts_current_blocked_talk_copy(
 
     assert evidence["status"] == "pass"
     assert evidence["memorial_surface"] == "conversation_only"
+    assert evidence["visible_button_ids"] == ["memorial-conversation"]
+    assert evidence["visible_button_labels"] == ["Gespräch beginnen"]
+    assert evidence["visible_non_button_control_ids"] == []
+    assert evidence["text_form_visible"] is False
+    assert evidence["text_input_focused"] is False
+    assert evidence["separate_retry_visible"] is False
     for field in candidate_verify.BROWSER_ZERO_COUNT_FIELDS:
         assert evidence[field] == 0
 
 
-def test_memorial_text_retry_resubmits_text_without_starting_microphone(
+def test_memorial_microphone_error_retries_with_same_single_button(
     browser: Browser,
     memorial_minimal_server: dict[str, object],
     monkeypatch: pytest.MonkeyPatch,
@@ -770,43 +798,42 @@ def test_memorial_text_retry_resubmits_text_without_starting_microphone(
         })();
         """
     )
-    failed_requests: list[str] = []
     page: Page = context.new_page()
-
-    def fail_text_turn(route) -> None:
-        failed_requests.append(route.request.url)
-        route.fulfill(
-            status=503,
-            content_type="application/json",
-            body=json.dumps({"detail": "test_text_failure"}),
-        )
-
-    page.route(f"**/memorials/{slug}/chat", fail_text_turn)
     try:
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
         assert response is not None and response.ok
-        start = page.get_by_role("button", name="Gespräch beginnen")
+        start = page.get_by_role("button", name="Gespräch beginnen", exact=True)
         start.wait_for(state="visible", timeout=12000)
         start.click()
-        page.locator("#memorial-text-turn-form").wait_for(
-            state="visible",
-            timeout=3000,
+        page.wait_for_function(
+            """() => {
+              const message = document.getElementById("memorial-speech-message");
+              return Boolean(
+                message
+                && message.textContent.includes("Mikrofonzugriff ist blockiert")
+              );
+            }""",
+            timeout=7000,
         )
         assert page.evaluate("window.__getUserMediaCalls") == 1
-        text_input = page.locator("#memorial-text-turn-input")
-        text_input.fill("Welche Erinnerung ist belegt?")
-        text_input.press("Enter")
-        retry = page.get_by_role("button", name="Textfrage erneut senden")
-        retry.wait_for(state="visible", timeout=3000)
-        assert len(failed_requests) == 1
-        assert page.evaluate("window.__getUserMediaCalls") == 1
+        assert page.locator("#memorial-text-turn-form").is_hidden()
+        assert page.locator("#memorial-retry-button").is_hidden()
+        assert page.locator("button:visible").count() == 1
+        assert page.locator("input:visible,textarea:visible,select:visible").count() == 0
+        assert start.inner_text().strip() == "Gespräch beginnen"
+        assert start.get_attribute("aria-label") == "Gespräch beginnen"
+        assert start.get_attribute("title") == "Gespräch beginnen"
 
-        retry.click()
-        page.wait_for_timeout(250)
-        assert len(failed_requests) == 2
-        assert page.evaluate("window.__getUserMediaCalls") == 1
-        assert text_input.input_value() == "Welche Erinnerung ist belegt?"
-        assert retry.is_visible()
+        start.click()
+        page.wait_for_function(
+            "() => Number(window.__getUserMediaCalls || 0) >= 2",
+            timeout=7000,
+        )
+        assert page.locator("#memorial-text-turn-form").is_hidden()
+        assert page.locator("#memorial-retry-button").is_hidden()
+        assert page.locator("button:visible").count() == 1
+        assert page.locator("input:visible,textarea:visible,select:visible").count() == 0
+        assert start.inner_text().strip() == "Gespräch beginnen"
     finally:
         context.close()
 

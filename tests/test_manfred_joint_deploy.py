@@ -217,6 +217,8 @@ def _real_five_layer_compose_root(tmp_path: Path) -> tuple[Path, list[str]]:
 
 def _lane(
     tmp_path: Path,
+    *,
+    require_signed_voice_release: bool = False,
 ) -> tuple[joint.JointMemorialIngressDeployLane, NoCommandRunner]:
     root = _root(tmp_path)
     joint_state_dir = tmp_path / "host-state"
@@ -235,6 +237,7 @@ def _lane(
         global_lock_path=tmp_path / "global.lock",
         recovery_journal_path=(joint_state_dir / joint.JOINT_RECOVERY_JOURNAL_FILENAME),
         durable_root_check=lambda _path: None,
+        require_signed_voice_release=require_signed_voice_release,
     )
     lane.joint_recovery_journal_path = lane.recovery_journal_path
     lane.normalization_recovery_journal_path = (
@@ -242,6 +245,281 @@ def _lane(
         / recovery_interlock.NORMALIZATION_RECOVERY_JOURNAL_FILENAME
     )
     return lane, runner
+
+
+def _released_voice_candidate_state(
+    lane: joint.JointMemorialIngressDeployLane,
+) -> dict[str, object]:
+    image_id = f"sha256:{'b' * 64}"
+    voice_identity_sha256 = "c" * 64
+    lane.receipt.update(
+        {
+            "source_revision": SOURCE_REVISION,
+            "candidate_image": {"image_id": image_id},
+            "candidate_promotion_evidence": {
+                "source_revision": SOURCE_REVISION,
+                "image_id": image_id,
+                "voice_release_allowed": True,
+                "voice_release_authority_revalidated": True,
+                "voice_identity": {
+                    "voice_identity_sha256": voice_identity_sha256,
+                },
+            },
+        }
+    )
+    return {
+        "source_revision": SOURCE_REVISION,
+        "image_id": image_id,
+        "voice_identity_sha256": voice_identity_sha256,
+        "voice_release_allowed": True,
+        "voice_release_authority_revalidated": True,
+    }
+
+
+def _released_voice_candidate_verifier_payload(
+    expectation: Mapping[str, object],
+    *,
+    browser_voice_release: str = "available",
+    browser_voice_access: str = "public-release",
+    browser_source_revision: str | None = None,
+) -> dict[str, object]:
+    source_revision = str(expectation["source_revision"])
+    return {
+        "schema": "ea.manfred_memorial_candidate_smoke.v1",
+        "status": "pass",
+        "checks": [
+            "archive_publication_gate",
+            "singular_memorial_alias",
+            "source_grounded_first_person_reconstruction_boundary",
+            "voice_release_authorization_verified_provider_not_called",
+            "browser_provider_websocket_boundary",
+        ],
+        "provider_calls_performed": False,
+        "page_get_performed": True,
+        "voice_release_verification": {
+            "mode": "signed_voice_release_authorized",
+            "status_code": 400,
+            "detail": "tts_text_missing",
+            "authorization_proof": (
+                "authorization_precedes_empty_text_validation_without_provider_call"
+            ),
+            "provider_calls_performed": False,
+            "source_revision": source_revision,
+        },
+        "browser_audit": {
+            "status": "pass",
+            "voice_release": browser_voice_release,
+            "voice_access": browser_voice_access,
+            "source_revision": browser_source_revision or source_revision,
+            "automatic_provider_requests": 0,
+            "automatic_websockets": 0,
+            "external_requests": 0,
+            "failed_requests": 0,
+            "page_errors": 0,
+            "http_errors": 0,
+        },
+    }
+
+
+def test_joint_phase_one_candidate_verifier_keeps_blocked_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    lane.receipt["candidate_promotion_evidence"] = {
+        "voice_release_allowed": False,
+        "voice_release_authority_revalidated": False,
+    }
+    parent_verifier = Mock(return_value={"status": "phase_one_pass"})
+    monkeypatch.setattr(
+        api_deploy.MemorialDeployLane,
+        "_verify_candidate_origin",
+        parent_verifier,
+    )
+
+    result = lane._verify_candidate_origin(
+        label="public",
+        base_url=ORIGIN,
+        public_origin=ORIGIN,
+    )
+
+    assert result == {"status": "phase_one_pass"}
+    parent_verifier.assert_called_once_with(
+        label="public",
+        base_url=ORIGIN,
+        public_origin=ORIGIN,
+    )
+
+
+def test_joint_release_verifier_requires_revalidated_signed_authority(
+    tmp_path: Path,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    lane.receipt["candidate_promotion_evidence"] = {
+        "voice_release_allowed": True,
+        "voice_release_authority_revalidated": False,
+    }
+
+    with pytest.raises(
+        api_deploy.DeployError,
+        match="joint_voice_release_authority_not_revalidated",
+    ):
+        lane._release_enabled_candidate_verifier_expectation()
+
+
+def test_joint_release_verifier_binds_validated_candidate_state(
+    tmp_path: Path,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    expectation = _released_voice_candidate_state(lane)
+    voice_verification = {
+        "mode": "signed_voice_release_authorized",
+        "status_code": 400,
+        "detail": "tts_text_missing",
+        "authorization_proof": (
+            "authorization_precedes_empty_text_validation_without_provider_call"
+        ),
+        "provider_calls_performed": False,
+        "source_revision": expectation["source_revision"],
+    }
+    lane._run_json_script = Mock(  # type: ignore[method-assign]
+        return_value=_released_voice_candidate_verifier_payload(expectation)
+    )
+
+    result = lane._verify_candidate_origin(
+        label="public",
+        base_url=ORIGIN,
+        public_origin=ORIGIN,
+    )
+
+    assert result["status"] == "pass"
+    assert result["provider_calls_performed"] is False
+    assert result["voice_release_verification"] == voice_verification
+    assert result["browser"]["voice_release"] == "available"
+    assert result["browser"]["voice_access"] == "public-release"
+    assert result["browser"]["source_revision"] == SOURCE_REVISION
+    assert result["voice_release_candidate_binding"] == {
+        **expectation,
+        "binding_proof": (
+            "validated_candidate_promotion_evidence_plus_"
+            "signed_runtime_authorization"
+        ),
+    }
+    command = lane._run_json_script.call_args.args
+    assert "--expect-signed-voice-release" in command
+    assert SOURCE_REVISION in command
+    assert expectation["image_id"] not in command
+    assert expectation["voice_identity_sha256"] not in command
+
+
+@pytest.mark.parametrize(
+    "candidate_evidence",
+    [
+        {},
+        {
+            "voice_release_allowed": False,
+            "voice_release_authority_revalidated": False,
+        },
+    ],
+    ids=("missing", "phase-one"),
+)
+def test_joint_explicit_signed_release_intent_rejects_phase_one_fallback(
+    tmp_path: Path,
+    candidate_evidence: dict[str, object],
+) -> None:
+    lane, _runner = _lane(tmp_path, require_signed_voice_release=True)
+    lane.receipt["candidate_promotion_evidence"] = candidate_evidence
+
+    with pytest.raises(
+        api_deploy.DeployError,
+        match="joint_signed_voice_release_required",
+    ):
+        lane._release_enabled_candidate_verifier_expectation()
+
+    assert lane.receipt["voice_release_intent"] == {
+        "mode": "signed_release_required",
+        "signed_release_required": True,
+        "preflight_verified": False,
+    }
+
+
+def test_joint_signed_release_cli_intent_is_explicit() -> None:
+    args = joint._parse_args(["--require-signed-voice-release"])
+
+    assert args.require_signed_voice_release is True
+
+
+@pytest.mark.parametrize(
+    (
+        "browser_voice_release",
+        "browser_voice_access",
+        "browser_source_revision",
+    ),
+    [
+        ("blocked", "text-only", SOURCE_REVISION),
+        ("available", "text-only", SOURCE_REVISION),
+        ("available", "public-release", "d" * 40),
+    ],
+    ids=("phase-one-state", "incoherent-pair", "revision-drift"),
+)
+def test_joint_signed_release_verifier_rejects_browser_state_drift(
+    tmp_path: Path,
+    browser_voice_release: str,
+    browser_voice_access: str,
+    browser_source_revision: str,
+) -> None:
+    lane, _runner = _lane(tmp_path, require_signed_voice_release=True)
+    expectation = _released_voice_candidate_state(lane)
+    lane._run_json_script = Mock(  # type: ignore[method-assign]
+        return_value=_released_voice_candidate_verifier_payload(
+            expectation,
+            browser_voice_release=browser_voice_release,
+            browser_voice_access=browser_voice_access,
+            browser_source_revision=browser_source_revision,
+        )
+    )
+
+    with pytest.raises(
+        api_deploy.DeployError,
+        match="candidate_voice_release_verifier_contract_failed",
+    ):
+        lane._verify_candidate_origin(
+            label="public",
+            base_url=ORIGIN,
+            public_origin=ORIGIN,
+        )
+
+
+def test_joint_release_verifier_rejects_receipt_binding_drift(
+    tmp_path: Path,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    _released_voice_candidate_state(lane)
+    evidence = dict(lane.receipt["candidate_promotion_evidence"])
+    evidence["source_revision"] = "d" * 40
+    lane.receipt["candidate_promotion_evidence"] = evidence
+
+    with pytest.raises(
+        api_deploy.DeployError,
+        match="joint_voice_release_candidate_binding_invalid",
+    ):
+        lane._release_enabled_candidate_verifier_expectation()
+
+
+@pytest.mark.parametrize("missing_field", ["source_revision", "candidate_image"])
+def test_joint_release_verifier_requires_recorded_top_level_binding(
+    tmp_path: Path,
+    missing_field: str,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    _released_voice_candidate_state(lane)
+    lane.receipt.pop(missing_field)
+
+    with pytest.raises(
+        api_deploy.DeployError,
+        match="joint_voice_release_candidate_binding_invalid",
+    ):
+        lane._release_enabled_candidate_verifier_expectation()
 
 
 def test_receipt_writer_rejects_precreated_temporary_symlink(

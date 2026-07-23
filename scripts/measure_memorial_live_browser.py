@@ -31,6 +31,25 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
     from source_state_head import resolve_source_state_head
     from source_state_head import resolve_source_worktree_fingerprint
 
+try:
+    from scripts.manfred_voice_review_client_auth import (
+        ReviewSessionClientAuth,
+        ReviewSessionError,
+        load_review_session_auth,
+        normalized_https_origin,
+        open_review_request,
+        write_private_review_receipt_text,
+    )
+except ModuleNotFoundError:  # pragma: no cover - script execution path
+    from manfred_voice_review_client_auth import (  # type: ignore[no-redef]
+        ReviewSessionClientAuth,
+        ReviewSessionError,
+        load_review_session_auth,
+        normalized_https_origin,
+        open_review_request,
+        write_private_review_receipt_text,
+    )
+
 
 LIVE_PROMPT_TEXT = "Hallo Manfred, kannst du jetzt mit mir sprechen?"
 MEANINGFUL_PROMPT_TEXT = "Was war dir bei Gerechtigkeit wichtig?"
@@ -295,18 +314,35 @@ def _is_source_revision(value: object) -> bool:
     )
 
 
-def _http_json(url: str, *, method: str = "GET", payload: dict[str, object] | None = None, timeout: float = 20.0) -> tuple[int, dict[str, object]]:
+def _http_json(
+    url: str,
+    *,
+    method: str = "GET",
+    payload: dict[str, object] | None = None,
+    timeout: float = 20.0,
+    request_headers: dict[str, str] | None = None,
+) -> tuple[int, dict[str, object]]:
     body = None
-    headers = {
+    headers = dict(request_headers or {})
+    headers.update({
         "Accept": "application/json",
         "User-Agent": "EA-Memorial-Browser-Gold/1.0",
-    }
+    })
     if payload is not None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         headers["Content-Type"] = "application/json"
     request = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        response_context = (
+            open_review_request(
+                request,
+                expected_origin=str(headers.get("Origin") or ""),
+                timeout=timeout,
+            )
+            if request_headers
+            else urllib.request.urlopen(request, timeout=timeout)
+        )
+        with response_context as response:
             raw = response.read().decode("utf-8", errors="replace")
             return int(getattr(response, "status", 0) or 0), json.loads(raw or "{}")
     except urllib.error.HTTPError as exc:
@@ -326,18 +362,29 @@ def _http_bytes(
     method: str = "GET",
     payload: dict[str, object] | None = None,
     timeout: float = 20.0,
+    request_headers: dict[str, str] | None = None,
 ) -> tuple[int, bytes, str]:
     body = None
-    headers = {
+    headers = dict(request_headers or {})
+    headers.update({
         "Accept": "*/*",
         "User-Agent": "EA-Memorial-Browser-Gold/1.0",
-    }
+    })
     if payload is not None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         headers["Content-Type"] = "application/json"
     request = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        response_context = (
+            open_review_request(
+                request,
+                expected_origin=str(headers.get("Origin") or ""),
+                timeout=timeout,
+            )
+            if request_headers
+            else urllib.request.urlopen(request, timeout=timeout)
+        )
+        with response_context as response:
             return (
                 int(getattr(response, "status", 0) or 0),
                 response.read(),
@@ -349,22 +396,44 @@ def _http_bytes(
         return 0, b"", ""
 
 
-def _prewarm_memorial_origin(base_url: str, slug: str, *, timeout_seconds: float = 25.0) -> dict[str, object]:
+def _prewarm_memorial_origin(
+    base_url: str,
+    slug: str,
+    *,
+    timeout_seconds: float = 25.0,
+    request_headers: dict[str, str] | None = None,
+) -> dict[str, object]:
     base = str(base_url or "").rstrip("/")
     page_url = f"{base}/memorials/{slug}"
     warmup_url = f"{page_url}/warmup"
     warmup_status_url = f"{page_url}/warmup-status"
     started = time.perf_counter()
+    request_kwargs = (
+        {"request_headers": request_headers}
+        if request_headers
+        else {}
+    )
     request_status, request_payload = _http_json(
         warmup_url,
         method="POST",
         payload={"reason": "browser_gold_preflight"},
         timeout=min(15.0, max(3.0, timeout_seconds)),
+        **request_kwargs,
     )
     last_status = 0
     last_payload: dict[str, object] = {}
     while (time.perf_counter() - started) < timeout_seconds:
-        last_status, last_payload = _http_json(warmup_status_url, method="GET", timeout=10.0)
+        status_kwargs = (
+            {"request_headers": request_headers}
+            if request_headers
+            else {}
+        )
+        last_status, last_payload = _http_json(
+            warmup_status_url,
+            method="GET",
+            timeout=10.0,
+            **status_kwargs,
+        )
         if last_status == 200:
             warm = bool(last_payload.get("warm"))
             voice_required = bool(last_payload.get("voice_required"))
@@ -460,13 +529,25 @@ def _synthesized_prompt_wav_bytes(text: str) -> bytes:
         return normalized_wav.read_bytes()
 
 
-def _prompt_wav_bytes_for_measure(base_url: str, slug: str, prompt_text: str) -> bytes:
+def _prompt_wav_bytes_for_measure(
+    base_url: str,
+    slug: str,
+    prompt_text: str,
+    *,
+    request_headers: dict[str, str] | None = None,
+) -> bytes:
     synth_url = f"{str(base_url or '').rstrip('/')}/memorials/{slug}/speech-synthesize"
+    request_kwargs = (
+        {"request_headers": request_headers}
+        if request_headers
+        else {}
+    )
     status, payload, content_type = _http_bytes(
         synth_url,
         method="POST",
         payload={"text": str(prompt_text or "").strip()},
         timeout=45.0,
+        **request_kwargs,
     )
     if status == 200 and payload and "audio/" in str(content_type or "").lower():
         return payload
@@ -668,6 +749,7 @@ def _wait_for_realtime_turn(
     *,
     page=None,
     timeout_seconds: float = 35.0,
+    expected_https_origin: str = "",
 ) -> dict[str, object]:
     state: dict[str, object] = {
         "done": False,
@@ -752,6 +834,26 @@ def _wait_for_realtime_turn(
         socket_url = str(getattr(socket, "url", "") or "")
         if f"/memorials/{slug}/realtime" not in socket_url:
             return
+        if expected_https_origin:
+            try:
+                parsed_socket = urllib.parse.urlsplit(socket_url)
+                websocket_https_url = urllib.parse.urlunsplit(
+                    (
+                        "https" if parsed_socket.scheme == "wss" else parsed_socket.scheme,
+                        parsed_socket.netloc,
+                        "/",
+                        "",
+                        "",
+                    )
+                )
+                if normalized_https_origin(websocket_https_url) != expected_https_origin:
+                    state["payload"]["error"] = "realtime_origin_mismatch"
+                    state["done"] = True
+                    return
+            except (ReviewSessionError, ValueError):
+                state["payload"]["error"] = "realtime_origin_invalid"
+                state["done"] = True
+                return
         socket.on("framereceived", _on_frame)
 
     context.on("websocket", _on_websocket)
@@ -900,12 +1002,38 @@ def _measure(
     *,
     stub_transcribe: bool = True,
     text_prompt: bool = False,
+    review_session: ReviewSessionClientAuth | None = None,
 ) -> dict[str, object]:
     sync_playwright = _require_playwright()
-    audio_bytes = _prompt_wav_bytes_for_measure(base_url, slug, prompt_text)
+    request_headers = (
+        review_session.request_headers()
+        if review_session is not None
+        else None
+    )
+    prompt_kwargs = (
+        {"request_headers": request_headers}
+        if request_headers
+        else {}
+    )
+    audio_bytes = _prompt_wav_bytes_for_measure(
+        base_url,
+        slug,
+        prompt_text,
+        **prompt_kwargs,
+    )
     page_url = f"{base_url.rstrip('/')}/memorials/{slug}"
     warmup_url = f"{page_url}/warmup-status"
-    warmup_preflight = _prewarm_memorial_origin(base_url, slug, timeout_seconds=25.0)
+    prewarm_kwargs = (
+        {"request_headers": request_headers}
+        if request_headers
+        else {}
+    )
+    warmup_preflight = _prewarm_memorial_origin(
+        base_url,
+        slug,
+        timeout_seconds=25.0,
+        **prewarm_kwargs,
+    )
     semantic_profile = _semantic_profile_for_prompt(prompt_text)
     started = time.perf_counter()
     with _short_playwright_tmpdir() as tmpdir:
@@ -930,6 +1058,8 @@ def _measure(
                 ],
             )
             context = browser.new_context(viewport={"width": 1440, "height": 1100})
+            if review_session is not None:
+                context.add_cookies([review_session.playwright_cookie()])
             context.grant_permissions(["microphone"], origin=base_url.rstrip("/"))
             context.add_init_script(_browser_audio_gate_init_script())
             if stub_transcribe:
@@ -944,6 +1074,19 @@ def _measure(
                 response = page.goto(page_url, wait_until="domcontentloaded", timeout=45000)
                 if response is None or not response.ok:
                     raise SystemExit("page_load_failed")
+                if review_session is not None:
+                    parsed_page = urllib.parse.urlsplit(str(page.url or ""))
+                    final_page_origin = urllib.parse.urlunsplit(
+                        (
+                            parsed_page.scheme,
+                            parsed_page.netloc,
+                            "/",
+                            "",
+                            "",
+                        )
+                    )
+                    if normalized_https_origin(final_page_origin) != review_session.origin:
+                        raise SystemExit("private_review_page_origin_mismatch")
                 runtime_source_revision = str(
                     response.headers.get("x-ea-source-revision") or ""
                 ).strip()
@@ -1134,6 +1277,11 @@ def _measure(
                                 lambda: None,
                                 page=page,
                                 timeout_seconds=35.0,
+                                expected_https_origin=(
+                                    review_session.origin
+                                    if review_session is not None
+                                    else ""
+                                ),
                             )
                             if not bool(turn_state.get("done")):
                                 raise TimeoutError("realtime_turn_incomplete")
@@ -1346,6 +1494,7 @@ def _with_exit_gate_status(
     gold_mode: bool,
     require_public_origin: bool,
     max_first_answer_ms: float,
+    review_session: ReviewSessionClientAuth | None = None,
 ) -> dict[str, object]:
     reasons: list[str] = []
     source_git_head = _git_head()
@@ -1413,6 +1562,7 @@ def _with_exit_gate_status(
     payload.update(
         {
             "contract_name": "ea.memorial_realtime_browser_exit_gate",
+            "contract_version": 2,
             "generated_at": _utc_now(),
             "generated_by": "scripts/measure_memorial_live_browser.py",
             "source_git_head": source_git_head,
@@ -1427,8 +1577,38 @@ def _with_exit_gate_status(
             "exit_gate": bool(exit_gate),
             "gold_mode": bool(gold_mode),
             "require_public_origin": bool(require_public_origin),
+            "access_mode": (
+                "private_review_session"
+                if review_session is not None
+                else "anonymous_public"
+            ),
+            "evidence_scope": (
+                "private_authenticated_review"
+                if review_session is not None
+                else "anonymous_public"
+                if gold_mode and require_public_origin
+                else "local_or_diagnostic"
+            ),
+            "review_session_authenticated": review_session is not None,
+            "review_session_binding": (
+                review_session.public_binding()
+                if review_session is not None
+                else {}
+            ),
             "launch_proof_scope": (
-                "real_public_microphone"
+                "real_public_private_review_microphone"
+                if (
+                    gold_mode
+                    and speech_transcribe_mode == "live"
+                    and review_session is not None
+                )
+                else "private_review_real_public_text_prompt"
+                if (
+                    gold_mode
+                    and speech_transcribe_mode == "text_prompt"
+                    and review_session is not None
+                )
+                else "real_public_microphone"
                 if gold_mode and speech_transcribe_mode == "live"
                 else "real_public_text_prompt"
                 if gold_mode and speech_transcribe_mode == "text_prompt"
@@ -1436,7 +1616,19 @@ def _with_exit_gate_status(
             ),
             "max_first_answer_ms": float(max_first_answer_ms),
             "failed_codes": reasons,
-            "gold_claim_allowed": bool(gold_mode) and not reasons,
+            "gold_claim_allowed": (
+                bool(gold_mode)
+                and review_session is None
+                and not reasons
+            ),
+            "private_review_evidence_allowed": (
+                review_session is not None
+                and bool(gold_mode)
+                and bool(require_public_origin)
+                and not reasons
+                and runtime_source_revision
+                == review_session.source_revision
+            ),
         }
     )
     return payload
@@ -1453,6 +1645,14 @@ def main() -> int:
     parser.add_argument("--text-prompt", action="store_true", help="Submit the prompt through the memorial text chat form instead of the live microphone conversation path.")
     parser.add_argument("--gold-mode", action="store_true", help="Write a stricter memorial browser-gold receipt.")
     parser.add_argument("--require-public-origin", action="store_true", help="Fail gold/browser proof on localhost origins.")
+    parser.add_argument(
+        "--review-session-cookie-file",
+        default="",
+        help=(
+            "Optional absolute path to a private 0600 review-session bearer "
+            "file. The bearer is never included in the receipt."
+        ),
+    )
     parser.add_argument("--max-first-answer-ms", type=float, default=0.0)
     args = parser.parse_args()
 
@@ -1461,7 +1661,32 @@ def main() -> int:
     if args.gold_mode and not args.require_public_origin:
         parser.error("--gold-mode requires --require-public-origin")
     if args.require_public_origin and not _is_https_public_origin(args.base_url):
-        parser.error("--require-public-origin requires a credential-free, non-loopback HTTPS origin")
+        parser.error("--require-public-origin requires a non-loopback HTTPS origin without URL credentials")
+
+    review_session = None
+    review_cookie_file = str(args.review_session_cookie_file or "").strip()
+    if review_cookie_file:
+        if (
+            not args.gold_mode
+            or not args.require_public_origin
+            or args.slug != "manfred"
+            or args.text_prompt
+            or not args.real_stt
+        ):
+            parser.error(
+                "--review-session-cookie-file requires --gold-mode, "
+                "--real-stt, --require-public-origin, --slug manfred, "
+                "and forbids --text-prompt"
+            )
+        try:
+            review_session = load_review_session_auth(
+                review_cookie_file,
+                public_origin=args.base_url,
+                slug=args.slug,
+                expected_source_revision=_git_head(),
+            )
+        except ReviewSessionError as exc:
+            parser.error(str(exc))
 
     result = _measure(
         args.base_url,
@@ -1469,7 +1694,21 @@ def main() -> int:
         args.prompt_text,
         stub_transcribe=not args.real_stt,
         text_prompt=bool(args.text_prompt),
+        review_session=review_session,
     )
+    if review_session is not None:
+        try:
+            completed_review_session = load_review_session_auth(
+                review_cookie_file,
+                public_origin=args.base_url,
+                slug=args.slug,
+                expected_source_revision=_git_head(),
+            )
+        except ReviewSessionError as exc:
+            parser.error(str(exc))
+        if completed_review_session.public_binding() != review_session.public_binding():
+            parser.error("review_session_changed_during_measure")
+        review_session = completed_review_session
     max_first_answer_ms = float(args.max_first_answer_ms or (DEFAULT_GOLD_MAX_FIRST_ANSWER_MS if args.gold_mode else DEFAULT_EXIT_GATE_MAX_FIRST_ANSWER_MS))
     receipt = _with_exit_gate_status(
         result,
@@ -1477,10 +1716,37 @@ def main() -> int:
         gold_mode=bool(args.gold_mode),
         require_public_origin=bool(args.require_public_origin),
         max_first_answer_ms=max_first_answer_ms,
+        review_session=review_session,
     )
     rendered = json.dumps(receipt, ensure_ascii=False, indent=2)
+    if review_session is not None:
+        cookie_header = review_session.request_headers()["Cookie"]
+        opaque_token = cookie_header.partition("=")[2]
+        rendered_casefold = rendered.casefold()
+        if (
+            opaque_token
+            and (
+                opaque_token in rendered
+                or cookie_header in rendered
+                or "ea_manfred_voice_review" in rendered_casefold
+                or "authorization:" in rendered_casefold
+                or "set-cookie:" in rendered_casefold
+                or "bearer " in rendered_casefold
+                or "cookie:" in rendered_casefold
+            )
+        ):
+            raise SystemExit("private_review_secret_material_exposed")
     if args.output:
-        Path(args.output).write_text(rendered + "\n", encoding="utf-8")
+        if review_session is not None:
+            try:
+                write_private_review_receipt_text(
+                    Path(args.output),
+                    rendered,
+                )
+            except ReviewSessionError as exc:
+                raise SystemExit(str(exc)) from None
+        else:
+            Path(args.output).write_text(rendered + "\n", encoding="utf-8")
     print(rendered)
     if args.exit_gate:
         if receipt["status"] == "pass":

@@ -642,6 +642,62 @@ def _ready_evidence_payloads(
     }
 
 
+def _private_review_evidence_payloads(
+    materializer: ModuleType,
+    *,
+    generated_at: str,
+) -> dict[str, dict[str, object]]:
+    payloads = _ready_evidence_payloads(
+        materializer,
+        generated_at=generated_at,
+    )
+    generated_at_datetime = datetime.fromisoformat(
+        generated_at.replace("Z", "+00:00")
+    )
+    source_revision = materializer.resolve_source_state_head(
+        materializer.REPO_ROOT
+    )
+    binding: dict[str, object] = {
+        "contract_name": "ea.manfred_voice_review.v1",
+        "access_mode": "private_review_session",
+        "source_revision": source_revision,
+        "image_id": f"sha256:{'a' * 64}",
+        "voice_identity_sha256": "b" * 64,
+        "expires_at_epoch": int(generated_at_datetime.timestamp()) + 7200,
+        "bearer_material_exposed": False,
+    }
+    release_receipt_names = (
+        "memorial_voice_roundtrip_public_origin.generated.json",
+        "memorial_realtime_browser_public_origin.generated.json",
+        "memorial_room_audio_public_origin.generated.json",
+    )
+    for receipt_name in release_receipt_names:
+        payloads[receipt_name].update(
+            {
+                "access_mode": "private_review_session",
+                "review_session_authenticated": True,
+                "evidence_scope": "private_authenticated_review",
+                "private_review_evidence_allowed": True,
+                "gold_claim_allowed": False,
+                "base_url": "https://myexternalbrain.com",
+                "slug": "manfred",
+                "runtime_source_revision": source_revision,
+                "review_session_binding": dict(binding),
+            }
+        )
+    payloads[
+        "memorial_realtime_browser_public_origin.generated.json"
+    ].update(
+        {
+            "gold_mode": True,
+            "require_public_origin": True,
+            "speech_transcribe_mode": "live",
+            "launch_proof_scope": "real_public_private_review_microphone",
+        }
+    )
+    return payloads
+
+
 def _write_evidence_payloads(root: Path, payloads: dict[str, dict[str, object]]) -> None:
     for name, payload in payloads.items():
         (root / name).write_text(
@@ -655,6 +711,198 @@ def _write_evidence_payloads(root: Path, payloads: dict[str, dict[str, object]])
             + "\n",
             encoding="utf-8",
         )
+
+
+def test_manfred_realtime_accepts_coherent_private_review_evidence(
+    tmp_path: Path,
+) -> None:
+    materializer = _load_script(
+        "materialize_manfred_realtime_conversation_readiness"
+    )
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    _write_evidence_payloads(
+        evidence_root,
+        _private_review_evidence_payloads(
+            materializer,
+            generated_at=materializer._now(),
+        ),
+    )
+
+    status = materializer._operator_status_from_receipts(evidence_root)
+
+    assert status["status"] == "pass"
+    assert status["spoken_conversation_tts"]["status"] == "pass"
+    assert status["spoken_conversation_tts"]["premium_status"] == "pass"
+    assert status["spoken_conversation_tts"]["room_audio_receipt"] == "pass"
+    for evidence_key in ("voice_roundtrip", "realtime_browser", "room_audio"):
+        assert status["input_evidence"][evidence_key]["fresh"] is True
+        assert (
+            status["input_evidence"][evidence_key]["max_age_seconds"]
+            == 24 * 60 * 60
+        )
+
+
+@pytest.mark.parametrize("mutation", ["binding_mismatch", "mixed_scope"])
+def test_manfred_realtime_rejects_incoherent_private_review_evidence(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    materializer = _load_script(
+        "materialize_manfred_realtime_conversation_readiness"
+    )
+    payloads = _private_review_evidence_payloads(
+        materializer,
+        generated_at=materializer._now(),
+    )
+    room_receipt = payloads[
+        "memorial_room_audio_public_origin.generated.json"
+    ]
+    if mutation == "binding_mismatch":
+        room_binding = dict(room_receipt["review_session_binding"])  # type: ignore[arg-type]
+        room_binding["image_id"] = f"sha256:{'c' * 64}"
+        room_receipt["review_session_binding"] = room_binding
+    else:
+        room_receipt["evidence_scope"] = "anonymous_public"
+        room_receipt["gold_claim_allowed"] = True
+    evidence_root = tmp_path / mutation
+    evidence_root.mkdir()
+    _write_evidence_payloads(evidence_root, payloads)
+
+    status = materializer._operator_status_from_receipts(evidence_root)
+
+    assert status["status"] == "blocked"
+    assert status["spoken_conversation_tts"]["status"] == "blocked"
+    assert status["spoken_conversation_tts"]["premium_status"] == "blocked"
+
+
+@pytest.mark.parametrize("credential_shape", ["risky_key", "header_prefix"])
+def test_manfred_realtime_rejects_nested_credentials_without_aggregating_secret(
+    tmp_path: Path,
+    credential_shape: str,
+) -> None:
+    materializer = _load_script(
+        "materialize_manfred_realtime_conversation_readiness"
+    )
+    payloads = _private_review_evidence_payloads(
+        materializer,
+        generated_at=materializer._now(),
+    )
+    secret = "credential-material-must-never-enter-readiness"
+    roundtrip = payloads[
+        "memorial_voice_roundtrip_public_origin.generated.json"
+    ]
+    if credential_shape == "risky_key":
+        roundtrip["diagnostic"] = {
+            "nested": [{"session_token": secret}],
+        }
+    else:
+        roundtrip["diagnostic"] = {
+            "nested": [{"trace": f"Bearer {secret}"}],
+        }
+    evidence_root = tmp_path / credential_shape
+    evidence_root.mkdir()
+    _write_evidence_payloads(evidence_root, payloads)
+
+    status = materializer._operator_status_from_receipts(evidence_root)
+    rendered_status = json.dumps(status, sort_keys=True)
+
+    assert status["status"] == "blocked"
+    assert status["input_evidence"]["voice_roundtrip"][
+        "raw_credentials_exposed"
+    ] is True
+    assert status["input_evidence"]["voice_roundtrip"]["status"] == "invalid"
+    assert secret not in rendered_status
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("gold_mode", False),
+        ("require_public_origin", False),
+        ("speech_transcribe_mode", "synthetic"),
+        (
+            "launch_proof_scope",
+            "private_review_real_public_microphone",
+        ),
+    ],
+)
+def test_manfred_realtime_private_browser_requires_live_public_gold_contract(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    materializer = _load_script(
+        "materialize_manfred_realtime_conversation_readiness"
+    )
+    payloads = _private_review_evidence_payloads(
+        materializer,
+        generated_at=materializer._now(),
+    )
+    payloads[
+        "memorial_realtime_browser_public_origin.generated.json"
+    ][field] = value
+    evidence_root = tmp_path / field
+    evidence_root.mkdir()
+    _write_evidence_payloads(evidence_root, payloads)
+
+    status = materializer._operator_status_from_receipts(evidence_root)
+
+    assert status["status"] == "blocked"
+    assert status["spoken_conversation_tts"]["status"] == "blocked"
+    assert status["spoken_conversation_tts"][
+        "browser_audio_ready_for_ui"
+    ] is False
+
+
+def test_manfred_realtime_private_evidence_expires_after_24_hours(
+    tmp_path: Path,
+) -> None:
+    materializer = _load_script(
+        "materialize_manfred_realtime_conversation_readiness"
+    )
+    payloads = _private_review_evidence_payloads(
+        materializer,
+        generated_at=materializer._now(),
+    )
+    stale_datetime = datetime.now(UTC).replace(microsecond=0) - timedelta(
+        hours=25
+    )
+    stale_generated_at = stale_datetime.isoformat().replace("+00:00", "Z")
+    for receipt_name in (
+        "memorial_voice_roundtrip_public_origin.generated.json",
+        "memorial_realtime_browser_public_origin.generated.json",
+        "memorial_room_audio_public_origin.generated.json",
+    ):
+        receipt = payloads[receipt_name]
+        receipt["generated_at"] = stale_generated_at
+        binding = dict(receipt["review_session_binding"])  # type: ignore[arg-type]
+        binding["expires_at_epoch"] = int(stale_datetime.timestamp()) + 7200
+        receipt["review_session_binding"] = binding
+    evidence_root = tmp_path / "stale-private-evidence"
+    evidence_root.mkdir()
+    _write_evidence_payloads(evidence_root, payloads)
+
+    status = materializer._operator_status_from_receipts(evidence_root)
+
+    assert status["status"] == "blocked"
+    assert status["spoken_conversation_tts"]["status"] == "blocked"
+    assert status["input_evidence"]["voice_roundtrip"]["fresh"] is False
+    assert status["input_evidence"]["room_audio"]["fresh"] is False
+
+
+def test_manfred_realtime_explicit_anonymous_scope_requires_gold_claim() -> None:
+    materializer = _load_script(
+        "materialize_manfred_realtime_conversation_readiness"
+    )
+    anonymous_receipt = {
+        "evidence_scope": "anonymous_public",
+        "gold_claim_allowed": True,
+    }
+
+    assert materializer._release_evidence_claim_allowed(anonymous_receipt)
+    anonymous_receipt["gold_claim_allowed"] = False
+    assert not materializer._release_evidence_claim_allowed(anonymous_receipt)
 
 
 @pytest.mark.parametrize(
