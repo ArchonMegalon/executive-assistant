@@ -125,6 +125,7 @@ PUBLIC_PROBES = (
         ("text/html",),
     ),
 )
+PUBLIC_GET_ONLY_PROBE_LABELS = frozenset({"version", "memorial_manifest"})
 
 
 def _sha256(raw: bytes) -> str:
@@ -986,7 +987,11 @@ class PublicIngressReconciliationLane(MemorialDeployLane):
             parsed = urllib.parse.urlsplit(url)
             if parsed.scheme != "https" or parsed.query or parsed.fragment:
                 raise DeployError("public_ingress_probe_url_invalid")
-            methods = ("GET",) if probe.label == "version" else ("GET", "HEAD")
+            methods = (
+                ("GET",)
+                if probe.label in PUBLIC_GET_ONLY_PROBE_LABELS
+                else ("GET", "HEAD")
+            )
             for method in methods:
                 response = self.http_no_redirect(
                     url, self.request_timeout_seconds, method, ""

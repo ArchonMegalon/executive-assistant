@@ -735,8 +735,12 @@ def _public_response(
         if content_type == "application/json"
         else b"<!doctype html><title>Manfred</title>"
     )
+    get_only_paths = {
+        "/version",
+        f"/memorials/{ingress.MEMORIAL_SLUG}.json",
+    }
     return ingress.HttpResponse(
-        405 if path == "/version" and method == "HEAD" else 200,
+        405 if path in get_only_paths and method == "HEAD" else 200,
         content_type,
         b"" if method == "HEAD" else body,
         source_revision,
@@ -744,7 +748,7 @@ def _public_response(
     )
 
 
-def test_public_verification_uses_version_get_and_get_head_elsewhere(
+def test_public_verification_uses_get_only_for_get_only_openapi_routes(
     tmp_path: Path,
 ) -> None:
     lane = _lane(tmp_path, http_no_redirect=_public_response)
@@ -752,16 +756,21 @@ def test_public_verification_uses_version_get_and_get_head_elsewhere(
     result = lane.run(verify_public_only=True)
 
     assert result["receipt"]["status"] == "public_verification_pass"
-    assert len(result["evidence"]) == len(ingress.PUBLIC_PROBES) * 2 - 1
+    assert len(result["evidence"]) == (
+        len(ingress.PUBLIC_PROBES) * 2 - len(ingress.PUBLIC_GET_ONLY_PROBE_LABELS)
+    )
     assert {row["method"] for row in result["evidence"].values()} == {"GET", "HEAD"}
-    assert "version_head" not in result["evidence"]
+    assert all(
+        f"{label}_head" not in result["evidence"]
+        for label in ingress.PUBLIC_GET_ONLY_PROBE_LABELS
+    )
     assert result["evidence"]["version_get"][
         "source_revision_header_verified"
     ] is True
     assert all(
         f"{probe.label}_head" in result["evidence"]
         for probe in ingress.PUBLIC_PROBES
-        if probe.label != "version"
+        if probe.label not in ingress.PUBLIC_GET_ONLY_PROBE_LABELS
     )
 
 
