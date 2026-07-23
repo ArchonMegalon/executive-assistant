@@ -3948,6 +3948,74 @@ def test_second_interruption_during_rollback_does_not_skip_other_components(
     assert lane.receipt["rollback"]["ingress"]["status"] == "fail"
 
 
+def test_cloudflared_runtime_identity_normalizes_only_alias_multiplicity() -> None:
+    baseline = {
+        "container": {
+            "networks": [
+                {
+                    "name": ingress.PUBLIC_INGRESS_NETWORK,
+                    "network_id": "f" * 64,
+                    "ipv4_address": ingress.PUBLIC_INGRESS_CLOUDFLARED_IPV4,
+                    "aliases": [
+                        ingress.CLOUDFLARED_CONTAINER,
+                        ingress.CLOUDFLARED_SERVICE,
+                    ],
+                }
+            ]
+        }
+    }
+    restored = json.loads(json.dumps(baseline))
+    restored["container"]["networks"][0]["aliases"] = [
+        ingress.CLOUDFLARED_SERVICE,
+        ingress.CLOUDFLARED_SERVICE,
+        ingress.CLOUDFLARED_CONTAINER,
+    ]
+    original_baseline = json.loads(json.dumps(baseline))
+    original_restored = json.loads(json.dumps(restored))
+
+    baseline_identity = (
+        joint.JointMemorialIngressDeployLane._cloudflared_runtime_identity(baseline)
+    )
+    restored_identity = (
+        joint.JointMemorialIngressDeployLane._cloudflared_runtime_identity(restored)
+    )
+
+    assert baseline_identity == restored_identity
+    assert baseline_identity["networks"][0]["aliases"] == [
+        ingress.CLOUDFLARED_SERVICE,
+        ingress.CLOUDFLARED_CONTAINER,
+    ]
+    assert baseline == original_baseline
+    assert restored == original_restored
+
+    unexpected_alias = json.loads(json.dumps(restored))
+    unexpected_alias["container"]["networks"][0]["aliases"].append("unexpected")
+    assert (
+        joint.JointMemorialIngressDeployLane._cloudflared_runtime_identity(
+            unexpected_alias
+        )
+        != baseline_identity
+    )
+
+    changed_address = json.loads(json.dumps(restored))
+    changed_address["container"]["networks"][0]["ipv4_address"] = "172.31.254.7"
+    assert (
+        joint.JointMemorialIngressDeployLane._cloudflared_runtime_identity(
+            changed_address
+        )
+        != baseline_identity
+    )
+
+    malformed_alias = json.loads(json.dumps(restored))
+    malformed_alias["container"]["networks"][0]["aliases"] = [1]
+    assert (
+        joint.JointMemorialIngressDeployLane._cloudflared_runtime_identity(
+            malformed_alias
+        )
+        != baseline_identity
+    )
+
+
 @pytest.mark.parametrize("environment_kind", ("forward", "recovery"))
 def test_ingress_rollback_rerenders_sealed_baseline_with_exact_environment(
     tmp_path: Path,
@@ -4020,7 +4088,27 @@ def test_ingress_rollback_rerenders_sealed_baseline_with_exact_environment(
             "process_config_sha256": "3" * 64,
             "security": {},
             "mounts": [],
-            "networks": [],
+            "networks": [
+                {
+                    "name": ingress.PUBLIC_INGRESS_NETWORK,
+                    "network_id": "f" * 64,
+                    "driver": "bridge",
+                    "ipam_driver": "default",
+                    "ipam_config": [
+                        {
+                            "Subnet": ingress.PUBLIC_INGRESS_SUBNET,
+                            "Gateway": ingress.PUBLIC_INGRESS_GATEWAY,
+                        }
+                    ],
+                    "internal": False,
+                    "attachable": False,
+                    "ipv4_address": ingress.PUBLIC_INGRESS_CLOUDFLARED_IPV4,
+                    "aliases": [
+                        ingress.CLOUDFLARED_SERVICE,
+                        ingress.CLOUDFLARED_CONTAINER,
+                    ],
+                }
+            ],
         }
     }
     ingress_context = {
@@ -4068,6 +4156,13 @@ def test_ingress_rollback_rerenders_sealed_baseline_with_exact_environment(
         restored = json.loads(json.dumps(baseline))
         restored["container"]["compose_config_files"] = rollback_files
         restored["container"]["compose_input_seals"] = rollback_seals
+        aliases = restored["container"]["networks"][0]["aliases"]
+        restored["container"]["networks"][0]["aliases"] = [
+            aliases[0],
+            aliases[0],
+            aliases[1],
+            aliases[1],
+        ]
         ingress_lane._write_private_json(ingress_lane.baseline_path, restored)
         return restored
 

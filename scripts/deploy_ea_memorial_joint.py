@@ -4390,6 +4390,23 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         baseline: Mapping[str, Any],
     ) -> dict[str, Any]:
         container = dict(baseline.get("container") or {})
+        raw_networks = container.get("networks")
+        if isinstance(raw_networks, list):
+            network_rows: list[object] = []
+            for raw_network in raw_networks:
+                if not isinstance(raw_network, Mapping):
+                    network_rows.append(raw_network)
+                    continue
+                network = dict(raw_network)
+                aliases = network.get("aliases")
+                if isinstance(aliases, list) and all(
+                    isinstance(alias, str) for alias in aliases
+                ):
+                    network["aliases"] = sorted(set(aliases))
+                network_rows.append(network)
+            normalized_networks: object = network_rows
+        else:
+            normalized_networks = raw_networks
         return {
             key: container.get(key)
             for key in (
@@ -4402,9 +4419,8 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 "process_config_sha256",
                 "security",
                 "mounts",
-                "networks",
             )
-        }
+        } | {"networks": normalized_networks}
 
     @staticmethod
     def _validate_ingress_rollback_networks(
