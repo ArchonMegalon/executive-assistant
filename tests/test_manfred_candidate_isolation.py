@@ -17,6 +17,7 @@ import pytest
 from scripts import build_manfred_memorial_image as image_builder
 from scripts import prepare_manfred_memorial_candidate as prepare
 from scripts import run_manfred_memorial_candidate as runner
+from scripts import verify_manfred_memorial_candidate as candidate_verifier
 
 
 PROJECT = "ea-manfred-candidate-20260713-a1b2c3d4"
@@ -26,6 +27,140 @@ EXPECTED_OPENAPI_RETIREMENT_OPERATIONS = [
     "POST /v1/internal/governed-spatial-render/build",
     "POST /v1/internal/governed-spatial-render/compose",
 ]
+
+
+def _first_person_reconstruction_response(
+    *,
+    answer: str = "Verstanden. Ich antworte künftig knapp und direkt.",
+) -> dict[str, object]:
+    return {
+        "mode": "memorial_source_grounded_first_person_reconstruction",
+        "answer": answer,
+        "safety_note": (
+            "Quellengebundene KI-Rekonstruktion in Ich-Perspektive: "
+            "synthetisch gesprochen und nicht der echte Manfred."
+        ),
+        "narrator": {
+            "synthetic": True,
+            "source_grounded": True,
+            "is_memorial_person": False,
+            "speaks_for_memorial_person": False,
+            "perspective": "first_person_reconstruction",
+        },
+    }
+
+
+def test_candidate_accepts_disclosed_first_person_reconstruction() -> None:
+    answer = candidate_verifier._assert_first_person_reconstruction_contract(
+        _first_person_reconstruction_response(),
+        error="invalid",
+    )
+
+    assert answer == "verstanden. ich antworte künftig knapp und direkt."
+
+
+@pytest.mark.parametrize(
+    "claim",
+    [
+        "Ich   bin Manfred.",
+        "Ich heiße Manfred!",
+        "Hier ist Manfred Hoza.",
+        "Du sprichst mit Manfred.",
+        "I’m Manfred.",
+    ],
+)
+def test_candidate_rejects_literal_manfred_identity_claim(claim: str) -> None:
+    with pytest.raises(RuntimeError, match="identity_invalid"):
+        candidate_verifier._assert_first_person_reconstruction_contract(
+            _first_person_reconstruction_response(answer=claim),
+            error="identity_invalid",
+        )
+
+
+def test_candidate_allows_first_person_memory_of_meeting_manfred() -> None:
+    answer = candidate_verifier._assert_first_person_reconstruction_contract(
+        _first_person_reconstruction_response(
+            answer="Ich bin Manfred oft begegnet und erinnere mich an meine Familie."
+        ),
+        error="invalid",
+    )
+
+    assert answer.startswith("ich bin manfred oft begegnet")
+
+
+def test_candidate_accepts_inflected_first_person_possessive() -> None:
+    answer = candidate_verifier._assert_first_person_reconstruction_contract(
+        _first_person_reconstruction_response(
+            answer="Meiner Familie war Zusammenhalt wichtig."
+        ),
+        error="invalid",
+    )
+
+    assert answer.startswith("meiner familie")
+
+
+def test_candidate_rejects_malformed_narrator_metadata() -> None:
+    response = _first_person_reconstruction_response()
+    response["narrator"] = ["synthetic", True]
+
+    with pytest.raises(RuntimeError, match="narrator_invalid"):
+        candidate_verifier._assert_first_person_reconstruction_contract(
+            response,
+            error="narrator_invalid",
+        )
+
+
+@pytest.mark.parametrize(
+    "safety_note",
+    [
+        "Ich-Perspektive, synthetisch gesprochen und nicht der echte Manfred.",
+        "Quellengebundene KI-Rekonstruktion, nicht der echte Manfred.",
+        "Quellengebundene KI-Rekonstruktion in Ich-Perspektive.",
+    ],
+)
+def test_candidate_rejects_incomplete_reconstruction_disclosure(
+    safety_note: str,
+) -> None:
+    response = _first_person_reconstruction_response()
+    response["safety_note"] = safety_note
+
+    with pytest.raises(RuntimeError, match="disclosure_invalid"):
+        candidate_verifier._assert_first_person_reconstruction_contract(
+            response,
+            error="disclosure_invalid",
+        )
+
+
+def test_candidate_rejects_missing_first_person_perspective_metadata() -> None:
+    response = _first_person_reconstruction_response()
+    narrator = dict(response["narrator"])
+    narrator["perspective"] = "third_person_narrator"
+    response["narrator"] = narrator
+
+    with pytest.raises(RuntimeError, match="perspective_invalid"):
+        candidate_verifier._assert_first_person_reconstruction_contract(
+            response,
+            error="perspective_invalid",
+        )
+
+
+def test_candidate_rejects_legacy_third_person_narrator_contract() -> None:
+    response = _first_person_reconstruction_response(
+        answer="Der quellengebundene Gedenkbegleiter antwortet knapp."
+    )
+    response["mode"] = "memorial_source_grounded_narrator"
+    response["narrator"] = {
+        "synthetic": True,
+        "source_grounded": True,
+        "is_memorial_person": False,
+        "speaks_for_memorial_person": False,
+    }
+
+    with pytest.raises(RuntimeError, match="narrator_invalid"):
+        candidate_verifier._assert_first_person_reconstruction_contract(
+            response,
+            error="narrator_invalid",
+        )
 
 
 def _candidate_env(tmp_path: Path) -> tuple[Path, dict[str, str]]:

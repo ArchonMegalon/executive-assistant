@@ -5,9 +5,11 @@ import argparse
 import contextlib
 import json
 import os
+import re
 import shutil
 import tempfile
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -88,6 +90,95 @@ _CONVERSATION_ONLY_ALLOWED_VISIBLE_MARKER_TEXTS = (
     "wenn die seite als app installiert ist, darf sie das mikrofon nach dem "
     "start sofort vorbereiten.",
 )
+
+_FIRST_PERSON_RECONSTRUCTION_MODE = (
+    "memorial_source_grounded_first_person_reconstruction"
+)
+_FIRST_PERSON_RECONSTRUCTION_PATTERN = re.compile(
+    r"\b(?:ich|mir|mich|mein(?:e|em|en|er|es)?)\b"
+)
+_LITERAL_MANFRED_IDENTITY_PATTERNS = (
+    re.compile(
+        r"\bich\s+(?:bin|heisse)\s+"
+        r"(?:(?:wirklich|tatsaechlich)\s+)?"
+        r"(?:(?:der\s+)?echte\s+|der\s+)?"
+        r"manfred(?:\s+hoza)?"
+        r"(?:\s+(?:hier|selbst|persoenlich|am\s+apparat))?"
+        r"(?=$|\s*\||\s+und\b)"
+    ),
+    re.compile(r"\bich\s+manfred(?:\s+hoza)?(?=$|\s*\||\s+und\b)"),
+    re.compile(r"\bals\s+manfred(?:\s+hoza)?\s+selbst\b"),
+    re.compile(
+        r"\bmein\s+name\s+ist\s+manfred(?:\s+hoza)?(?=$|\s*\||\s+und\b)"
+    ),
+    re.compile(
+        r"\bhier\s+(?:ist|spricht)\s+manfred(?:\s+hoza)?"
+        r"(?=$|\s*\||\s+und\b)"
+    ),
+    re.compile(r"\bmanfred(?:\s+hoza)?\s+hier(?=$|\s*\||\s+und\b)"),
+    re.compile(
+        r"\bdu\s+(?:sprichst|redest)\s+(?:(?:gerade|jetzt)\s+)?"
+        r"mit\s+manfred(?:\s+hoza)?\b"
+    ),
+    re.compile(
+        r"\bsie\s+sprechen\s+(?:(?:gerade|jetzt)\s+)?"
+        r"mit\s+manfred(?:\s+hoza)?\b"
+    ),
+    re.compile(
+        r"\bi\s+(?:am|m)\s+(?:really\s+)?manfred(?:\s+hoza)?"
+        r"(?=$|\s*\||\s+and\b)"
+    ),
+    re.compile(
+        r"\bmy\s+name\s+is\s+manfred(?:\s+hoza)?(?=$|\s*\||\s+and\b)"
+    ),
+    re.compile(r"\bthis\s+is\s+manfred(?:\s+hoza)?(?=$|\s*\||\s+and\b)"),
+    re.compile(
+        r"\byou\s+(?:are|re)\s+(?:speaking|talking)\s+"
+        r"(?:with|to)\s+manfred(?:\s+hoza)?\b"
+    ),
+)
+
+
+def _normalized_identity_match_text(value: object) -> str:
+    decomposed = unicodedata.normalize("NFKD", str(value or "").casefold())
+    without_marks = "".join(
+        character for character in decomposed if not unicodedata.combining(character)
+    )
+    with_clause_boundaries = re.sub(r"[.!?;:\n]+", " | ", without_marks)
+    normalized = re.sub(r"[^a-z0-9|]+", " ", with_clause_boundaries)
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def _assert_first_person_reconstruction_contract(
+    payload: dict[str, object],
+    *,
+    error: str,
+) -> str:
+    narrator = payload.get("narrator")
+    answer = str(payload.get("answer") or "").strip().casefold()
+    safety_note = str(payload.get("safety_note") or "").strip().casefold()
+    normalized_answer = _normalized_identity_match_text(answer)
+    if (
+        not isinstance(narrator, dict)
+        or payload.get("mode") != _FIRST_PERSON_RECONSTRUCTION_MODE
+        or narrator.get("synthetic") is not True
+        or narrator.get("source_grounded") is not True
+        or narrator.get("is_memorial_person") is not False
+        or narrator.get("speaks_for_memorial_person") is not False
+        or narrator.get("perspective") != "first_person_reconstruction"
+        or _FIRST_PERSON_RECONSTRUCTION_PATTERN.search(normalized_answer) is None
+        or any(
+            pattern.search(normalized_answer)
+            for pattern in _LITERAL_MANFRED_IDENTITY_PATTERNS
+        )
+        or "ki-rekonstruktion" not in safety_note
+        or "ich-perspektive" not in safety_note
+        or "nicht der echte manfred" not in safety_note
+    ):
+        raise RuntimeError(error)
+    return answer
+
+
 _CANDIDATE_NAVIGATION_ATTRIBUTE_LOCAL_NAMES = {
     "action",
     "formaction",
@@ -1697,23 +1788,32 @@ def verify_candidate(
         base_url,
         "/memorials/manfred/chat",
         method="POST",
-        payload={"question": "Antworte mir künftig knapp und ohne Wiederholungen."},
+        payload={"question": "Was war dir bei deiner Familie wichtig?"},
     )
     narrator = _json_body(narrator_body, path="/memorials/manfred/chat")
-    narrator_contract = dict(narrator.get("narrator") or {})
-    narrator_answer = str(narrator.get("answer") or "").strip().lower()
+    _assert_first_person_reconstruction_contract(
+        narrator,
+        error="candidate_narrator_boundary_invalid",
+    )
+    checks.append("source_grounded_first_person_reconstruction_boundary")
+
+    _status, identity_body, _headers = _request(
+        base_url,
+        "/memorials/manfred/chat",
+        method="POST",
+        payload={"question": "Bist du wirklich Manfred?"},
+    )
+    identity = _json_body(identity_body, path="/memorials/manfred/chat")
+    identity_answer = _assert_first_person_reconstruction_contract(
+        identity,
+        error="candidate_identity_disclosure_invalid",
+    )
     if (
-        narrator.get("mode") != "memorial_source_grounded_narrator"
-        or narrator_contract.get("synthetic") is not True
-        or narrator_contract.get("source_grounded") is not True
-        or narrator_contract.get("is_memorial_person") is not False
-        or narrator_contract.get("speaks_for_memorial_person") is not False
-        or "quellengebundene gedenkbegleiter" not in narrator_answer
-        or "ich antworte" in narrator_answer
-        or "ich bin manfred" in narrator_answer
+        "ki-rekonstruktion" not in identity_answer
+        or "nicht der echte manfred" not in identity_answer
     ):
-        raise RuntimeError("candidate_narrator_boundary_invalid")
-    checks.append("source_grounded_narrator_boundary")
+        raise RuntimeError("candidate_identity_disclosure_invalid")
+    checks.append("synthetic_identity_disclosure_boundary")
 
     _status, blocked_tts_body, _headers = _request(
         base_url,
