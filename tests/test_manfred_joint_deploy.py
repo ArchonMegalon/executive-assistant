@@ -2051,7 +2051,6 @@ def test_signal_between_rollback_components_is_deferred_and_all_restore(
     signum: signal.Signals,
 ) -> None:
     lane, _runner = _lane(tmp_path)
-    _install_successful_compose_detection(lane)
     journal, context = _rollback_authority_context(
         lane,
         tmp_path,
@@ -3449,7 +3448,6 @@ def test_joint_rollback_restores_components_in_order(
     tmp_path: Path,
 ) -> None:
     lane, _runner = _lane(tmp_path)
-    lane_detect_compose = _install_successful_compose_detection(lane)
     journal, context = _rollback_authority_context(
         lane,
         tmp_path,
@@ -3496,10 +3494,56 @@ def test_joint_rollback_restores_components_in_order(
         "rollback_api",
         "restore_network",
     ]
-    lane_detect_compose.assert_not_called()
-    lane.runner.run.assert_called_once()
-    assert lane.runner.run.call_args.args[0] == ["docker", "compose", "version"]
     assert lane._rollback.call_args.args[4] == context["public_origin"]
+
+
+def test_ingress_compose_detection_failure_does_not_skip_api_or_network(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    journal, context = _rollback_authority_context(
+        lane,
+        tmp_path,
+        api_mutation_started=True,
+        ingress_mutation_started=True,
+    )
+    detect_compose = Mock(
+        side_effect=api_deploy.DeployError("docker_compose_unavailable")
+    )
+    monkeypatch.setattr(
+        ingress.PublicIngressReconciliationLane,
+        "_detect_compose",
+        detect_compose,
+    )
+    lane._rollback = Mock(return_value={"status": "pass"})  # type: ignore[method-assign]
+    lane._restore_public_network = Mock(  # type: ignore[method-assign]
+        return_value={"status": "pass", "preexisting": True, "removed": False}
+    )
+    lane._capture_public_edge = Mock()  # type: ignore[method-assign]
+
+    with pytest.raises(
+        api_deploy.DeployError,
+        match="joint_rollback_failed:ingress:docker_compose_unavailable",
+    ):
+        lane._perform_joint_rollback(
+            context=context,
+            api_mutation_started=True,
+            ingress_mutation_started=True,
+            rollback_tag=str(journal["rollback_tag"]),
+        )
+
+    detect_compose.assert_called_once_with()
+    lane._rollback.assert_called_once()
+    lane._restore_public_network.assert_called_once()
+    lane._capture_public_edge.assert_not_called()
+    rollback = dict(lane.receipt["rollback"])
+    assert rollback["ingress"] == {
+        "status": "fail",
+        "reason": "docker_compose_unavailable",
+    }
+    assert rollback["api"]["status"] == "pass"
+    assert rollback["network"]["status"] == "pass"
 
 
 def test_recovery_context_forwards_recorded_public_origin_to_api_rollback(
@@ -3844,7 +3888,6 @@ def test_failed_component_rollback_receipt_preserves_every_component_result(
 ) -> None:
     lane, _runner = _lane(tmp_path)
     _context_value, _actions = _install_success_path(lane, tmp_path)
-    _install_successful_compose_detection(lane)
     lane._verify_forward_cloudflared = Mock(
         side_effect=api_deploy.DeployError("forward_ingress_failed")
     )
@@ -3880,7 +3923,6 @@ def test_second_interruption_during_rollback_does_not_skip_other_components(
     tmp_path: Path,
 ) -> None:
     lane, _runner = _lane(tmp_path)
-    _install_successful_compose_detection(lane)
     journal, context = _rollback_authority_context(
         lane,
         tmp_path,
@@ -4000,8 +4042,17 @@ def test_ingress_rollback_rerenders_sealed_baseline_with_exact_environment(
         )
     lane._revalidate_ingress_input_seals = Mock()  # type: ignore[method-assign]
     lane._validate_ingress_rollback_networks = Mock()  # type: ignore[method-assign]
+    rollback_steps: list[str] = []
+    ingress_lane._detect_compose = Mock(  # type: ignore[method-assign]
+        side_effect=lambda: rollback_steps.append("detect_compose")
+    )
+
+    def render_rollback(**_kwargs: object) -> tuple[dict[str, object], list[object]]:
+        rollback_steps.append("render_compose")
+        return rendered, rollback_seals
+
     ingress_lane._render_compose = Mock(  # type: ignore[method-assign]
-        return_value=(rendered, rollback_seals)
+        side_effect=render_rollback
     )
     ingress_lane._compose_args = Mock(return_value=["docker", "compose"])  # type: ignore[method-assign]
     observed_environments: list[dict[str, str]] = []
@@ -4027,6 +4078,8 @@ def test_ingress_rollback_rerenders_sealed_baseline_with_exact_environment(
     result = lane._rollback_cloudflared(ingress_context)
 
     assert result["status"] == "pass"
+    assert rollback_steps == ["detect_compose", "render_compose"]
+    ingress_lane._detect_compose.assert_called_once_with()
     if environment_kind == "forward":
         expected_environment = {
             **ingress_lane.release_env,
@@ -4055,6 +4108,7 @@ def test_rollback_overlay_change_after_render_blocks_before_compose(
     context = _recovery_context(lane, tmp_path)
     ingress_context = context["ingress"]
     ingress_lane = ingress_context["lane"]
+    ingress_lane._detect_compose = Mock()  # type: ignore[method-assign]
     rollback_projection = ingress_context["rollback_render_projection"]
     rendered = {
         "services": {ingress.CLOUDFLARED_SERVICE: rollback_projection["service"]},

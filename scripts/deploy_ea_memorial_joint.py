@@ -5029,6 +5029,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         ingress = ingress_context["lane"]
         if not isinstance(ingress, PublicIngressReconciliationLane):
             raise DeployError("joint_ingress_lane_invalid")
+        ingress._detect_compose()
         self._revalidate_ingress_input_seals(
             list(ingress_context["rollback_input_seals"])
         )
@@ -5265,8 +5266,6 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                     self._remaining_mutation_action_seconds
                 )
                 try:
-                    if ingress_mutation_started:
-                        ingress_lane._detect_compose()
                     result = self._perform_joint_rollback_components(
                         context=authoritative_context,
                         api_mutation_started=api_mutation_started,
