@@ -264,6 +264,76 @@ def test_bind_read_only_must_be_a_boolean(
         )
 
 
+def test_compose_omitted_read_only_is_writable_default(tmp_path: Path) -> None:
+    release, _source, _runner = _release_tree(tmp_path)
+    external = tmp_path / "external-data"
+    external.mkdir(mode=0o770)
+    external.chmod(0o770)
+    rendered = _rendered(external, read_only=False, target="/data/external")
+    del rendered["services"]["ea-api"]["volumes"][0]["read_only"]
+
+    receipt = guard.validate_memorial_bind_sources(
+        rendered,
+        service="ea-api",
+        release_root=release,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["mounts"][0]["read_only"] is False
+
+
+def test_compose_omitted_read_only_rejects_release_mount(tmp_path: Path) -> None:
+    release, source, _runner = _release_tree(tmp_path)
+    rendered = _rendered(source)
+    del rendered["services"]["ea-api"]["volumes"][0]["read_only"]
+
+    with pytest.raises(
+        guard.BindSourceGuardError,
+        match="bind_source_release_mount_must_be_read_only",
+    ):
+        guard.validate_memorial_bind_sources(
+            rendered,
+            service="ea-api",
+            release_root=release,
+        )
+
+
+def test_private_external_directory_uses_inode_bound_opath_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    release, _release_source, _runner = _release_tree(tmp_path)
+    source = tmp_path / "private-runtime"
+    source.mkdir(mode=0o770)
+    source.chmod(0o770)
+    real_open = guard.os.open
+    fallback_used = False
+
+    def restricted_open(
+        path: str | bytes | os.PathLike[str],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        nonlocal fallback_used
+        if path == source.name and flags & os.O_DIRECTORY and not flags & os.O_PATH:
+            raise PermissionError(13, "runtime uid owns private directory")
+        if path == source.name and flags & os.O_PATH:
+            fallback_used = True
+        return real_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(guard.os, "open", restricted_open)
+    receipt = guard.validate_memorial_bind_sources(
+        _rendered(source, read_only=False, target="/data/private-runtime"),
+        service="ea-api",
+        release_root=release,
+    )
+
+    assert fallback_used is True
+    assert receipt["status"] == "pass"
+    assert receipt["mounts"][0]["scope"] == "root_inode"
+
+
 @pytest.mark.parametrize(
     "target",
     [

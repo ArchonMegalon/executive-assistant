@@ -163,6 +163,39 @@ def _reject_access_acl(descriptor: int) -> None:
     try:
         acl = os.getxattr(descriptor, "system.posix_acl_access")
     except OSError as exc:
+        if exc.errno == errno.EBADF:
+            # Linux deliberately rejects fgetxattr(2) on O_PATH descriptors.
+            # /proc/self/fd binds the lookup to the already-open, no-follow
+            # descriptor instead of repeating the operator-controlled source
+            # pathname.  Any unavailable or mismatched procfs projection is a
+            # fail-closed ACL status failure below.
+            proc_descriptor_path = f"/proc/self/fd/{descriptor}"
+            try:
+                before = os.fstat(descriptor)
+                projected = os.stat(proc_descriptor_path)
+                if _inode_identity(before) != _inode_identity(projected):
+                    raise BindSourceGuardError("bind_source_acl_status_unavailable")
+                acl = os.getxattr(
+                    proc_descriptor_path,
+                    "system.posix_acl_access",
+                )
+                if _inode_identity(before) != _inode_identity(os.fstat(descriptor)):
+                    raise BindSourceGuardError("bind_source_acl_status_unavailable")
+            except BindSourceGuardError:
+                raise
+            except OSError as proc_exc:
+                if proc_exc.errno in {
+                    errno.ENODATA,
+                    errno.ENOTSUP,
+                    errno.EOPNOTSUPP,
+                }:
+                    return
+                raise BindSourceGuardError(
+                    "bind_source_acl_status_unavailable"
+                ) from proc_exc
+            if acl:
+                raise BindSourceGuardError("bind_source_posix_acl_unsupported")
+            return
         if exc.errno in {errno.ENODATA, errno.ENOTSUP, errno.EOPNOTSUPP}:
             return
         raise BindSourceGuardError("bind_source_acl_status_unavailable") from exc
@@ -203,7 +236,20 @@ def _open_source(path: Path) -> tuple[int, os.stat_result, str]:
             flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
         else:
             raise BindSourceGuardError("bind_source_type_invalid")
-        descriptor = os.open(path.name, flags, dir_fd=parent_descriptor)
+        try:
+            descriptor = os.open(path.name, flags, dir_fd=parent_descriptor)
+        except PermissionError:
+            if kind != "directory":
+                raise
+            # Mutable runtime directories are intentionally private to the
+            # numeric container uid.  O_PATH obtains an exact no-follow inode
+            # handle without granting the operator read access; the modeled
+            # uid/gid mode check below remains the access authority.
+            descriptor = os.open(
+                path.name,
+                os.O_PATH | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+                dir_fd=parent_descriptor,
+            )
         opened = os.fstat(descriptor)
         if _inode_identity(initial) != _inode_identity(opened):
             raise BindSourceGuardError("bind_source_changed_during_open")
@@ -393,7 +439,16 @@ def _validate_memorial_bind_sources(
             or target in targets
         ):
             raise BindSourceGuardError("memorial_api_bind_mount_invalid")
-        if type(raw_mount.get("read_only")) is not bool:
+        if "read_only" not in raw_mount:
+            # Docker Compose's canonical JSON omits false-valued read_only
+            # fields, including when the source YAML explicitly spells out
+            # ``read_only: false``.  Absence therefore has the unambiguous
+            # Compose meaning of a writable mount.  A present value remains
+            # strictly typed so nulls and truthy lookalikes fail closed.
+            read_only = False
+        elif type(raw_mount["read_only"]) is bool:
+            read_only = raw_mount["read_only"]
+        else:
             raise BindSourceGuardError("memorial_api_bind_read_only_invalid")
         targets.add(target)
         source = Path(source_value)
@@ -405,7 +460,6 @@ def _validate_memorial_bind_sources(
         identities: list[dict[str, object]] = []
         try:
             under_release = _is_within(source, release_root)
-            read_only = raw_mount["read_only"]
             stable_identity = (
                 _metadata_identity(metadata)
                 if under_release
