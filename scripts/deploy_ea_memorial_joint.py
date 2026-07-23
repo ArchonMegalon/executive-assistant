@@ -5659,7 +5659,8 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             )
             self._verify_non_memorial_controls(
                 dict(context["non_memorial_controls"]),
-                internal_openapi=True,
+                public_origin=str(context["public_origin"]),
+                expected_source_revision=str(context["source_revision"]),
             )
             self.receipt["joint_local_api_proof"] = {
                 "probes": local_probes,

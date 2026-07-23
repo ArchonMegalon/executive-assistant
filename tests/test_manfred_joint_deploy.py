@@ -1876,7 +1876,7 @@ def test_happy_path_orders_api_local_proof_before_ingress_and_public_proof(
     tmp_path: Path,
 ) -> None:
     lane, runner = _lane(tmp_path)
-    _context_value, actions = _install_success_path(lane, tmp_path)
+    context_value, actions = _install_success_path(lane, tmp_path)
 
     receipt = lane.deploy()
 
@@ -1896,7 +1896,11 @@ def test_happy_path_orders_api_local_proof_before_ingress_and_public_proof(
         call(boundary="before_recreate_api"),
         call(boundary="before_recreate_api"),
     ]
-    lane._verify_non_memorial_controls.assert_called_once()
+    lane._verify_non_memorial_controls.assert_called_once_with(
+        dict(context_value["non_memorial_controls"]),
+        public_origin=ORIGIN,
+        expected_source_revision=SOURCE_REVISION,
+    )
     lane._verify_local_https_redirects.assert_called_once_with(
         "http://127.0.0.1:8090",
         ORIGIN,
