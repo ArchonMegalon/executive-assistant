@@ -140,6 +140,7 @@ def test_scene_less_released_viewer_keeps_opaque_origin_sandbox() -> None:
     )
 
     assert 'data-media-state="released"' in source
+    assert '<link rel="icon" href="data:,">' in source
     assert "Released interactive reconstruction" in source
     assert 'id="generated-tour-viewer"' in source
     assert 'title="Reviewed Vienna apartment interactive generated 3D reconstruction"' in source
