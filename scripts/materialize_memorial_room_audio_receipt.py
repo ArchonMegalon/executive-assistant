@@ -20,6 +20,7 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
 
 try:
     from scripts.manfred_voice_review_client_auth import (
+        REVIEW_HTTP_USER_AGENT,
         ReviewSessionClientAuth,
         ReviewSessionError,
         load_review_session_auth,
@@ -27,6 +28,7 @@ try:
     )
 except ModuleNotFoundError:  # pragma: no cover - script execution path
     from manfred_voice_review_client_auth import (  # type: ignore[no-redef]
+        REVIEW_HTTP_USER_AGENT,
         ReviewSessionClientAuth,
         ReviewSessionError,
         load_review_session_auth,
@@ -190,6 +192,7 @@ def _probe_runtime_source_revision(
     try:
         headers = dict(request_headers or {})
         headers["Accept"] = "application/json"
+        headers["User-Agent"] = REVIEW_HTTP_USER_AGENT
         request = Request(endpoint, headers=headers, method="GET")
         opener = build_opener(_SameOriginRedirectHandler(expected_origin))
         with opener.open(request, timeout=RUNTIME_SOURCE_REVISION_TIMEOUT_SECONDS) as response:

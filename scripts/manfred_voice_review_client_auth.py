@@ -22,6 +22,7 @@ REVIEW_PURPOSE = "manfred_voice_review"
 REVIEW_SLUG = "manfred"
 REVIEW_REQUIRED_SCOPES = frozenset({"page", "warmup", "readiness", "realtime"})
 REVIEW_ALLOWED_PUBLIC_ORIGINS = frozenset({"https://myexternalbrain.com"})
+REVIEW_HTTP_USER_AGENT = "EA-Memorial-Review-Client/1.0"
 MAX_TOKEN_BYTES = 4096
 MIN_REMAINING_LIFETIME_SECONDS = 180
 MAX_REMAINING_LIFETIME_SECONDS = 1800
@@ -335,6 +336,7 @@ def open_review_request(
         or _https_url_origin(request.full_url) != origin
     ):
         raise ReviewSessionError("review_session_request_origin_invalid")
+    request.add_header("User-Agent", REVIEW_HTTP_USER_AGENT)
     opener = build_opener(_SameOriginReviewRedirectHandler(origin))
     response = opener.open(request, timeout=timeout)
     try:

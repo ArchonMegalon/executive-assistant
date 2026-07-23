@@ -16,6 +16,7 @@ try:
     from scripts.manfred_voice_review_client_auth import (
         REVIEW_ALLOWED_PUBLIC_ORIGINS,
         REVIEW_COOKIE_NAME,
+        REVIEW_HTTP_USER_AGENT,
         REVIEW_SLUG,
         ReviewSessionError,
         normalized_https_origin,
@@ -26,6 +27,7 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
     from manfred_voice_review_client_auth import (  # type: ignore[no-redef]
         REVIEW_ALLOWED_PUBLIC_ORIGINS,
         REVIEW_COOKIE_NAME,
+        REVIEW_HTTP_USER_AGENT,
         REVIEW_SLUG,
         ReviewSessionError,
         normalized_https_origin,
@@ -36,7 +38,7 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
 
 MAX_REVIEW_URL_BYTES = 8192
 EXCHANGE_PATH = "/admin/memorials/manfred/voice-review"
-REVIEW_EXCHANGE_USER_AGENT = "EA-Memorial-Review-Client/1.0"
+REVIEW_EXCHANGE_USER_AGENT = REVIEW_HTTP_USER_AGENT
 
 
 def _origin_from_url(value: object) -> str:

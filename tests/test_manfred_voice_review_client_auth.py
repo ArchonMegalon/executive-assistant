@@ -445,6 +445,9 @@ def test_review_request_allows_same_origin_endpoint_redirect(
 
         def open(self, request, timeout):  # type: ignore[no-untyped-def]
             assert timeout == 2.0
+            assert request.get_header("User-agent") == (
+                review_auth.REVIEW_HTTP_USER_AGENT
+            )
             redirected = self.handler.redirect_request(
                 request,
                 None,
@@ -465,6 +468,7 @@ def test_review_request_allows_same_origin_endpoint_redirect(
         headers={
             "Cookie": f"{review_auth.REVIEW_COOKIE_NAME}={token}",
             "Origin": ORIGIN,
+            "User-Agent": "blocked-client",
         },
     )
 
@@ -480,6 +484,9 @@ def test_review_request_allows_same_origin_endpoint_redirect(
     assert len(redirected_requests) == 1
     assert redirected_requests[0].get_header("Cookie") == (
         f"{review_auth.REVIEW_COOKIE_NAME}={token}"
+    )
+    assert redirected_requests[0].get_header("User-agent") == (
+        review_auth.REVIEW_HTTP_USER_AGENT
     )
     response.close()
     assert response.closed is True

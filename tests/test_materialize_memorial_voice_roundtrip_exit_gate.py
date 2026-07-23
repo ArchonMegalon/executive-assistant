@@ -43,6 +43,67 @@ def test_materialize_memorial_voice_roundtrip_has_validator_dependency() -> None
     assert materializer.voice_loop.validate_memorial_voice_loop.__module__ == "scripts.validate_memorial_voice_loop"
 
 
+def test_runtime_revision_probe_identifies_initial_and_redirected_requests(
+    monkeypatch,
+) -> None:
+    import scripts.materialize_memorial_voice_roundtrip_exit_gate as materializer
+
+    revision = "a" * 40
+    observed_user_agents: list[str | None] = []
+
+    class Response:
+        headers = {materializer.RUNTIME_SOURCE_REVISION_HEADER: revision}
+
+        def geturl(self) -> str:
+            return "https://myexternalbrain.com/memorials/manfred.json"
+
+        def getcode(self) -> int:
+            return 200
+
+        def read(self, _size: int) -> bytes:
+            return b"{}"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+    class Opener:
+        def __init__(self, handler) -> None:
+            self.handler = handler
+
+        def open(self, request, timeout):  # type: ignore[no-untyped-def]
+            assert timeout == materializer.RUNTIME_SOURCE_REVISION_TIMEOUT_SECONDS
+            observed_user_agents.append(request.get_header("User-agent"))
+            redirected = self.handler.redirect_request(
+                request,
+                None,
+                307,
+                "Temporary Redirect",
+                {},
+                "/memorials/manfred.json",
+            )
+            observed_user_agents.append(redirected.get_header("User-agent"))
+            return Response()
+
+    monkeypatch.setattr(
+        materializer,
+        "build_opener",
+        lambda handler: Opener(handler),
+    )
+
+    assert materializer._probe_runtime_source_revision(
+        base_url="https://myexternalbrain.com",
+        slug="manfred",
+        request_headers={"User-Agent": "blocked-client"},
+    ) == (revision, None)
+    assert observed_user_agents == [
+        materializer.REVIEW_HTTP_USER_AGENT,
+        materializer.REVIEW_HTTP_USER_AGENT,
+    ]
+
+
 def test_private_review_roundtrip_propagates_auth_but_receipt_exposes_only_safe_binding(
     monkeypatch,
     tmp_path: Path,
