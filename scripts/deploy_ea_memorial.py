@@ -4153,9 +4153,7 @@ class MemorialDeployLane:
                         f"forward_baseline_compose_file_unmappable:{prior_file.name}"
                     )
                 external_layer_names.append(prior_file.name)
-        if TRUSTED_EXTERNAL_BRIDGE_ONLY_LAYERS.intersection(
-            path.name for path in prior_files
-        ):
+        if TRUSTED_EXTERNAL_BRIDGE_ONLY_LAYERS.intersection(external_layer_names):
             bridge = self._validate_trusted_external_topology_bridge(
                 previous=previous,
                 prior_root=prior_root,
@@ -4192,6 +4190,13 @@ class MemorialDeployLane:
         prior_memorial_layer_replaced = False
         prior_normalization_layer_dropped = False
         external_layer_names = []
+        memorial_path = self.root / MEMORIAL_COMPOSE_FILE
+        try:
+            self._deployment_input_file_seal(memorial_path)
+        except DeployError as exc:
+            raise DeployError(
+                f"forward_memorial_compose_file_invalid:{memorial_path.name}"
+            ) from exc
         for prior_file in prior_files:
             try:
                 relative = prior_file.relative_to(prior_root)
@@ -4215,6 +4220,7 @@ class MemorialDeployLane:
                 if relative_name != MEMORIAL_COMPOSE_FILE:
                     raise DeployError("forward_baseline_memorial_path_invalid")
                 prior_memorial_layer_replaced = True
+                release_files.append(MEMORIAL_COMPOSE_FILE)
                 continue
             release_file = self.root / Path(relative_name)
             try:
@@ -4231,14 +4237,8 @@ class MemorialDeployLane:
                 ) from exc
             release_files.append(relative_name)
 
-        memorial_path = self.root / MEMORIAL_COMPOSE_FILE
-        try:
-            self._deployment_input_file_seal(memorial_path)
-        except DeployError as exc:
-            raise DeployError(
-                f"forward_memorial_compose_file_invalid:{memorial_path.name}"
-            ) from exc
-        release_files.append(MEMORIAL_COMPOSE_FILE)
+        if not prior_memorial_layer_replaced:
+            release_files.append(MEMORIAL_COMPOSE_FILE)
         self.target_compose_files = tuple(release_files)
         self.release_env["EA_DEPLOY_COMPOSE_FILES"] = ",".join(release_files)
         self.receipt["target_compose_files"] = release_files

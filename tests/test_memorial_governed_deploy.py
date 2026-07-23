@@ -5139,6 +5139,58 @@ def test_forward_topology_rebases_ordered_baseline_layers_into_release_root(
     ]
 
 
+def test_forward_topology_rebases_canonical_five_layer_release_in_place(
+    release_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    expected_layers = list(deploy.TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER)
+    for index, filename in enumerate(expected_layers):
+        (release_root / filename).write_text(
+            f"services: {{}}\n# canonical-layer-{index}\n",
+            encoding="utf-8",
+        )
+    runner = FakeRunner(
+        release_root,
+        baseline_root=release_root,
+        baseline_files=tuple(expected_layers),
+    )
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    receipt = _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert receipt["status"] == "preflight_only_pass"
+    assert receipt["target_compose_files"] == expected_layers
+    topology = receipt["forward_topology_source"]
+    assert topology["working_dir"] == str(release_root)
+    assert topology["compose_config_files"] == [
+        str(release_root / filename) for filename in expected_layers
+    ]
+    assert topology["mapping"] == (
+        "recognized_layers_rebased_to_release_root_"
+        "with_current_memorial_layer_without_external_byte_reads"
+    )
+    assert topology["prior_memorial_layer_replaced"] is True
+    assert topology["external_layer_basenames"] == []
+    assert "trusted_external_bridge" not in topology
+    config_call = [call for call in runner.calls if call[-2:] == ["config", "--quiet"]][
+        0
+    ]
+    configured_layers = [
+        Path(config_call[index + 1]).name
+        for index, item in enumerate(config_call[:-1])
+        if item == "-f"
+    ]
+    assert configured_layers == expected_layers
+    assert config_call.count(str(release_root / deploy.MEMORIAL_COMPOSE_FILE)) == 1
+    assert receipt["rollback_compose_files"] == [
+        "memorial-release-001.rollback-capsule.compose.json"
+    ]
+    assert not any("up" in call for call in runner.calls)
+
+
 def test_existing_memorial_baseline_is_replaced_for_governed_update(
     release_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
