@@ -145,6 +145,9 @@ PUBLIC_SPATIAL_JAVASCRIPT_RELPATHS = (
     "generated-reconstruction/vendor/three.module.js",
     "generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js",
 )
+PUBLIC_SPATIAL_DIGEST_ONLY_LABELS = frozenset(
+    {"floorplan", "three_module", "orbit_controls"}
+)
 PUBLIC_SPATIAL_ALLOWED_FILE_RELPATHS = (
     "tour.json",
     PUBLIC_SPATIAL_VIEWER_RELPATH,
@@ -10226,7 +10229,10 @@ class MemorialDeployLane:
                     raise DeployError(f"public_spatial_redirect_rejected:{path}")
                 if response.status != expected_status:
                     raise DeployError(f"public_spatial_status_invalid:{path}")
-                if response.source_revision != source_revision:
+                if (
+                    label not in PUBLIC_SPATIAL_DIGEST_ONLY_LABELS
+                    and response.source_revision != source_revision
+                ):
                     raise DeployError(f"public_spatial_source_revision_mismatch:{path}")
                 media_type = response.content_type.partition(";")[0].strip().lower()
                 if media_type not in media_types:

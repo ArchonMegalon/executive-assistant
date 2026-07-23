@@ -276,11 +276,18 @@ def _public_spatial_response(
         status = status_overrides[path]
     if path == "/version" and method == "HEAD":
         status = 405
+    digest_only_paths = {
+        f"{viewer_root}/{deploy.PUBLIC_SPATIAL_FLOORPLAN_RELPATH}",
+        *(
+            f"{viewer_root}/{relpath}"
+            for relpath in deploy.PUBLIC_SPATIAL_JAVASCRIPT_RELPATHS
+        ),
+    }
     return deploy.HttpResponse(
         status,
         content_type,
         b"" if method == "HEAD" else body,
-        source_revision,
+        "" if path in digest_only_paths else source_revision,
         headers={},
     )
 
@@ -5633,6 +5640,9 @@ def test_deployed_surface_probes_canonical_and_singular_alias_origins(
             *base_route_fields,
             "candidate_file_identity_verified",
         }
+    for label in ("floorplan", "three_module", "orbit_controls"):
+        assert spatial["routes"][f"{label}_get"]["source_revision"] == ""
+        assert spatial["routes"][f"{label}_head"]["source_revision"] == ""
     assert set(spatial["routes"]["proof_only_get"]) == {
         *base_route_fields,
         "candidate_file_not_disclosed",
