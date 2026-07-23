@@ -14,8 +14,10 @@ started, rollback proceeds under its own strict deadline.
 from __future__ import annotations
 
 import argparse
+import errno
 import hashlib
 import ipaddress
+import itertools
 import json
 import math
 import os
@@ -37,6 +39,8 @@ try:
     from scripts.deploy_ea_memorial import (
         API_SERVICE,
         MAX_HTTP_BODY_BYTES,
+        MAX_RECEIPT_CONTENT_TYPE_CHARS,
+        PROJECT_NAME,
         DeployError,
         HttpResponse,
         MemorialDeployLane,
@@ -70,6 +74,8 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
     from deploy_ea_memorial import (  # type: ignore[no-redef]
         API_SERVICE,
         MAX_HTTP_BODY_BYTES,
+        MAX_RECEIPT_CONTENT_TYPE_CHARS,
+        PROJECT_NAME,
         DeployError,
         HttpResponse,
         MemorialDeployLane,
@@ -113,9 +119,7 @@ JOINT_RECOVERY_JOURNAL_CONTRACT_NAME = "ea.memorial_joint_recovery_journal.v3"
 JOINT_RECOVERY_JOURNAL_VERSION = 3
 JOINT_RECOVERY_JOURNAL_FILENAME = "joint-active-recovery.json"
 JOINT_RECOVERY_STATE_DIRECTORY = ".ea-memorial-deploy-state"
-INGRESS_ROLLBACK_OVERLAY_CONTRACT_NAME = (
-    "ea.memorial_ingress_rollback_overlay.v1"
-)
+INGRESS_ROLLBACK_OVERLAY_CONTRACT_NAME = "ea.memorial_ingress_rollback_overlay.v1"
 INGRESS_ROLLBACK_OVERLAY_SUFFIX = "rollback-network-normalization.yml"
 MAX_INGRESS_ROLLBACK_OVERLAY_BYTES = 64 * 1024
 JOINT_DEPLOY_OPERATOR_ANCHOR = Path("/docker/EA")
@@ -127,6 +131,18 @@ INGRESS_ROLLBACK_ENV_KEYS = frozenset(
         "EA_PUBLIC_INGRESS_NETWORK_NAME",
         "EA_PUBLIC_INGRESS_SUBNET",
     }
+)
+RECOVERY_INGRESS_API_INTERPOLATION_ENV_KEYS = frozenset(
+    {
+        "EA_MEMORIAL_DATA_HOST_PATH",
+        "EA_MEMORIAL_IMAGE",
+        "EA_MEMORIAL_RUNTIME_HOST_PATH",
+        "EA_MEMORIAL_TRUSTED_PROXY_CIDRS",
+    }
+)
+RECOVERY_INGRESS_INERT_DATA_HOST_PATH = Path("/dev/null/ea-memorial-recovery-data")
+RECOVERY_INGRESS_INERT_RUNTIME_HOST_PATH = Path(
+    "/dev/null/ea-memorial-recovery-runtime"
 )
 INGRESS_ROLLBACK_NETWORK_SHAPES = (
     frozenset({"default"}),
@@ -143,6 +159,20 @@ DOCKER_TRANSPORT_ENV_KEYS = frozenset(
     }
 )
 MAX_JOINT_RECOVERY_JOURNAL_BYTES = 8 * 1024 * 1024
+LEGACY_SPATIAL_MANIFEST_ORDER_VARIANT_KEYS = (
+    "creation_mode",
+    "display_title",
+    "scene_strategy",
+    "slug",
+)
+LEGACY_SPATIAL_MANIFEST_FIXED_SUFFIX_KEYS = (
+    "tour_privacy_mode",
+    "facts",
+    "brief",
+    "scenes",
+    "public_assets",
+    "generated_viewer",
+)
 JOINT_RECOVERY_PHASES = frozenset(
     {
         "prepared",
@@ -380,6 +410,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         self.rollback_deadline_seconds = rollback_deadline_seconds
         self._joint_rollback_deadline: float | None = None
         self._recovery_local_origin: str | None = None
+        self._active_joint_rollback_authority: dict[str, Any] | None = None
         self.ingress_receipt_dir = (
             ingress_receipt_dir.resolve()
             if ingress_receipt_dir is not None
@@ -394,9 +425,8 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 account_home = Path(pwd.getpwuid(operator_uid).pw_dir)
             except (KeyError, OSError) as exc:
                 raise DeployError("joint_recovery_account_home_unavailable") from exc
-            if (
-                not stat.S_ISDIR(operator_anchor.st_mode)
-                or stat.S_ISLNK(operator_anchor.st_mode)
+            if not stat.S_ISDIR(operator_anchor.st_mode) or stat.S_ISLNK(
+                operator_anchor.st_mode
             ):
                 raise DeployError("joint_recovery_operator_anchor_invalid")
             if os.geteuid() != operator_uid:
@@ -716,13 +746,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             f".{self.recovery_journal_path.name}.tmp.{os.getpid()}."
             f"{os.urandom(12).hex()}"
         )
-        file_flags = (
-            os.O_WRONLY
-            | os.O_CREAT
-            | os.O_EXCL
-            | os.O_CLOEXEC
-            | os.O_NOFOLLOW
-        )
+        file_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW
         directory_descriptor = -1
         descriptor = -1
         temporary_created = False
@@ -898,9 +922,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
     ) -> dict[str, object]:
         directory_descriptor = -1
         try:
-            directory_descriptor = self._open_recovery_journal_directory(
-                create=False
-            )
+            directory_descriptor = self._open_recovery_journal_directory(create=False)
         except FileNotFoundError as exc:
             raise DeployError(
                 "joint_committed_cleanup_state_directory_missing"
@@ -909,13 +931,10 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             directory_identity = self._recovery_state_directory_identity(
                 directory_descriptor
             )
-            if (
-                expected_directory_identity is not None
-                and directory_identity != dict(expected_directory_identity)
+            if expected_directory_identity is not None and directory_identity != dict(
+                expected_directory_identity
             ):
-                raise DeployError(
-                    "joint_committed_cleanup_state_directory_changed"
-                )
+                raise DeployError("joint_committed_cleanup_state_directory_changed")
             try:
                 os.stat(
                     self.recovery_journal_path.name,
@@ -927,9 +946,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                     directory_descriptor
                 )
                 if final_identity != directory_identity:
-                    raise DeployError(
-                        "joint_committed_cleanup_state_directory_changed"
-                    )
+                    raise DeployError("joint_committed_cleanup_state_directory_changed")
                 return final_identity
             except OSError as exc:
                 raise DeployError(
@@ -1060,17 +1077,13 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             "source_revision": str(context.get("source_revision") or ""),
             "public_origin": str(context.get("public_origin") or ""),
             "api_local_origin": str(context.get("api_local_origin") or ""),
-            "docker_daemon_identity": dict(
-                context.get("docker_daemon_identity") or {}
-            ),
+            "docker_daemon_identity": dict(context.get("docker_daemon_identity") or {}),
             "rollback_tag": rollback_tag,
             "rollback_context": {
                 "previous": dict(context.get("previous") or {}),
                 "non_memorial_controls": {
                     "openapi": dict(
-                        dict(context.get("non_memorial_controls") or {}).get(
-                            "openapi"
-                        )
+                        dict(context.get("non_memorial_controls") or {}).get("openapi")
                         or {}
                     )
                 },
@@ -1108,8 +1121,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                         ingress_context.get("rollback_overlay") or {}
                     ),
                     "rollback_interpolation_environment": dict(
-                        ingress_context.get("rollback_interpolation_environment")
-                        or {}
+                        ingress_context.get("rollback_interpolation_environment") or {}
                     ),
                     "rollback_render_projection": dict(
                         ingress_context.get("rollback_render_projection") or {}
@@ -1146,9 +1158,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         return bool(
             isinstance(value, str)
             and len(value) in lengths
-            and all(
-                character in "0123456789abcdef" for character in value
-            )
+            and all(character in "0123456789abcdef" for character in value)
         )
 
     @staticmethod
@@ -1253,15 +1263,15 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             and type(security_payload.get("memory")) is int
             and int(security_payload["memory"]) > 0
             and type(security_payload.get("memory_reservation")) is int
-            and 0 < int(security_payload["memory_reservation"])
+            and 0
+            < int(security_payload["memory_reservation"])
             <= int(security_payload["memory"])
             and type(security_payload.get("pids_limit")) is int
             and int(security_payload["pids_limit"]) > 0
             and security_payload.get("privileged") is False
             and type(security_payload.get("read_only")) is bool
             and security_payload.get("restart") == "unless-stopped"
-            and security_payload.get("security_opt")
-            == ["no-new-privileges"]
+            and security_payload.get("security_opt") == ["no-new-privileges"]
         )
 
         def valid_cloudflared_network_row(raw_row: object) -> bool:
@@ -1299,8 +1309,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 )
                 or not isinstance(row.get("ipv4_address"), str)
                 or not isinstance(aliases, list)
-                or aliases
-                != sorted([CLOUDFLARED_CONTAINER, CLOUDFLARED_SERVICE])
+                or aliases != sorted([CLOUDFLARED_CONTAINER, CLOUDFLARED_SERVICE])
             ):
                 return False
             try:
@@ -1346,16 +1355,14 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             or not isinstance(container.get("compose_input_seals"), list)
             or not container["compose_input_seals"]
             or not all(
-                isinstance(item, Mapping)
-                for item in container["compose_input_seals"]
+                isinstance(item, Mapping) for item in container["compose_input_seals"]
             )
             or any(
                 dict(item) not in ingress_payload["rollback_input_seals"]
                 for item in container["compose_input_seals"]
             )
             or not isinstance(environment_identity, Mapping)
-            or set(environment_identity)
-            != {"environment_sha256", "environment_count"}
+            or set(environment_identity) != {"environment_sha256", "environment_count"}
             or not self._recovery_hex(
                 dict(environment_identity).get("environment_sha256")
             )
@@ -1495,6 +1502,478 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             ):
                 raise DeployError("joint_recovery_public_edge_baseline_invalid")
 
+    def _validated_joint_recovery_previous_api(
+        self,
+        value: object,
+    ) -> dict[str, Any]:
+        previous = dict(value) if isinstance(value, dict) else {}
+        expected_keys = {
+            "compose_config_files",
+            "container_id",
+            "created_at",
+            "environment_count",
+            "environment_sha256",
+            "functional_identity",
+            "image_id",
+            "image_reference",
+            "mount_identities",
+            "mount_identity_count",
+            "mount_identity_sha256",
+            "noncompose_labels",
+            "process_config_sha256",
+            "rollback_capsule_document",
+            "source_revision",
+            "state",
+            "working_dir",
+        }
+        raw_compose_files = previous.get("compose_config_files")
+        compose_files = (
+            list(raw_compose_files) if isinstance(raw_compose_files, list) else []
+        )
+        raw_mount_identities = previous.get("mount_identities")
+        mount_identities = (
+            [dict(item) for item in raw_mount_identities]
+            if isinstance(raw_mount_identities, list)
+            and all(isinstance(item, dict) for item in raw_mount_identities)
+            else []
+        )
+        raw_noncompose_labels = previous.get("noncompose_labels")
+        noncompose_labels = (
+            dict(raw_noncompose_labels)
+            if isinstance(raw_noncompose_labels, dict)
+            else {}
+        )
+        state_value = previous.get("state")
+        state = dict(state_value) if isinstance(state_value, dict) else {}
+        rollback_capsule_document = previous.get("rollback_capsule_document")
+        if (
+            set(previous) != expected_keys
+            or not self._recovery_hex(previous.get("container_id"))
+            or not isinstance(previous.get("created_at"), str)
+            or not 1 <= len(str(previous["created_at"])) <= 128
+            or not isinstance(raw_compose_files, list)
+            or not compose_files
+            or not all(isinstance(item, str) for item in compose_files)
+            or len(set(compose_files)) != len(compose_files)
+            or not str(previous.get("image_id") or "").startswith("sha256:")
+            or not self._recovery_hex(str(previous.get("image_id"))[7:])
+            or not self._recovery_hex(previous.get("source_revision"), lengths=(40,))
+            or not isinstance(raw_mount_identities, list)
+            or len(mount_identities) != len(raw_mount_identities)
+            or not all(
+                set(item) == {"type", "source", "destination", "read_write"}
+                and isinstance(item.get("type"), str)
+                and isinstance(item.get("source"), str)
+                and isinstance(item.get("destination"), str)
+                and type(item.get("read_write")) is bool
+                for item in mount_identities
+            )
+            or mount_identities
+            != sorted(
+                mount_identities,
+                key=lambda item: (
+                    str(item["destination"]),
+                    str(item["type"]),
+                    str(item["source"]),
+                    bool(item["read_write"]),
+                ),
+            )
+            or not self._recovery_hex(previous.get("mount_identity_sha256"))
+            or previous.get("mount_identity_sha256")
+            != _sha256(
+                json.dumps(
+                    mount_identities,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            )
+            or type(previous.get("mount_identity_count")) is not int
+            or previous.get("mount_identity_count") != len(mount_identities)
+            or not isinstance(raw_noncompose_labels, dict)
+            or not all(
+                isinstance(name, str)
+                and bool(name)
+                and "\x00" not in name
+                and "\n" not in name
+                and "\r" not in name
+                and isinstance(label_value, str)
+                and "\x00" not in label_value
+                for name, label_value in noncompose_labels.items()
+            )
+            or not isinstance(rollback_capsule_document, dict)
+            or not rollback_capsule_document
+            or not self._recovery_hex(previous.get("environment_sha256"))
+            or type(previous.get("environment_count")) is not int
+            or int(previous["environment_count"]) < 0
+            or not self._recovery_hex(previous.get("process_config_sha256"))
+            or set(state) != {"running", "restarting", "started_at", "health"}
+            or state.get("running") is not True
+            or state.get("restarting") is not False
+            or not isinstance(state.get("started_at"), str)
+            or state.get("health") != "healthy"
+        ):
+            raise DeployError("joint_recovery_previous_api_invalid")
+        self._recovery_absolute_path(
+            previous.get("working_dir"),
+            reason="joint_recovery_previous_api_invalid",
+        )
+        for compose_file in compose_files:
+            self._recovery_absolute_path(
+                compose_file,
+                reason="joint_recovery_previous_api_invalid",
+            )
+        try:
+            image_reference = _safe_tagged_image_reference(
+                str(previous["image_reference"]),
+                reason="joint_recovery_previous_api_invalid",
+            )
+            functional_identity = self._validated_functional_identity(
+                previous.get("functional_identity"),
+                reason_prefix="joint_recovery_previous_api",
+            )
+        except DeployError as exc:
+            raise DeployError("joint_recovery_previous_api_invalid") from exc
+        domains = dict(functional_identity["domains"])
+        image_domain = dict(domains["image"])
+        environment_domain = dict(domains["environment"])
+        mount_domain = dict(domains["mounts"])
+        labels_domain = dict(domains["noncompose_labels"])
+        if (
+            image_reference != previous["image_reference"]
+            or image_domain
+            != {
+                "image_id": previous["image_id"],
+                "image_reference": previous["image_reference"],
+            }
+            or environment_domain
+            != {
+                "sha256": previous["environment_sha256"],
+                "count": previous["environment_count"],
+            }
+            or mount_domain.get("count") != previous["mount_identity_count"]
+            or labels_domain
+            != {
+                "sha256": _canonical_json_sha256(noncompose_labels),
+                "count": len(noncompose_labels),
+            }
+        ):
+            raise DeployError("joint_recovery_previous_api_invalid")
+        return previous
+
+    def _validated_joint_rollback_capsule(
+        self,
+        *,
+        previous: Mapping[str, Any],
+        deployment_input_seal: Mapping[str, Any],
+        transaction_id: str,
+        recorded_receipt_dir: Path,
+    ) -> dict[str, Any]:
+        rollback_rows = deployment_input_seal.get("rollback")
+        if (
+            not isinstance(rollback_rows, list)
+            or len(rollback_rows) != 1
+            or not isinstance(rollback_rows[0], dict)
+        ):
+            raise DeployError("joint_recovery_rollback_capsule_seal_invalid")
+        seal = dict(rollback_rows[0])
+        expected_seal_keys = {
+            "ctime_ns",
+            "device",
+            "gid",
+            "inode",
+            "link_count",
+            "mode",
+            "mtime_ns",
+            "path",
+            "sha256",
+            "size_bytes",
+            "uid",
+        }
+        expected_path = (
+            recorded_receipt_dir / f"{transaction_id}.rollback-capsule.compose.json"
+        )
+        if (
+            set(seal) != expected_seal_keys
+            or seal.get("path") != str(expected_path)
+            or not self._recovery_hex(seal.get("sha256"))
+            or type(seal.get("size_bytes")) is not int
+            or int(seal["size_bytes"]) <= 0
+            or seal.get("mode") != "0600"
+            or seal.get("uid") != self._recovery_state_owner_uid
+            or seal.get("link_count") != 1
+            or any(
+                type(seal.get(key)) is not int or int(seal[key]) < 0
+                for key in (
+                    "ctime_ns",
+                    "device",
+                    "gid",
+                    "inode",
+                    "mtime_ns",
+                )
+            )
+        ):
+            raise DeployError("joint_recovery_rollback_capsule_seal_invalid")
+        try:
+            raw, observed_seal = self._deployment_input_file_bytes(expected_path)
+        except DeployError as exc:
+            raise DeployError("joint_recovery_rollback_capsule_unavailable") from exc
+        if observed_seal != seal:
+            raise DeployError("joint_recovery_rollback_capsule_seal_mismatch")
+        document_value = previous.get("rollback_capsule_document")
+        document = dict(document_value) if isinstance(document_value, dict) else {}
+        try:
+            expected_raw = (
+                json.dumps(
+                    document,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                + "\n"
+            ).encode("utf-8")
+        except (TypeError, ValueError, UnicodeError) as exc:
+            raise DeployError(
+                "joint_recovery_rollback_capsule_document_invalid"
+            ) from exc
+        if raw != expected_raw:
+            raise DeployError("joint_recovery_rollback_capsule_bytes_mismatch")
+        decoded = _strict_json_object(
+            raw,
+            reason="joint_recovery_rollback_capsule_json_invalid",
+        )
+        if decoded != document:
+            raise DeployError("joint_recovery_rollback_capsule_document_mismatch")
+        extension_value = document.get("x-ea-rollback-capsule")
+        extension = dict(extension_value) if isinstance(extension_value, dict) else {}
+        services_value = document.get("services")
+        services = dict(services_value) if isinstance(services_value, dict) else {}
+        service_value = services.get(API_SERVICE)
+        service = dict(service_value) if isinstance(service_value, dict) else {}
+        functional_identity = self._validated_functional_identity(
+            previous.get("functional_identity"),
+            reason_prefix="joint_recovery_rollback_capsule",
+        )
+        noncompose_labels = dict(previous.get("noncompose_labels") or {})
+        expected_labels = {
+            name: label_value.replace("$", "$$")
+            for name, label_value in noncompose_labels.items()
+        }
+        service_labels_value = service.get("labels")
+        service_labels = (
+            dict(service_labels_value) if isinstance(service_labels_value, dict) else {}
+        )
+        service_environment_value = service.get("environment")
+        service_environment = (
+            dict(service_environment_value)
+            if isinstance(service_environment_value, dict)
+            else {}
+        )
+        expected_document_keys = {
+            "name",
+            "services",
+            "x-ea-rollback-capsule",
+        }
+        if "networks" in document:
+            expected_document_keys.add("networks")
+        if "volumes" in document:
+            expected_document_keys.add("volumes")
+        try:
+            self._recovery_timestamp(extension.get("captured_at"))
+            self._rollback_capsule_external_bindings(
+                document,
+                reason_prefix="joint_recovery_rollback_capsule",
+            )
+        except DeployError as exc:
+            raise DeployError(
+                "joint_recovery_rollback_capsule_document_invalid"
+            ) from exc
+        if (
+            set(document) != expected_document_keys
+            or document.get("name") != PROJECT_NAME
+            or set(services) != {API_SERVICE}
+            or service.get("container_name") != API_SERVICE
+            or service.get("image") != previous.get("image_reference")
+            or service.get("pull_policy") != "never"
+            or service_environment.get("EA_SOURCE_REVISION")
+            != previous.get("source_revision")
+            or service_labels != expected_labels
+            or extension.get("deployment_id") != transaction_id
+            or extension.get("source_container_id_sha256")
+            != _sha256(str(previous.get("container_id") or "").encode("utf-8"))
+            or extension.get("source_image_id") != previous.get("image_id")
+            or extension.get("source_image_reference")
+            != previous.get("image_reference")
+            or extension.get("functional_identity") != functional_identity
+            or extension.get("allowed_runtime_differences")
+            != [
+                "compose_managed_labels",
+                "container_and_start_timestamps",
+                "container_id",
+                "engine_assigned_endpoint_identity_for_dynamic_network_attachments",
+            ]
+        ):
+            raise DeployError("joint_recovery_rollback_capsule_binding_mismatch")
+        return {
+            "document": document,
+            "path": expected_path,
+            "raw_sha256": _sha256(raw),
+            "seal": seal,
+        }
+
+    def _validated_joint_recovery_non_memorial_controls(
+        self,
+        value: object,
+        *,
+        previous: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        controls = dict(value) if isinstance(value, dict) else {}
+        openapi_value = controls.get("openapi")
+        openapi = dict(openapi_value) if isinstance(openapi_value, dict) else {}
+        contract_value = openapi.get("_contract")
+        contract = dict(contract_value) if isinstance(contract_value, dict) else {}
+        operations_value = contract.get("operations")
+        schemas_value = contract.get("schemas")
+        security_schemes_value = contract.get("security_schemes")
+        operations = (
+            dict(operations_value) if isinstance(operations_value, dict) else {}
+        )
+        schemas = dict(schemas_value) if isinstance(schemas_value, dict) else {}
+        security_schemes = (
+            dict(security_schemes_value)
+            if isinstance(security_schemes_value, dict)
+            else {}
+        )
+        paths_value = openapi.get("paths")
+        paths = list(paths_value) if isinstance(paths_value, list) else []
+        probe_value = openapi.get("probe")
+        probe = dict(probe_value) if isinstance(probe_value, dict) else {}
+        public_endpoint_value = openapi.get("public_endpoint")
+        public_endpoint = (
+            dict(public_endpoint_value)
+            if isinstance(public_endpoint_value, dict)
+            else {}
+        )
+        expected_openapi_keys = {
+            "_contract",
+            "contract_sha256",
+            "operation_count",
+            "path_count",
+            "path_set_sha256",
+            "paths",
+            "probe",
+            "public_endpoint",
+            "schema_count",
+            "security_scheme_count",
+        }
+        expected_probe_keys = {
+            "container",
+            "document_bytes",
+            "document_sha256",
+            "public_docs_config_retired",
+            "source",
+        }
+        expected_public_endpoint_keys = {
+            "body_bytes",
+            "body_sha256",
+            "canonical_json_sha256",
+            "content_type",
+            "error_code",
+            "media_type",
+            "method",
+            "path",
+            "redirect_count",
+            "source_revision",
+            "status_code",
+        }
+        if (
+            set(controls) != {"openapi"}
+            or set(openapi) != expected_openapi_keys
+            or set(contract) != {"operations", "schemas", "security_schemes"}
+            or not operations
+            or not isinstance(paths_value, list)
+            or not all(isinstance(path, str) and path.startswith("/") for path in paths)
+            or paths != sorted(set(paths))
+            or set(probe) != expected_probe_keys
+            or probe.get("source") != "deployed_api_container_app.openapi"
+            or probe.get("container") != API_SERVICE
+            or probe.get("public_docs_config_retired") is not True
+            or type(probe.get("document_bytes")) is not int
+            or int(probe["document_bytes"]) <= 0
+            or not self._recovery_hex(probe.get("document_sha256"))
+            or set(public_endpoint) != expected_public_endpoint_keys
+        ):
+            raise DeployError("joint_recovery_non_memorial_baseline_invalid")
+
+        operation_paths: set[str] = set()
+        allowed_methods = {
+            "DELETE",
+            "GET",
+            "HEAD",
+            "OPTIONS",
+            "PATCH",
+            "POST",
+            "PUT",
+            "TRACE",
+        }
+        for operation_key, operation_value in operations.items():
+            if not isinstance(operation_key, str):
+                raise DeployError("joint_recovery_non_memorial_baseline_invalid")
+            method, separator, path = operation_key.partition(" ")
+            if (
+                separator != " "
+                or method not in allowed_methods
+                or not path.startswith("/")
+                or not isinstance(operation_value, dict)
+                or set(operation_value)
+                != {"parameters", "requestBody", "responses", "security"}
+            ):
+                raise DeployError("joint_recovery_non_memorial_baseline_invalid")
+            operation_paths.add(path)
+        expected_paths = sorted(operation_paths)
+        encoded_paths = json.dumps(
+            expected_paths,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        content_type = public_endpoint.get("content_type")
+        if (
+            paths != expected_paths
+            or type(openapi.get("path_count")) is not int
+            or openapi.get("path_count") != len(expected_paths)
+            or type(openapi.get("operation_count")) is not int
+            or openapi.get("operation_count") != len(operations)
+            or type(openapi.get("schema_count")) is not int
+            or openapi.get("schema_count") != len(schemas)
+            or type(openapi.get("security_scheme_count")) is not int
+            or openapi.get("security_scheme_count") != len(security_schemes)
+            or openapi.get("path_set_sha256") != _sha256(encoded_paths)
+            or openapi.get("contract_sha256") != _canonical_json_sha256(contract)
+            or public_endpoint.get("path") != "/openapi.json"
+            or public_endpoint.get("method") != "GET"
+            or type(public_endpoint.get("status_code")) is not int
+            or public_endpoint.get("status_code") != 404
+            or type(public_endpoint.get("redirect_count")) is not int
+            or public_endpoint.get("redirect_count") != 0
+            or not isinstance(content_type, str)
+            or not content_type
+            or content_type != content_type.strip()
+            or len(content_type) > MAX_RECEIPT_CONTENT_TYPE_CHARS
+            or any(
+                ord(character) < 32 or ord(character) == 127
+                for character in content_type
+            )
+            or content_type.partition(";")[0].strip().casefold() != "application/json"
+            or public_endpoint.get("media_type") != "application/json"
+            or public_endpoint.get("error_code") != "not_found"
+            or public_endpoint.get("source_revision") != previous.get("source_revision")
+            or type(public_endpoint.get("body_bytes")) is not int
+            or not 0 < int(public_endpoint["body_bytes"]) <= MAX_HTTP_BODY_BYTES
+            or not self._recovery_hex(public_endpoint.get("body_sha256"))
+            or not self._recovery_hex(public_endpoint.get("canonical_json_sha256"))
+        ):
+            raise DeployError("joint_recovery_non_memorial_baseline_invalid")
+        return controls
+
     def _validate_recovery_journal(
         self,
         payload: Mapping[str, Any],
@@ -1536,7 +2015,11 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         except DeployError:
             timestamps_valid = False
         phase_flags_valid = (
-            (phase == "prepared" and api_possible is False and ingress_possible is False)
+            (
+                phase == "prepared"
+                and api_possible is False
+                and ingress_possible is False
+            )
             or (
                 phase == "api_mutation_possible"
                 and api_possible is True
@@ -1569,8 +2052,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         docker_daemon_identity = journal.get("docker_daemon_identity")
         if (
             set(journal) != expected_keys
-            or journal.get("contract_name")
-            != JOINT_RECOVERY_JOURNAL_CONTRACT_NAME
+            or journal.get("contract_name") != JOINT_RECOVERY_JOURNAL_CONTRACT_NAME
             or type(journal.get("version")) is not int
             or journal.get("version") != JOINT_RECOVERY_JOURNAL_VERSION
             or journal.get("material_classification")
@@ -1582,7 +2064,8 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             or not transaction_id
             or len(transaction_id) > 128
             or any(
-                character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+                character
+                not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
                 for character in transaction_id
             )
             or phase not in JOINT_RECOVERY_PHASES
@@ -1590,21 +2073,16 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             or not timestamps_valid
             or type(journal.get("recovery_attempts")) is not int
             or int(journal["recovery_attempts"]) < 0
-            or journal.get("recovery_journal_path")
-            != str(self.recovery_journal_path)
-            or journal.get("transaction_receipt_path")
-            != str(expected_receipt_path)
+            or journal.get("recovery_journal_path") != str(self.recovery_journal_path)
+            or journal.get("transaction_receipt_path") != str(expected_receipt_path)
             or not isinstance(docker_daemon_identity, Mapping)
-            or set(docker_daemon_identity)
-            != {"identity_source", "daemon_id_sha256"}
+            or set(docker_daemon_identity) != {"identity_source", "daemon_id_sha256"}
             or dict(docker_daemon_identity).get("identity_source")
             != "docker_info_engine_id"
             or not self._recovery_hex(
                 dict(docker_daemon_identity).get("daemon_id_sha256")
             )
-            or not self._recovery_hex(
-                journal.get("source_revision"), lengths=(40, 64)
-            )
+            or not self._recovery_hex(journal.get("source_revision"), lengths=(40, 64))
         ):
             raise DeployError("joint_recovery_journal_schema_invalid")
         self.durable_root_check(recorded_root)
@@ -1625,9 +2103,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 or directory_metadata.st_uid != self._recovery_state_owner_uid
                 or stat.S_IMODE(directory_metadata.st_mode) != 0o700
             ):
-                raise DeployError(
-                    "joint_recovery_recorded_receipt_directory_invalid"
-                )
+                raise DeployError("joint_recovery_recorded_receipt_directory_invalid")
 
         public_origin = journal.get("public_origin")
         if not isinstance(public_origin, str):
@@ -1705,142 +2181,26 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             )
         ):
             raise DeployError("joint_recovery_rollback_context_invalid")
-        previous = dict(previous)
-        non_memorial_controls = dict(non_memorial_controls)
+        previous = self._validated_joint_recovery_previous_api(previous)
+        non_memorial_controls = self._validated_joint_recovery_non_memorial_controls(
+            non_memorial_controls,
+            previous=previous,
+        )
         deployment_input_seal = dict(deployment_input_seal)
         ingress_payload = dict(ingress_payload)
-        self._recovery_absolute_path(
-            previous.get("working_dir"),
-            reason="joint_recovery_previous_api_invalid",
-        )
-        raw_compose_files = previous.get("compose_config_files")
-        compose_files = (
-            list(raw_compose_files)
-            if isinstance(raw_compose_files, list)
-            else []
-        )
-        for compose_file in compose_files:
-            self._recovery_absolute_path(
-                compose_file,
-                reason="joint_recovery_previous_api_invalid",
-            )
-        expected_previous = {
-            "container_id",
-            "created_at",
-            "working_dir",
-            "compose_config_files",
-            "image_id",
-            "image_reference",
-            "rollback_environment",
-            "mount_identities",
-            "mount_identity_sha256",
-            "mount_identity_count",
-            "environment_sha256",
-            "environment_count",
-            "process_config_sha256",
-            "state",
-        }
-        mount_identities = previous.get("mount_identities")
-        state = previous.get("state")
-        rollback_environment = previous.get("rollback_environment")
-        if (
-            set(previous) != expected_previous
-            or not isinstance(previous.get("container_id"), str)
-            or not 1 <= len(str(previous["container_id"])) <= 128
-            or not isinstance(previous.get("created_at"), str)
-            or not 1 <= len(str(previous["created_at"])) <= 128
-            or not isinstance(raw_compose_files, list)
-            or not compose_files
-            or not all(isinstance(item, str) for item in compose_files)
-            or len(set(compose_files)) != len(compose_files)
-            or not str(previous.get("image_id") or "").startswith("sha256:")
-            or not self._recovery_hex(str(previous.get("image_id"))[7:])
-            or not isinstance(rollback_environment, Mapping)
-            or not all(
-                isinstance(key, str)
-                and key
-                and isinstance(value, str)
-                and "\x00" not in value
-                and "\n" not in value
-                and "\r" not in value
-                for key, value in dict(rollback_environment).items()
-            )
-            or not isinstance(mount_identities, list)
-            or not all(
-                isinstance(item, Mapping)
-                and set(item) == {"type", "source", "destination", "read_write"}
-                and isinstance(dict(item).get("type"), str)
-                and isinstance(dict(item).get("source"), str)
-                and isinstance(dict(item).get("destination"), str)
-                and type(dict(item).get("read_write")) is bool
-                for item in mount_identities
-            )
-            or not self._recovery_hex(previous.get("mount_identity_sha256"))
-            or type(previous.get("mount_identity_count")) is not int
-            or previous.get("mount_identity_count") != len(mount_identities)
-            or not self._recovery_hex(previous.get("environment_sha256"))
-            or type(previous.get("environment_count")) is not int
-            or int(previous["environment_count"]) < 0
-            or not self._recovery_hex(previous.get("process_config_sha256"))
-            or not isinstance(state, Mapping)
-            or set(state) != {"running", "restarting", "started_at", "health"}
-            or dict(state).get("running") is not True
-            or dict(state).get("restarting") is not False
-            or not isinstance(dict(state).get("started_at"), str)
-            or dict(state).get("health") != "healthy"
-        ):
-            raise DeployError("joint_recovery_previous_api_invalid")
-        try:
-            _safe_tagged_image_reference(
-                str(previous["image_reference"]),
-                reason="joint_recovery_previous_api_invalid",
-            )
-        except DeployError as exc:
-            raise DeployError("joint_recovery_previous_api_invalid") from exc
-        openapi = non_memorial_controls.get("openapi")
-        contract = dict(openapi).get("_contract") if isinstance(openapi, Mapping) else None
-        if (
-            set(non_memorial_controls) != {"openapi"}
-            or not isinstance(openapi, Mapping)
-            or set(openapi)
-            != {
-                "path_count",
-                "operation_count",
-                "schema_count",
-                "security_scheme_count",
-                "path_set_sha256",
-                "contract_sha256",
-                "probe",
-                "_contract",
-            }
-            or not isinstance(contract, Mapping)
-            or set(contract) != {"operations", "schemas", "security_schemes"}
-            or not isinstance(dict(contract).get("operations"), Mapping)
-            or not dict(dict(contract).get("operations") or {})
-            or not isinstance(dict(contract).get("schemas"), Mapping)
-            or not isinstance(dict(contract).get("security_schemes"), Mapping)
-            or type(dict(openapi).get("path_count")) is not int
-            or type(dict(openapi).get("operation_count")) is not int
-            or type(dict(openapi).get("schema_count")) is not int
-            or type(dict(openapi).get("security_scheme_count")) is not int
-            or not self._recovery_hex(dict(openapi).get("path_set_sha256"))
-            or not self._recovery_hex(dict(openapi).get("contract_sha256"))
-            or not isinstance(dict(openapi).get("probe"), Mapping)
-        ):
-            raise DeployError("joint_recovery_non_memorial_baseline_invalid")
-        if (
-            set(deployment_input_seal) != {"forward", "rollback"}
-            or not all(
-                isinstance(deployment_input_seal.get(scope), list)
-                and deployment_input_seal[scope]
-                and all(
-                    isinstance(item, Mapping)
-                    for item in deployment_input_seal[scope]
-                )
-                for scope in ("forward", "rollback")
-            )
+        if set(deployment_input_seal) != {"forward", "rollback"} or not all(
+            isinstance(deployment_input_seal.get(scope), list)
+            and deployment_input_seal[scope]
+            and all(isinstance(item, Mapping) for item in deployment_input_seal[scope])
+            for scope in ("forward", "rollback")
         ):
             raise DeployError("joint_recovery_deployment_seal_invalid")
+        self._validated_joint_rollback_capsule(
+            previous=previous,
+            deployment_input_seal=deployment_input_seal,
+            transaction_id=transaction_id,
+            recorded_receipt_dir=recorded_receipt_dir,
+        )
         expected_ingress_keys = {
             "cloudflared_baseline",
             "network_baseline",
@@ -1868,9 +2228,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         rollback_interpolation_environment = ingress_payload.get(
             "rollback_interpolation_environment"
         )
-        rollback_render_projection = ingress_payload.get(
-            "rollback_render_projection"
-        )
+        rollback_render_projection = ingress_payload.get("rollback_render_projection")
         if (
             set(ingress_payload) != expected_ingress_keys
             or not isinstance(ingress_payload.get("cloudflared_baseline"), Mapping)
@@ -1949,9 +2307,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             else []
         )
         overlay_seals = [
-            seal
-            for seal in rollback_seals
-            if seal.get("path") == str(overlay_path)
+            seal for seal in rollback_seals if seal.get("path") == str(overlay_path)
         ]
         baseline_overlay_paths = [
             item
@@ -1994,8 +2350,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         )
         if (
             set(overlay) != expected_overlay_keys
-            or overlay.get("contract_name")
-            != INGRESS_ROLLBACK_OVERLAY_CONTRACT_NAME
+            or overlay.get("contract_name") != INGRESS_ROLLBACK_OVERLAY_CONTRACT_NAME
             or overlay.get("contains_secret_material") is not False
             or not overlay_path.is_absolute()
             or ".." in overlay_path.parts
@@ -2045,13 +2400,16 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         ):
             raise DeployError("joint_recovery_ingress_overlay_invalid")
         self._revalidate_ingress_input_seals(rollback_seals)
-        if self._ingress_rollback_environment(
-            dict(rollback_render_projection)
-        ) != dict(rollback_interpolation_environment):
+        if self._ingress_rollback_environment(dict(rollback_render_projection)) != dict(
+            rollback_interpolation_environment
+        ):
             raise DeployError("joint_recovery_ingress_environment_invalid")
         if not cloudflared_container:
             raise DeployError("joint_recovery_cloudflared_baseline_invalid")
 
+        recovery_api_interpolation_environment = (
+            self._recovery_ingress_api_interpolation_environment(previous)
+        )
         ingress_lane = self._build_ingress_lane(
             {
                 "source_revision": journal["source_revision"],
@@ -2062,10 +2420,9 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             receipt_dir=recorded_ingress_receipt_dir,
             rollback_interpolation_environment={
                 str(key): str(value)
-                for key, value in dict(
-                    rollback_interpolation_environment
-                ).items()
+                for key, value in dict(rollback_interpolation_environment).items()
             },
+            recovery_previous=previous,
         )
         context = {
             "previous": previous,
@@ -2080,13 +2437,9 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             "recorded_ingress_receipt_dir": recorded_ingress_receipt_dir,
             "ingress": {
                 "lane": ingress_lane,
-                "cloudflared_baseline": dict(
-                    ingress_payload["cloudflared_baseline"]
-                ),
+                "cloudflared_baseline": dict(ingress_payload["cloudflared_baseline"]),
                 "network_baseline": dict(ingress_payload["network_baseline"]),
-                "public_edge_baseline": dict(
-                    ingress_payload["public_edge_baseline"]
-                ),
+                "public_edge_baseline": dict(ingress_payload["public_edge_baseline"]),
                 "rollback_input_seals": [
                     dict(item)
                     for item in ingress_payload["rollback_input_seals"]
@@ -2100,9 +2453,10 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 "rollback_interpolation_environment": dict(
                     rollback_interpolation_environment
                 ),
-                "rollback_render_projection": dict(
-                    rollback_render_projection
+                "recovery_api_interpolation_environment": (
+                    recovery_api_interpolation_environment
                 ),
+                "rollback_render_projection": dict(rollback_render_projection),
                 "rollback_render_sha256": str(
                     ingress_payload["rollback_render_sha256"]
                 ),
@@ -2113,6 +2467,242 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         ):
             raise DeployError("joint_recovery_ingress_seals_invalid")
         return journal, context
+
+    @staticmethod
+    def _joint_recovery_context_projection(
+        context: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        ingress_context = dict(context.get("ingress") or {})
+        return {
+            "previous": dict(context.get("previous") or {}),
+            "non_memorial_controls": {
+                "openapi": dict(
+                    dict(context.get("non_memorial_controls") or {}).get("openapi")
+                    or {}
+                )
+            },
+            "deployment_input_seal": dict(context.get("deployment_input_seal") or {}),
+            "ingress": {
+                "cloudflared_baseline": dict(
+                    ingress_context.get("cloudflared_baseline") or {}
+                ),
+                "network_baseline": dict(ingress_context.get("network_baseline") or {}),
+                "public_edge_baseline": dict(
+                    ingress_context.get("public_edge_baseline") or {}
+                ),
+                "rollback_input_seals": [
+                    dict(item)
+                    for item in list(ingress_context.get("rollback_input_seals") or [])
+                    if isinstance(item, Mapping)
+                ],
+                "rollback_working_dir": str(
+                    ingress_context.get("rollback_working_dir") or ""
+                ),
+                "rollback_compose_files": [
+                    str(item)
+                    for item in list(
+                        ingress_context.get("rollback_compose_files") or []
+                    )
+                    if str(item)
+                ],
+                "rollback_overlay": dict(ingress_context.get("rollback_overlay") or {}),
+                "rollback_interpolation_environment": dict(
+                    ingress_context.get("rollback_interpolation_environment") or {}
+                ),
+                "rollback_render_projection": dict(
+                    ingress_context.get("rollback_render_projection") or {}
+                ),
+                "rollback_render_sha256": str(
+                    ingress_context.get("rollback_render_sha256") or ""
+                ),
+            },
+        }
+
+    def _joint_rollback_capsule_from_context(
+        self,
+        context: Mapping[str, Any],
+        *,
+        rollback_tag: str,
+        transaction_id: str | None = None,
+    ) -> dict[str, Any]:
+        previous = dict(context.get("previous") or {})
+        document = dict(previous.get("rollback_capsule_document") or {})
+        extension = dict(document.get("x-ea-rollback-capsule") or {})
+        capsule_transaction_id = str(extension.get("deployment_id") or "")
+        selected_transaction_id = transaction_id or capsule_transaction_id
+        try:
+            expected_rollback_tag = _safe_rollback_tag(selected_transaction_id)
+        except DeployError as exc:
+            raise DeployError("joint_rollback_authority_transaction_invalid") from exc
+        if (
+            not selected_transaction_id
+            or capsule_transaction_id != selected_transaction_id
+            or rollback_tag != expected_rollback_tag
+        ):
+            raise DeployError("joint_rollback_authority_transaction_mismatch")
+        recorded_receipt_dir_value = context.get("recorded_receipt_dir")
+        recorded_receipt_dir = (
+            recorded_receipt_dir_value
+            if isinstance(recorded_receipt_dir_value, Path)
+            else self.receipt_dir
+        )
+        if not recorded_receipt_dir.is_absolute() or ".." in recorded_receipt_dir.parts:
+            raise DeployError("joint_rollback_authority_receipt_dir_invalid")
+        return self._validated_joint_rollback_capsule(
+            previous=previous,
+            deployment_input_seal=dict(context.get("deployment_input_seal") or {}),
+            transaction_id=selected_transaction_id,
+            recorded_receipt_dir=recorded_receipt_dir,
+        )
+
+    @contextmanager
+    def _scoped_joint_rollback_capsule(
+        self,
+        capsule: Mapping[str, Any],
+    ) -> Iterator[None]:
+        path = capsule.get("path")
+        seal = capsule.get("seal")
+        document = capsule.get("document")
+        if (
+            not isinstance(path, Path)
+            or not isinstance(seal, Mapping)
+            or not isinstance(document, Mapping)
+        ):
+            raise DeployError("joint_rollback_capsule_authority_invalid")
+        original_path = self.rollback_capsule_path
+        original_project_directory = self._rollback_capsule_project_directory
+        original_seal = self._rollback_capsule_seal
+        original_document = self._rollback_capsule_document
+        self.rollback_capsule_path = path
+        self._rollback_capsule_project_directory = path.parent
+        self._rollback_capsule_seal = dict(seal)
+        self._rollback_capsule_document = dict(document)
+        try:
+            yield
+        finally:
+            self.rollback_capsule_path = original_path
+            self._rollback_capsule_project_directory = original_project_directory
+            self._rollback_capsule_seal = original_seal
+            self._rollback_capsule_document = original_document
+
+    def _read_joint_rollback_authority(
+        self,
+        *,
+        expected_context: Mapping[str, Any],
+        rollback_tag: str,
+        api_mutation_started: bool,
+        ingress_mutation_started: bool,
+    ) -> dict[str, Any]:
+        journal_record = self._read_recovery_journal()
+        if journal_record is None:
+            raise DeployError("joint_rollback_authority_journal_missing")
+        payload, raw = journal_record
+        journal, context = self._validate_recovery_journal(payload)
+        expected_root_value = expected_context.get("recorded_root")
+        expected_receipt_dir_value = expected_context.get("recorded_receipt_dir")
+        expected_ingress_receipt_dir_value = expected_context.get(
+            "recorded_ingress_receipt_dir"
+        )
+        expected_root = (
+            expected_root_value if isinstance(expected_root_value, Path) else self.root
+        )
+        expected_receipt_dir = (
+            expected_receipt_dir_value
+            if isinstance(expected_receipt_dir_value, Path)
+            else self.receipt_dir
+        )
+        expected_ingress_receipt_dir = (
+            expected_ingress_receipt_dir_value
+            if isinstance(expected_ingress_receipt_dir_value, Path)
+            else self.ingress_receipt_dir
+        )
+        expected_projection = self._joint_recovery_context_projection(expected_context)
+        if (
+            raw != self._recovery_journal_bytes(journal)
+            or journal.get("phase") != "rollback_in_progress"
+            or journal.get("api_mutation_possible") is not api_mutation_started
+            or journal.get("ingress_mutation_possible") is not ingress_mutation_started
+            or journal.get("rollback_tag") != rollback_tag
+            or journal.get("root") != str(expected_root)
+            or journal.get("receipt_dir") != str(expected_receipt_dir)
+            or journal.get("ingress_receipt_dir") != str(expected_ingress_receipt_dir)
+            or journal.get("source_revision") != expected_context.get("source_revision")
+            or journal.get("public_origin") != expected_context.get("public_origin")
+            or journal.get("api_local_origin")
+            != expected_context.get("api_local_origin")
+            or journal.get("docker_daemon_identity")
+            != expected_context.get("docker_daemon_identity")
+            or journal.get("rollback_context") != expected_projection
+        ):
+            raise DeployError("joint_rollback_authority_binding_mismatch")
+        transaction_id = str(journal["transaction_id"])
+        capsule = self._joint_rollback_capsule_from_context(
+            context,
+            rollback_tag=rollback_tag,
+            transaction_id=transaction_id,
+        )
+        return {
+            "api_mutation_started": api_mutation_started,
+            "capsule": capsule,
+            "context": context,
+            "ingress_mutation_started": ingress_mutation_started,
+            "journal": journal,
+            "journal_raw": raw,
+            "rollback_tag": rollback_tag,
+        }
+
+    @contextmanager
+    def _joint_rollback_authority_scope(
+        self,
+        *,
+        expected_context: Mapping[str, Any],
+        rollback_tag: str,
+        api_mutation_started: bool,
+        ingress_mutation_started: bool,
+    ) -> Iterator[dict[str, Any]]:
+        if self._active_joint_rollback_authority is not None:
+            raise DeployError("joint_rollback_authority_nested")
+        authority = self._read_joint_rollback_authority(
+            expected_context=expected_context,
+            rollback_tag=rollback_tag,
+            api_mutation_started=api_mutation_started,
+            ingress_mutation_started=ingress_mutation_started,
+        )
+        self._active_joint_rollback_authority = authority
+        try:
+            with self._scoped_joint_rollback_capsule(authority["capsule"]):
+                yield dict(authority["context"])
+        finally:
+            self._active_joint_rollback_authority = None
+
+    def _require_loaded_active_recovery(
+        self,
+        *,
+        previous: Mapping[str, Any],
+        rollback_tag: str,
+    ) -> None:
+        authority = self._active_joint_rollback_authority
+        if authority is None:
+            raise DeployError("joint_rollback_authority_not_active")
+        reloaded = self._read_joint_rollback_authority(
+            expected_context=dict(authority["context"]),
+            rollback_tag=rollback_tag,
+            api_mutation_started=bool(authority["api_mutation_started"]),
+            ingress_mutation_started=bool(authority["ingress_mutation_started"]),
+        )
+        capsule = dict(authority["capsule"])
+        reloaded_capsule = dict(reloaded["capsule"])
+        if (
+            reloaded["journal_raw"] != authority["journal_raw"]
+            or reloaded["journal"] != authority["journal"]
+            or reloaded["context"]["previous"] != previous
+            or reloaded_capsule != capsule
+            or self.rollback_capsule_path != capsule["path"]
+            or self._rollback_capsule_project_directory != Path(capsule["path"]).parent
+            or self._rollback_capsule_seal != capsule["seal"]
+            or self._rollback_capsule_document != capsule["document"]
+        ):
+            raise DeployError("joint_rollback_authority_changed")
 
     @staticmethod
     def _transaction_receipt_payload_is_committed(
@@ -2237,10 +2827,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         if (
             type(source_revision) is not str
             or len(source_revision) != 40
-            or any(
-                character not in "0123456789abcdef"
-                for character in source_revision
-            )
+            or any(character not in "0123456789abcdef" for character in source_revision)
         ):
             raise DeployError("joint_committed_cleanup_source_revision_invalid")
         try:
@@ -2253,9 +2840,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 f"https://{str(parsed_origin.hostname or '').rstrip('.').lower()}"
             )
         except (TypeError, ValueError, DeployError) as exc:
-            raise DeployError(
-                "joint_committed_cleanup_public_origin_invalid"
-            ) from exc
+            raise DeployError("joint_committed_cleanup_public_origin_invalid") from exc
         if validated_origin != canonical_origin:
             raise DeployError("joint_committed_cleanup_public_origin_invalid")
         public_edge = payload.get("joint_public_edge")
@@ -2360,16 +2945,10 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         expected_state_directory_identity: Mapping[str, object] | None = None,
     ) -> dict[str, Any]:
         expected_path = path.parent / f"{transaction_id}.json"
-        if (
-            not path.is_absolute()
-            or ".." in path.parts
-            or path != expected_path
-        ):
+        if not path.is_absolute() or ".." in path.parts or path != expected_path:
             raise DeployError("joint_committed_cleanup_finalization_unsafe")
-        state_directory_identity = (
-            self._require_canonical_recovery_journal_absent(
-                expected_directory_identity=expected_state_directory_identity
-            )
+        state_directory_identity = self._require_canonical_recovery_journal_absent(
+            expected_directory_identity=expected_state_directory_identity
         )
         self._require_private_receipt_directory(path.parent)
         payload = self._read_trusted_transaction_receipt(path)
@@ -2415,9 +2994,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                         public_origin=public_origin,
                     )
                 ):
-                    raise DeployError(
-                        "joint_committed_cleanup_finalization_failed"
-                    )
+                    raise DeployError("joint_committed_cleanup_finalization_failed")
                 self._require_canonical_recovery_journal_absent(
                     expected_directory_identity=state_directory_identity
                 )
@@ -2474,15 +3051,43 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         finally:
             self._release_lock()
 
+    def recover_active(self) -> dict[str, Any]:
+        """Recover one durable joint transaction without starting a new deploy."""
+        self._acquire_lock()
+        try:
+            self._require_normalization_recovery_absent()
+            if self._read_recovery_journal() is None:
+                raise DeployError("joint_active_recovery_not_found")
+            self._recover_interrupted_transaction(preflight_only=False)
+            recovery_value = self.receipt.get("recovery")
+            recovery = (
+                dict(recovery_value) if isinstance(recovery_value, Mapping) else {}
+            )
+            if recovery.get("status") not in {
+                "committed_transaction_confirmed",
+                "pass",
+                "prepared_transaction_abandoned",
+            }:
+                raise DeployError("joint_active_recovery_incomplete")
+            self.receipt["status"] = "active_recovery_complete"
+            self.receipt["completed_at"] = _utc_now()
+            self.receipt["recover_active"] = {
+                "status": "pass",
+                "recovery_status": str(recovery["status"]),
+                "new_deployment_started": False,
+            }
+            self._write_receipt()
+            return self.receipt
+        finally:
+            self._release_lock()
+
     def _prevalidate_recovery_context(
         self,
         context: Mapping[str, Any],
         rollback_tag: str,
     ) -> None:
         deployment_input_seal = dict(context["deployment_input_seal"])
-        self._require_docker_daemon_identity(
-            dict(context["docker_daemon_identity"])
-        )
+        self._require_docker_daemon_identity(dict(context["docker_daemon_identity"]))
         self._require_deployment_input_seal(
             deployment_input_seal,
             scope="rollback",
@@ -2493,6 +3098,28 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         ingress_lane = ingress_context["lane"]
         if not isinstance(ingress_lane, PublicIngressReconciliationLane):
             raise DeployError("joint_recovery_ingress_lane_invalid")
+        previous = dict(context["previous"])
+        recovery_api_interpolation_environment = (
+            self._recovery_ingress_api_interpolation_environment(previous)
+        )
+        if (
+            ingress_context.get("recovery_api_interpolation_environment")
+            != recovery_api_interpolation_environment
+        ):
+            raise DeployError("joint_recovery_ingress_release_environment_invalid")
+        expected_recovery_release_values = {
+            **dict(ingress_context["rollback_interpolation_environment"]),
+            **recovery_api_interpolation_environment,
+            "COMPOSE_PROJECT_NAME": PROJECT_NAME,
+            "EA_DEPLOYMENT_ID": ingress_lane.deployment_id,
+            "EA_PUBLIC_ORIGIN": str(context["public_origin"]),
+            "EA_SOURCE_REVISION": str(context["source_revision"]),
+        }
+        if any(
+            ingress_lane.release_env.get(key) != value
+            for key, value in expected_recovery_release_values.items()
+        ):
+            raise DeployError("joint_recovery_ingress_release_environment_invalid")
         prior_root = Path(
             str(ingress_context.get("rollback_working_dir") or "")
         ).expanduser()
@@ -2512,15 +3139,16 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             rendered_seals != rollback_input_seals
             or self._ingress_rollback_projection(rendered)
             != ingress_context["rollback_render_projection"]
-            or _canonical_json_sha256(
-                self._ingress_rollback_projection(rendered)
-            )
+            or _canonical_json_sha256(self._ingress_rollback_projection(rendered))
             != ingress_context["rollback_render_sha256"]
         ):
             raise DeployError("joint_recovery_ingress_render_changed")
-        previous = dict(context["previous"])
-        self._rollback_environment(previous)
-        self._verify_rollback_renderability(previous)
+        capsule = self._joint_rollback_capsule_from_context(
+            context,
+            rollback_tag=rollback_tag,
+        )
+        with self._scoped_joint_rollback_capsule(capsule):
+            self._verify_rollback_renderability(previous)
         protected = self._inspect_image(rollback_tag)
         if protected.get("image_id") != previous.get("image_id"):
             raise DeployError("joint_recovery_protected_image_mismatch")
@@ -2572,9 +3200,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 transaction_id,
                 source_revision=str(journal["source_revision"]),
                 public_origin=str(journal["public_origin"]),
-                expected_state_directory_identity=(
-                    removed_state_directory_identity
-                ),
+                expected_state_directory_identity=(removed_state_directory_identity),
             )
             self.receipt["recovery"] = {
                 "status": "committed_transaction_confirmed",
@@ -2630,6 +3256,8 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 self._remaining_mutation_action_seconds
             )
             try:
+                self._detect_compose()
+                ingress_lane._detect_compose()
                 self._prevalidate_recovery_context(
                     context,
                     str(journal["rollback_tag"]),
@@ -2670,9 +3298,9 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                         ingress_mutation_possible=ingress_possible,
                     )
                 except BaseException as journal_exc:
-                    self.receipt["recovery_journal_update_failure"] = str(
-                        journal_exc
-                    ) or type(journal_exc).__name__
+                    self.receipt["recovery_journal_update_failure"] = (
+                        str(journal_exc) or type(journal_exc).__name__
+                    )
                 self.receipt["status"] = "interrupted_transaction_recovery_failed"
                 self.receipt["recovery"] = {
                     "status": "fail",
@@ -2698,12 +3326,21 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         root: Path | None = None,
         receipt_dir: Path | None = None,
         rollback_interpolation_environment: Mapping[str, str] | None = None,
+        recovery_previous: Mapping[str, Any] | None = None,
     ) -> PublicIngressReconciliationLane:
         if rollback_interpolation_environment is None:
+            if recovery_previous is not None:
+                raise DeployError("joint_recovery_ingress_environment_invalid")
             ingress_env = dict(self.env)
         else:
-            if set(rollback_interpolation_environment) != INGRESS_ROLLBACK_ENV_KEYS:
+            if (
+                set(rollback_interpolation_environment) != INGRESS_ROLLBACK_ENV_KEYS
+                or recovery_previous is None
+            ):
                 raise DeployError("joint_recovery_ingress_environment_invalid")
+            api_interpolation_environment = (
+                self._recovery_ingress_api_interpolation_environment(recovery_previous)
+            )
             ingress_env = {
                 "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
                 **{
@@ -2715,6 +3352,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                     key: str(value)
                     for key, value in rollback_interpolation_environment.items()
                 },
+                **api_interpolation_environment,
             }
         ingress_env.update(
             {
@@ -2723,7 +3361,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 "EA_PUBLIC_ORIGIN": str(context["public_origin"]),
             }
         )
-        return PublicIngressReconciliationLane(
+        ingress_lane = PublicIngressReconciliationLane(
             root=(root or self.root),
             env=ingress_env,
             runner=self.runner,
@@ -2732,6 +3370,115 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             global_lock_path=self.global_lock_path,
             request_timeout_seconds=self.request_timeout_seconds,
         )
+        if recovery_previous is not None:
+            expected_release_env = {
+                **ingress_env,
+                "COMPOSE_PROJECT_NAME": PROJECT_NAME,
+                "EA_DEPLOYMENT_ID": deployment_id or self.deployment_id,
+                "EA_SOURCE_REVISION": str(context["source_revision"]),
+            }
+            expected_keys = {
+                "PATH",
+                *(
+                    key
+                    for key in DOCKER_TRANSPORT_ENV_KEYS
+                    if key in self.env and str(self.env[key])
+                ),
+                *INGRESS_ROLLBACK_ENV_KEYS,
+                *RECOVERY_INGRESS_API_INTERPOLATION_ENV_KEYS,
+                "COMPOSE_PROJECT_NAME",
+                "EA_DEPLOYMENT_ID",
+                "EA_PUBLIC_ORIGIN",
+                "EA_SOURCE_REVISION",
+            }
+            if (
+                set(expected_release_env) != expected_keys
+                or ingress_lane.release_env != expected_release_env
+            ):
+                raise DeployError("joint_recovery_ingress_release_environment_invalid")
+        return ingress_lane
+
+    @staticmethod
+    def _recovery_ingress_api_interpolation_environment(
+        previous: Mapping[str, Any],
+    ) -> dict[str, str]:
+        image_value = previous.get("image_reference")
+        if not isinstance(image_value, str):
+            raise DeployError("joint_recovery_ingress_api_image_invalid")
+        try:
+            image_reference = _safe_tagged_image_reference(
+                image_value,
+                reason="joint_recovery_ingress_api_image_invalid",
+            )
+        except DeployError as exc:
+            raise DeployError("joint_recovery_ingress_api_image_invalid") from exc
+        if image_reference != image_value:
+            raise DeployError("joint_recovery_ingress_api_image_invalid")
+
+        trusted_proxy_cidr = f"{PUBLIC_INGRESS_CLOUDFLARED_IPV4}/32"
+        try:
+            proxy_address = ipaddress.IPv4Address(PUBLIC_INGRESS_CLOUDFLARED_IPV4)
+            proxy_network = ipaddress.IPv4Network(trusted_proxy_cidr)
+        except ipaddress.AddressValueError as exc:
+            raise DeployError("joint_recovery_ingress_api_proxy_cidr_invalid") from exc
+        if (
+            str(proxy_address) != PUBLIC_INGRESS_CLOUDFLARED_IPV4
+            or str(proxy_network) != trusted_proxy_cidr
+            or proxy_network.prefixlen != 32
+            or proxy_network.network_address != proxy_address
+        ):
+            raise DeployError("joint_recovery_ingress_api_proxy_cidr_invalid")
+
+        inert_paths = {
+            "EA_MEMORIAL_DATA_HOST_PATH": RECOVERY_INGRESS_INERT_DATA_HOST_PATH,
+            "EA_MEMORIAL_RUNTIME_HOST_PATH": (RECOVERY_INGRESS_INERT_RUNTIME_HOST_PATH),
+        }
+        expected_inert_paths = {
+            "EA_MEMORIAL_DATA_HOST_PATH": ("/dev/null/ea-memorial-recovery-data"),
+            "EA_MEMORIAL_RUNTIME_HOST_PATH": ("/dev/null/ea-memorial-recovery-runtime"),
+        }
+        try:
+            inert_parent_metadata = Path("/dev/null").lstat()
+        except OSError as exc:
+            raise DeployError("joint_recovery_ingress_api_inert_path_invalid") from exc
+        if (
+            not stat.S_ISCHR(inert_parent_metadata.st_mode)
+            or set(inert_paths) != set(expected_inert_paths)
+            or len(set(inert_paths.values())) != len(inert_paths)
+        ):
+            raise DeployError("joint_recovery_ingress_api_inert_path_invalid")
+        for key, path in inert_paths.items():
+            if (
+                str(path) != expected_inert_paths[key]
+                or not path.is_absolute()
+                or ".." in path.parts
+                or path.parent != Path("/dev/null")
+            ):
+                raise DeployError("joint_recovery_ingress_api_inert_path_invalid")
+            try:
+                path.lstat()
+            except OSError as exc:
+                if exc.errno not in {errno.ENOENT, errno.ENOTDIR}:
+                    raise DeployError(
+                        "joint_recovery_ingress_api_inert_path_invalid"
+                    ) from exc
+            else:
+                raise DeployError("joint_recovery_ingress_api_inert_path_invalid")
+
+        environment = {
+            "EA_MEMORIAL_DATA_HOST_PATH": str(RECOVERY_INGRESS_INERT_DATA_HOST_PATH),
+            "EA_MEMORIAL_IMAGE": image_reference,
+            "EA_MEMORIAL_RUNTIME_HOST_PATH": str(
+                RECOVERY_INGRESS_INERT_RUNTIME_HOST_PATH
+            ),
+            "EA_MEMORIAL_TRUSTED_PROXY_CIDRS": trusted_proxy_cidr,
+        }
+        if set(environment) != RECOVERY_INGRESS_API_INTERPOLATION_ENV_KEYS or any(
+            not value or "\x00" in value or "\n" in value or "\r" in value
+            for value in environment.values()
+        ):
+            raise DeployError("joint_recovery_ingress_api_interpolation_invalid")
+        return environment
 
     def _capture_docker_daemon_identity(self) -> dict[str, str]:
         completed = self._run(
@@ -2924,16 +3671,10 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 or opened_directory.st_uid != os.geteuid()
                 or stat.S_IMODE(opened_directory.st_mode) != 0o700
             ):
-                raise DeployError(
-                    "joint_ingress_rollback_overlay_directory_changed"
-                )
+                raise DeployError("joint_ingress_rollback_overlay_directory_changed")
             descriptor = os.open(
                 path.name,
-                os.O_WRONLY
-                | os.O_CREAT
-                | os.O_EXCL
-                | os.O_CLOEXEC
-                | os.O_NOFOLLOW,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW,
                 0o600,
                 dir_fd=directory_descriptor,
             )
@@ -2943,9 +3684,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             while remaining:
                 written = os.write(descriptor, remaining)
                 if written <= 0:
-                    raise DeployError(
-                        "joint_ingress_rollback_overlay_write_failed"
-                    )
+                    raise DeployError("joint_ingress_rollback_overlay_write_failed")
                 remaining = remaining[written:]
             os.fsync(descriptor)
             metadata = os.fstat(descriptor)
@@ -2972,9 +3711,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 or final_directory.st_uid != os.geteuid()
                 or stat.S_IMODE(final_directory.st_mode) != 0o700
             ):
-                raise DeployError(
-                    "joint_ingress_rollback_overlay_directory_changed"
-                )
+                raise DeployError("joint_ingress_rollback_overlay_directory_changed")
         except FileExistsError as exc:
             raise DeployError("joint_ingress_rollback_overlay_exists") from exc
         except DeployError:
@@ -3000,9 +3737,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         baseline: Mapping[str, Any],
     ) -> dict[str, Any]:
         container = dict(baseline.get("container") or {})
-        prior_root = Path(
-            str(container.get("compose_working_dir") or "")
-        ).expanduser()
+        prior_root = Path(str(container.get("compose_working_dir") or "")).expanduser()
         prior_files = [
             str(item)
             for item in list(container.get("compose_config_files") or [])
@@ -3033,11 +3768,9 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             prior_rendered,
             prior_service,
         )
-        if (
-            not rendered_network_names
-            or len(set(rendered_network_names.values()))
-            != len(rendered_network_names)
-        ):
+        if not rendered_network_names or len(
+            set(rendered_network_names.values())
+        ) != len(rendered_network_names):
             raise DeployError("joint_ingress_rollback_network_mapping_invalid")
         logical_by_actual = {
             actual: logical for logical, actual in rendered_network_names.items()
@@ -3055,9 +3788,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         rendered_networks = set(rendered_network_names.values())
         if not runtime_networks or not runtime_networks.issubset(rendered_networks):
             raise DeployError("joint_ingress_rollback_network_mapping_invalid")
-        runtime_logical_names = {
-            logical_by_actual[name] for name in runtime_networks
-        }
+        runtime_logical_names = {logical_by_actual[name] for name in runtime_networks}
         if frozenset(runtime_logical_names) not in INGRESS_ROLLBACK_NETWORK_SHAPES:
             raise DeployError("joint_ingress_rollback_network_mapping_invalid")
         if runtime_networks != rendered_networks and not (
@@ -3102,18 +3833,13 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 or not 1 <= len(actual_name) <= 255
                 or any(ord(character) < 32 for character in actual_name)
             ):
-                raise DeployError(
-                    "joint_ingress_rollback_network_endpoint_invalid"
-                )
+                raise DeployError("joint_ingress_rollback_network_endpoint_invalid")
             lines.extend(
                 [
                     f"      {json.dumps(logical_name)}:",
                     f"        ipv4_address: {json.dumps(ipv4_address)}",
                     "        aliases:",
-                    *[
-                        f"          - {json.dumps(alias)}"
-                        for alias in sorted(aliases)
-                    ],
+                    *[f"          - {json.dumps(alias)}" for alias in sorted(aliases)],
                 ]
             )
         lines.append("networks:")
@@ -3130,18 +3856,14 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         existing_overlay_paths = [
             Path(item)
             for item in prior_files
-            if Path(item).name.endswith(
-                f".{INGRESS_ROLLBACK_OVERLAY_SUFFIX}"
-            )
+            if Path(item).name.endswith(f".{INGRESS_ROLLBACK_OVERLAY_SUFFIX}")
         ]
         if len(existing_overlay_paths) > 1:
             raise DeployError("joint_ingress_rollback_overlay_chain_invalid")
         if existing_overlay_paths:
             overlay_path = existing_overlay_paths[0]
             matching_seals = [
-                seal
-                for seal in baseline_seals
-                if seal.get("path") == str(overlay_path)
+                seal for seal in baseline_seals if seal.get("path") == str(overlay_path)
             ]
             if (
                 str(overlay_path) != prior_files[-1]
@@ -3161,9 +3883,8 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 reason_prefix="joint_ingress_existing_rollback_overlay",
             )
             self._revalidate_ingress_input_seals([overlay_seal])
-            if (
-                existing_raw != overlay_raw
-                or _sha256(existing_raw) != overlay_seal.get("sha256")
+            if existing_raw != overlay_raw or _sha256(existing_raw) != overlay_seal.get(
+                "sha256"
             ):
                 raise DeployError("joint_ingress_rollback_overlay_chain_invalid")
             rollback_files = list(prior_files)
@@ -3298,7 +4019,8 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 or not path_value
                 or len(path_value) > 4096
                 or any(
-                    ord(character) < 32 or ord(character) == 127
+                    ord(character) < 32
+                    or ord(character) == 127
                     or 0xD800 <= ord(character) <= 0xDFFF
                     for character in path_value
                 )
@@ -3316,9 +4038,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 and expected.get("present") is True
             )
             if optional_absent or optional_present:
-                if (
-                    path.name != ".env.local"
-                ):
+                if path.name != ".env.local":
                     raise DeployError("joint_ingress_input_seal_invalid")
                 current_optional = _trusted_optional_private_file_seal(path)
                 if current_optional != expected:
@@ -3339,8 +4059,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 or len(str(expected["mode"])) != 4
                 or any(character not in "01234567" for character in expected["mode"])
                 or any(
-                    type(expected.get(key)) is not int
-                    or int(expected[key]) < 0
+                    type(expected.get(key)) is not int or int(expected[key]) < 0
                     for key in (
                         "device",
                         "inode",
@@ -3418,50 +4137,64 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             "containers": containers,
         }
 
+    def _capture_public_edge_response(
+        self,
+        public_origin: str,
+        probe: Any,
+        method: str,
+    ) -> tuple[dict[str, Any], bytes]:
+        url = f"{public_origin}{probe.path}"
+        parsed = urllib.parse.urlsplit(url)
+        if (
+            parsed.scheme != "https"
+            or parsed.query
+            or parsed.fragment
+            or parsed.username
+            or parsed.password
+        ):
+            raise DeployError("joint_public_snapshot_url_invalid")
+        remaining = self._remaining_mutation_action_seconds()
+        timeout_seconds = self.request_timeout_seconds
+        if remaining is not None:
+            timeout_seconds = min(timeout_seconds, remaining)
+        response = self.public_snapshot(url, timeout_seconds, method)
+        if not 100 <= response.status <= 599:
+            raise DeployError("joint_public_snapshot_status_invalid")
+        if method == "HEAD" and response.body:
+            raise DeployError("joint_public_snapshot_head_body_invalid")
+        headers = {
+            str(key).casefold(): str(value)
+            for key, value in dict(response.headers or {}).items()
+        }
+        source_revision = str(response.source_revision or "")
+        if len(source_revision) > 128 or any(
+            ord(character) < 32 for character in source_revision
+        ):
+            raise DeployError("joint_public_snapshot_revision_invalid")
+        return (
+            {
+                "method": method,
+                "path": probe.path,
+                "status": response.status,
+                "content_type": response.content_type,
+                "source_revision": source_revision,
+                "location": headers.get("location", ""),
+                "body_bytes": len(response.body),
+                "body_sha256": _sha256(response.body),
+            },
+            response.body,
+        )
+
     def _capture_public_edge(self, public_origin: str) -> dict[str, Any]:
         evidence: dict[str, Any] = {}
         for probe in PUBLIC_PROBES:
-            url = f"{public_origin}{probe.path}"
-            parsed = urllib.parse.urlsplit(url)
-            if (
-                parsed.scheme != "https"
-                or parsed.query
-                or parsed.fragment
-                or parsed.username
-                or parsed.password
-            ):
-                raise DeployError("joint_public_snapshot_url_invalid")
             for method in ("GET", "HEAD"):
-                remaining = self._remaining_mutation_action_seconds()
-                timeout_seconds = self.request_timeout_seconds
-                if remaining is not None:
-                    timeout_seconds = min(timeout_seconds, remaining)
-                response = self.public_snapshot(
-                    url, timeout_seconds, method
+                row, _body = self._capture_public_edge_response(
+                    public_origin,
+                    probe,
+                    method,
                 )
-                if not 100 <= response.status <= 599:
-                    raise DeployError("joint_public_snapshot_status_invalid")
-                if method == "HEAD" and response.body:
-                    raise DeployError("joint_public_snapshot_head_body_invalid")
-                headers = {
-                    str(key).casefold(): str(value)
-                    for key, value in dict(response.headers or {}).items()
-                }
-                source_revision = str(response.source_revision or "")
-                if len(source_revision) > 128 or any(
-                    ord(character) < 32 for character in source_revision
-                ):
-                    raise DeployError("joint_public_snapshot_revision_invalid")
-                evidence[f"{probe.label}_{method.lower()}"] = {
-                    "method": method,
-                    "path": probe.path,
-                    "status": response.status,
-                    "content_type": response.content_type,
-                    "source_revision": source_revision,
-                    "location": headers.get("location", ""),
-                    "body_bytes": len(response.body),
-                    "body_sha256": _sha256(response.body),
-                }
+                evidence[f"{probe.label}_{method.lower()}"] = row
         return evidence
 
     def _capture_stable_public_edge(self, public_origin: str) -> dict[str, Any]:
@@ -3469,6 +4202,165 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         if self._capture_public_edge(public_origin) != first:
             raise DeployError("joint_public_snapshot_unstable")
         return first
+
+    @staticmethod
+    def _public_edge_mismatch_evidence(
+        expected: Mapping[str, Any],
+        observed: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Describe a public-edge mismatch without copying response metadata."""
+
+        def safe_row_projection(value: object) -> dict[str, Any]:
+            row = dict(value) if isinstance(value, Mapping) else {}
+
+            def text_identity(field: str) -> dict[str, Any]:
+                raw = row.get(field)
+                text = raw if isinstance(raw, str) else ""
+                return {
+                    "chars": len(text),
+                    "sha256": _sha256(text.encode("utf-8", errors="surrogatepass")),
+                }
+
+            return {
+                "status": row.get("status") if type(row.get("status")) is int else None,
+                "content_type": text_identity("content_type"),
+                "source_revision": text_identity("source_revision"),
+                "location": text_identity("location"),
+                "body_bytes": row.get("body_bytes")
+                if type(row.get("body_bytes")) is int
+                else None,
+                "body_sha256": row.get("body_sha256")
+                if isinstance(row.get("body_sha256"), str)
+                else "",
+            }
+
+        mismatches: dict[str, Any] = {}
+        for key in sorted(set(expected) | set(observed)):
+            expected_value = expected.get(key)
+            observed_value = observed.get(key)
+            if expected_value == observed_value:
+                continue
+            expected_row = (
+                dict(expected_value) if isinstance(expected_value, Mapping) else {}
+            )
+            observed_row = (
+                dict(observed_value) if isinstance(observed_value, Mapping) else {}
+            )
+            differing_fields = sorted(
+                field
+                for field in set(expected_row) | set(observed_row)
+                if expected_row.get(field) != observed_row.get(field)
+            )
+            mismatches[str(key)] = {
+                "differing_fields": differing_fields,
+                "expected": safe_row_projection(expected_value),
+                "observed": safe_row_projection(observed_value),
+            }
+        return {
+            "mismatch_count": len(mismatches),
+            "mismatches": mismatches,
+            "response_metadata_copied": False,
+        }
+
+    def _spatial_manifest_restart_order_compatibility(
+        self,
+        *,
+        public_origin: str,
+        expected: Mapping[str, Any],
+        observed: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        """Verify the one legacy frozenset-order variant without weakening JSON."""
+        mismatch_keys = sorted(
+            key
+            for key in set(expected) | set(observed)
+            if expected.get(key) != observed.get(key)
+        )
+        if mismatch_keys != ["spatial_manifest_get"]:
+            return None
+        expected_row_value = expected.get("spatial_manifest_get")
+        observed_row_value = observed.get("spatial_manifest_get")
+        if not isinstance(expected_row_value, Mapping) or not isinstance(
+            observed_row_value, Mapping
+        ):
+            return None
+        expected_row = dict(expected_row_value)
+        observed_row = dict(observed_row_value)
+        differing_fields = {
+            field
+            for field in set(expected_row) | set(observed_row)
+            if expected_row.get(field) != observed_row.get(field)
+        }
+        if differing_fields != {"body_sha256"}:
+            return None
+        probe = next(
+            (item for item in PUBLIC_PROBES if item.label == "spatial_manifest"),
+            None,
+        )
+        if probe is None:  # pragma: no cover - constant contract invariant
+            raise DeployError("joint_spatial_manifest_probe_missing")
+        confirmation_row, body = self._capture_public_edge_response(
+            public_origin,
+            probe,
+            "GET",
+        )
+        if confirmation_row != observed_row:
+            return None
+        try:
+            payload = _strict_json_object(
+                body,
+                reason="joint_spatial_manifest_rollback_json_invalid",
+            )
+        except DeployError:
+            return None
+        expected_payload_keys = {
+            *LEGACY_SPATIAL_MANIFEST_ORDER_VARIANT_KEYS,
+            *LEGACY_SPATIAL_MANIFEST_FIXED_SUFFIX_KEYS,
+        }
+        if set(payload) != expected_payload_keys:
+            return None
+        expected_body_sha256 = expected_row.get("body_sha256")
+        expected_body_bytes = expected_row.get("body_bytes")
+        if (
+            not isinstance(expected_body_sha256, str)
+            or type(expected_body_bytes) is not int
+            or expected_body_bytes != len(body)
+        ):
+            return None
+        variant_hashes: set[str] = set()
+        for order in itertools.permutations(LEGACY_SPATIAL_MANIFEST_ORDER_VARIANT_KEYS):
+            candidate = {
+                key: payload[key]
+                for key in (*order, *LEGACY_SPATIAL_MANIFEST_FIXED_SUFFIX_KEYS)
+            }
+            try:
+                candidate_body = json.dumps(
+                    candidate,
+                    allow_nan=False,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            except (TypeError, ValueError, UnicodeError):
+                return None
+            if len(candidate_body) != expected_body_bytes:
+                return None
+            variant_hashes.add(_sha256(candidate_body))
+        observed_body_sha256 = observed_row.get("body_sha256")
+        if (
+            expected_body_sha256 not in variant_hashes
+            or observed_body_sha256 not in variant_hashes
+        ):
+            return None
+        return {
+            "status": "pass",
+            "probe": "spatial_manifest_get",
+            "comparison": "legacy_json_top_level_order_only",
+            "canonical_json_sha256": _canonical_json_sha256(payload),
+            "permuted_key_count": len(LEGACY_SPATIAL_MANIFEST_ORDER_VARIANT_KEYS),
+            "variant_count": len(variant_hashes),
+            "expected_body_sha256": expected_body_sha256,
+            "observed_body_sha256": observed_body_sha256,
+            "confirmation_sample_matches_observed": True,
+        }
 
     @staticmethod
     def _cloudflared_identity(
@@ -3587,8 +4479,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             if membership["ipv4_address"] == desired_ipv4
         ]
         if len(desired_owners) > 1 or any(
-            owner["name"] != CLOUDFLARED_CONTAINER
-            or owner["ipv6_address"]
+            owner["name"] != CLOUDFLARED_CONTAINER or owner["ipv6_address"]
             for owner in desired_owners
         ):
             raise DeployError("joint_ingress_rollback_ipv4_unavailable")
@@ -3604,8 +4495,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                         item["name"] == API_SERVICE
                         and item["ipv4_address"] == PUBLIC_INGRESS_API_IPV4
                         or item["name"] == CLOUDFLARED_CONTAINER
-                        and item["ipv4_address"]
-                        == PUBLIC_INGRESS_CLOUDFLARED_IPV4
+                        and item["ipv4_address"] == PUBLIC_INGRESS_CLOUDFLARED_IPV4
                     )
                     for item in normalized_memberships
                 )
@@ -3662,9 +4552,8 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             or (phase == "before_recreate_api" and expected_network_baseline is None)
         ):
             raise DeployError("joint_ingress_address_reservation_phase_invalid")
-        if (
-            expected_network_baseline is not None
-            and dict(network_baseline) != dict(expected_network_baseline)
+        if expected_network_baseline is not None and dict(network_baseline) != dict(
+            expected_network_baseline
         ):
             raise DeployError("joint_ingress_network_topology_changed")
         if not network_baseline.get("present"):
@@ -3710,11 +4599,12 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             raise DeployError("joint_ingress_address_reservation_invalid")
         normalized_members: list[dict[str, str]] = []
         for raw_row in list(network_baseline.get("containers") or []):
-            if (
-                not isinstance(raw_row, Mapping)
-                or set(raw_row)
-                != {"container_id", "name", "ipv4_address", "ipv6_address"}
-            ):
+            if not isinstance(raw_row, Mapping) or set(raw_row) != {
+                "container_id",
+                "name",
+                "ipv4_address",
+                "ipv6_address",
+            }:
                 raise DeployError("joint_ingress_address_reservation_invalid")
             raw_ipv4 = str(raw_row.get("ipv4_address") or "")
             address, separator, prefix = raw_ipv4.partition("/")
@@ -3871,9 +4761,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             "rollback_working_dir": str(rollback_bundle["working_dir"]),
             "rollback_compose_files": list(rollback_bundle["compose_files"]),
             "rollback_overlay": dict(rollback_bundle["overlay"]),
-            "rollback_interpolation_environment": (
-                rollback_interpolation_environment
-            ),
+            "rollback_interpolation_environment": (rollback_interpolation_environment),
             "rollback_render_projection": rollback_projection,
             "rollback_render_sha256": rollback_render_sha256,
             "target_input_seals": target_seals,
@@ -3890,9 +4778,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             "spatial_browser_binding",
             "pass",
             browser_receipt_path=spatial_browser_binding["browser_receipt_path"],
-            browser_receipt_sha256=spatial_browser_binding[
-                "browser_receipt_sha256"
-            ],
+            browser_receipt_sha256=spatial_browser_binding["browser_receipt_sha256"],
             candidate_runtime_receipt_sha256=spatial_browser_binding[
                 "candidate_runtime_receipt_sha256"
             ],
@@ -3979,8 +4865,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             or not isinstance(embedded, Mapping)
             or dict(embedded) != browser
             or not isinstance(evidence_spatial, Mapping)
-            or dict(evidence_spatial).get("browser_schema")
-            != CANDIDATE_BROWSER_SCHEMA
+            or dict(evidence_spatial).get("browser_schema") != CANDIDATE_BROWSER_SCHEMA
             or dict(evidence_spatial).get("browser_pass") is not True
             or dict(evidence_spatial).get("identity_bound") is not True
         ):
@@ -4024,7 +4909,9 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             or evidence.get("schema") != CANDIDATE_RUNTIME_SCHEMA
             or evidence.get("status") != "pass"
             or len(candidate_sha256) != 64
-            or any(character not in "0123456789abcdef" for character in candidate_sha256)
+            or any(
+                character not in "0123456789abcdef" for character in candidate_sha256
+            )
             or spatial.get("browser_schema") != CANDIDATE_BROWSER_SCHEMA
             or spatial.get("browser_pass") is not True
             or spatial.get("identity_bound") is not True
@@ -4055,8 +4942,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 "sha256": str(browser_binding["browser_receipt_sha256"]),
                 "schema": CANDIDATE_BROWSER_SCHEMA,
                 "exact_binding": (
-                    "candidate_runtime.spatial_handoff_runtime."
-                    "candidate_browser_gate"
+                    "candidate_runtime.spatial_handoff_runtime.candidate_browser_gate"
                 ),
             },
         }
@@ -4159,14 +5045,42 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         ]
         if not prior_files:
             raise DeployError("joint_ingress_rollback_topology_missing")
+        rollback_environment = self._rollback_ingress_environment(
+            {
+                **ingress.release_env,
+                **dict(ingress_context.get("rollback_interpolation_environment") or {}),
+            }
+        )
+        recovery_api_environment = ingress_context.get(
+            "recovery_api_interpolation_environment"
+        )
+        if recovery_api_environment is not None:
+            if (
+                not isinstance(recovery_api_environment, Mapping)
+                or set(recovery_api_environment)
+                != RECOVERY_INGRESS_API_INTERPOLATION_ENV_KEYS
+            ):
+                raise DeployError("joint_recovery_ingress_release_environment_invalid")
+            expected_recovery_release_values = {
+                **dict(ingress_context.get("rollback_interpolation_environment") or {}),
+                **dict(recovery_api_environment),
+            }
+            if (
+                any(
+                    ingress.release_env.get(key) != value
+                    for key, value in expected_recovery_release_values.items()
+                )
+                or rollback_environment != ingress.release_env
+            ):
+                raise DeployError("joint_recovery_ingress_release_environment_invalid")
+            rollback_environment = ingress.release_env
         rollback_rendered, rollback_render_seals = ingress._render_compose(
             root=prior_root,
             files=prior_files,
             expected_input_seals=list(ingress_context["rollback_input_seals"]),
         )
         if (
-            rollback_render_seals
-            != list(ingress_context["rollback_input_seals"])
+            rollback_render_seals != list(ingress_context["rollback_input_seals"])
             or self._ingress_rollback_projection(rollback_rendered)
             != ingress_context["rollback_render_projection"]
             or _canonical_json_sha256(
@@ -4191,17 +5105,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 CLOUDFLARED_SERVICE,
             ],
             cwd=prior_root,
-            env=self._rollback_ingress_environment(
-                {
-                    **ingress.release_env,
-                    **dict(
-                        ingress_context.get(
-                            "rollback_interpolation_environment"
-                        )
-                        or {}
-                    ),
-                }
-            ),
+            env=rollback_environment,
         )
         self._revalidate_ingress_input_seals(
             list(ingress_context["rollback_input_seals"])
@@ -4326,49 +5230,57 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         ingress_mutation_started: bool,
         rollback_tag: str,
     ) -> dict[str, Any]:
-        original_wait_seconds = self.wait_seconds
-        original_request_timeout_seconds = self.request_timeout_seconds
-        ingress_context = dict(context.get("ingress") or {})
-        ingress_lane = ingress_context.get("lane")
-        if not isinstance(ingress_lane, PublicIngressReconciliationLane):
-            raise DeployError("joint_ingress_lane_invalid")
-        original_ingress_timeout_provider = ingress_lane.command_timeout_provider
-        original_recovery_local_origin = self._recovery_local_origin
-        recovery_local_origin = str(context.get("api_local_origin") or "")
-        if recovery_local_origin:
-            self._recovery_local_origin = recovery_local_origin
-        with (
-            _defer_deployment_signals() as controller,
-            self._ensure_rollback_deadline_scope(),
-        ):
-            remaining = self._remaining_mutation_action_seconds()
-            if remaining is None:  # pragma: no cover - deadline scope invariant
-                raise DeployError("joint_rollback_deadline_missing")
-            self.wait_seconds = min(self.wait_seconds, remaining)
-            self.request_timeout_seconds = min(
-                self.request_timeout_seconds,
-                remaining,
+        with self._joint_rollback_authority_scope(
+            expected_context=context,
+            rollback_tag=rollback_tag,
+            api_mutation_started=api_mutation_started,
+            ingress_mutation_started=ingress_mutation_started,
+        ) as authoritative_context:
+            original_wait_seconds = self.wait_seconds
+            original_request_timeout_seconds = self.request_timeout_seconds
+            ingress_context = dict(authoritative_context.get("ingress") or {})
+            ingress_lane = ingress_context.get("lane")
+            if not isinstance(ingress_lane, PublicIngressReconciliationLane):
+                raise DeployError("joint_ingress_lane_invalid")
+            original_ingress_timeout_provider = ingress_lane.command_timeout_provider
+            original_recovery_local_origin = self._recovery_local_origin
+            recovery_local_origin = str(
+                authoritative_context.get("api_local_origin") or ""
             )
-            ingress_lane.command_timeout_provider = (
-                self._remaining_mutation_action_seconds
-            )
-            try:
-                result = self._perform_joint_rollback_components(
-                    context=context,
-                    api_mutation_started=api_mutation_started,
-                    ingress_mutation_started=ingress_mutation_started,
-                    rollback_tag=rollback_tag,
+            if recovery_local_origin:
+                self._recovery_local_origin = recovery_local_origin
+            with (
+                _defer_deployment_signals() as controller,
+                self._ensure_rollback_deadline_scope(),
+            ):
+                remaining = self._remaining_mutation_action_seconds()
+                if remaining is None:  # pragma: no cover - deadline scope invariant
+                    raise DeployError("joint_rollback_deadline_missing")
+                self.wait_seconds = min(self.wait_seconds, remaining)
+                self.request_timeout_seconds = min(
+                    self.request_timeout_seconds,
+                    remaining,
                 )
-                if controller is not None and controller.deferred_signal_counts:
-                    result["deferred_signals"] = controller.deferred_receipt()
-                return result
-            finally:
-                self.wait_seconds = original_wait_seconds
-                self.request_timeout_seconds = original_request_timeout_seconds
                 ingress_lane.command_timeout_provider = (
-                    original_ingress_timeout_provider
+                    self._remaining_mutation_action_seconds
                 )
-                self._recovery_local_origin = original_recovery_local_origin
+                try:
+                    result = self._perform_joint_rollback_components(
+                        context=authoritative_context,
+                        api_mutation_started=api_mutation_started,
+                        ingress_mutation_started=ingress_mutation_started,
+                        rollback_tag=rollback_tag,
+                    )
+                    if controller is not None and controller.deferred_signal_counts:
+                        result["deferred_signals"] = controller.deferred_receipt()
+                    return result
+                finally:
+                    self.wait_seconds = original_wait_seconds
+                    self.request_timeout_seconds = original_request_timeout_seconds
+                    ingress_lane.command_timeout_provider = (
+                        original_ingress_timeout_provider
+                    )
+                    self._recovery_local_origin = original_recovery_local_origin
 
     def _perform_joint_rollback_components(
         self,
@@ -4415,6 +5327,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                     rollback_tag,
                     dict(context["non_memorial_controls"]),
                     context["deployment_input_seal"],
+                    str(context["public_origin"]),
                 )
                 self._remaining_mutation_action_seconds()
             except BaseException as exc:  # rollback must survive a second interrupt
@@ -4437,16 +5350,40 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 }
         self._rollback_boundary_checkpoint("after_network")
         if not failures:
+            mismatch_evidence: dict[str, Any] | None = None
             try:
                 self._remaining_mutation_action_seconds()
-                restored_edge = self._capture_public_edge(str(context["public_origin"]))
+                restored_edge = self._capture_stable_public_edge(
+                    str(context["public_origin"])
+                )
+                compatibility: dict[str, Any] | None = None
                 if restored_edge != ingress_context["public_edge_baseline"]:
-                    raise DeployError("joint_public_edge_rollback_mismatch")
+                    mismatch_evidence = self._public_edge_mismatch_evidence(
+                        dict(ingress_context["public_edge_baseline"]),
+                        restored_edge,
+                    )
+                    compatibility = self._spatial_manifest_restart_order_compatibility(
+                        public_origin=str(context["public_origin"]),
+                        expected=dict(ingress_context["public_edge_baseline"]),
+                        observed=restored_edge,
+                    )
+                    if compatibility is None:
+                        raise DeployError("joint_public_edge_rollback_mismatch")
                 result["public_edge"] = {
                     "status": "pass",
-                    "request_count": len(restored_edge),
+                    "request_count": (2 * len(restored_edge))
+                    + (1 if compatibility is not None else 0),
+                    "request_count_per_sample": len(restored_edge),
+                    "stability_sample_count": 2,
+                    "compatibility_confirmation_request_count": (
+                        1 if compatibility is not None else 0
+                    ),
                     "matches_predeploy": True,
+                    "raw_fingerprint_matches_predeploy": compatibility is None,
+                    "semantic_equivalence_verified": compatibility is not None,
                 }
+                if compatibility is not None:
+                    result["public_edge"]["compatibility"] = compatibility
                 self._remaining_mutation_action_seconds()
             except BaseException as exc:
                 failures.append(f"public_edge:{str(exc) or type(exc).__name__}")
@@ -4454,6 +5391,8 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                     "status": "fail",
                     "reason": str(exc) or type(exc).__name__,
                 }
+                if mismatch_evidence is not None:
+                    result["public_edge"]["mismatch_evidence"] = mismatch_evidence
         result["completed_at"] = _utc_now()
         if failures:
             result["status"] = "fail"
@@ -4533,9 +5472,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             self._require_normalization_recovery_absent()
             self._recover_interrupted_transaction(preflight_only=preflight_only)
             context = self.preflight()
-            self.receipt["source_revision"] = str(
-                context.get("source_revision") or ""
-            )
+            self.receipt["source_revision"] = str(context.get("source_revision") or "")
             self.receipt["public_origin"] = str(context.get("public_origin") or "")
             if preflight_only:
                 self.receipt["status"] = "preflight_only_pass"
@@ -4613,12 +5550,8 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             pending_action = "recreate_api"
             persist_preparation("api_mutation_pending")
             with self._bounded_mutation_action():
-                self._revalidate_bind_source_access(
-                    boundary="before_recreate_api"
-                )
-                self._require_deployment_input_seal(
-                    context["deployment_input_seal"]
-                )
+                self._revalidate_bind_source_access(boundary="before_recreate_api")
+                self._require_deployment_input_seal(context["deployment_input_seal"])
                 self._require_spatial_browser_binding(context)
                 self._revalidate_ingress_input_seals(
                     [
@@ -4629,13 +5562,9 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 self._validate_ingress_address_reservations(
                     context=context,
                     network_baseline=self._capture_public_network(ingress),
-                    cloudflared_baseline=ingress_context[
-                        "cloudflared_baseline"
-                    ],
+                    cloudflared_baseline=ingress_context["cloudflared_baseline"],
                     phase="before_recreate_api",
-                    expected_network_baseline=ingress_context[
-                        "network_baseline"
-                    ],
+                    expected_network_baseline=ingress_context["network_baseline"],
                 )
                 pending_action = None
                 active_action = "recreate_api"
@@ -4653,9 +5582,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                     api_runtime_state="mutation_possible",
                 )
                 try:
-                    self._revalidate_bind_source_access(
-                        boundary="before_recreate_api"
-                    )
+                    self._revalidate_bind_source_access(boundary="before_recreate_api")
                     self._require_deployment_input_seal(
                         context["deployment_input_seal"]
                     )
@@ -4669,13 +5596,9 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                     self._validate_ingress_address_reservations(
                         context=context,
                         network_baseline=self._capture_public_network(ingress),
-                        cloudflared_baseline=ingress_context[
-                            "cloudflared_baseline"
-                        ],
+                        cloudflared_baseline=ingress_context["cloudflared_baseline"],
                         phase="before_recreate_api",
-                        expected_network_baseline=ingress_context[
-                            "network_baseline"
-                        ],
+                        expected_network_baseline=ingress_context["network_baseline"],
                     )
                 except BaseException:
                     try:
@@ -4724,30 +5647,24 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             )
             local_origin = self._local_origin()
             local_probes = [
-                self._wait_http(f"{local_origin}/health", kind="health"),
                 self._wait_http(
-                    f"{local_origin}/memorials/manfred",
-                    kind="html",
-                    expected_source_revision=str(context["source_revision"]),
-                ),
-                self._wait_http(
-                    f"{local_origin}/memorials/manfred.json",
-                    kind="json",
+                    f"{local_origin}/health",
+                    kind="health",
                     expected_source_revision=str(context["source_revision"]),
                 ),
             ]
+            local_transport = self._verify_local_https_redirects(
+                local_origin,
+                str(context["public_origin"]),
+            )
             self._verify_non_memorial_controls(
                 dict(context["non_memorial_controls"]),
                 internal_openapi=True,
             )
-            local_candidate = self._verify_candidate_origin(
-                label="local",
-                base_url=local_origin,
-                public_origin=str(context["public_origin"]),
-            )
             self.receipt["joint_local_api_proof"] = {
                 "probes": local_probes,
-                "candidate_verifier": local_candidate,
+                "transport": local_transport,
+                "candidate_promotion_bound_to_runtime": True,
             }
             self._record_check("joint_local_api_proof", "pass")
 
@@ -4770,9 +5687,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 api_runtime_state="changed_verified_locally",
             )
             with self._bounded_mutation_action():
-                self._require_deployment_input_seal(
-                    context["deployment_input_seal"]
-                )
+                self._require_deployment_input_seal(context["deployment_input_seal"])
                 self._require_spatial_browser_binding(context)
                 self._revalidate_ingress_input_seals(
                     [
@@ -4854,12 +5769,13 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 base_url=str(context["public_origin"]),
                 public_origin=str(context["public_origin"]),
             )
-            self.receipt["candidate_verifier"] = [
-                local_candidate,
-                public_candidate,
-            ]
+            self.receipt["candidate_verifier"] = [public_candidate]
             self._record_check("candidate_verifier_origin", "pass", origin="public")
-            self._record_check("local_and_public_candidate_verifier", "pass")
+            self._record_check(
+                "public_candidate_verifier",
+                "pass",
+                local_transport_proof="canonical_https_redirects",
+            )
             public_edge = ingress._verify_public_origin()
             self.receipt["joint_public_edge"] = {
                 "status": "pass",
@@ -4950,20 +5866,14 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                     raise JointCommittedCleanupIncident(
                         "joint_committed_recovery_journal_cleanup_failed"
                     )
-                removed_cleanup = dict(
-                    self.receipt["recovery_journal_cleanup"]
-                )
+                removed_cleanup = dict(self.receipt["recovery_journal_cleanup"])
                 state_directory = removed_cleanup.get("state_directory")
-                if (
-                    set(removed_cleanup)
-                    != {
-                        "contains_secret_material",
-                        "path",
-                        "state_directory",
-                        "status",
-                    }
-                    or not isinstance(state_directory, Mapping)
-                ):
+                if set(removed_cleanup) != {
+                    "contains_secret_material",
+                    "path",
+                    "state_directory",
+                    "status",
+                } or not isinstance(state_directory, Mapping):
                     raise JointCommittedCleanupIncident(
                         "joint_committed_cleanup_evidence_invalid"
                     )
@@ -4977,17 +5887,17 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 if isinstance(exc, JointCommittedCleanupIncident):
                     raise
                 cleanup = self.receipt.get("recovery_journal_cleanup")
-                if not isinstance(cleanup, Mapping) or dict(cleanup).get(
-                    "status"
-                ) != "removed":
+                if (
+                    not isinstance(cleanup, Mapping)
+                    or dict(cleanup).get("status") != "removed"
+                ):
                     self.receipt["recovery_journal_cleanup"] = (
                         self._remove_owned_recovery_journal_best_effort(
                             recovery_journal
                         )
                     )
                 cleanup_retained = (
-                    self.receipt["recovery_journal_cleanup"].get("status")
-                    != "removed"
+                    self.receipt["recovery_journal_cleanup"].get("status") != "removed"
                 )
                 try:
                     journal_still_present = self._read_recovery_journal() is not None
@@ -5029,9 +5939,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                         durable_cleanup = dict(
                             durable_payload.get("recovery_journal_cleanup") or {}
                         )
-                        durable_state_directory = durable_cleanup.get(
-                            "state_directory"
-                        )
+                        durable_state_directory = durable_cleanup.get("state_directory")
                         cleanup_is_durable = bool(
                             cleanup_is_durable
                             and set(durable_cleanup)
@@ -5044,8 +5952,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                             and durable_cleanup.get("status") == "removed"
                             and durable_cleanup.get("path")
                             == str(self.recovery_journal_path)
-                            and durable_cleanup.get("contains_secret_material")
-                            is True
+                            and durable_cleanup.get("contains_secret_material") is True
                             and isinstance(durable_state_directory, Mapping)
                         )
                         if cleanup_is_durable:
@@ -5264,6 +6171,14 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "mutation."
         ),
     )
+    mode.add_argument(
+        "--recover-active",
+        action="store_true",
+        help=(
+            "Recover the one active durable joint transaction and exit without "
+            "starting a new deployment."
+        ),
+    )
     parser.add_argument("--wait-seconds", type=float, default=90.0)
     parser.add_argument("--poll-seconds", type=float, default=2.0)
     parser.add_argument("--request-timeout-seconds", type=float, default=10.0)
@@ -5305,6 +6220,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         with _deployment_signal_handlers():
             if args.finalize_committed_cleanup:
                 receipt = lane.finalize_committed_cleanup()
+            elif args.recover_active:
+                receipt = lane.recover_active()
             else:
                 receipt = lane.deploy(preflight_only=bool(args.preflight_only))
     except KeyboardInterrupt:

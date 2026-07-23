@@ -22,6 +22,14 @@ from app.services.public_tour_release_policy import (
 )
 
 
+def test_public_tour_top_level_projection_order_is_deterministic() -> None:
+    keys = public_tours._PUBLIC_TOUR_TOP_LEVEL_KEYS
+
+    assert isinstance(keys, tuple)
+    assert len(keys) == len(set(keys))
+    assert keys == tuple(sorted(keys))
+
+
 def _generated_video_source_manifest(
     *, source_path: str = "pcloud://propertyquarry/source/floorplan.jpg"
 ) -> bytes:

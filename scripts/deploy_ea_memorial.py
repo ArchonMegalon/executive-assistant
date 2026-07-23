@@ -140,9 +140,7 @@ CONTROL_TOUR_GENERATED_VIEWER_DISCLOSURE = (
 )
 PUBLIC_SPATIAL_VIEWER_RELPATH = "generated-reconstruction/viewer.html"
 PUBLIC_SPATIAL_PROOF_RELPATH = "generated-reconstruction/reconstruction.json"
-PUBLIC_SPATIAL_FLOORPLAN_RELPATH = (
-    "generated-reconstruction/source-floorplan.png"
-)
+PUBLIC_SPATIAL_FLOORPLAN_RELPATH = "generated-reconstruction/source-floorplan.png"
 PUBLIC_SPATIAL_JAVASCRIPT_RELPATHS = (
     "generated-reconstruction/vendor/three.module.js",
     "generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js",
@@ -229,9 +227,7 @@ ROLLBACK_MEMORIAL_CONTAINER_ENV_MAP = {
     "EA_PRIVATE_MEMORIAL_PROFILE_DIR": "EA_PRIVATE_MEMORIAL_PROFILE_DIR",
     "EA_MEMORIAL_LIVE_TTS_PLUGIN": "EA_MEMORIAL_LIVE_TTS_PLUGIN",
     "EA_MEMORIAL_TRUSTED_PROXY_CIDRS": "EA_TRUSTED_PROXY_CIDRS",
-    "EA_MEMORIAL_TRUSTED_PUBLIC_ORIGIN_ALIASES": (
-        "EA_TRUSTED_PUBLIC_ORIGIN_ALIASES"
-    ),
+    "EA_MEMORIAL_TRUSTED_PUBLIC_ORIGIN_ALIASES": ("EA_TRUSTED_PUBLIC_ORIGIN_ALIASES"),
     "EA_MEMORIAL_ALLOWED_PUBLIC_HOSTS": "EA_ALLOWED_PUBLIC_HOSTS",
 }
 ROLLBACK_MEMORIAL_RENDER_ENV_KEYS = frozenset(
@@ -259,9 +255,7 @@ TRUSTED_EXTERNAL_BRIDGE_ONLY_LAYERS = frozenset(
         "docker-compose.cloudflared.yml",
     }
 )
-TRUSTED_EXTERNAL_BRIDGE_REPLACEABLE_LAYERS = frozenset(
-    {MEMORIAL_COMPOSE_FILE}
-)
+TRUSTED_EXTERNAL_BRIDGE_REPLACEABLE_LAYERS = frozenset({MEMORIAL_COMPOSE_FILE})
 ROLLBACK_CAPSULE_ALLOWED_EXTERNAL_LAYERS = frozenset(
     TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER
 )
@@ -311,9 +305,7 @@ ROLLBACK_CAPSULE_HOST_MAPPED_KEYS = frozenset(
         "Tmpfs",
     }
 )
-ROLLBACK_CAPSULE_ENGINE_SECURITY_KEYS = frozenset(
-    {"MaskedPaths", "ReadonlyPaths"}
-)
+ROLLBACK_CAPSULE_ENGINE_SECURITY_KEYS = frozenset({"MaskedPaths", "ReadonlyPaths"})
 ROLLBACK_CAPSULE_ENGINE_SECURITY_DEFAULTS = {
     "MaskedPaths": [
         "/proc/acpi",
@@ -899,12 +891,10 @@ def _prepare_ea_runtime_environment(root: Path) -> dict[str, Any]:
         f"{EA_RUNTIME_ENV_DIRECTORY}/{EA_RUNTIME_ENV_FILE}": ".env",
     }
     if (root / ".env.local").is_file():
-        expected_outputs[
-            f"{EA_RUNTIME_ENV_DIRECTORY}/{EA_RUNTIME_LOCAL_ENV_FILE}"
-        ] = ".env.local"
-    observed_outputs = {
-        str(item.get("destination") or ""): item for item in outputs
-    }
+        expected_outputs[f"{EA_RUNTIME_ENV_DIRECTORY}/{EA_RUNTIME_LOCAL_ENV_FILE}"] = (
+            ".env.local"
+        )
+    observed_outputs = {str(item.get("destination") or ""): item for item in outputs}
     expected_local_state = "present" if len(expected_outputs) == 2 else "absent"
     if (
         receipt.get("status") != "prepared"
@@ -1172,9 +1162,7 @@ def _rollback_capsule_decode_rendered_literals(value: object) -> object:
             position = end
         return "".join(result)
     if isinstance(value, list):
-        return [
-            _rollback_capsule_decode_rendered_literals(item) for item in value
-        ]
+        return [_rollback_capsule_decode_rendered_literals(item) for item in value]
     if isinstance(value, dict):
         return {
             str(name): _rollback_capsule_decode_rendered_literals(item)
@@ -1448,8 +1436,7 @@ def _rollback_capsule_host_identity(host: Mapping[str, Any]) -> dict[str, object
             continue
         if key in {"CapDrop", "SecurityOpt"}:
             if not isinstance(value, list) or not all(
-                isinstance(item, str) and item and "\x00" not in item
-                for item in value
+                isinstance(item, str) and item and "\x00" not in item for item in value
             ):
                 raise DeployError("rollback_capsule_security_config_invalid")
             result[key] = sorted(set(value))
@@ -1628,10 +1615,9 @@ def _rollback_capsule_network_identities(
     rows: list[dict[str, object]] = []
     for raw_name, raw_endpoint in sorted(raw_networks.items()):
         name = str(raw_name or "")
-        if (
-            re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,254}", name) is None
-            or not isinstance(raw_endpoint, dict)
-        ):
+        if re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9_.-]{0,254}", name
+        ) is None or not isinstance(raw_endpoint, dict):
             raise DeployError("rollback_capsule_networks_invalid")
         network_id = str(raw_endpoint.get("NetworkID") or "")
         if re.fullmatch(r"[0-9a-f]{64}", network_id) is None:
@@ -1639,14 +1625,17 @@ def _rollback_capsule_network_identities(
         ipv4_address = ""
         if "IPAMConfig" in raw_endpoint and raw_endpoint["IPAMConfig"] is not None:
             ipam_config = raw_endpoint["IPAMConfig"]
-            if not isinstance(ipam_config, dict) or set(ipam_config) != {
-                "IPv4Address"
-            }:
+            if not isinstance(ipam_config, dict):
                 raise DeployError("rollback_capsule_network_ipam_config_unsupported")
-            ipv4_address = _validated_ipv4_address(
-                ipam_config["IPv4Address"],
-                reason="rollback_capsule_static_ipv4_invalid",
-            )
+            if ipam_config:
+                if set(ipam_config) != {"IPv4Address"}:
+                    raise DeployError(
+                        "rollback_capsule_network_ipam_config_unsupported"
+                    )
+                ipv4_address = _validated_ipv4_address(
+                    ipam_config["IPv4Address"],
+                    reason="rollback_capsule_static_ipv4_invalid",
+                )
         for key, value in raw_endpoint.items():
             if key in {
                 "Aliases",
@@ -1665,9 +1654,7 @@ def _rollback_capsule_network_identities(
                     )
                 continue
             if not _docker_value_is_neutral(value):
-                raise DeployError(
-                    f"rollback_capsule_network_field_unsupported:{key}"
-                )
+                raise DeployError(f"rollback_capsule_network_field_unsupported:{key}")
         raw_aliases = raw_endpoint.get("Aliases") or []
         if not isinstance(raw_aliases, list) or not all(
             isinstance(item, str) and item and "\x00" not in item
@@ -1719,9 +1706,7 @@ def _require_rollback_capsule_supported_inspection(
             continue
         if key in ROLLBACK_CAPSULE_ENGINE_SECURITY_KEYS:
             if value != ROLLBACK_CAPSULE_ENGINE_SECURITY_DEFAULTS[key]:
-                raise DeployError(
-                    f"rollback_capsule_host_field_unsupported:{key}"
-                )
+                raise DeployError(f"rollback_capsule_host_field_unsupported:{key}")
             continue
         if not _docker_value_is_neutral(value):
             raise DeployError(f"rollback_capsule_host_field_unsupported:{key}")
@@ -1744,8 +1729,12 @@ def _container_functional_identity(
     noncompose_labels = _rollback_capsule_noncompose_labels(config)
     runtime_path = str(inspection.get("Path") or "")
     runtime_args = inspection.get("Args") or []
-    if "\x00" in runtime_path or not isinstance(runtime_args, list) or not all(
-        isinstance(item, str) and "\x00" not in item for item in runtime_args
+    if (
+        "\x00" in runtime_path
+        or not isinstance(runtime_args, list)
+        or not all(
+            isinstance(item, str) and "\x00" not in item for item in runtime_args
+        )
     ):
         raise DeployError("rollback_capsule_runtime_process_invalid")
     host_mapped = _rollback_capsule_host_identity(host)
@@ -1968,13 +1957,12 @@ def _default_http_get(
         "User-Agent": "EA-Memorial-Scoped-Deploy/1.0",
     }
     if public_authority:
-        headers.update(
-            {
-                "Host": public_authority,
-                "X-Forwarded-Host": public_authority,
-                "X-Forwarded-Proto": "https",
-            }
-        )
+        # A host-side verifier is not the trusted production proxy.  Supplying
+        # forwarded headers here would either be ignored by the strict proxy
+        # CIDR policy or, under a regressed policy, let the verifier impersonate
+        # the public TLS hop.  The approved Host is enough to prove canonical
+        # HTTP-to-HTTPS routing without weakening that boundary.
+        headers["Host"] = public_authority
     request = urllib.request.Request(
         url,
         method="GET",
@@ -2041,13 +2029,7 @@ def _default_http_no_redirect(
         "User-Agent": "EA-Memorial-Scoped-Deploy/1.0",
     }
     if public_authority:
-        headers.update(
-            {
-                "Host": public_authority,
-                "X-Forwarded-Host": public_authority,
-                "X-Forwarded-Proto": "https",
-            }
-        )
+        headers["Host"] = public_authority
     request = urllib.request.Request(
         url,
         method=method,
@@ -2485,9 +2467,9 @@ class MemorialDeployLane:
         self.receipt_path = self.receipt_dir / f"{self.deployment_id}.json"
         self.lock_path = self.receipt_dir / f"{self.deployment_id}.lock"
         self.rollback_capsule_path = (
-            self.receipt_dir
-            / f"{self.deployment_id}.rollback-capsule.compose.json"
+            self.receipt_dir / f"{self.deployment_id}.rollback-capsule.compose.json"
         )
+        self._rollback_capsule_project_directory = self.receipt_dir
         self.global_lock_path = (
             global_lock_path.resolve()
             if global_lock_path is not None
@@ -2497,9 +2479,7 @@ class MemorialDeployLane:
             raise DeployError("global_lock_path_not_absolute")
         try:
             self.normalization_recovery_journal_path = (
-                default_normalization_recovery_journal_path(
-                    operator_anchor=self.root
-                )
+                default_normalization_recovery_journal_path(operator_anchor=self.root)
             )
             self.joint_recovery_journal_path = default_joint_recovery_journal_path(
                 operator_anchor=self.root
@@ -2575,13 +2555,7 @@ class MemorialDeployLane:
         )
         temporary_name = f".{self.receipt_path.name}.tmp.{os.getpid()}"
         directory_flags = os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | os.O_NOFOLLOW
-        file_flags = (
-            os.O_WRONLY
-            | os.O_CREAT
-            | os.O_EXCL
-            | os.O_CLOEXEC
-            | os.O_NOFOLLOW
-        )
+        file_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW
         directory_descriptor = -1
         descriptor = -1
         temporary_created = False
@@ -2669,11 +2643,10 @@ class MemorialDeployLane:
                 raise DeployError("deployment_receipt_replacement_invalid")
             os.fsync(directory_descriptor)
             final_directory_metadata = self.receipt_dir.lstat()
-            if (
-                stat.S_ISLNK(final_directory_metadata.st_mode)
-                or (final_directory_metadata.st_dev, final_directory_metadata.st_ino)
-                != (directory_metadata.st_dev, directory_metadata.st_ino)
-            ):
+            if stat.S_ISLNK(final_directory_metadata.st_mode) or (
+                final_directory_metadata.st_dev,
+                final_directory_metadata.st_ino,
+            ) != (directory_metadata.st_dev, directory_metadata.st_ino):
                 raise DeployError("deployment_receipt_directory_changed")
         except DeployError:
             raise
@@ -2739,9 +2712,7 @@ class MemorialDeployLane:
                             f"{reason_prefix}_directory_unavailable"
                         ) from create_exc
                 except OSError as exc:
-                    raise DeployError(
-                        f"{reason_prefix}_directory_unavailable"
-                    ) from exc
+                    raise DeployError(f"{reason_prefix}_directory_unavailable") from exc
                 child_metadata = os.fstat(child)
                 if (
                     not stat.S_ISDIR(path_metadata.st_mode)
@@ -2784,13 +2755,7 @@ class MemorialDeployLane:
             or len(payload) > MAX_DEPLOYMENT_INPUT_BYTES
         ):
             raise DeployError(f"{reason_prefix}_path_invalid")
-        file_flags = (
-            os.O_WRONLY
-            | os.O_CREAT
-            | os.O_EXCL
-            | os.O_CLOEXEC
-            | os.O_NOFOLLOW
-        )
+        file_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW
         directory_descriptor = -1
         descriptor = -1
         created = False
@@ -2892,10 +2857,9 @@ class MemorialDeployLane:
                 dir_fd=directory_descriptor,
                 follow_symlinks=False,
             )
-            if (
-                int(path_metadata.st_dev) != int(current["device"])
-                or int(path_metadata.st_ino) != int(current["inode"])
-            ):
+            if int(path_metadata.st_dev) != int(current["device"]) or int(
+                path_metadata.st_ino
+            ) != int(current["inode"]):
                 raise DeployError(f"{reason_prefix}_changed")
             os.unlink(path.name, dir_fd=directory_descriptor)
             os.fsync(directory_descriptor)
@@ -2992,8 +2956,7 @@ class MemorialDeployLane:
             )
             if (
                 len(raw) != final.st_size
-                or _trusted_file_identity(final)
-                != _trusted_file_identity(metadata)
+                or _trusted_file_identity(final) != _trusted_file_identity(metadata)
                 or _trusted_file_identity(final_path)
                 != _trusted_file_identity(metadata)
             ):
@@ -3040,9 +3003,7 @@ class MemorialDeployLane:
         directory_descriptor = -1
         descriptor = -1
         temporary_created = False
-        temporary_name = (
-            f".{selected.name}.tmp.{os.getpid()}.{time.monotonic_ns()}"
-        )
+        temporary_name = f".{selected.name}.tmp.{os.getpid()}.{time.monotonic_ns()}"
         try:
             directory_descriptor = MemorialDeployLane._open_private_parent_descriptor(
                 selected,
@@ -3054,18 +3015,13 @@ class MemorialDeployLane:
                 dir_fd=directory_descriptor,
                 follow_symlinks=False,
             )
-            if (
-                int(path_metadata.st_dev) != int(expected_seal["device"])
-                or int(path_metadata.st_ino) != int(expected_seal["inode"])
-            ):
+            if int(path_metadata.st_dev) != int(expected_seal["device"]) or int(
+                path_metadata.st_ino
+            ) != int(expected_seal["inode"]):
                 raise DeployError(f"{reason_prefix}_changed")
             descriptor = os.open(
                 temporary_name,
-                os.O_WRONLY
-                | os.O_CREAT
-                | os.O_EXCL
-                | os.O_CLOEXEC
-                | os.O_NOFOLLOW,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW,
                 0o600,
                 dir_fd=directory_descriptor,
             )
@@ -3112,9 +3068,10 @@ class MemorialDeployLane:
             if directory_descriptor >= 0:
                 os.close(directory_descriptor)
         seal = MemorialDeployLane._deployment_input_file_seal(selected)
-        if seal.get("mode") != "0600" or seal.get("sha256") != hashlib.sha256(
-            payload
-        ).hexdigest():
+        if (
+            seal.get("mode") != "0600"
+            or seal.get("sha256") != hashlib.sha256(payload).hexdigest()
+        ):
             raise DeployError(f"{reason_prefix}_replacement_invalid")
         return seal
 
@@ -3161,10 +3118,10 @@ class MemorialDeployLane:
             try:
                 path_metadata = os.stat(selected_path, follow_symlinks=False)
             except OSError as exc:
-                raise DeployError(
-                    f"lock_file_changed:{selected_path.name}"
-                ) from exc
-            if _trusted_file_identity(path_metadata) != _trusted_file_identity(metadata):
+                raise DeployError(f"lock_file_changed:{selected_path.name}") from exc
+            if _trusted_file_identity(path_metadata) != _trusted_file_identity(
+                metadata
+            ):
                 raise DeployError(f"lock_file_changed:{selected_path.name}")
             handle.seek(0)
             handle.truncate()
@@ -3377,9 +3334,7 @@ class MemorialDeployLane:
         if not selected_root.is_absolute() or ".." in selected_root.parts:
             raise DeployError("compose_root_invalid")
         selected_environment_files = (
-            tuple(environment_files)
-            if environment_files is not None
-            else (".env",)
+            tuple(environment_files) if environment_files is not None else (".env",)
         )
         if not selected_environment_files:
             raise DeployError("compose_environment_files_missing")
@@ -3400,9 +3355,7 @@ class MemorialDeployLane:
             try:
                 self._deployment_input_file_seal(env_file)
             except DeployError as exc:
-                if str(exc) == (
-                    f"deployment_input_file_unavailable:{env_file.name}"
-                ):
+                if str(exc) == (f"deployment_input_file_unavailable:{env_file.name}"):
                     raise DeployError(f"env_file_missing:{env_file}") from exc
                 raise
             args.extend(["--env-file", str(env_file)])
@@ -3427,16 +3380,12 @@ class MemorialDeployLane:
             *self._compose_args(
                 root=self.root,
                 files=self.target_compose_files,
-                environment_files=(
-                    self.target_compose_environment_files or None
-                ),
+                environment_files=(self.target_compose_environment_files or None),
             ),
             *args,
         ]
 
-    def _release_head_blob_identity(
-        self, path: Path, *, source_revision: str
-    ) -> str:
+    def _release_head_blob_identity(self, path: Path, *, source_revision: str) -> str:
         try:
             relative = path.relative_to(self.root).as_posix()
         except ValueError as exc:
@@ -3489,10 +3438,9 @@ class MemorialDeployLane:
             ["git", "-C", str(prior_root), "rev-parse", "--show-toplevel"],
             check=False,
         )
-        if (
-            prior_git_root.returncode != 0
-            or (prior_git_root.stdout or "").strip() != str(prior_root)
-        ):
+        if prior_git_root.returncode != 0 or (
+            prior_git_root.stdout or ""
+        ).strip() != str(prior_root):
             raise DeployError("forward_external_bridge_working_dir_untrusted")
         if any(
             not path.is_absolute()
@@ -3536,8 +3484,7 @@ class MemorialDeployLane:
             raise DeployError("forward_external_bridge_compose_mode_invalid")
         first_release_compose = compose_seals(release_paths)
         source_revision = str(
-            dict(self.receipt.get("release_source") or {}).get("source_revision")
-            or ""
+            dict(self.receipt.get("release_source") or {}).get("source_revision") or ""
         )
         head_blobs = [
             self._release_head_blob_identity(
@@ -3551,11 +3498,9 @@ class MemorialDeployLane:
             first_release_compose,
             strict=True,
         ):
-            blobs_match = (
-                external_seal.get("sha256") == release_seal.get("sha256")
-                and external_seal.get("size_bytes")
-                == release_seal.get("size_bytes")
-            )
+            blobs_match = external_seal.get("sha256") == release_seal.get(
+                "sha256"
+            ) and external_seal.get("size_bytes") == release_seal.get("size_bytes")
             if (
                 basename not in TRUSTED_EXTERNAL_BRIDGE_REPLACEABLE_LAYERS
                 and not blobs_match
@@ -3573,8 +3518,7 @@ class MemorialDeployLane:
             path.as_posix() for path in prior_environment_files
         )
         if (
-            self._prior_compose_environment_file_label
-            != expected_environment_label
+            self._prior_compose_environment_file_label != expected_environment_label
             or self._prior_compose_environment_files
             != tuple(path.as_posix() for path in prior_environment_files)
         ):
@@ -3647,9 +3591,7 @@ class MemorialDeployLane:
             )
         )
         if prior_projection_bytes != release_environment_bytes:
-            raise DeployError(
-                "forward_external_bridge_environment_projection_mismatch"
-            )
+            raise DeployError("forward_external_bridge_environment_projection_mismatch")
 
         runtime_projection = self.receipt.get("runtime_environment_projection")
         outputs = (
@@ -3695,8 +3637,7 @@ class MemorialDeployLane:
                 prior_runtime_root
             ),
             "prior_sources": [
-                self._deployment_input_file_seal(path)
-                for path in prior_source_files
+                self._deployment_input_file_seal(path) for path in prior_source_files
             ],
             "prior_environment": [
                 self._deployment_input_file_seal(path)
@@ -3732,9 +3673,7 @@ class MemorialDeployLane:
             "replaceable_layer_basenames": sorted(
                 TRUSTED_EXTERNAL_BRIDGE_REPLACEABLE_LAYERS
             ),
-            "environment_files": [
-                path.as_posix() for path in prior_environment_files
-            ],
+            "environment_files": [path.as_posix() for path in prior_environment_files],
             "trusted_prior_root_seal": first_prior_root,
             "common_external_root_seal": first_common_root,
             "runtime_environment_root_seal": first_prior_runtime_root,
@@ -3850,9 +3789,7 @@ class MemorialDeployLane:
             seen.add(relative_name)
             if Path(relative_name).name == API_BASELINE_NORMALIZATION_COMPOSE_FILE:
                 if relative_name != API_BASELINE_NORMALIZATION_COMPOSE_FILE:
-                    raise DeployError(
-                        "forward_baseline_normalization_path_invalid"
-                    )
+                    raise DeployError("forward_baseline_normalization_path_invalid")
                 prior_normalization_layer_dropped = True
                 continue
             if Path(relative_name).name == MEMORIAL_COMPOSE_FILE:
@@ -3894,9 +3831,7 @@ class MemorialDeployLane:
                 "with_current_memorial_layer_without_external_byte_reads"
             ),
             "prior_memorial_layer_replaced": prior_memorial_layer_replaced,
-            "prior_normalization_layer_dropped": (
-                prior_normalization_layer_dropped
-            ),
+            "prior_normalization_layer_dropped": (prior_normalization_layer_dropped),
             "external_layer_basenames": external_layer_names,
         }
         self._write_receipt()
@@ -3910,10 +3845,13 @@ class MemorialDeployLane:
         if not self.compose_bin:
             raise DeployError("docker_compose_unavailable")
         capsule = capsule_path.expanduser()
+        project_directory = self._rollback_capsule_project_directory.expanduser()
         if (
             not capsule.is_absolute()
             or ".." in capsule.parts
-            or capsule.parent != self.receipt_dir
+            or not project_directory.is_absolute()
+            or ".." in project_directory.parts
+            or capsule.parent != project_directory
         ):
             raise DeployError("rollback_capsule_path_invalid")
         self._deployment_input_file_seal(capsule)
@@ -3922,7 +3860,7 @@ class MemorialDeployLane:
             "--project-name",
             PROJECT_NAME,
             "--project-directory",
-            str(self.receipt_dir),
+            str(project_directory),
             "-f",
             str(capsule),
             *args,
@@ -3946,18 +3884,13 @@ class MemorialDeployLane:
             "pull_policy": "never",
         }
 
-        normalized_environment = _normalized_environment(
-            list(config.get("Env") or [])
-        )
+        normalized_environment = _normalized_environment(list(config.get("Env") or []))
         raw_environment_names = [
             str(item).split("=", 1)[0] for item in list(config.get("Env") or [])
         ]
-        if (
-            len(raw_environment_names) != len(set(raw_environment_names))
-            or any(
-                re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) is None
-                for name in raw_environment_names
-            )
+        if len(raw_environment_names) != len(set(raw_environment_names)) or any(
+            re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) is None
+            for name in raw_environment_names
         ):
             raise DeployError("rollback_capsule_environment_name_invalid_or_duplicate")
         service["environment"] = {
@@ -4014,9 +3947,7 @@ class MemorialDeployLane:
             ):
                 raise DeployError("rollback_capsule_healthcheck_invalid")
             healthcheck: dict[str, object] = {
-                "test": [
-                    _rollback_capsule_compose_literal(item) for item in test
-                ]
+                "test": [_rollback_capsule_compose_literal(item) for item in test]
             }
             for source_key, compose_key in (
                 ("Interval", "interval"),
@@ -4136,9 +4067,7 @@ class MemorialDeployLane:
             if type(nano_cpus) is not int or int(nano_cpus) <= 0:
                 raise DeployError("rollback_capsule_resource_invalid")
             whole, remainder = divmod(int(nano_cpus), 1_000_000_000)
-            service["cpus"] = (
-                f"{whole}.{remainder:09d}".rstrip("0").rstrip(".")
-            )
+            service["cpus"] = f"{whole}.{remainder:09d}".rstrip("0").rstrip(".")
 
         service["read_only"] = bool(host.get("ReadonlyRootfs"))
         group_add = _rollback_capsule_group_add(host.get("GroupAdd"))
@@ -4279,9 +4208,7 @@ class MemorialDeployLane:
             row: dict[str, object] = {
                 "type": mount["type"],
                 "source": _rollback_capsule_compose_literal(source_key),
-                "target": _rollback_capsule_compose_literal(
-                    str(mount["destination"])
-                ),
+                "target": _rollback_capsule_compose_literal(str(mount["destination"])),
                 "read_only": not bool(mount["read_write"]),
             }
             propagation = str(mount.get("propagation") or "")
@@ -4358,9 +4285,7 @@ class MemorialDeployLane:
             document["volumes"] = volumes
         return document, identity
 
-    def _rollback_environment(
-        self, previous: Mapping[str, Any]
-    ) -> dict[str, str]:
+    def _rollback_environment(self, previous: Mapping[str, Any]) -> dict[str, str]:
         environment = {
             key: value
             for key, value in self.env.items()
@@ -4717,16 +4642,12 @@ class MemorialDeployLane:
         del previous
         forward_required_paths = [
             self.root / ".env",
-            self.root
-            / EA_RUNTIME_ENV_DIRECTORY
-            / EA_RUNTIME_ENV_FILE,
+            self.root / EA_RUNTIME_ENV_DIRECTORY / EA_RUNTIME_ENV_FILE,
             *(self.root / item for item in self.target_compose_files),
         ]
         forward_optional_paths = [
             self.root / ".env.local",
-            self.root
-            / EA_RUNTIME_ENV_DIRECTORY
-            / EA_RUNTIME_LOCAL_ENV_FILE,
+            self.root / EA_RUNTIME_ENV_DIRECTORY / EA_RUNTIME_LOCAL_ENV_FILE,
         ]
         rollback_required_paths = [self.rollback_capsule_path]
 
@@ -5421,9 +5342,7 @@ class MemorialDeployLane:
                 expected_snapshot_sha256=expected_snapshot_sha256,
             )
         except BindSourceGuardError as exc:
-            raise DeployError(
-                f"memorial_bind_source_access_denied:{exc}"
-            ) from exc
+            raise DeployError(f"memorial_bind_source_access_denied:{exc}") from exc
 
     def _revalidate_bind_source_access(self, *, boundary: str) -> None:
         if not self.bind_source_snapshot_sha256:
@@ -5498,8 +5417,7 @@ class MemorialDeployLane:
             },
         }
         mounts_by_destination = {
-            str(item.get("destination") or ""): dict(item)
-            for item in target_mounts
+            str(item.get("destination") or ""): dict(item) for item in target_mounts
         }
         if len(mounts_by_destination) != len(target_mounts):
             raise DeployError("memorial_compose_mount_destination_duplicate")
@@ -5519,9 +5437,7 @@ class MemorialDeployLane:
         ):
             raise DeployError("memorial_compose_artifacts_mount_invalid")
         bind_source_access = self._bind_source_access(rendered)
-        self.bind_source_snapshot_sha256 = str(
-            bind_source_access["snapshot_sha256"]
-        )
+        self.bind_source_snapshot_sha256 = str(bind_source_access["snapshot_sha256"])
         self.receipt["bind_source_access"] = bind_source_access
         services = self._run(
             self._target_compose("config", "--services")
@@ -5797,8 +5713,7 @@ class MemorialDeployLane:
                 "domains",
                 "functional_identity_sha256",
             }
-            or identity.get("contract_name")
-            != "ea.memorial_api_functional_identity.v2"
+            or identity.get("contract_name") != "ea.memorial_api_functional_identity.v2"
             or identity.get("version") != 2
             or set(domains) != expected_domains
             or SHA256_HEX_PATTERN.fullmatch(
@@ -5819,9 +5734,7 @@ class MemorialDeployLane:
                     or IMAGE_ID_PATTERN.fullmatch(str(domain.get("image_id") or ""))
                     is None
                 ):
-                    raise DeployError(
-                        f"{reason_prefix}_functional_identity_invalid"
-                    )
+                    raise DeployError(f"{reason_prefix}_functional_identity_invalid")
                 _safe_tagged_image_reference(
                     str(domain.get("image_reference") or ""),
                     reason=f"{reason_prefix}_functional_identity_invalid",
@@ -5838,13 +5751,11 @@ class MemorialDeployLane:
                 allowed.add("count")
             if (
                 set(domain) != allowed
-                or SHA256_HEX_PATTERN.fullmatch(str(domain.get("sha256") or ""))
-                is None
+                or SHA256_HEX_PATTERN.fullmatch(str(domain.get("sha256") or "")) is None
                 or (
                     "count" in allowed
                     and (
-                        type(domain.get("count")) is not int
-                        or int(domain["count"]) < 0
+                        type(domain.get("count")) is not int or int(domain["count"]) < 0
                     )
                 )
             ):
@@ -5856,9 +5767,7 @@ class MemorialDeployLane:
         document: Mapping[str, Any], *, reason_prefix: str
     ) -> dict[str, list[dict[str, str]]]:
         extension_value = document.get("x-ea-rollback-capsule")
-        extension = (
-            dict(extension_value) if isinstance(extension_value, dict) else {}
-        )
+        extension = dict(extension_value) if isinstance(extension_value, dict) else {}
         expected_extension_keys = {
             "allowed_runtime_differences",
             "captured_at",
@@ -5885,9 +5794,7 @@ class MemorialDeployLane:
                 str(extension.get("source_container_id_sha256") or "")
             )
             is None
-            or IMAGE_ID_PATTERN.fullmatch(
-                str(extension.get("source_image_id") or "")
-            )
+            or IMAGE_ID_PATTERN.fullmatch(str(extension.get("source_image_id") or ""))
             is None
         ):
             raise DeployError(f"{reason_prefix}_extension_invalid")
@@ -5899,9 +5806,7 @@ class MemorialDeployLane:
             extension.get("functional_identity"), reason_prefix=reason_prefix
         )
         resources_value = extension.get("external_resources")
-        resources = (
-            dict(resources_value) if isinstance(resources_value, dict) else {}
-        )
+        resources = dict(resources_value) if isinstance(resources_value, dict) else {}
         if set(resources) != {"networks", "volumes"}:
             raise DeployError(f"{reason_prefix}_external_resources_invalid")
         networks: list[dict[str, str]] = []
@@ -5912,8 +5817,7 @@ class MemorialDeployLane:
             name = str(raw.get("name") or "")
             network_id = str(raw.get("network_id") or "")
             if (
-                re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,254}", name)
-                is None
+                re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,254}", name) is None
                 or SHA256_HEX_PATTERN.fullmatch(network_id) is None
                 or name in seen_networks
             ):
@@ -5928,10 +5832,8 @@ class MemorialDeployLane:
             name = str(raw.get("name") or "")
             driver = str(raw.get("driver") or "")
             if (
-                re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,254}", name)
-                is None
-                or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,254}", driver)
-                is None
+                re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,254}", name) is None
+                or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,254}", driver) is None
                 or name in seen_volumes
             ):
                 raise DeployError(f"{reason_prefix}_external_volume_invalid")
@@ -5951,9 +5853,7 @@ class MemorialDeployLane:
             document, reason_prefix="rollback_capsule"
         )
         for expected in bindings["networks"]:
-            completed = self._run(
-                ["docker", "network", "inspect", expected["name"]]
-            )
+            completed = self._run(["docker", "network", "inspect", expected["name"]])
             try:
                 payload = json.loads(completed.stdout)
             except Exception as exc:
@@ -5967,9 +5867,7 @@ class MemorialDeployLane:
             ):
                 raise DeployError("rollback_external_network_identity_changed")
         for expected in bindings["volumes"]:
-            completed = self._run(
-                ["docker", "volume", "inspect", expected["name"]]
-            )
+            completed = self._run(["docker", "volume", "inspect", expected["name"]])
             try:
                 payload = json.loads(completed.stdout)
             except Exception as exc:
@@ -6146,7 +6044,9 @@ class MemorialDeployLane:
                 if bind.get("create_host_path") not in (None, True):
                     raise DeployError("rollback_capsule_render_bind_invalid")
                 if not _docker_value_is_neutral(bind.get("selinux")):
-                    raise DeployError("rollback_capsule_render_bind_selinux_unsupported")
+                    raise DeployError(
+                        "rollback_capsule_render_bind_selinux_unsupported"
+                    )
                 propagation = str(bind.get("propagation") or "rprivate")
                 if propagation not in {"private", "rprivate"}:
                     raise DeployError(
@@ -6161,9 +6061,7 @@ class MemorialDeployLane:
                 driver = binding["driver"]
                 propagation = ""
                 volume_value = raw_mount.get("volume") or {}
-                volume = (
-                    dict(volume_value) if isinstance(volume_value, dict) else {}
-                )
+                volume = dict(volume_value) if isinstance(volume_value, dict) else {}
                 _rollback_capsule_unknown_non_neutral(
                     volume,
                     ROLLBACK_CAPSULE_RENDER_VOLUME_OPTION_KEYS,
@@ -6263,8 +6161,7 @@ class MemorialDeployLane:
             aliases_value = options.get("aliases") or []
             if not isinstance(aliases_value, list) or not all(
                 isinstance(item, str)
-                and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,254}", item)
-                is not None
+                and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,254}", item) is not None
                 for item in aliases_value
             ):
                 raise DeployError("rollback_capsule_render_network_alias_invalid")
@@ -6280,19 +6177,13 @@ class MemorialDeployLane:
                     raise DeployError(
                         f"rollback_capsule_render_service_network_field_unsupported:{field}"
                     )
-            if (
-                "ipv6_address" in options
-                and options.get("ipv6_address") is not None
-            ):
+            if "ipv6_address" in options and options.get("ipv6_address") is not None:
                 raise DeployError(
                     "rollback_capsule_render_service_network_field_unsupported:"
                     "ipv6_address"
                 )
             ipv4_address = ""
-            if (
-                "ipv4_address" in options
-                and options.get("ipv4_address") is not None
-            ):
+            if "ipv4_address" in options and options.get("ipv4_address") is not None:
                 ipv4_address = _validated_ipv4_address(
                     options.get("ipv4_address"),
                     reason="rollback_capsule_render_static_ipv4_invalid",
@@ -6316,9 +6207,7 @@ class MemorialDeployLane:
         image_id: str,
         image_config: Mapping[str, Any],
     ) -> dict[str, Any]:
-        decoded_rendered = _rollback_capsule_decode_rendered_literals(
-            dict(rendered)
-        )
+        decoded_rendered = _rollback_capsule_decode_rendered_literals(dict(rendered))
         if not isinstance(decoded_rendered, dict):  # pragma: no cover - mapping input
             raise DeployError("rollback_capsule_render_json_invalid")
         rendered = decoded_rendered
@@ -6351,7 +6240,9 @@ class MemorialDeployLane:
         )
         if not _docker_value_is_neutral(service.get("build")):
             raise DeployError("rollback_capsule_render_build_forbidden")
-        extension = dict(expected_extension) if isinstance(expected_extension, dict) else {}
+        extension = (
+            dict(expected_extension) if isinstance(expected_extension, dict) else {}
+        )
         image_reference = str(extension.get("source_image_reference") or "")
         if (
             str(service.get("image") or "") != image_reference
@@ -6624,7 +6515,7 @@ class MemorialDeployLane:
                 "--format",
                 "json",
             ),
-            cwd=self.receipt_dir,
+            cwd=self._rollback_capsule_project_directory,
             env=self._rollback_environment(previous),
         )
         rendered = _json_object(
@@ -6632,7 +6523,11 @@ class MemorialDeployLane:
             reason="rollback_capsule_render_json_invalid",
         )
         image = self._inspect_image_config(
-            str(previous.get("image_lookup_reference") or previous.get("image_reference") or "")
+            str(
+                previous.get("image_lookup_reference")
+                or previous.get("image_reference")
+                or ""
+            )
         )
         if image["image_id"] != str(previous.get("image_id") or ""):
             raise DeployError("rollback_capsule_render_image_identity_mismatch")
@@ -6808,14 +6703,12 @@ class MemorialDeployLane:
             "uid",
         }
         expected_path = (
-            self.receipt_dir
-            / f"{deployment_id}.rollback-capsule.compose.json"
+            self.receipt_dir / f"{deployment_id}.rollback-capsule.compose.json"
         )
         if (
             set(seal) != expected_keys
             or seal.get("path") != str(expected_path)
-            or SHA256_HEX_PATTERN.fullmatch(str(seal.get("sha256") or ""))
-            is None
+            or SHA256_HEX_PATTERN.fullmatch(str(seal.get("sha256") or "")) is None
             or type(seal.get("size_bytes")) is not int
             or not 0 < int(seal["size_bytes"]) <= MAX_DEPLOYMENT_INPUT_BYTES
             or seal.get("mode") != "0600"
@@ -6835,9 +6728,7 @@ class MemorialDeployLane:
             raise DeployError("rollback_recovery_capsule_seal_invalid")
         return seal
 
-    def _validated_rollback_recovery_document(
-        self, value: object
-    ) -> dict[str, Any]:
+    def _validated_rollback_recovery_document(self, value: object) -> dict[str, Any]:
         journal = dict(value) if isinstance(value, dict) else {}
         common = {
             "armed_at",
@@ -6864,9 +6755,7 @@ class MemorialDeployLane:
             or journal.get("version") != ROLLBACK_RECOVERY_VERSION
             or status not in ROLLBACK_RECOVERY_ALLOWED_STATUSES
             or journal.get("service") != API_SERVICE
-            or DEPLOYMENT_ID_PATTERN.fullmatch(
-                str(journal.get("deployment_id") or "")
-            )
+            or DEPLOYMENT_ID_PATTERN.fullmatch(str(journal.get("deployment_id") or ""))
             is None
             or not isinstance(journal.get("armed_at"), str)
             or not str(journal["armed_at"]).strip()
@@ -6908,9 +6797,7 @@ class MemorialDeployLane:
                 raise DeployError("rollback_recovery_cleanup_state_invalid")
         if armed_only <= set(journal):
             source_image_id = str(journal.get("source_image_id") or "")
-            source_image_reference = str(
-                journal.get("source_image_reference") or ""
-            )
+            source_image_reference = str(journal.get("source_image_reference") or "")
             if (
                 IMAGE_ID_PATTERN.fullmatch(source_image_id) is None
                 or SHA256_HEX_PATTERN.fullmatch(
@@ -6928,9 +6815,7 @@ class MemorialDeployLane:
                 reason="rollback_recovery_protected_image_tag_invalid",
             )
             baseline_value = journal.get("baseline")
-            baseline = (
-                dict(baseline_value) if isinstance(baseline_value, dict) else {}
-            )
+            baseline = dict(baseline_value) if isinstance(baseline_value, dict) else {}
             if set(baseline) != {
                 "functional_identity",
                 "internal_openapi_contract_sha256",
@@ -7033,9 +6918,7 @@ class MemorialDeployLane:
             if not isinstance(decoded_capsule, dict):
                 raise DeployError("rollback_recovery_capsule_json_invalid")
             capsule_document = dict(decoded_capsule)
-            extension = dict(
-                capsule_document.get("x-ea-rollback-capsule") or {}
-            )
+            extension = dict(capsule_document.get("x-ea-rollback-capsule") or {})
             if extension.get("deployment_id") != journal["deployment_id"]:
                 raise DeployError("rollback_recovery_capsule_deployment_mismatch")
             capsule_bindings = self._rollback_capsule_external_bindings(
@@ -7045,9 +6928,11 @@ class MemorialDeployLane:
                 "external_resources"
             ):
                 raise DeployError("rollback_recovery_resource_binding_mismatch")
-            if "baseline" in journal and extension.get(
-                "functional_identity"
-            ) != dict(journal["baseline"])["functional_identity"]:
+            if (
+                "baseline" in journal
+                and extension.get("functional_identity")
+                != dict(journal["baseline"])["functional_identity"]
+            ):
                 raise DeployError("rollback_recovery_functional_identity_mismatch")
         elif journal["status"] == ROLLBACK_RECOVERY_ARMED_STATUS:
             raise DeployError("rollback_recovery_capsule_missing")
@@ -7056,6 +6941,7 @@ class MemorialDeployLane:
         self._rollback_capsule_seal = capsule_seal
         self._rollback_capsule_document = capsule_document
         self.rollback_capsule_path = capsule_path
+        self._rollback_capsule_project_directory = capsule_path.parent
         return journal, seal, capsule_present
 
     def _require_loaded_active_recovery(
@@ -7070,8 +6956,7 @@ class MemorialDeployLane:
             journal.get("status") != ROLLBACK_RECOVERY_ARMED_STATUS
             or journal.get("protected_image_tag") != rollback_tag
             or journal.get("source_image_id") != previous.get("image_id")
-            or journal.get("source_image_reference")
-            != previous.get("image_reference")
+            or journal.get("source_image_reference") != previous.get("image_reference")
             or baseline.get("functional_identity")
             != previous.get("functional_identity")
         ):
@@ -7189,9 +7074,7 @@ class MemorialDeployLane:
                 raise DeployError("rollback_recovery_openapi_contract_mismatch")
             public_endpoint = self._capture_public_openapi_retirement(
                 str(baseline.get("public_origin") or ""),
-                expected_source_revision=str(
-                    baseline.get("source_revision") or ""
-                ),
+                expected_source_revision=str(baseline.get("source_revision") or ""),
             )
         except DeployError:
             if mismatch_returns_none:
@@ -7207,9 +7090,7 @@ class MemorialDeployLane:
                 container_id.encode("utf-8")
             ).hexdigest(),
             "health": health_probe,
-            "internal_openapi_contract_sha256": str(
-                openapi["contract_sha256"]
-            ),
+            "internal_openapi_contract_sha256": str(openapi["contract_sha256"]),
             "public_openapi": public_endpoint,
         }
 
@@ -7233,9 +7114,7 @@ class MemorialDeployLane:
             "image_id": source_image_id,
             "image_reference": source_reference,
             "image_lookup_reference": protected_tag,
-            "functional_identity": dict(journal["baseline"])[
-                "functional_identity"
-            ],
+            "functional_identity": dict(journal["baseline"])["functional_identity"],
         }
         self._verify_rollback_capsule_renderability(previous, record=False)
         self._revalidate_rollback_external_resources(
@@ -7257,7 +7136,7 @@ class MemorialDeployLane:
                 "--force-recreate",
                 API_SERVICE,
             ),
-            cwd=self.receipt_dir,
+            cwd=self._rollback_capsule_project_directory,
             env=rollback_env,
         )
         current = self._inspect_container(API_SERVICE)
@@ -7274,11 +7153,9 @@ class MemorialDeployLane:
         topology = self._compose_topology(
             current, reason_prefix="rollback_recovery_api"
         )
-        if (
-            topology.get("working_dir") != str(self.receipt_dir)
-            or topology.get("compose_config_files")
-            != [str(self.rollback_capsule_path)]
-        ):
+        if topology.get("working_dir") != str(self.receipt_dir) or topology.get(
+            "compose_config_files"
+        ) != [str(self.rollback_capsule_path)]:
             raise DeployError("rollback_recovery_compose_topology_mismatch")
         verified = self._verify_active_recovery_baseline(
             journal, mismatch_returns_none=False
@@ -7308,9 +7185,7 @@ class MemorialDeployLane:
                 terminal_status = str(
                     journal.get("terminal_status") or "cleanup_replayed"
                 )
-                self._clear_rollback_artifacts(
-                    terminal_status=terminal_status
-                )
+                self._clear_rollback_artifacts(terminal_status=terminal_status)
                 return {
                     "contract_name": "ea.memorial_api_recovery_result.v1",
                     "status": "cleanup_replayed",
@@ -7612,17 +7487,14 @@ class MemorialDeployLane:
                 and (
                     not live_snapshot
                     or (
-                        value.get("snapshot_source")
-                        == "live_api_container_app.openapi"
+                        value.get("snapshot_source") == "live_api_container_app.openapi"
                         and value.get("public_docs_config_retired") is True
                         and re.fullmatch(
                             r"[0-9a-f]{64}",
                             str(value.get("container_id") or ""),
                         )
                         is not None
-                        and IMAGE_ID_PATTERN.fullmatch(
-                            str(value.get("image_id") or "")
-                        )
+                        and IMAGE_ID_PATTERN.fullmatch(str(value.get("image_id") or ""))
                         is not None
                         and bool(str(value.get("started_at") or "").strip())
                         and value.get("service") == API_SERVICE
@@ -8222,9 +8094,7 @@ class MemorialDeployLane:
                 and spatial_viewer_relpath == "generated-reconstruction/viewer.html"
                 and spatial_proof_relpath
                 == "generated-reconstruction/reconstruction.json"
-                and SHA256_HEX_PATTERN.fullmatch(
-                    observed_spatial_tour_canonical_sha256
-                )
+                and SHA256_HEX_PATTERN.fullmatch(observed_spatial_tour_canonical_sha256)
                 is not None
                 and isinstance(spatial_route_labels, list)
                 and len(spatial_route_labels) == 9
@@ -8314,18 +8184,13 @@ class MemorialDeployLane:
                 and package.get("tour_manifest_sha256") == observed_spatial_tour_sha256
                 and isinstance(public_tour_manifest, dict)
                 and public_tour_manifest == candidate_public_tour_manifest
-                and SHA256_HEX_PATTERN.fullmatch(
-                    candidate_public_tour_canonical_sha256
-                )
+                and SHA256_HEX_PATTERN.fullmatch(candidate_public_tour_canonical_sha256)
                 is not None
                 and public_tour_manifest.get("source_revision") == source_revision
                 and public_tour_manifest.get("source_revision_verified") is True
                 and public_tour_manifest.get("slug") == spatial_slug
                 and public_tour_manifest.get("generated_viewer_url")
-                == (
-                    f"/tours/viewer/{spatial_slug}/"
-                    f"{spatial_viewer_relpath}"
-                )
+                == (f"/tours/viewer/{spatial_slug}/{spatial_viewer_relpath}")
                 and public_tour_manifest.get("public_projection_verified") is True
             )
 
@@ -8674,9 +8539,7 @@ class MemorialDeployLane:
                     candidate_public_tour_canonical_sha256
                 ),
                 "property_artifact_commit": PROPERTY_ARTIFACT_COMMIT,
-                "upstream_publication_authority_sha256": (
-                    PROPERTY_AUTHORITY_SHA256
-                ),
+                "upstream_publication_authority_sha256": (PROPERTY_AUTHORITY_SHA256),
                 "upstream_tour_manifest_sha256": PROPERTY_TOUR_SHA256,
                 "pre_authority_manifest_canonical_sha256": (
                     PROPERTY_PRE_AUTHORITY_SHA256
@@ -8805,14 +8668,9 @@ class MemorialDeployLane:
             raise DeployError("deployed_api_compose_topology_mismatch")
         if self.target_compose_environment_files:
             labels = dict(dict(inspection.get("Config") or {}).get("Labels") or {})
-            expected_environment_label = ",".join(
-                self.target_compose_environment_files
-            )
+            expected_environment_label = ",".join(self.target_compose_environment_files)
             if (
-                str(
-                    labels.get("com.docker.compose.project.environment_file")
-                    or ""
-                )
+                str(labels.get("com.docker.compose.project.environment_file") or "")
                 != expected_environment_label
             ):
                 raise DeployError("deployed_api_compose_environment_mismatch")
@@ -8995,9 +8853,7 @@ class MemorialDeployLane:
         ]
         if len(memorial_layers) > 1:
             raise DeployError("prior_api_memorial_compose_duplicate")
-        capsule_document, functional_identity = self._build_rollback_capsule(
-            inspection
-        )
+        capsule_document, functional_identity = self._build_rollback_capsule(inspection)
         return {
             "container_id": str(inspection.get("Id") or ""),
             "created_at": str(inspection.get("Created") or ""),
@@ -9021,9 +8877,7 @@ class MemorialDeployLane:
             },
         }
 
-    def _require_previous_api_unchanged(
-        self, previous: Mapping[str, Any]
-    ) -> None:
+    def _require_previous_api_unchanged(self, previous: Mapping[str, Any]) -> None:
         current = self._inspect_container(API_SERVICE)
         self._require_compose_identity(
             current,
@@ -9032,12 +8886,10 @@ class MemorialDeployLane:
         )
         state = dict(current.get("State") or {})
         if (
-            str(current.get("Id") or "")
-            != str(previous.get("container_id") or "")
+            str(current.get("Id") or "") != str(previous.get("container_id") or "")
             or not bool(state.get("Running"))
             or bool(state.get("Restarting"))
-            or str(dict(state.get("Health") or {}).get("Status") or "")
-            != "healthy"
+            or str(dict(state.get("Health") or {}).get("Status") or "") != "healthy"
             or _container_functional_identity(current)
             != previous.get("functional_identity")
         ):
@@ -9246,6 +9098,87 @@ class MemorialDeployLane:
             if self.monotonic() >= deadline:
                 raise DeployError(f"http_probe_exhausted:{url}:{last_error}")
             self.sleep(self.poll_seconds)
+
+    def _verify_local_https_redirects(
+        self,
+        local_origin: str,
+        public_origin: str,
+    ) -> dict[str, Any]:
+        validated_public_origin = _validate_public_origin(
+            public_origin,
+            allowed_hosts=self.allowed_public_hosts,
+        )
+        parsed_public_origin = urllib.parse.urlsplit(validated_public_origin)
+        public_hostname = str(parsed_public_origin.hostname or "").lower().rstrip(".")
+        public_authority = (
+            f"[{public_hostname}]" if ":" in public_hostname else public_hostname
+        )
+        if not public_authority:
+            raise DeployError("public_origin_invalid")
+
+        expected_local_origin = self._local_origin()
+        if local_origin != expected_local_origin:
+            raise DeployError("local_transport_origin_mismatch")
+        try:
+            parsed_local_origin = urllib.parse.urlsplit(local_origin)
+            local_port = parsed_local_origin.port
+        except ValueError as exc:
+            raise DeployError("local_transport_origin_invalid") from exc
+        if (
+            parsed_local_origin.scheme != "http"
+            or parsed_local_origin.hostname != "127.0.0.1"
+            or local_port is None
+            or parsed_local_origin.username
+            or parsed_local_origin.password
+            or parsed_local_origin.path not in {"", "/"}
+            or parsed_local_origin.query
+            or parsed_local_origin.fragment
+        ):
+            raise DeployError("local_transport_origin_invalid")
+
+        route_specs = (
+            ("canonical_html", f"/memorials/{MEMORIAL_SLUG}"),
+            ("canonical_json", f"/memorials/{MEMORIAL_SLUG}.json"),
+            (
+                "singular_alias",
+                f"/memorial/{MEMORIAL_SLUG}?from=ea-launch-verifier",
+            ),
+        )
+        routes: dict[str, dict[str, object]] = {}
+        for label, path in route_specs:
+            expected_location = f"{validated_public_origin}{path}"
+            for method in ("GET", "HEAD"):
+                response = self.http_no_redirect(
+                    f"{local_origin}{path}",
+                    self.request_timeout_seconds,
+                    method,
+                    public_authority,
+                )
+                headers = {
+                    str(name).strip().casefold(): str(value).strip()
+                    for name, value in dict(response.headers or {}).items()
+                }
+                if response.status != 308:
+                    raise DeployError("local_https_redirect_status_invalid")
+                if headers.get("location") != expected_location:
+                    raise DeployError("local_https_redirect_location_invalid")
+                if method == "HEAD" and response.body:
+                    raise DeployError("local_https_redirect_head_body_invalid")
+                routes[f"{label}_{method.lower()}"] = {
+                    "method": method,
+                    "path": path,
+                    "status_code": response.status,
+                    "location": expected_location,
+                    "body_bytes": len(response.body),
+                }
+        return {
+            "status": "pass",
+            "local_origin": local_origin,
+            "public_origin": validated_public_origin,
+            "trusted_proxy_headers_sent": False,
+            "route_count": len(routes),
+            "routes": routes,
+        }
 
     def _verify_singular_memorial_alias(
         self,
@@ -9494,9 +9427,7 @@ class MemorialDeployLane:
         public_origin: str,
         expected_source_revision: str,
     ) -> dict[str, Any]:
-        controls: dict[str, Any] = {
-            "openapi": self._capture_internal_openapi_control()
-        }
+        controls: dict[str, Any] = {"openapi": self._capture_internal_openapi_control()}
         controls["openapi"]["public_endpoint"] = (
             self._capture_public_openapi_retirement(
                 public_origin,
@@ -9573,11 +9504,9 @@ class MemorialDeployLane:
         if not prior_operations:
             raise DeployError("predeploy_openapi_contract_invalid")
         current_openapi = self._capture_internal_openapi_control()
-        current_openapi["public_endpoint"] = (
-            self._capture_public_openapi_retirement(
-                public_origin,
-                expected_source_revision=expected_source_revision,
-            )
+        current_openapi["public_endpoint"] = self._capture_public_openapi_retirement(
+            public_origin,
+            expected_source_revision=expected_source_revision,
         )
         current_contract = dict(current_openapi.get("_contract") or {})
         current_operations = dict(current_contract.get("operations") or {})
@@ -9751,9 +9680,7 @@ class MemorialDeployLane:
         }
         allowed_files_value = spatial.get("allowed_files")
         allowed_files = (
-            dict(allowed_files_value)
-            if isinstance(allowed_files_value, dict)
-            else {}
+            dict(allowed_files_value) if isinstance(allowed_files_value, dict) else {}
         )
         slug = str(spatial.get("slug") or "")
         if (
@@ -9768,9 +9695,7 @@ class MemorialDeployLane:
             != "ea.manfred_spatial_candidate_browser.v5"
             or spatial.get("browser_pass") is not True
             or spatial.get("identity_bound") is not True
-            or SHA256_HEX_PATTERN.fullmatch(
-                str(spatial.get("package_sha256") or "")
-            )
+            or SHA256_HEX_PATTERN.fullmatch(str(spatial.get("package_sha256") or ""))
             is None
             or spatial.get("viewer_relpath") != PUBLIC_SPATIAL_VIEWER_RELPATH
             or spatial.get("proof_relpath") != PUBLIC_SPATIAL_PROOF_RELPATH
@@ -9781,8 +9706,7 @@ class MemorialDeployLane:
             or spatial.get("property_artifact_commit") != PROPERTY_ARTIFACT_COMMIT
             or spatial.get("upstream_publication_authority_sha256")
             != PROPERTY_AUTHORITY_SHA256
-            or spatial.get("upstream_tour_manifest_sha256")
-            != PROPERTY_TOUR_SHA256
+            or spatial.get("upstream_tour_manifest_sha256") != PROPERTY_TOUR_SHA256
             or spatial.get("pre_authority_manifest_canonical_sha256")
             != PROPERTY_PRE_AUTHORITY_SHA256
             or spatial.get("upstream_public_activation_authority") is not True
@@ -9796,17 +9720,14 @@ class MemorialDeployLane:
             file_evidence = dict(file_value) if isinstance(file_value, dict) else {}
             if (
                 set(file_evidence) != {"sha256", "size_bytes"}
-                or SHA256_HEX_PATTERN.fullmatch(
-                    str(file_evidence.get("sha256") or "")
-                )
+                or SHA256_HEX_PATTERN.fullmatch(str(file_evidence.get("sha256") or ""))
                 is None
                 or type(file_evidence.get("size_bytes")) is not int
                 or int(file_evidence["size_bytes"]) <= 0
             ):
                 raise DeployError("public_spatial_candidate_file_evidence_invalid")
-        if (
-            dict(allowed_files["tour.json"]).get("sha256")
-            != spatial.get("upstream_tour_manifest_sha256")
+        if dict(allowed_files["tour.json"]).get("sha256") != spatial.get(
+            "upstream_tour_manifest_sha256"
         ):
             raise DeployError("public_spatial_candidate_authority_mismatch")
 
@@ -9985,54 +9906,38 @@ class MemorialDeployLane:
             public_origin,
             allowed_hosts=self.allowed_public_hosts,
         )
-        parsed_public_origin = urllib.parse.urlsplit(validated_public_origin)
-        public_hostname = str(parsed_public_origin.hostname or "").lower().rstrip(".")
-        public_authority = (
-            f"[{public_hostname}]" if ":" in public_hostname else public_hostname
-        )
-        if not public_authority:
-            raise DeployError("public_origin_invalid")
         local = self._local_origin()
         probes = [
-            self._wait_http(f"{local}/health", kind="health"),
             self._wait_http(
-                f"{local}/memorials/{MEMORIAL_SLUG}",
-                kind="html",
+                f"{local}/health",
+                kind="health",
                 expected_source_revision=source_revision,
-                public_authority=public_authority,
             ),
             self._wait_http(
-                f"{local}/memorials/{MEMORIAL_SLUG}.json",
-                kind="json",
-                expected_source_revision=source_revision,
-                public_authority=public_authority,
-            ),
-            self._wait_http(
-                f"{public_origin}/memorials/{MEMORIAL_SLUG}",
+                f"{validated_public_origin}/memorials/{MEMORIAL_SLUG}",
                 kind="html",
                 expected_source_revision=source_revision,
             ),
             self._wait_http(
-                f"{public_origin}/memorials/{MEMORIAL_SLUG}.json",
+                f"{validated_public_origin}/memorials/{MEMORIAL_SLUG}.json",
                 kind="json",
                 expected_source_revision=source_revision,
             ),
         ]
+        local_transport = self._verify_local_https_redirects(
+            local,
+            validated_public_origin,
+        )
         alias_probes = [
-            self._verify_singular_memorial_alias(
-                local,
-                public_authority=public_authority,
-            ),
-            self._verify_singular_memorial_alias(public_origin),
+            self._verify_singular_memorial_alias(validated_public_origin),
         ]
-        if probes[2]["body_sha256"] != probes[4]["body_sha256"]:
-            raise DeployError("public_memorial_manifest_differs_from_local")
         spatial_probe = self._verify_public_spatial_tour(
             validated_public_origin,
             source_revision,
             candidate_promotion_evidence,
         )
         self.receipt["probes"] = probes
+        self.receipt["local_https_redirects"] = local_transport
         self.receipt["alias_probes"] = alias_probes
         self.receipt["public_spatial_tour"] = spatial_probe
         self._record_check(
@@ -10103,26 +10008,24 @@ class MemorialDeployLane:
         }
 
     def _verify_candidate_origins(self, public_origin: str) -> None:
+        validated_public_origin = _validate_public_origin(
+            public_origin,
+            allowed_hosts=self.allowed_public_hosts,
+        )
         evidence = [
             self._verify_candidate_origin(
-                label="local",
-                base_url=self._local_origin(),
-                public_origin=public_origin,
+                label="public",
+                base_url=validated_public_origin,
+                public_origin=validated_public_origin,
             )
         ]
-        self.receipt["candidate_verifier"] = list(evidence)
-        self._record_check("candidate_verifier_origin", "pass", origin="local")
-
-        evidence.append(
-            self._verify_candidate_origin(
-                label="public",
-                base_url=public_origin,
-                public_origin=public_origin,
-            )
-        )
         self.receipt["candidate_verifier"] = evidence
         self._record_check("candidate_verifier_origin", "pass", origin="public")
-        self._record_check("local_and_public_candidate_verifier", "pass")
+        self._record_check(
+            "public_candidate_verifier",
+            "pass",
+            local_transport_proof="canonical_https_redirects",
+        )
 
     def _rollback(
         self,
@@ -10188,7 +10091,7 @@ class MemorialDeployLane:
                 "--force-recreate",
                 API_SERVICE,
             ),
-            cwd=self.receipt_dir,
+            cwd=self._rollback_capsule_project_directory,
             env=rollback_env,
         )
         ready = self._wait_container(API_SERVICE, require_health=True)
@@ -10213,7 +10116,7 @@ class MemorialDeployLane:
         ).strip()
         if restored_reference != prior_reference:
             raise DeployError("rollback_image_reference_mismatch")
-        if topology["working_dir"] != str(self.receipt_dir):
+        if topology["working_dir"] != str(self._rollback_capsule_project_directory):
             raise DeployError("rollback_working_dir_mismatch")
         rollback_files = [str(self.rollback_capsule_path)]
         if topology["compose_config_files"] != rollback_files:
@@ -10240,25 +10143,19 @@ class MemorialDeployLane:
             expected_domains = dict(
                 dict(previous.get("functional_identity") or {}).get("domains") or {}
             )
-            restored_domains = dict(
-                restored_functional_identity.get("domains") or {}
-            )
+            restored_domains = dict(restored_functional_identity.get("domains") or {})
             differing_domains = sorted(
                 key
                 for key in {*expected_domains, *restored_domains}
                 if expected_domains.get(key) != restored_domains.get(key)
             )
             safe_domain = differing_domains[0] if differing_domains else "overall"
-            raise DeployError(
-                f"rollback_functional_identity_mismatch:{safe_domain}"
-            )
+            raise DeployError(f"rollback_functional_identity_mismatch:{safe_domain}")
         health_probe = self._wait_http(f"{self._local_origin()}/health", kind="health")
         restored_openapi = self._capture_internal_openapi_control()
-        restored_openapi["public_endpoint"] = (
-            self._capture_public_openapi_retirement(
-                public_origin,
-                expected_source_revision=str(previous.get("source_revision") or ""),
-            )
+        restored_openapi["public_endpoint"] = self._capture_public_openapi_retirement(
+            public_origin,
+            expected_source_revision=str(previous.get("source_revision") or ""),
         )
         restored_contract = dict(restored_openapi.get("_contract") or {})
         if restored_contract != prior_contract:
@@ -10280,7 +10177,7 @@ class MemorialDeployLane:
             "status": "pass",
             "completed_at": _utc_now(),
             "restored_image_id": restored_image_id,
-            "working_dir": str(self.receipt_dir),
+            "working_dir": str(self._rollback_capsule_project_directory),
             "compose_config_files": rollback_files,
             "image_reference": restored_reference,
             "mount_identity_sha256": restored_mount_digest,
@@ -10306,9 +10203,7 @@ class MemorialDeployLane:
         if not (self.root / ".env").is_file():
             raise DeployError("env_file_missing")
         runtime_environment_projection = _prepare_ea_runtime_environment(self.root)
-        self.receipt["runtime_environment_projection"] = (
-            runtime_environment_projection
-        )
+        self.receipt["runtime_environment_projection"] = runtime_environment_projection
         self._write_receipt()
         if self.control_tour_slug != REQUIRED_CONTROL_TOUR_SLUG:
             raise DeployError("memorial_control_tour_slug_required")
@@ -10465,9 +10360,7 @@ class MemorialDeployLane:
             pending_action = "recreate_api"
             persist_preparation("api_mutation_pending")
             with self._bounded_mutation_action():
-                self._revalidate_bind_source_access(
-                    boundary="before_recreate_api"
-                )
+                self._revalidate_bind_source_access(boundary="before_recreate_api")
                 self._require_deployment_input_seal(
                     context["deployment_input_seal"], scope="forward"
                 )
@@ -10517,9 +10410,7 @@ class MemorialDeployLane:
             self._verify_deployed_surface(
                 str(context["public_origin"]),
                 source_revision=str(context["source_revision"]),
-                candidate_promotion_evidence=dict(
-                    context["candidate_promotion"]
-                ),
+                candidate_promotion_evidence=dict(context["candidate_promotion"]),
             )
             self._verify_candidate_origins(str(context["public_origin"]))
             self._verify_non_memorial_controls(
@@ -10631,11 +10522,7 @@ class MemorialDeployLane:
                 self.receipt["rollback"] = {
                     "status": "not_required",
                     "reason": "api_unchanged",
-                    **(
-                        {"protected_image_tag": rollback_tag}
-                        if rollback_tag
-                        else {}
-                    ),
+                    **({"protected_image_tag": rollback_tag} if rollback_tag else {}),
                 }
             else:
                 if pending_action is not None:

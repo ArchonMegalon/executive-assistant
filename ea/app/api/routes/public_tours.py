@@ -319,33 +319,31 @@ def _load_tour(slug: str) -> dict[str, object]:
     return payload
 
 
-_PUBLIC_TOUR_TOP_LEVEL_KEYS = frozenset(
-    {
-        "slug",
-        "title",
-        "tour_title",
-        "display_title",
-        "variant_key",
-        "variant_label",
-        "scene_count",
-        "scene_strategy",
-        "creation_mode",
-        "brand_name",
-        "listing_url",
-        "property_url",
-        "hosted_url",
-        "public_url",
-        "crezlo_public_url",
-        "source_virtual_tour_url",
-        "source_virtual_tour_origin",
-        "panorama_source",
-        "facts",
-        "brief",
-        "scenes",
-        "video_relpath",
-        "tour_privacy_mode",
-        "privacy_mode",
-    }
+_PUBLIC_TOUR_TOP_LEVEL_KEYS = (
+    "brand_name",
+    "brief",
+    "creation_mode",
+    "crezlo_public_url",
+    "display_title",
+    "facts",
+    "hosted_url",
+    "listing_url",
+    "panorama_source",
+    "privacy_mode",
+    "property_url",
+    "public_url",
+    "scene_count",
+    "scene_strategy",
+    "scenes",
+    "slug",
+    "source_virtual_tour_origin",
+    "source_virtual_tour_url",
+    "title",
+    "tour_privacy_mode",
+    "tour_title",
+    "variant_key",
+    "variant_label",
+    "video_relpath",
 )
 _PUBLIC_TOUR_SCENE_KEYS = frozenset(
     {

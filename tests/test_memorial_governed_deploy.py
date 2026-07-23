@@ -75,9 +75,10 @@ _SPATIAL_ASSET_ROLES = {
         "viewer_module",
         "text/javascript",
     ),
-    (
-        "generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js"
-    ): ("viewer_module", "text/javascript"),
+    ("generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js"): (
+        "viewer_module",
+        "text/javascript",
+    ),
 }
 _SPATIAL_RAW_TOUR_PAYLOAD: dict[str, object] = {
     "slug": deploy.REQUIRED_CONTROL_TOUR_SLUG,
@@ -91,9 +92,7 @@ _SPATIAL_RAW_TOUR_PAYLOAD: dict[str, object] = {
         "viewer_version": "propertyquarry_3d_tour_viewer_v3",
         "viewer_relpath": SPATIAL_VIEWER_RELPATH,
         "manifest_relpath": SPATIAL_PROOF_RELPATH,
-        "floorplan_relpath": (
-            "generated-reconstruction/source-floorplan.png"
-        ),
+        "floorplan_relpath": ("generated-reconstruction/source-floorplan.png"),
         "photo_relpaths": [],
         "photo_reference_panel_count": 0,
     },
@@ -190,9 +189,7 @@ def _candidate_promotion_evidence() -> dict[str, object]:
                 PUBLIC_SPATIAL_TOUR_PAYLOAD
             ),
             "property_artifact_commit": deploy.PROPERTY_ARTIFACT_COMMIT,
-            "upstream_publication_authority_sha256": (
-                deploy.PROPERTY_AUTHORITY_SHA256
-            ),
+            "upstream_publication_authority_sha256": (deploy.PROPERTY_AUTHORITY_SHA256),
             "upstream_tour_manifest_sha256": hashlib.sha256(
                 SPATIAL_TEST_FILES["tour.json"]
             ).hexdigest(),
@@ -230,8 +227,8 @@ def _public_spatial_response(
             200,
             "text/html; charset=utf-8",
             (
-                "<!doctype html><html><body><iframe src=\""
-                f"{viewer_root}/{SPATIAL_VIEWER_RELPATH}\"></iframe></body></html>"
+                '<!doctype html><html><body><iframe src="'
+                f'{viewer_root}/{SPATIAL_VIEWER_RELPATH}"></iframe></body></html>'
             ).encode("utf-8"),
         ),
         f"/tours/{slug}.json": (
@@ -289,6 +286,24 @@ def _singular_alias_response(method: str) -> deploy.HttpResponse:
             "X-Content-Type-Options": "nosniff",
             "X-Robots-Tag": "noindex, nofollow",
         },
+    )
+
+
+def _local_https_redirect_response(
+    url: str,
+    method: str,
+    *,
+    public_origin: str = "https://memorial.example.org",
+) -> deploy.HttpResponse:
+    parsed = urllib.parse.urlsplit(url)
+    location = f"{public_origin}{parsed.path}"
+    if parsed.query:
+        location = f"{location}?{parsed.query}"
+    return deploy.HttpResponse(
+        308,
+        "text/plain; charset=utf-8",
+        b"" if method == "HEAD" else b"Permanent Redirect",
+        headers={"Location": location},
     )
 
 
@@ -438,9 +453,7 @@ class FakeRunner:
         self.rollback_render_environment: dict[str, str] = {
             "EA_SOURCE_REVISION": self.prior_source_revision
         }
-        self.rollback_capsule_render_environment_override: dict[str, str] | None = (
-            None
-        )
+        self.rollback_capsule_render_environment_override: dict[str, str] | None = None
         self.rollback_capsule_render_mutator: (
             Callable[[dict[str, object]], None] | None
         ) = None
@@ -487,11 +500,11 @@ class FakeRunner:
         return [
             {
                 "Type": "bind",
-                    "Source": str(root / "memorial_data"),
-                    "Destination": "/data/memorial_data",
-                    "Mode": "ro",
-                    "RW": False,
-                    "Propagation": "rprivate",
+                "Source": str(root / "memorial_data"),
+                "Destination": "/data/memorial_data",
+                "Mode": "ro",
+                "RW": False,
+                "Propagation": "rprivate",
             },
             *[
                 {
@@ -552,16 +565,15 @@ class FakeRunner:
             normalized_hosts = []
             for item in extra_hosts:
                 host, separator, address = str(item).partition(":")
-                normalized_hosts.append(
-                    f"{host}={address}" if separator else str(item)
-                )
+                normalized_hosts.append(f"{host}={address}" if separator else str(item))
             service["extra_hosts"] = normalized_hosts
         ports = service.get("ports")
         if isinstance(ports, list):
             for port in ports:
-                if isinstance(port, dict) and str(
-                    port.get("published") or ""
-                ).isdigit():
+                if (
+                    isinstance(port, dict)
+                    and str(port.get("published") or "").isdigit()
+                ):
                     port["published"] = int(str(port["published"]))
                     port.setdefault("mode", "ingress")
         volumes = service.get("volumes")
@@ -639,10 +651,7 @@ class FakeRunner:
                 stdout = self.upstream + "\n"
             else:
                 returncode = 1
-        elif (
-            argv[:2] == ["git", "-C"]
-            and argv[3:] == ["rev-parse", "--show-toplevel"]
-        ):
+        elif argv[:2] == ["git", "-C"] and argv[3:] == ["rev-parse", "--show-toplevel"]:
             if self.trusted_baseline_root:
                 stdout = str(self.baseline_root) + "\n"
             else:
@@ -666,22 +675,24 @@ class FakeRunner:
         elif argv[:4] == ["git", "hash-object", "--no-filters", "--"]:
             relative = argv[4]
             content = (self.root / relative).read_bytes()
-            stdout = hashlib.sha1(
-                f"blob {len(content)}\0".encode("ascii") + content
-            ).hexdigest() + "\n"
-        elif (
-            argv[:2] == ["git", "rev-parse"]
-            and len(argv) == 3
-            and ":" in argv[2]
-        ):
-            _revision, relative = argv[2].split(":", 1)
-            content = (self.root / relative).read_bytes()
-            stdout = self.head_blob_overrides.get(
-                relative,
+            stdout = (
                 hashlib.sha1(
                     f"blob {len(content)}\0".encode("ascii") + content
-                ).hexdigest(),
-            ) + "\n"
+                ).hexdigest()
+                + "\n"
+            )
+        elif argv[:2] == ["git", "rev-parse"] and len(argv) == 3 and ":" in argv[2]:
+            _revision, relative = argv[2].split(":", 1)
+            content = (self.root / relative).read_bytes()
+            stdout = (
+                self.head_blob_overrides.get(
+                    relative,
+                    hashlib.sha1(
+                        f"blob {len(content)}\0".encode("ascii") + content
+                    ).hexdigest(),
+                )
+                + "\n"
+            )
         elif argv == ["git", "write-tree"]:
             tree = (
                 self.head_tree_after_materialization
@@ -733,8 +744,7 @@ class FakeRunner:
                             "Id": (
                                 self.network_resource_id_after_first_inspect[name]
                                 if self.network_resource_inspect_counts[name] > 1
-                                and name
-                                in self.network_resource_id_after_first_inspect
+                                and name in self.network_resource_id_after_first_inspect
                                 else self.network_resource_id_overrides.get(
                                     name, str(endpoint.get("NetworkID") or "")
                                 )
@@ -916,11 +926,7 @@ class FakeRunner:
                 "Created": "2026-07-13T00:00:00Z",
                 "Image": image_id,
                 "Path": "/usr/bin/tini" if name == "ea-api" else "",
-                "Args": (
-                    ["--", "uvicorn", "app.main:app"]
-                    if name == "ea-api"
-                    else []
-                ),
+                "Args": (["--", "uvicorn", "app.main:app"] if name == "ea-api" else []),
                 "Config": {
                     "Image": image_reference,
                     "Labels": labels,
@@ -1005,9 +1011,7 @@ class FakeRunner:
                     capsule_document["services"]["ea-api"]["environment"] = dict(
                         self.rollback_capsule_render_environment_override
                     )
-                stdout = json.dumps(
-                    self._normalized_capsule_render(capsule_document)
-                )
+                stdout = json.dumps(self._normalized_capsule_render(capsule_document))
             elif memorial:
                 stdout = json.dumps(
                     {
@@ -1637,12 +1641,9 @@ def test_prepares_sanitized_runtime_environment_before_compose(
     primary = root / ".env"
     local = root / ".env.local"
     primary.write_bytes(
-        b"EA_HOST_PORT=8090\n"
-        b"PROPERTYQUARRY_PRIVATE_KEY=propertyquarry-sentinel\n"
+        b"EA_HOST_PORT=8090\nPROPERTYQUARRY_PRIVATE_KEY=propertyquarry-sentinel\n"
     )
-    local.write_bytes(
-        b"EA_RUNTIME_SAFE=retained\nEMAILIT_API_KEY=email-sentinel\n"
-    )
+    local.write_bytes(b"EA_RUNTIME_SAFE=retained\nEMAILIT_API_KEY=email-sentinel\n")
     primary.chmod(0o600)
     local.chmod(0o600)
 
@@ -1817,7 +1818,17 @@ def _lane(
         if url.endswith(".json"):
             return deploy.HttpResponse(200, "application/json", SAFE_MANIFEST, "b" * 40)
         if url.endswith("/health"):
-            return deploy.HttpResponse(200, "application/json", b'{"status":"ok"}')
+            source_revision = (
+                "b" * 40
+                if runner.api_mode == "forward"
+                else runner.prior_source_revision
+            )
+            return deploy.HttpResponse(
+                200,
+                "application/json",
+                b'{"status":"ok"}',
+                source_revision,
+            )
         return deploy.HttpResponse(200, "text/html; charset=utf-8", SAFE_HTML, "b" * 40)
 
     candidate_receipt = root / ".runtime" / "candidate-runtime-receipt.json"
@@ -2426,7 +2437,10 @@ def _lane(
         method: str,
     ) -> deploy.HttpResponse:
         del timeout
-        path = urllib.parse.urlsplit(url).path
+        parsed_url = urllib.parse.urlsplit(url)
+        path = parsed_url.path
+        if parsed_url.hostname == "127.0.0.1":
+            return _local_https_redirect_response(url, method)
         if path == "/openapi.json":
             runner.public_openapi_methods.append(method)
             phase = (
@@ -2496,9 +2510,7 @@ def _lane(
     lane.normalization_recovery_journal_path = (
         recovery_root / "api-baseline-normalization-active-recovery.json"
     )
-    lane.joint_recovery_journal_path = (
-        recovery_root / "joint-active-recovery.json"
-    )
+    lane.joint_recovery_journal_path = recovery_root / "joint-active-recovery.json"
     return lane
 
 
@@ -2812,9 +2824,113 @@ def test_local_public_authority_probe_sets_exact_headers_and_never_follows_redir
         for name, value in requests[0].header_items()  # type: ignore[union-attr]
     }
     assert request_headers["host"] == "memorial.example.org"
-    assert request_headers["x-forwarded-host"] == "memorial.example.org"
-    assert request_headers["x-forwarded-proto"] == "https"
+    assert "x-forwarded-host" not in request_headers
+    assert "x-forwarded-proto" not in request_headers
     assert any(isinstance(handler, deploy._NoRedirectHandler) for handler in handlers)
+
+
+def test_local_no_redirect_helper_sends_host_without_proxy_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[object] = []
+
+    class Response:
+        status = 308
+        headers = {"Location": "https://memorial.example.org/memorials/manfred"}
+
+        @staticmethod
+        def read(_limit: int) -> bytes:
+            return b""
+
+        @staticmethod
+        def getcode() -> int:
+            return 308
+
+        @staticmethod
+        def close() -> None:
+            return None
+
+    class Opener:
+        def open(self, request, timeout):  # type: ignore[no-untyped-def]
+            del timeout
+            requests.append(request)
+            return Response()
+
+    monkeypatch.setattr(
+        deploy.urllib.request,
+        "build_opener",
+        lambda *_handlers: Opener(),
+    )
+
+    response = deploy._default_http_no_redirect(
+        "http://127.0.0.1:8090/memorials/manfred",
+        1.0,
+        "GET",
+        "memorial.example.org",
+    )
+
+    assert response.status == 308
+    request_headers = {
+        str(name).casefold(): str(value)
+        for name, value in requests[0].header_items()  # type: ignore[union-attr]
+    }
+    assert request_headers["host"] == "memorial.example.org"
+    assert "x-forwarded-host" not in request_headers
+    assert "x-forwarded-proto" not in request_headers
+
+
+@pytest.mark.parametrize(
+    ("status", "location", "reason"),
+    [
+        (200, "https://memorial.example.org/memorials/manfred", "status_invalid"),
+        (308, "/memorials/manfred", "location_invalid"),
+        (308, "https://attacker.example/memorials/manfred", "location_invalid"),
+    ],
+)
+def test_local_https_redirect_proof_rejects_noncanonical_first_hop(
+    release_root: Path,
+    status: int,
+    location: str,
+    reason: str,
+) -> None:
+    lane = _lane(release_root, FakeRunner(release_root))
+    lane.http_no_redirect = lambda *_args: deploy.HttpResponse(  # type: ignore[method-assign]
+        status,
+        "text/plain",
+        b"",
+        headers={"Location": location},
+    )
+
+    with pytest.raises(deploy.DeployError, match=reason):
+        lane._verify_local_https_redirects(
+            "http://127.0.0.1:8090",
+            "https://memorial.example.org",
+        )
+
+
+def test_local_https_redirect_proof_rejects_head_body(
+    release_root: Path,
+) -> None:
+    lane = _lane(release_root, FakeRunner(release_root))
+
+    def redirect(url: str, _timeout: float, method: str, _authority: str = ""):
+        response = _local_https_redirect_response(url, method)
+        if method == "HEAD":
+            return deploy.HttpResponse(
+                response.status,
+                response.content_type,
+                b"unexpected",
+                response.source_revision,
+                response.headers,
+            )
+        return response
+
+    lane.http_no_redirect = redirect  # type: ignore[method-assign]
+    with pytest.raises(deploy.DeployError, match="head_body_invalid"):
+        lane._verify_local_https_redirects(
+            "http://127.0.0.1:8090",
+            "https://memorial.example.org",
+        )
 
 
 @pytest.mark.parametrize(
@@ -3025,11 +3141,7 @@ def test_memorial_rollback_environment_is_reconstructed_from_live_identity(
     ]
 
     environment = deploy._memorial_rollback_environment(
-        config={
-            "Env": [
-                f"{name}={value}" for name, value in container_values.items()
-            ]
-        },
+        config={"Env": [f"{name}={value}" for name, value in container_values.items()]},
         mount_identities=mounts,
         image_reference="ea-runtime:manfred-prior",
     )
@@ -3046,9 +3158,7 @@ def test_rollback_render_environment_drift_fails_before_mutation(
     release_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runner = FakeRunner(release_root)
-    runner.rollback_capsule_render_environment_override = {
-        "DRIFTED_VALUE": "changed"
-    }
+    runner.rollback_capsule_render_environment_override = {"DRIFTED_VALUE": "changed"}
     monkeypatch.setattr(
         deploy,
         "source_worktree_metadata",
@@ -3176,9 +3286,7 @@ def test_private_release_evidence_preserves_tracked_defaults_and_binds_phase(
         str(release_root / ".env"),
         str(release_root / ".env.local"),
         str(
-            release_root
-            / deploy.EA_RUNTIME_ENV_DIRECTORY
-            / deploy.EA_RUNTIME_ENV_FILE
+            release_root / deploy.EA_RUNTIME_ENV_DIRECTORY / deploy.EA_RUNTIME_ENV_FILE
         ),
         str(
             release_root
@@ -3587,7 +3695,9 @@ def test_happy_path_mutates_only_redis_and_api(
     memorial_probes = [
         probe for probe in receipt["probes"] if "/memorials/manfred" in probe["url"]
     ]
-    assert len(memorial_probes) == 4
+    assert len(memorial_probes) == 2
+    assert receipt["local_https_redirects"]["route_count"] == 6
+    assert receipt["local_https_redirects"]["trusted_proxy_headers_sent"] is False
     assert {probe["source_revision"] for probe in memorial_probes} == {"b" * 40}
     config_index = next(
         index
@@ -3630,14 +3740,11 @@ def test_happy_path_mutates_only_redis_and_api(
         for call in runner.calls
         if any(item.endswith("verify_manfred_memorial_candidate.py") for item in call)
     ]
-    assert len(candidate_calls) == 2
-    assert all("--browser-audit" in call for call in candidate_calls)
-    assert "http://127.0.0.1:8090" in candidate_calls[0]
-    assert "https://memorial.example.org" in candidate_calls[1]
-    assert {item["origin"] for item in receipt["candidate_verifier"]} == {
-        "local",
-        "public",
-    }
+    assert len(candidate_calls) == 1
+    assert "--browser-audit" in candidate_calls[0]
+    assert "http://127.0.0.1:8090" not in candidate_calls[0]
+    assert "https://memorial.example.org" in candidate_calls[0]
+    assert {item["origin"] for item in receipt["candidate_verifier"]} == {"public"}
     assert all("base_url" not in item for item in receipt["candidate_verifier"])
     previous = receipt["previous_api"]
     assert "mount_identities" not in previous
@@ -4262,9 +4369,9 @@ def test_rollback_fails_closed_when_public_openapi_retirement_is_not_restored(
     receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
     assert receipt["status"] == "rollback_failed"
     assert "postdeploy_openapi_operation_changed" in receipt["failure"]["reason"]
-    assert "public_openapi_retirement_revision_mismatch" in receipt["rollback"][
-        "reason"
-    ]
+    assert (
+        "public_openapi_retirement_revision_mismatch" in receipt["rollback"]["reason"]
+    )
     assert runner.public_openapi_methods == ["GET", "GET", "GET"]
 
 
@@ -4950,10 +5057,7 @@ def test_existing_memorial_baseline_is_replaced_for_governed_update(
         "docker-compose.yml",
         "docker-compose.memorial.yml",
     ]
-    assert (
-        receipt["forward_topology_source"]["prior_memorial_layer_replaced"]
-        is True
-    )
+    assert receipt["forward_topology_source"]["prior_memorial_layer_replaced"] is True
     assert receipt["rollback_compose_files"] == [
         "memorial-release-001.rollback-capsule.compose.json"
     ]
@@ -5002,15 +5106,14 @@ def test_normalized_api_baseline_drops_normalization_only_forward_layer(
     ]
     assert receipt["forward_topology_source"]["prior_memorial_layer_replaced"] is True
     assert (
-        receipt["forward_topology_source"]["prior_normalization_layer_dropped"]
-        is True
+        receipt["forward_topology_source"]["prior_normalization_layer_dropped"] is True
     )
     assert receipt["rollback_compose_files"] == [
         "memorial-release-001.rollback-capsule.compose.json"
     ]
-    config_call = [
-        call for call in runner.calls if call[-2:] == ["config", "--quiet"]
-    ][0]
+    config_call = [call for call in runner.calls if call[-2:] == ["config", "--quiet"]][
+        0
+    ]
     assert str(release_root / "docker-compose.yml") in config_call
     assert config_call.count(str(release_root / "docker-compose.memorial.yml")) == 1
     assert (
@@ -5033,9 +5136,7 @@ def test_normalization_only_forward_layer_rejects_nested_path(
     runner = FakeRunner(
         release_root,
         baseline_root=prior_root,
-        baseline_files=(
-            f"nested/{deploy.API_BASELINE_NORMALIZATION_COMPOSE_FILE}",
-        ),
+        baseline_files=(f"nested/{deploy.API_BASELINE_NORMALIZATION_COMPOSE_FILE}",),
     )
     monkeypatch.setattr(
         deploy,
@@ -5122,7 +5223,12 @@ def test_public_failure_rolls_back_once_with_base_and_prod_only(
         if url.endswith(".json"):
             return deploy.HttpResponse(200, "application/json", SAFE_MANIFEST, "b" * 40)
         if url.endswith("/health"):
-            return deploy.HttpResponse(200, "application/json", b'{"status":"ok"}')
+            return deploy.HttpResponse(
+                200,
+                "application/json",
+                b'{"status":"ok"}',
+                "b" * 40,
+            )
         return deploy.HttpResponse(200, "text/html", SAFE_HTML, "b" * 40)
 
     lane = _lane(release_root, runner, http_get=failing_public_http)
@@ -5142,12 +5248,8 @@ def test_public_failure_rolls_back_once_with_base_and_prod_only(
     assert "docker-compose.prod.yml" not in " ".join(rollback)
     payload = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
     assert payload["status"] == "failed_rolled_back"
-    assert payload["rollback_capsule"]["status"] == (
-        "retired_after_verified_rollback"
-    )
-    assert payload["rollback_recovery"]["status"] == (
-        "retired_after_verified_rollback"
-    )
+    assert payload["rollback_capsule"]["status"] == ("retired_after_verified_rollback")
+    assert payload["rollback_recovery"]["status"] == ("retired_after_verified_rollback")
     assert not lane.rollback_capsule_path.exists()
     assert not lane.joint_recovery_journal_path.exists()
     assert payload["rollback"]["status"] == "pass"
@@ -5160,9 +5262,7 @@ def test_public_failure_rolls_back_once_with_base_and_prod_only(
         rollback_openapi["contract_sha256"]
         == payload["predeploy_non_memorial_controls"]["openapi"]["contract_sha256"]
     )
-    assert rollback_openapi["probe"]["source"] == (
-        "deployed_api_container_app.openapi"
-    )
+    assert rollback_openapi["probe"]["source"] == ("deployed_api_container_app.openapi")
     assert rollback_openapi["public_endpoint"]["source_revision"] == (
         runner.prior_source_revision
     )
@@ -5353,24 +5453,20 @@ def test_memorial_surface_requires_transparent_narrator_markers(
         lane._wait_http("https://memorial.example.org/memorials/manfred", kind="html")
 
 
-def test_public_manifest_must_match_local_manifest(release_root: Path) -> None:
+def test_deployed_surface_requires_revision_bearing_local_health(
+    release_root: Path,
+) -> None:
     runner = FakeRunner(release_root)
 
-    def divergent_http(url: str, timeout: float) -> deploy.HttpResponse:
+    def missing_revision_http(url: str, timeout: float) -> deploy.HttpResponse:
+        del timeout
         if url.endswith("/health"):
             return deploy.HttpResponse(200, "application/json", b'{"status":"ok"}')
-        if url.endswith(".json"):
-            body = SAFE_MANIFEST
-            if url.startswith("https://"):
-                body = SAFE_MANIFEST + b" "
-            return deploy.HttpResponse(200, "application/json", body, "b" * 40)
-        return deploy.HttpResponse(200, "text/html", SAFE_HTML, "b" * 40)
+        raise AssertionError("local health failure must stop later probes")
 
-    lane = _lane(release_root, runner, http_get=divergent_http)
+    lane = _lane(release_root, runner, http_get=missing_revision_http)
 
-    with pytest.raises(
-        deploy.DeployError, match="public_memorial_manifest_differs_from_local"
-    ):
+    with pytest.raises(deploy.DeployError, match="source_revision_mismatch"):
         lane._verify_deployed_surface(
             "https://memorial.example.org",
             source_revision="b" * 40,
@@ -5393,7 +5489,12 @@ def test_deployed_surface_probes_canonical_and_singular_alias_origins(
         del timeout
         observed_requests.append((url, public_authority))
         if url.endswith("/health"):
-            return deploy.HttpResponse(200, "application/json", b'{"status":"ok"}')
+            return deploy.HttpResponse(
+                200,
+                "application/json",
+                b'{"status":"ok"}',
+                "b" * 40,
+            )
         if url.endswith(".json"):
             return deploy.HttpResponse(
                 200,
@@ -5410,6 +5511,8 @@ def test_deployed_surface_probes_canonical_and_singular_alias_origins(
         public_authority: str = "",
     ) -> deploy.HttpResponse:
         del timeout
+        if urllib.parse.urlsplit(url).hostname == "127.0.0.1":
+            return _local_https_redirect_response(url, method)
         if urllib.parse.urlsplit(url).path != "/memorial/manfred":
             assert public_authority == ""
             return _public_spatial_response(url, method)
@@ -5425,14 +5528,7 @@ def test_deployed_surface_probes_canonical_and_singular_alias_origins(
         candidate_promotion_evidence=_candidate_promotion_evidence(),
     )
 
-    assert (
-        "http://127.0.0.1:8090/memorials/manfred",
-        "memorial.example.org",
-    ) in observed_requests
-    assert (
-        "http://127.0.0.1:8090/memorials/manfred.json",
-        "memorial.example.org",
-    ) in observed_requests
+    assert ("http://127.0.0.1:8090/health", "") in observed_requests
     assert (
         "https://memorial.example.org/memorials/manfred",
         "",
@@ -5442,16 +5538,6 @@ def test_deployed_surface_probes_canonical_and_singular_alias_origins(
         "",
     ) in observed_requests
     assert observed_alias_requests == [
-        (
-            "GET",
-            "http://127.0.0.1:8090/memorial/manfred?from=ea-launch-verifier",
-            "memorial.example.org",
-        ),
-        (
-            "HEAD",
-            "http://127.0.0.1:8090/memorial/manfred?from=ea-launch-verifier",
-            "memorial.example.org",
-        ),
         (
             "GET",
             "https://memorial.example.org/memorial/manfred?from=ea-launch-verifier",
@@ -5464,7 +5550,15 @@ def test_deployed_surface_probes_canonical_and_singular_alias_origins(
         ),
     ]
     assert lane.receipt["alias_probes"][0]["query_preserved"] is True
-    assert lane.receipt["alias_probes"][1]["query_preserved"] is True
+    local_transport = lane.receipt["local_https_redirects"]
+    assert local_transport["status"] == "pass"
+    assert local_transport["trusted_proxy_headers_sent"] is False
+    assert local_transport["route_count"] == 6
+    assert set(local_transport["routes"]) == {
+        f"{label}_{method}"
+        for label in ("canonical_html", "canonical_json", "singular_alias")
+        for method in ("get", "head")
+    }
     spatial = lane.receipt["public_spatial_tour"]
     assert set(spatial) == {
         "status",
@@ -5580,6 +5674,8 @@ def test_public_spatial_edge_failure_rolls_back(
         method: str,
     ) -> deploy.HttpResponse:
         del timeout
+        if urllib.parse.urlsplit(url).hostname == "127.0.0.1":
+            return _local_https_redirect_response(url, method)
         if urllib.parse.urlsplit(url).path == "/memorial/manfred":
             return _singular_alias_response(method)
         if failure_mode == "digest":
@@ -5785,18 +5881,23 @@ def test_candidate_browser_or_provider_boundary_failure_rolls_back(
         for call in runner.calls
         if any(item.endswith("verify_manfred_memorial_candidate.py") for item in call)
     ]
-    assert candidate_calls
-    assert all("--browser-audit" in call for call in candidate_calls)
-    assert all("--submit-contribution-receipt" not in call for call in candidate_calls)
-    assert all(
-        "--withdraw-contribution-receipt" not in call for call in candidate_calls
+    assert len(candidate_calls) == 1
+    candidate_call = candidate_calls[0]
+    assert "--browser-audit" in candidate_call
+    assert "--submit-contribution-receipt" not in candidate_call
+    assert "--withdraw-contribution-receipt" not in candidate_call
+    assert candidate_call[candidate_call.index("--base-url") + 1] == (
+        "https://memorial.example.org"
+    )
+    assert candidate_call[candidate_call.index("--public-origin") + 1] == (
+        "https://memorial.example.org"
     )
     receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
     assert "candidate_verifier_contract_failed" in receipt["failure"]["reason"]
     assert receipt["rollback"]["status"] == "pass"
 
 
-def test_nonzero_candidate_verifier_records_safe_origin_after_local_evidence(
+def test_nonzero_public_candidate_verifier_records_no_fake_local_evidence(
     release_root: Path,
 ) -> None:
     secret = "provider-secret-must-not-enter-receipt"
@@ -5818,28 +5919,7 @@ def test_nonzero_candidate_verifier_records_safe_origin_after_local_evidence(
         lane._verify_candidate_origins("https://memorial.example.org")
 
     receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
-    assert receipt["candidate_verifier"] == [
-        {
-            "origin": "local",
-            "status": "pass",
-            "checks": [
-                "archive_publication_gate",
-                "browser_provider_websocket_boundary",
-                "singular_memorial_alias",
-                "source_grounded_narrator_boundary",
-                "voice_provider_boundary_blocked",
-            ],
-            "provider_calls_performed": False,
-            "browser": {
-                "automatic_provider_requests": 0,
-                "automatic_websockets": 0,
-                "external_requests": 0,
-                "failed_requests": 0,
-                "page_errors": 0,
-                "http_errors": 0,
-            },
-        }
-    ]
+    assert "candidate_verifier" not in receipt
     failure = next(
         check for check in receipt["checks"] if check["name"] == "fixed_json_script"
     )
@@ -5874,7 +5954,7 @@ def test_candidate_http_status_failure_records_only_allowlisted_safe_evidence() 
 
     evidence = deploy._fixed_json_script_failure_evidence(
         script="scripts/verify_manfred_memorial_candidate.py",
-        origin="local",
+        origin="public",
         completed=completed,
     )
 
@@ -5910,7 +5990,7 @@ def test_candidate_http_status_failure_redacts_unallowlisted_details(
 
     evidence = deploy._fixed_json_script_failure_evidence(
         script="scripts/verify_manfred_memorial_candidate.py",
-        origin="local",
+        origin="public",
         completed=completed,
     )
 
@@ -6107,10 +6187,7 @@ def test_bind_source_denial_fails_preflight_before_any_mutation(
     )
     with pytest.raises(
         deploy.DeployError,
-        match=(
-            "memorial_bind_source_access_denied:"
-            "bind_source_file_not_readable"
-        ),
+        match=("memorial_bind_source_access_denied:bind_source_file_not_readable"),
     ):
         lane.deploy(preflight_only=True)
 
@@ -6146,23 +6223,16 @@ def test_bind_source_snapshot_drift_stops_before_api_recreation(
     )
     with pytest.raises(
         deploy.DeployError,
-        match=(
-            "memorial_bind_source_access_denied:"
-            "bind_source_snapshot_changed"
-        ),
+        match=("memorial_bind_source_access_denied:bind_source_snapshot_changed"),
     ):
         lane.deploy()
 
-    assert not any(
-        "up" in call and call[-1] == "ea-api" for call in runner.calls
-    )
+    assert not any("up" in call and call[-1] == "ea-api" for call in runner.calls)
     receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
     assert receipt["preparation"]["api_mutation_started"] is False
 
 
-def _configure_observed_live_rollback_posture(
-    runner: FakeRunner, root: Path
-) -> None:
+def _configure_observed_live_rollback_posture(runner: FakeRunner, root: Path) -> None:
     mounts = FakeRunner._api_mounts(root, memorial=True)
     runner.prior_mounts_override = mounts
     runner.prior_extra_environment = [
@@ -6213,9 +6283,7 @@ def _configure_observed_live_rollback_posture(
         "NanoCpus": 2_000_000_000,
         "NetworkMode": "ea_default",
         "PidsLimit": 512,
-        "PortBindings": {
-            "8090/tcp": [{"HostIp": "127.0.0.1", "HostPort": "8090"}]
-        },
+        "PortBindings": {"8090/tcp": [{"HostIp": "127.0.0.1", "HostPort": "8090"}]},
         "ReadonlyPaths": list(
             deploy.ROLLBACK_CAPSULE_ENGINE_SECURITY_DEFAULTS["ReadonlyPaths"]
         ),
@@ -6248,6 +6316,8 @@ def _configure_observed_live_rollback_posture(
             "NetworkID": "2" * 64,
         },
     }
+
+
 def _captured_five_layer_live_runner(
     release_root: Path,
     tmp_path: Path,
@@ -6259,9 +6329,7 @@ def _captured_five_layer_live_runner(
             encoding="utf-8",
         )
     release_local = release_root / ".env.local"
-    release_local.write_bytes(
-        b"EA_PRIOR_LOCAL=retained\nEMAILIT_API_KEY=blocked\n"
-    )
+    release_local.write_bytes(b"EA_PRIOR_LOCAL=retained\nEMAILIT_API_KEY=blocked\n")
     release_local.chmod(0o600)
 
     prior_root = tmp_path / "trusted-prior-repo"
@@ -6271,9 +6339,7 @@ def _captured_five_layer_live_runner(
     prior_primary.write_bytes(
         b"EA_HOST_PORT=8090\nPROPERTYQUARRY_PRIVATE_KEY=blocked\n"
     )
-    prior_local.write_bytes(
-        b"EA_PRIOR_LOCAL=retained\nEMAILIT_API_KEY=blocked\n"
-    )
+    prior_local.write_bytes(b"EA_PRIOR_LOCAL=retained\nEMAILIT_API_KEY=blocked\n")
     prior_primary.chmod(0o600)
     prior_local.chmod(0o600)
     prior_runtime_root = prior_root / deploy.EA_RUNTIME_ENV_DIRECTORY
@@ -6341,9 +6407,9 @@ def test_captured_five_layer_topology_uses_direct_joint_bridge_in_place(
         == "direct_joint_without_baseline_normalization"
     )
     assert topology["trusted_external_bridge"]["two_sample_seal_verified"] is True
-    config_call = [
-        call for call in runner.calls if call[-2:] == ["config", "--quiet"]
-    ][0]
+    config_call = [call for call in runner.calls if call[-2:] == ["config", "--quiet"]][
+        0
+    ]
     configured_layers = [
         Path(config_call[index + 1]).name
         for index, item in enumerate(config_call[:-1])
@@ -6363,9 +6429,7 @@ def test_captured_five_layer_topology_uses_direct_joint_bridge_in_place(
     ]
     assert configured_environment == [
         str(
-            release_root
-            / deploy.EA_RUNTIME_ENV_DIRECTORY
-            / deploy.EA_RUNTIME_ENV_FILE
+            release_root / deploy.EA_RUNTIME_ENV_DIRECTORY / deploy.EA_RUNTIME_ENV_FILE
         ),
         str(
             release_root
@@ -6403,9 +6467,7 @@ def test_captured_five_layer_bridge_replaces_only_prior_memorial_blob(
     seals = {row["basename"]: row for row in bridge["compose_file_seals"]}
     memorial = seals[deploy.MEMORIAL_COMPOSE_FILE]
     assert receipt["status"] == "preflight_only_pass"
-    assert bridge["replaceable_layer_basenames"] == [
-        deploy.MEMORIAL_COMPOSE_FILE
-    ]
+    assert bridge["replaceable_layer_basenames"] == [deploy.MEMORIAL_COMPOSE_FILE]
     assert memorial["external_matches_release"] is False
     assert memorial["forward_policy"] == "replace_with_release_head"
     assert all(
@@ -6657,9 +6719,7 @@ def test_invalid_supplemental_groups_fail_before_mutation(
         lambda *_args, **_kwargs: {"source_worktree_dirty": False},
     )
 
-    with pytest.raises(
-        deploy.DeployError, match="rollback_capsule_group_add_invalid"
-    ):
+    with pytest.raises(deploy.DeployError, match="rollback_capsule_group_add_invalid"):
         _lane(release_root, runner).deploy(preflight_only=True)
 
     assert not any("up" in call for call in runner.calls)
@@ -6763,14 +6823,15 @@ def test_observed_live_posture_maps_to_a_single_render_verified_capsule(
     assert len(capsule["functional_identity_sha256"]) == 64
     assert receipt["rollback_render_preflight"]["network_count"] == 2
     assert receipt["previous_api"]["functional_identity"]["version"] == 2
-    assert receipt["previous_api"]["functional_identity"]["domains"][
-        "noncompose_labels"
-    ]["count"] == 3
+    assert (
+        receipt["previous_api"]["functional_identity"]["domains"]["noncompose_labels"][
+            "count"
+        ]
+        == 3
+    )
     legacy_identity = dict(receipt["previous_api"]["functional_identity"])
     legacy_identity["version"] = 1
-    with pytest.raises(
-        deploy.DeployError, match="test_functional_identity_invalid"
-    ):
+    with pytest.raises(deploy.DeployError, match="test_functional_identity_invalid"):
         deploy.MemorialDeployLane._validated_functional_identity(
             legacy_identity,
             reason_prefix="test",
@@ -6808,36 +6869,60 @@ def test_static_ipv4_network_binding_round_trips_through_sealed_capsule(
     lane._clear_rollback_artifacts(terminal_status="discarded_test")
 
 
-def test_null_ipam_config_preserves_legacy_dynamic_attachment_shape(
+def test_absent_null_and_empty_ipam_are_identical_dynamic_attachments(
     release_root: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    runner = FakeRunner(release_root)
-    _configure_observed_live_rollback_posture(runner, release_root)
-    public_endpoint = runner.prior_networks["ea_public_ingress"]
-    assert isinstance(public_endpoint, dict)
-    public_endpoint["IPAMConfig"] = None
-    monkeypatch.setattr(
-        deploy,
-        "source_worktree_metadata",
-        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    identities: dict[str, dict[str, object]] = {}
+    rendered_networks: dict[str, dict[str, object]] = {}
+    for shape in ("absent", "null", "empty"):
+        runner = FakeRunner(release_root)
+        _configure_observed_live_rollback_posture(runner, release_root)
+        public_endpoint = runner.prior_networks["ea_public_ingress"]
+        assert isinstance(public_endpoint, dict)
+        if shape == "null":
+            public_endpoint["IPAMConfig"] = None
+        elif shape == "empty":
+            public_endpoint["IPAMConfig"] = {}
+        inspection = json.loads(
+            runner.run(
+                ["docker", "inspect", "ea-api"],
+                cwd=release_root,
+                env={},
+            ).stdout
+        )[0]
+        lane = _lane(release_root, runner)
+
+        document, identity = lane._build_rollback_capsule(inspection)
+
+        identities[shape] = identity
+        rendered_networks[shape] = dict(
+            dict(document["services"])["ea-api"]["networks"]
+        )
+        assert all(
+            "ipv4_address" not in options
+            for options in rendered_networks[shape].values()
+        )
+
+    assert identities["absent"] == identities["null"] == identities["empty"]
+    assert (
+        rendered_networks["absent"]
+        == rendered_networks["null"]
+        == rendered_networks["empty"]
     )
-    lane = _lane(release_root, runner)
-
-    lane.preflight()
-
-    capsule = json.loads(lane.rollback_capsule_path.read_text(encoding="utf-8"))
-    service_networks = capsule["services"]["ea-api"]["networks"]
-    assert all("ipv4_address" not in options for options in service_networks.values())
-    lane._clear_rollback_artifacts(terminal_status="discarded_test")
 
 
 @pytest.mark.parametrize(
     ("ipam_config", "reason"),
     [
-        ({}, "rollback_capsule_network_ipam_config_unsupported"),
+        ({"IPv4Address": ""}, "rollback_capsule_static_ipv4_invalid"),
+        ({"IPv4Address": None}, "rollback_capsule_static_ipv4_invalid"),
+        ({"IPv4Address": False}, "rollback_capsule_static_ipv4_invalid"),
         (
             {"IPv4Address": "172.21.0.3", "Unexpected": "value"},
+            "rollback_capsule_network_ipam_config_unsupported",
+        ),
+        (
+            {"Unexpected": ""},
             "rollback_capsule_network_ipam_config_unsupported",
         ),
         (
@@ -6937,8 +7022,7 @@ def test_rendered_ipv6_network_binding_is_rejected_before_mutation(
     with pytest.raises(
         deploy.DeployError,
         match=(
-            "rollback_capsule_render_service_network_field_unsupported:"
-            "ipv6_address"
+            "rollback_capsule_render_service_network_field_unsupported:ipv6_address"
         ),
     ):
         _lane(release_root, runner).deploy(preflight_only=True)
@@ -7040,9 +7124,10 @@ def test_capsule_drift_after_forward_mutation_fails_closed_and_is_retained(
 
     assert lane.rollback_capsule_path.exists()
     assert lane.joint_recovery_journal_path.exists()
-    assert json.loads(lane.receipt_path.read_text(encoding="utf-8"))[
-        "status"
-    ] == "rollback_failed"
+    assert (
+        json.loads(lane.receipt_path.read_text(encoding="utf-8"))["status"]
+        == "rollback_failed"
+    )
 
 
 def test_existing_joint_recovery_journal_blocks_before_capsule_or_mutation(
@@ -7210,9 +7295,7 @@ def test_external_network_identity_is_rechecked_immediately_before_forward_recre
     ):
         _lane(release_root, runner).deploy()
 
-    assert not any(
-        "up" in call and call[-1] == "ea-api" for call in runner.calls
-    )
+    assert not any("up" in call and call[-1] == "ea-api" for call in runner.calls)
 
 
 def test_real_compose_config_normalization_round_trips_every_runtime_domain(
@@ -7292,9 +7375,7 @@ def test_real_compose_config_normalization_round_trips_every_runtime_domain(
     assert deploy._container_functional_identity(projected) == expected_identity
     rendered_service = dict(rendered["services"])["ea-api"]
     assert rendered_service["group_add"] == ["1000"]
-    assert rendered_service["extra_hosts"] == [
-        "host.docker.internal=host-gateway"
-    ]
+    assert rendered_service["extra_hosts"] == ["host.docker.internal=host-gateway"]
     assert [
         options["ipv4_address"]
         for options in rendered_service["networks"].values()
@@ -7352,9 +7433,7 @@ def test_recover_active_reconciles_sigkill_equivalent_persisted_states(
     elif persisted_state == "after_recreate":
         runner.api_mode = "forward"
         runner.rollback_mode = False
-    before_up = sum(
-        "up" in call and call[-1] == "ea-api" for call in runner.calls
-    )
+    before_up = sum("up" in call and call[-1] == "ea-api" for call in runner.calls)
     recovery = _lane(
         release_root,
         runner,
@@ -7364,9 +7443,7 @@ def test_recover_active_reconciles_sigkill_equivalent_persisted_states(
 
     result = recovery.recover_active()
 
-    after_up = sum(
-        "up" in call and call[-1] == "ea-api" for call in runner.calls
-    )
+    after_up = sum("up" in call and call[-1] == "ea-api" for call in runner.calls)
     assert result["status"] == expected_status
     assert result["api_mutation_count"] == expected_mutations
     assert after_up - before_up == expected_mutations
@@ -7406,6 +7483,51 @@ def test_active_recovery_round_trips_static_ipv4_binding(
 
     assert result["status"] == "rollback_verified"
     assert result["api_mutation_count"] == 1
+    assert not lane.rollback_capsule_path.exists()
+    assert not lane.joint_recovery_journal_path.exists()
+
+
+def test_active_recovery_accepts_compose_v5_empty_ipam_for_dynamic_restore(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    _configure_observed_live_rollback_posture(runner, release_root)
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+    context, _rollback_tag = _arm_test_active_recovery(lane)
+    expected_identity = dict(dict(context["previous"])["functional_identity"])
+    for endpoint in runner.prior_networks.values():
+        assert isinstance(endpoint, dict)
+        endpoint["IPAMConfig"] = {}
+    runner.api_present = False
+    recovery = _lane(
+        release_root,
+        runner,
+        receipt_dir=lane.receipt_dir,
+        global_lock_path=lane.global_lock_path,
+    )
+
+    result = recovery.recover_active()
+
+    restored = json.loads(
+        runner.run(
+            ["docker", "inspect", "ea-api"],
+            cwd=release_root,
+            env={},
+        ).stdout
+    )[0]
+    assert result["status"] == "rollback_verified"
+    assert result["api_mutation_count"] == 1
+    assert deploy._container_functional_identity(restored) == expected_identity
+    assert all(
+        dict(endpoint).get("IPAMConfig") == {}
+        for endpoint in dict(restored["NetworkSettings"]["Networks"]).values()
+    )
     assert not lane.rollback_capsule_path.exists()
     assert not lane.joint_recovery_journal_path.exists()
 
@@ -7499,9 +7621,7 @@ def test_active_recovery_journal_is_redacted_and_protected_image_bound(
         recovery.recover_active()
     assert lane.rollback_capsule_path.exists()
     assert lane.joint_recovery_journal_path.exists()
-    assert not any(
-        "up" in call and call[-1] == "ea-api" for call in runner.calls
-    )
+    assert not any("up" in call and call[-1] == "ea-api" for call in runner.calls)
 
 
 def test_private_artifact_parent_walk_rejects_symlink_and_fchmods_final_dir(
