@@ -5265,6 +5265,8 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                     self._remaining_mutation_action_seconds
                 )
                 try:
+                    if ingress_mutation_started:
+                        ingress_lane._detect_compose()
                     result = self._perform_joint_rollback_components(
                         context=authoritative_context,
                         api_mutation_started=api_mutation_started,

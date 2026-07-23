@@ -2051,6 +2051,7 @@ def test_signal_between_rollback_components_is_deferred_and_all_restore(
     signum: signal.Signals,
 ) -> None:
     lane, _runner = _lane(tmp_path)
+    _install_successful_compose_detection(lane)
     journal, context = _rollback_authority_context(
         lane,
         tmp_path,
@@ -3448,6 +3449,7 @@ def test_joint_rollback_restores_components_in_order(
     tmp_path: Path,
 ) -> None:
     lane, _runner = _lane(tmp_path)
+    lane_detect_compose = _install_successful_compose_detection(lane)
     journal, context = _rollback_authority_context(
         lane,
         tmp_path,
@@ -3494,6 +3496,9 @@ def test_joint_rollback_restores_components_in_order(
         "rollback_api",
         "restore_network",
     ]
+    lane_detect_compose.assert_not_called()
+    lane.runner.run.assert_called_once()
+    assert lane.runner.run.call_args.args[0] == ["docker", "compose", "version"]
     assert lane._rollback.call_args.args[4] == context["public_origin"]
 
 
@@ -3839,6 +3844,7 @@ def test_failed_component_rollback_receipt_preserves_every_component_result(
 ) -> None:
     lane, _runner = _lane(tmp_path)
     _context_value, _actions = _install_success_path(lane, tmp_path)
+    _install_successful_compose_detection(lane)
     lane._verify_forward_cloudflared = Mock(
         side_effect=api_deploy.DeployError("forward_ingress_failed")
     )
@@ -3874,6 +3880,7 @@ def test_second_interruption_during_rollback_does_not_skip_other_components(
     tmp_path: Path,
 ) -> None:
     lane, _runner = _lane(tmp_path)
+    _install_successful_compose_detection(lane)
     journal, context = _rollback_authority_context(
         lane,
         tmp_path,
