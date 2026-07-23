@@ -4,21 +4,28 @@ import asyncio
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
+import shutil
 import stat
+import subprocess
+import sys
 import urllib.parse
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 import pytest
 from starlette.requests import Request
 from starlette.websockets import WebSocket
 
 from app.api.routes import (
+    public_memorial_runtime,
     public_memorial_surface,
     public_memorial_turn_support,
     public_memorials,
 )
+from scripts import issue_manfred_voice_review_link
 
 
 _ORIGIN = "https://memorial.example"
@@ -398,7 +405,7 @@ def test_voice_review_tokens_bind_revision_origin_and_scope(
 
 def test_fragment_exchange_sets_only_short_lived_strict_http_only_cookie() -> None:
     app = FastAPI()
-    app.include_router(public_memorials.router)
+    app.include_router(public_memorial_surface.router)
     client = TestClient(app, base_url=_ORIGIN)
     bootstrap = public_memorials._issue_memorial_voice_review_bootstrap_token()
 
@@ -439,7 +446,7 @@ def test_fragment_exchange_sets_only_short_lived_strict_http_only_cookie() -> No
 
 def test_exchange_rejects_cross_origin_and_invalid_bootstrap() -> None:
     app = FastAPI()
-    app.include_router(public_memorials.router)
+    app.include_router(public_memorial_surface.router)
     client = TestClient(app, base_url=_ORIGIN)
     bootstrap = public_memorials._issue_memorial_voice_review_bootstrap_token()
 
@@ -453,6 +460,132 @@ def test_exchange_rejects_cross_origin_and_invalid_bootstrap() -> None:
         headers={"Origin": _ORIGIN},
         json={"token": f"{bootstrap}x"},
     ).status_code == 403
+
+
+def test_voice_review_routes_are_registered_on_split_public_surface() -> None:
+    methods = {
+        method
+        for route in public_memorial_surface.router.routes
+        if getattr(route, "path", "")
+        == "/admin/memorials/manfred/voice-review"
+        for method in (getattr(route, "methods", set()) or set())
+    }
+
+    assert methods == {"GET", "POST"}
+
+
+def test_voice_review_issuer_resolves_source_and_flattened_image_layouts(
+    tmp_path: Path,
+) -> None:
+    source_layout = tmp_path / "source"
+    (source_layout / "ea" / "app").mkdir(parents=True)
+    flattened_layout = tmp_path / "image"
+    (flattened_layout / "app").mkdir(parents=True)
+
+    assert issue_manfred_voice_review_link._app_import_root(source_layout) == (
+        source_layout / "ea"
+    )
+    assert issue_manfred_voice_review_link._app_import_root(
+        flattened_layout
+    ) == flattened_layout
+
+    script_path = (
+        flattened_layout
+        / "scripts"
+        / Path(issue_manfred_voice_review_link.__file__).name
+    )
+    script_path.parent.mkdir(parents=True)
+    shutil.copy2(issue_manfred_voice_review_link.__file__, script_path)
+    for package_dir in (
+        flattened_layout / "app",
+        flattened_layout / "app" / "api",
+        flattened_layout / "app" / "api" / "routes",
+    ):
+        package_dir.mkdir(parents=True, exist_ok=True)
+        (package_dir / "__init__.py").write_text("", encoding="utf-8")
+    (
+        flattened_layout
+        / "app"
+        / "api"
+        / "routes"
+        / "public_memorials.py"
+    ).write_text(
+        "_MEMORIAL_VOICE_REVIEW_BOOTSTRAP_TTL_SECONDS = 1800\n",
+        encoding="utf-8",
+    )
+    unrelated_cwd = tmp_path / "elsewhere"
+    unrelated_cwd.mkdir()
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+
+    result = subprocess.run(
+        [sys.executable, str(script_path), "--help"],
+        cwd=unrelated_cwd,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ModuleNotFoundError" not in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("path", "method", "shared_name"),
+    [
+        (
+            "/memorials/manfred/warmup-status",
+            "POST",
+            "public_memorial_warmup_status",
+        ),
+        (
+            "/memorials/manfred/readiness",
+            "GET",
+            "public_memorial_readiness",
+        ),
+    ],
+)
+def test_split_runtime_forwards_review_request_context(
+    monkeypatch: pytest.MonkeyPatch,
+    path: str,
+    method: str,
+    shared_name: str,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _shared_handler(*, slug: str, request: Request) -> JSONResponse:
+        captured.update(
+            {
+                "slug": slug,
+                "method": request.method,
+                "origin": request.headers.get("origin"),
+                "cookie": request.headers.get("cookie"),
+            }
+        )
+        return JSONResponse({"status": "pass"})
+
+    monkeypatch.setattr(public_memorials, shared_name, _shared_handler)
+    app = FastAPI()
+    app.include_router(public_memorial_runtime.router)
+    client = TestClient(app, base_url=_ORIGIN)
+    response = client.request(
+        method,
+        path,
+        headers={
+            "Origin": _ORIGIN,
+            "Cookie": "ea_manfred_voice_review=test-session",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "pass"}
+    assert captured == {
+        "slug": "manfred",
+        "method": method,
+        "origin": _ORIGIN,
+        "cookie": "ea_manfred_voice_review=test-session",
+    }
 
 
 def test_exchange_rejects_oversized_stream_before_token_verification(

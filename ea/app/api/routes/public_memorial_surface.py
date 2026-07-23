@@ -41,6 +41,8 @@ from app.api.routes.public_memorial_surface_support import (
     _require_voice_consent,
     _safe_slug,
     _text,
+    manfred_memorial_voice_review_exchange,
+    manfred_memorial_voice_review_exchange_page,
     request_hostname,
 )
 from app.services.memorial_family_contributions import merge_public_family_contributions
@@ -48,6 +50,19 @@ from app.services.memorial_private_context import public_memorial_projection_sou
 
 
 router = APIRouter(tags=["public-memorial-surface"])
+router.add_api_route(
+    "/admin/memorials/manfred/voice-review",
+    manfred_memorial_voice_review_exchange_page,
+    methods=["GET"],
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+router.add_api_route(
+    "/admin/memorials/manfred/voice-review",
+    manfred_memorial_voice_review_exchange,
+    methods=["POST"],
+    include_in_schema=False,
+)
 
 
 _PUBLIC_MEMORIAL_HTML_HEADERS = {

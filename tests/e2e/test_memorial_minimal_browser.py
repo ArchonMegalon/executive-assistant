@@ -503,32 +503,50 @@ def _await_realtime_turn_complete(page: Page, slug: str, action, timeout_ms: int
 def test_memorial_conversation_only_page_has_one_main_without_ui_noise(
     browser: Browser,
     memorial_minimal_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
     viewport: dict[str, int],
     expected_dock_position: str,
 ) -> None:
+    from app.api.routes import public_memorial_surface, public_memorials
+
+    preview_session = {
+        "slug": "manfred",
+        "scopes": ["page", "readiness", "realtime"],
+    }
+    monkeypatch.setattr(
+        public_memorial_surface,
+        "_memorial_voice_review_http_session_payload",
+        lambda *_args, **_kwargs: dict(preview_session),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_review_http_session_payload",
+        lambda *_args, **_kwargs: dict(preview_session),
+    )
     base_url = str(memorial_minimal_server["base_url"])
     slug = str(memorial_minimal_server["slug"])
     context = browser.new_context(viewport=viewport)
     page: Page = context.new_page()
     page_errors: list[str] = []
+    requests: list[str] = []
+    websockets: list[str] = []
     page.on("pageerror", lambda error: page_errors.append(str(error)))
+    page.on("request", lambda request: requests.append(request.url))
+    page.on("websocket", lambda websocket: websockets.append(websocket.url))
     try:
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
         assert response is not None and response.ok
         page.wait_for_function(
             """() => (
               document.querySelectorAll("main#memorial-conversation-region").length === 1 &&
-              document.getElementById("memorial-text-turn-form") &&
-              !document.getElementById("memorial-text-turn-form").hidden &&
-              !document.getElementById("memorial-conversation").disabled
+              document.getElementById("memorial-conversation") &&
+              !document.getElementById("memorial-conversation").disabled &&
+              document.getElementById("memorial-conversation").textContent.trim() === "Gespräch beginnen"
             )""",
             timeout=12000,
         )
         metrics = page.evaluate(
             """async () => {
-              const settings = document.querySelector("details.conversation-settings");
-              settings.open = true;
-              window.scrollTo(0, document.documentElement.scrollHeight);
               await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
               const conversation = document.getElementById("memorial-conversation-region");
               const header = document.querySelector("header");
@@ -536,10 +554,13 @@ def test_memorial_conversation_only_page_has_one_main_without_ui_noise(
               const headerRect = header.getBoundingClientRect();
               const guidance = document.getElementById("memorial-conversation-disclosure");
               const idleMonitor = document.getElementById("memorial-speech-monitor");
-              const textInput = document.getElementById("memorial-text-turn-input");
-              const textSubmit = document.getElementById("memorial-text-turn-submit");
-              const personalMemoryToggle = document.querySelector(".conversation-toggle-control");
-              const personalMemoryForget = document.getElementById("memorial-personal-memory-forget");
+              const visible = (element) => Boolean(
+                element &&
+                element.getBoundingClientRect().width > 0 &&
+                element.getBoundingClientRect().height > 0 &&
+                getComputedStyle(element).display !== "none" &&
+                getComputedStyle(element).visibility !== "hidden"
+              );
               return {
                 scrollHeight: document.documentElement.scrollHeight,
                 scrollWidth: document.documentElement.scrollWidth,
@@ -557,14 +578,6 @@ def test_memorial_conversation_only_page_has_one_main_without_ui_noise(
                 contributionCount: document.querySelectorAll("#memorial-contribution").length,
                 settingsCount: document.querySelectorAll("details.conversation-settings").length,
                 settingsWithinConversationCount: conversation.querySelectorAll("details.conversation-settings").length,
-                personalMemoryOptinCount: conversation.querySelectorAll("#memorial-personal-memory-optin").length,
-                personalMemoryStatusCount: conversation.querySelectorAll("#memorial-personal-memory-status").length,
-                personalMemoryForgetCount: conversation.querySelectorAll("#memorial-personal-memory-forget").length,
-                personalMemoryChecked: document.getElementById("memorial-personal-memory-optin").checked,
-                personalMemoryForgetDisabled: document.getElementById("memorial-personal-memory-forget").disabled,
-                personalMemoryForgetAriaDisabled: document.getElementById("memorial-personal-memory-forget").getAttribute("aria-disabled"),
-                personalMemoryToggleHeight: personalMemoryToggle.getBoundingClientRect().height,
-                personalMemoryForgetHeight: personalMemoryForget.getBoundingClientRect().height,
                 installCount: document.querySelectorAll("#memorial-install-hint").length,
                 memoryRoomLinks: document.querySelectorAll("a[href*='/memory-room']").length,
                 mainLabel: conversation.getAttribute("aria-label"),
@@ -573,9 +586,12 @@ def test_memorial_conversation_only_page_has_one_main_without_ui_noise(
                 chatWidth: document.querySelector(".chat").getBoundingClientRect().width,
                 idleMonitorDisplay: getComputedStyle(idleMonitor).display,
                 idleMonitorHeight: idleMonitor.getBoundingClientRect().height,
-                inputFontSize: parseFloat(getComputedStyle(textInput).fontSize),
-                inputHeight: textInput.getBoundingClientRect().height,
-                submitHeight: textSubmit.getBoundingClientRect().height,
+                visibleButtons: [...document.querySelectorAll("button")]
+                  .filter(visible)
+                  .map((button) => (button.getAttribute("aria-label") || button.textContent || "").trim()),
+                visibleInputs: [...document.querySelectorAll("input,textarea,select")]
+                  .filter(visible)
+                  .map((input) => input.id || input.name || input.tagName.toLowerCase()),
               };
             }"""
         )
@@ -592,14 +608,6 @@ def test_memorial_conversation_only_page_has_one_main_without_ui_noise(
         assert metrics["contributionCount"] == 0
         assert metrics["settingsCount"] == 1
         assert metrics["settingsWithinConversationCount"] == 1
-        assert metrics["personalMemoryOptinCount"] == 1
-        assert metrics["personalMemoryStatusCount"] == 1
-        assert metrics["personalMemoryForgetCount"] == 1
-        assert metrics["personalMemoryChecked"] is False
-        assert metrics["personalMemoryForgetDisabled"] is True
-        assert metrics["personalMemoryForgetAriaDisabled"] == "true"
-        assert float(metrics["personalMemoryToggleHeight"]) >= 44
-        assert float(metrics["personalMemoryForgetHeight"]) >= 44
         assert metrics["installCount"] == 0
         assert metrics["memoryRoomLinks"] == 0
         assert str(metrics["mainLabel"]).startswith("KI-Gespräch über ")
@@ -607,13 +615,19 @@ def test_memorial_conversation_only_page_has_one_main_without_ui_noise(
         assert float(metrics["guidanceWidth"]) <= float(metrics["chatWidth"])
         assert metrics["idleMonitorDisplay"] == "none"
         assert float(metrics["idleMonitorHeight"]) == 0
-        assert float(metrics["inputFontSize"]) >= 16
-        assert float(metrics["inputHeight"]) >= 44
-        assert float(metrics["submitHeight"]) >= 44
+        assert metrics["visibleButtons"] == ["Gespräch beginnen"]
+        assert metrics["visibleInputs"] == []
 
+        disclosure = page.locator("#memorial-conversation-disclosure")
+        assert disclosure.is_visible()
+        assert "KI" in disclosure.inner_text()
         assert page.get_by_text("Die Stimme ist künstlich erzeugt.", exact=False).is_visible()
-        assert page.get_by_role("button", name="Gespräch starten").is_visible()
-        assert page.get_by_label("Oder schreiben").is_visible()
+        assert page.get_by_role("button", name="Gespräch beginnen").is_visible()
+        assert websockets == []
+        assert all(
+            request.startswith(base_url)
+            for request in requests
+        )
 
         page_html = page.content()
         for sentinel in (
@@ -629,7 +643,7 @@ def test_memorial_conversation_only_page_has_one_main_without_ui_noise(
         context.close()
 
 
-def test_memorial_blocked_voice_release_has_one_text_action_and_never_requests_microphone(
+def test_memorial_blocked_voice_release_fails_closed_without_requesting_microphone(
     browser: Browser,
     memorial_minimal_server: dict[str, object],
     monkeypatch: pytest.MonkeyPatch,
@@ -661,40 +675,18 @@ def test_memorial_blocked_voice_release_has_one_text_action_and_never_requests_m
     try:
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
         assert response is not None and response.ok
-        page.wait_for_function(
-            "() => !document.getElementById('memorial-text-turn-form').hidden",
-            timeout=3000,
-        )
+        page.wait_for_timeout(500)
         assert page.locator("#memorial-conversation-region").get_attribute("data-voice-release") == "blocked"
         assert page.locator("#memorial-conversation").is_hidden()
+        assert page.locator("#memorial-text-turn-form").is_hidden()
         assert page.locator("#memorial-voice-recovery-note").is_hidden()
         assert page.locator("#memorial-conversation-disclosure").get_by_text(
             "Sprechen ist derzeit nicht verfügbar", exact=False
         ).is_visible()
-        assert page.locator("label[for='memorial-text-turn-input']").text_content() == "Frage schreiben"
         assert page.locator("#memorial-speech-message").text_content() == "Schreiben ist bereit."
-
-        page.locator("#memorial-text-turn-input").fill("Was war Manfred wichtig?")
-        page.locator("#memorial-text-turn-input").press("Enter")
-        page.wait_for_function(
-            "() => document.querySelectorAll('#memorial-speech-transcript > .speech-turn').length === 2",
-            timeout=5000,
-        )
         assert page.evaluate("window.__getUserMediaCalls") == 0
-        assert page.locator("#memorial-speech-transcript > .speech-turn").count() == 2
-        assert page.locator("#memorial-chat-answer").is_hidden()
-        source_toggle = page.locator("#memorial-toggle-status")
-        source_status = page.locator("#memorial-chat-status")
-        assert source_toggle.is_visible()
-        assert source_toggle.get_attribute("aria-expanded") == "false"
-        assert source_status.is_hidden()
-        source_toggle.click()
-        assert source_toggle.get_attribute("aria-expanded") == "true"
-        assert source_status.is_visible()
-        assert source_status.inner_text() == (
-            "Quellen: Öffentliche Quelle 1, Öffentliche Quelle 2, "
-            "Öffentliche Quelle 3, Öffentliche Quelle 4"
-        )
+        assert page.locator("button:visible").count() == 0
+        assert page.locator("input:visible,textarea:visible,select:visible").count() == 0
     finally:
         context.close()
 
@@ -745,7 +737,24 @@ def test_candidate_browser_audit_accepts_current_blocked_talk_copy(
 def test_memorial_text_retry_resubmits_text_without_starting_microphone(
     browser: Browser,
     memorial_minimal_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from app.api.routes import public_memorial_surface, public_memorials
+
+    preview_session = {
+        "slug": "manfred",
+        "scopes": ["page", "readiness", "realtime"],
+    }
+    monkeypatch.setattr(
+        public_memorial_surface,
+        "_memorial_voice_review_http_session_payload",
+        lambda *_args, **_kwargs: dict(preview_session),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_review_http_session_payload",
+        lambda *_args, **_kwargs: dict(preview_session),
+    )
     base_url = str(memorial_minimal_server["base_url"])
     slug = str(memorial_minimal_server["slug"])
     context = browser.new_context(viewport={"width": 390, "height": 844})
@@ -776,25 +785,26 @@ def test_memorial_text_retry_resubmits_text_without_starting_microphone(
     try:
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
         assert response is not None and response.ok
-        page.wait_for_function(
-            """() => (
-              !document.getElementById('memorial-text-turn-form').hidden &&
-              !document.getElementById('memorial-conversation').disabled
-            )""",
-            timeout=12000,
+        start = page.get_by_role("button", name="Gespräch beginnen")
+        start.wait_for(state="visible", timeout=12000)
+        start.click()
+        page.locator("#memorial-text-turn-form").wait_for(
+            state="visible",
+            timeout=3000,
         )
+        assert page.evaluate("window.__getUserMediaCalls") == 1
         text_input = page.locator("#memorial-text-turn-input")
         text_input.fill("Welche Erinnerung ist belegt?")
         text_input.press("Enter")
         retry = page.get_by_role("button", name="Textfrage erneut senden")
         retry.wait_for(state="visible", timeout=3000)
         assert len(failed_requests) == 1
-        assert page.evaluate("window.__getUserMediaCalls") == 0
+        assert page.evaluate("window.__getUserMediaCalls") == 1
 
         retry.click()
         page.wait_for_timeout(250)
         assert len(failed_requests) == 2
-        assert page.evaluate("window.__getUserMediaCalls") == 0
+        assert page.evaluate("window.__getUserMediaCalls") == 1
         assert text_input.input_value() == "Welche Erinnerung ist belegt?"
         assert retry.is_visible()
     finally:

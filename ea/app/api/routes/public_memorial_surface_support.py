@@ -32,6 +32,8 @@ from app.api.routes.public_memorials import (
     _require_voice_consent,
     _safe_slug,
     _text,
+    manfred_memorial_voice_review_exchange,
+    manfred_memorial_voice_review_exchange_page,
 )
 from app.services.public_clickrank import request_hostname
 
@@ -67,5 +69,7 @@ __all__ = [
     "_require_voice_consent",
     "_safe_slug",
     "_text",
+    "manfred_memorial_voice_review_exchange",
+    "manfred_memorial_voice_review_exchange_page",
     "request_hostname",
 ]

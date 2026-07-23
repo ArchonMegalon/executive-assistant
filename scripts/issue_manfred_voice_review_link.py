@@ -10,7 +10,16 @@ import urllib.parse
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-EA_ROOT = REPO_ROOT / "ea"
+
+
+def _app_import_root(repo_root: Path) -> Path:
+    source_root = repo_root / "ea"
+    if (source_root / "app").is_dir():
+        return source_root
+    return repo_root
+
+
+EA_ROOT = _app_import_root(REPO_ROOT)
 if str(EA_ROOT) not in sys.path:
     sys.path.insert(0, str(EA_ROOT))
 

@@ -67,6 +67,8 @@ def test_app_factory_omits_optional_public_routes_by_default() -> None:
     assert "/tours/files/{slug}/{asset_path:path}" not in route_paths
     assert "/memorials/{slug}" not in route_paths
     assert "/memorials/files/{slug}/{asset_path:path}" not in route_paths
+    assert "/admin/memorials/manfred/voice-review" not in route_paths
+    assert "/memorials/{slug}/warmup-status" not in route_paths
 
 
 def test_app_factory_mounts_optional_public_routes_when_enabled() -> None:
@@ -81,6 +83,40 @@ def test_app_factory_mounts_optional_public_routes_when_enabled() -> None:
     assert "/memorials/{slug}" in route_paths
     assert "/memorials/{slug}.json" in route_paths
     assert "/memorials/files/{slug}/{asset_path:path}" in route_paths
+    review_routes = [
+        route
+        for route in client.app.routes
+        if route.path == "/admin/memorials/manfred/voice-review"
+    ]
+    review_methods = {
+        method
+        for route in review_routes
+        for method in (route.methods or set())
+    }
+    warmup_status_routes = [
+        route
+        for route in client.app.routes
+        if route.path == "/memorials/{slug}/warmup-status"
+    ]
+    warmup_status_methods = {
+        method
+        for route in warmup_status_routes
+        for method in (route.methods or set())
+    }
+
+    assert review_methods == {"GET", "POST"}
+    assert len(review_routes) == 2
+    assert all(route.include_in_schema is False for route in review_routes)
+    assert warmup_status_methods == {"GET", "POST"}
+    assert len(warmup_status_routes) == 2
+    warmup_status_schema = client.app.openapi()["paths"][
+        "/memorials/{slug}/warmup-status"
+    ]
+    warmup_status_operation_ids = {
+        warmup_status_schema[method]["operationId"]
+        for method in ("get", "post")
+    }
+    assert len(warmup_status_operation_ids) == 2
 
 
 def test_app_factory_omits_legacy_authenticated_routes_by_default_in_prod() -> None:

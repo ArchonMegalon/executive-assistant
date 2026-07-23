@@ -14,13 +14,26 @@ async def public_memorial_warmup(slug: str, request: Request) -> JSONResponse:
 
 
 @router.get("/memorials/{slug}/warmup-status")
-def public_memorial_warmup_status(slug: str) -> JSONResponse:
-    return shared.public_memorial_warmup_status(slug=slug)
+@router.post("/memorials/{slug}/warmup-status")
+def public_memorial_warmup_status(
+    slug: str,
+    request: Request,
+) -> JSONResponse:
+    return shared.public_memorial_warmup_status(
+        slug=slug,
+        request=request,
+    )
 
 
 @router.get("/memorials/{slug}/readiness")
-def public_memorial_readiness(slug: str) -> JSONResponse:
-    return shared.public_memorial_readiness(slug=slug)
+def public_memorial_readiness(
+    slug: str,
+    request: Request,
+) -> JSONResponse:
+    return shared.public_memorial_readiness(
+        slug=slug,
+        request=request,
+    )
 
 
 @router.get("/memorials/{slug}/video-meeting/status")
