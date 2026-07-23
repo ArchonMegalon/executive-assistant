@@ -6377,6 +6377,301 @@ def _captured_five_layer_live_runner(
     return runner, prior_root, external_root
 
 
+def _recovered_capsule_live_runner(
+    release_root: Path,
+) -> tuple[FakeRunner, Path, Path]:
+    for index, filename in enumerate(deploy.TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER):
+        (release_root / filename).write_text(
+            f"services: {{}}\n# recovery-bridge-layer-{index}\n",
+            encoding="utf-8",
+        )
+    release_local = release_root / ".env.local"
+    release_local.write_bytes(b"EA_RECOVERY_BRIDGE_LOCAL=retained\n")
+    release_local.chmod(0o600)
+
+    receipt_root = release_root / ".runtime" / "deployments" / "memorial"
+    receipt_root.mkdir(parents=True, mode=0o700)
+    receipt_root.chmod(0o700)
+    historical_deployment_id = "manfred-recovery-source-001"
+    capsule_path = receipt_root / (
+        f"{historical_deployment_id}{deploy.ROLLBACK_CAPSULE_FILE_SUFFIX}"
+    )
+    runner = FakeRunner(
+        release_root,
+        baseline_root=receipt_root,
+        baseline_config_root=receipt_root,
+        baseline_files=(capsule_path.name,),
+    )
+    _configure_observed_live_rollback_posture(runner, release_root)
+    builder = _lane(
+        release_root,
+        runner,
+        deployment_id=historical_deployment_id,
+        receipt_dir=receipt_root,
+    )
+    inspection = json.loads(
+        runner.run(
+            ["docker", "inspect", "ea-api"],
+            cwd=release_root,
+            env={},
+        ).stdout
+    )[0]
+    document, _identity = builder._build_rollback_capsule(inspection)
+    document["x-ea-rollback-capsule"]["source_container_id_sha256"] = "8" * 64
+    capsule_path.write_bytes(
+        (
+            json.dumps(
+                document,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
+    )
+    capsule_path.chmod(0o600)
+    runner.calls.clear()
+    runner.call_envs.clear()
+    return runner, receipt_root, capsule_path
+
+
+def _rewrite_recovery_capsule(
+    capsule_path: Path,
+    mutate: Callable[[dict[str, object]], None],
+) -> None:
+    document = json.loads(capsule_path.read_text(encoding="utf-8"))
+    mutate(document)
+    capsule_path.write_bytes(
+        (
+            json.dumps(
+                document,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
+    )
+    capsule_path.chmod(0o600)
+
+
+def test_recovered_capsule_topology_uses_only_canonical_release_layers(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, receipt_root, capsule_path = _recovered_capsule_live_runner(release_root)
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    receipt = _lane(release_root, runner, receipt_dir=receipt_root).deploy(
+        preflight_only=True
+    )
+
+    expected_layers = list(deploy.TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER)
+    assert receipt["status"] == "preflight_only_pass"
+    assert receipt["target_compose_files"] == expected_layers
+    topology = receipt["forward_topology_source"]
+    assert topology["working_dir"] == str(receipt_root)
+    assert topology["compose_config_files"] == [str(capsule_path)]
+    assert topology["compose_environment_files"] == []
+    assert (
+        topology["mapping"]
+        == "verified_recovery_capsule_rebased_to_canonical_release_layers"
+    )
+    bridge = topology["verified_recovery_capsule_bridge"]
+    assert bridge["status"] == "pass"
+    assert bridge["current_live_projection_exact"] is True
+    assert bridge["capsule_bytes_used_as_forward_input"] is False
+    assert bridge["two_sample_seal_verified"] is True
+    config_call = [call for call in runner.calls if call[-2:] == ["config", "--quiet"]][
+        0
+    ]
+    configured_layers = [
+        config_call[index + 1]
+        for index, item in enumerate(config_call[:-1])
+        if item == "-f"
+    ]
+    assert configured_layers == [
+        str(release_root / filename) for filename in expected_layers
+    ]
+    assert str(capsule_path) not in configured_layers
+    assert not any("up" in call for call in runner.calls)
+
+
+@pytest.mark.parametrize(
+    ("drift", "reason"),
+    [
+        ("runtime", "forward_recovery_capsule_runtime_projection_mismatch"),
+        ("image", "forward_recovery_capsule_image_mismatch"),
+        (
+            "functional_identity",
+            "forward_recovery_capsule_functional_identity_mismatch",
+        ),
+        (
+            "external_resources",
+            "forward_recovery_capsule_external_resources_mismatch",
+        ),
+        (
+            "allowed_differences",
+            "forward_recovery_capsule_allowed_differences_invalid",
+        ),
+        ("deployment_path", "forward_recovery_capsule_deployment_path_mismatch"),
+        ("noncanonical", "forward_recovery_capsule_json_noncanonical"),
+        ("duplicate_key", "forward_recovery_capsule_json_invalid"),
+        ("nonfinite", "forward_recovery_capsule_json_invalid"),
+        ("source_container_hash", "forward_recovery_capsule_extension_invalid"),
+        (
+            "release_head",
+            "forward_external_bridge_release_head_blob_mismatch",
+        ),
+        ("mode", "forward_recovery_capsule_file_mode_invalid"),
+        (
+            "environment_label",
+            "forward_recovery_capsule_environment_label_invalid",
+        ),
+        ("symlink", "forward_recovery_capsule_file_invalid"),
+    ],
+)
+def test_recovered_capsule_topology_rejects_drift_before_mutation(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    drift: str,
+    reason: str,
+) -> None:
+    runner, receipt_root, capsule_path = _recovered_capsule_live_runner(release_root)
+    if drift == "runtime":
+        _rewrite_recovery_capsule(
+            capsule_path,
+            lambda document: document["services"]["ea-api"]["environment"].update(
+                {"RECOVERY_DRIFT": "1"}
+            ),
+        )
+    elif drift == "image":
+        _rewrite_recovery_capsule(
+            capsule_path,
+            lambda document: document["x-ea-rollback-capsule"].update(
+                {"source_image_reference": "ea-runtime:other"}
+            ),
+        )
+    elif drift == "functional_identity":
+
+        def mutate_identity(document: dict[str, object]) -> None:
+            extension = document["x-ea-rollback-capsule"]
+            identity = extension["functional_identity"]
+            domains = identity["domains"]
+            domains["environment"]["count"] += 1
+            identity["functional_identity_sha256"] = deploy._canonical_json_sha256(
+                domains
+            )
+
+        _rewrite_recovery_capsule(capsule_path, mutate_identity)
+    elif drift == "external_resources":
+
+        def mutate_resources(document: dict[str, object]) -> None:
+            resources = document["x-ea-rollback-capsule"]["external_resources"]
+            resources["networks"][0]["network_id"] = "9" * 64
+
+        _rewrite_recovery_capsule(capsule_path, mutate_resources)
+    elif drift == "allowed_differences":
+        _rewrite_recovery_capsule(
+            capsule_path,
+            lambda document: document["x-ea-rollback-capsule"].update(
+                {"allowed_runtime_differences": ["container_id"]}
+            ),
+        )
+    elif drift == "deployment_path":
+        _rewrite_recovery_capsule(
+            capsule_path,
+            lambda document: document["x-ea-rollback-capsule"].update(
+                {"deployment_id": "different-recovery-source-001"}
+            ),
+        )
+    elif drift == "noncanonical":
+        capsule_path.write_bytes(b" " + capsule_path.read_bytes())
+    elif drift == "duplicate_key":
+        payload = capsule_path.read_bytes()
+        capsule_path.write_bytes(b'{"name":"ea",' + payload[1:])
+    elif drift == "nonfinite":
+        capsule_path.write_bytes(
+            capsule_path.read_bytes().replace(b'"version":2', b'"version":NaN', 1)
+        )
+    elif drift == "source_container_hash":
+        _rewrite_recovery_capsule(
+            capsule_path,
+            lambda document: document["x-ea-rollback-capsule"].update(
+                {"source_container_id_sha256": "invalid"}
+            ),
+        )
+    elif drift == "release_head":
+        runner.head_blob_overrides[deploy.TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER[0]] = (
+            "0" * 40
+        )
+    elif drift == "mode":
+        capsule_path.chmod(0o640)
+    elif drift == "environment_label":
+        runner.baseline_environment_files = (str(release_root / ".env"),)
+    elif drift == "symlink":
+        trusted_copy = release_root / "capsule-copy.json"
+        trusted_copy.write_bytes(capsule_path.read_bytes())
+        trusted_copy.chmod(0o600)
+        capsule_path.unlink()
+        capsule_path.symlink_to(trusted_copy)
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(deploy.DeployError, match=reason):
+        _lane(release_root, runner, receipt_dir=receipt_root).deploy(
+            preflight_only=True
+        )
+
+    assert not any("up" in call for call in runner.calls)
+    assert not any(call[:3] == ["docker", "image", "tag"] for call in runner.calls)
+
+
+@pytest.mark.parametrize(
+    ("drift", "reason"),
+    [
+        ("capsule", "forward_recovery_capsule_changed_before_mutation"),
+        ("directory", "forward_recovery_capsule_changed_before_mutation"),
+        ("environment_label", "prior_api_topology_changed_before_mutation"),
+        ("topology", "prior_api_topology_changed_before_mutation"),
+    ],
+)
+def test_recovered_capsule_bridge_revalidates_at_mutation_boundary(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    drift: str,
+    reason: str,
+) -> None:
+    runner, receipt_root, capsule_path = _recovered_capsule_live_runner(release_root)
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner, receipt_dir=receipt_root)
+    context = lane.preflight()
+    if drift == "capsule":
+        capsule_path.write_bytes(capsule_path.read_bytes() + b" ")
+    elif drift == "directory":
+        receipt_root.chmod(0o750)
+    elif drift == "environment_label":
+        runner.baseline_environment_files = (str(release_root / ".env"),)
+    else:
+        runner.baseline_files = (deploy.MEMORIAL_COMPOSE_FILE,)
+
+    with pytest.raises(deploy.DeployError, match=reason):
+        lane._require_previous_api_unchanged(dict(context["previous"]))
+
+    assert not any("up" in call for call in runner.calls)
+
+
 def test_captured_five_layer_topology_uses_direct_joint_bridge_in_place(
     release_root: Path,
     tmp_path: Path,

@@ -240,6 +240,13 @@ ROLLBACK_MEMORIAL_RENDER_ENV_KEYS = frozenset(
 )
 ROLLBACK_CAPSULE_CONTRACT_NAME = "ea.memorial_api_rollback_capsule.v2"
 ROLLBACK_CAPSULE_VERSION = 2
+ROLLBACK_CAPSULE_FILE_SUFFIX = ".rollback-capsule.compose.json"
+ROLLBACK_CAPSULE_ALLOWED_RUNTIME_DIFFERENCES = (
+    "compose_managed_labels",
+    "container_and_start_timestamps",
+    "container_id",
+    "engine_assigned_endpoint_identity_for_dynamic_network_attachments",
+)
 ROLLBACK_RECOVERY_CONTRACT_NAME = "ea.memorial_api_active_recovery.v2"
 ROLLBACK_RECOVERY_VERSION = 2
 TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER = (
@@ -2509,6 +2516,9 @@ class MemorialDeployLane:
         self._rollback_recovery_seal: dict[str, object] | None = None
         self._rollback_capsule_document: dict[str, Any] | None = None
         self._rollback_recovery_document: dict[str, Any] | None = None
+        self._forward_recovery_capsule_path: Path | None = None
+        self._forward_recovery_capsule_seal: dict[str, object] | None = None
+        self._forward_recovery_capsule_directory_seal: dict[str, object] | None = None
         self._prior_compose_environment_files: tuple[str, ...] = ()
         self._prior_compose_environment_file_label = ""
         self.release_env = self._release_env()
@@ -3724,6 +3734,352 @@ class MemorialDeployLane:
             "two_sample_seal_verified": True,
         }
 
+    def _validate_recovered_capsule_topology_bridge(
+        self,
+        *,
+        previous: Mapping[str, Any],
+        prior_root: Path,
+        prior_files: Sequence[Path],
+    ) -> dict[str, Any]:
+        if len(prior_files) != 1:
+            raise DeployError("forward_recovery_capsule_topology_invalid")
+        capsule_path = prior_files[0]
+        if (
+            prior_root != self.receipt_dir
+            or not capsule_path.is_absolute()
+            or ".." in capsule_path.parts
+            or os.path.normpath(str(capsule_path)) != str(capsule_path)
+            or capsule_path.parent != prior_root
+            or not capsule_path.name.endswith(ROLLBACK_CAPSULE_FILE_SUFFIX)
+        ):
+            raise DeployError("forward_recovery_capsule_path_invalid")
+        if (
+            self._prior_compose_environment_file_label
+            or self._prior_compose_environment_files
+        ):
+            raise DeployError("forward_recovery_capsule_environment_label_invalid")
+
+        try:
+            first_prior_root = self._deployment_input_directory_seal(prior_root)
+        except DeployError as exc:
+            raise DeployError("forward_recovery_capsule_directory_invalid") from exc
+        if (
+            first_prior_root.get("mode") != "0700"
+            or first_prior_root.get("uid") != os.geteuid()
+            or first_prior_root.get("gid") != os.getegid()
+        ):
+            raise DeployError("forward_recovery_capsule_directory_mode_invalid")
+        try:
+            capsule_payload, first_capsule_seal = self._deployment_input_file_bytes(
+                capsule_path
+            )
+        except DeployError as exc:
+            raise DeployError("forward_recovery_capsule_file_invalid") from exc
+        if (
+            first_capsule_seal.get("mode") != "0600"
+            or first_capsule_seal.get("uid") != os.geteuid()
+            or first_capsule_seal.get("gid") != os.getegid()
+            or first_capsule_seal.get("link_count") != 1
+        ):
+            raise DeployError("forward_recovery_capsule_file_mode_invalid")
+
+        def unique_object(
+            pairs: list[tuple[str, object]],
+        ) -> dict[str, object]:
+            result: dict[str, object] = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError("duplicate_json_key")
+                result[key] = value
+            return result
+
+        def reject_nonfinite_json_constant(_value: str) -> object:
+            raise ValueError("nonfinite_json_number")
+
+        try:
+            decoded = json.loads(
+                capsule_payload.decode("utf-8"),
+                object_pairs_hook=unique_object,
+                parse_constant=reject_nonfinite_json_constant,
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            raise DeployError("forward_recovery_capsule_json_invalid") from exc
+        if not isinstance(decoded, dict):
+            raise DeployError("forward_recovery_capsule_json_invalid")
+        document = dict(decoded)
+        canonical_payload = (
+            json.dumps(
+                document,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+            + "\n"
+        ).encode("utf-8")
+        if capsule_payload != canonical_payload:
+            raise DeployError("forward_recovery_capsule_json_noncanonical")
+
+        expected_value = previous.get("rollback_capsule_document")
+        if not isinstance(expected_value, dict):
+            raise DeployError("forward_recovery_capsule_live_projection_invalid")
+        expected_document = dict(expected_value)
+        try:
+            bindings = self._rollback_capsule_external_bindings(
+                document, reason_prefix="forward_recovery_capsule"
+            )
+            expected_bindings = self._rollback_capsule_external_bindings(
+                expected_document, reason_prefix="forward_recovery_capsule_live"
+            )
+        except DeployError as exc:
+            raise DeployError("forward_recovery_capsule_extension_invalid") from exc
+        extension_value = document.get("x-ea-rollback-capsule")
+        expected_extension_value = expected_document.get("x-ea-rollback-capsule")
+        extension = dict(extension_value) if isinstance(extension_value, dict) else {}
+        expected_extension = (
+            dict(expected_extension_value)
+            if isinstance(expected_extension_value, dict)
+            else {}
+        )
+        historical_deployment_id = str(extension.get("deployment_id") or "")
+        if capsule_path.name != (
+            f"{historical_deployment_id}{ROLLBACK_CAPSULE_FILE_SUFFIX}"
+        ):
+            raise DeployError("forward_recovery_capsule_deployment_path_mismatch")
+        captured_at = extension.get("captured_at")
+        if (
+            not isinstance(captured_at, str)
+            or len(captured_at) > 64
+            or re.fullmatch(
+                r"[0-9]{4}-[0-9]{2}-[0-9]{2}T"
+                r"[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?Z",
+                captured_at,
+            )
+            is None
+        ):
+            raise DeployError("forward_recovery_capsule_captured_at_invalid")
+        try:
+            parsed_captured_at = datetime.fromisoformat(captured_at[:-1] + "+00:00")
+        except ValueError as exc:
+            raise DeployError("forward_recovery_capsule_captured_at_invalid") from exc
+        if (
+            parsed_captured_at.utcoffset() is None
+            or parsed_captured_at.utcoffset().total_seconds() != 0
+            or parsed_captured_at.isoformat().replace("+00:00", "Z") != captured_at
+        ):
+            raise DeployError("forward_recovery_capsule_captured_at_invalid")
+        allowed_differences = extension.get("allowed_runtime_differences")
+        if (
+            not isinstance(allowed_differences, list)
+            or tuple(allowed_differences)
+            != ROLLBACK_CAPSULE_ALLOWED_RUNTIME_DIFFERENCES
+        ):
+            raise DeployError("forward_recovery_capsule_allowed_differences_invalid")
+        if extension.get("source_image_id") != previous.get(
+            "image_id"
+        ) or extension.get("source_image_reference") != previous.get("image_reference"):
+            raise DeployError("forward_recovery_capsule_image_mismatch")
+        functional_identity = self._validated_functional_identity(
+            extension.get("functional_identity"),
+            reason_prefix="forward_recovery_capsule",
+        )
+        if functional_identity != previous.get("functional_identity"):
+            raise DeployError("forward_recovery_capsule_functional_identity_mismatch")
+        if bindings != expected_bindings:
+            raise DeployError("forward_recovery_capsule_external_resources_mismatch")
+
+        volatile_extension_keys = {
+            "captured_at",
+            "deployment_id",
+            "source_container_id_sha256",
+        }
+        stable_extension_keys = set(extension) - volatile_extension_keys
+        if stable_extension_keys != set(expected_extension) - volatile_extension_keys:
+            raise DeployError("forward_recovery_capsule_extension_projection_mismatch")
+        if any(
+            extension.get(key) != expected_extension.get(key)
+            for key in stable_extension_keys
+        ):
+            raise DeployError("forward_recovery_capsule_extension_projection_mismatch")
+        if set(document) != set(expected_document) or any(
+            document.get(key) != expected_document.get(key)
+            for key in set(document) - {"x-ea-rollback-capsule"}
+        ):
+            raise DeployError("forward_recovery_capsule_runtime_projection_mismatch")
+
+        release_paths = tuple(
+            self.root / basename for basename in TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER
+        )
+
+        def compose_seals(paths: Sequence[Path]) -> list[dict[str, object]]:
+            seals: list[dict[str, object]] = []
+            for selected in paths:
+                try:
+                    seal = self._deployment_input_file_seal(selected)
+                except DeployError as exc:
+                    raise DeployError(
+                        f"forward_recovery_capsule_release_compose_invalid:"
+                        f"{selected.name}"
+                    ) from exc
+                seals.append(seal)
+            return seals
+
+        first_release_compose = compose_seals(release_paths)
+        source_revision = str(
+            dict(self.receipt.get("release_source") or {}).get("source_revision") or ""
+        )
+        head_blobs = [
+            self._release_head_blob_identity(path, source_revision=source_revision)
+            for path in release_paths
+        ]
+
+        runtime_projection = self.receipt.get("runtime_environment_projection")
+        outputs = (
+            runtime_projection.get("outputs")
+            if isinstance(runtime_projection, Mapping)
+            else None
+        )
+        if (
+            not isinstance(outputs, list)
+            or not outputs
+            or any(not isinstance(item, Mapping) for item in outputs)
+        ):
+            raise DeployError("forward_recovery_capsule_environment_projection_invalid")
+        output_by_destination = {
+            str(item.get("destination") or ""): item for item in outputs
+        }
+        primary_destination = f"{EA_RUNTIME_ENV_DIRECTORY}/{EA_RUNTIME_ENV_FILE}"
+        local_destination = f"{EA_RUNTIME_ENV_DIRECTORY}/{EA_RUNTIME_LOCAL_ENV_FILE}"
+        if (
+            len(output_by_destination) != len(outputs)
+            or primary_destination not in output_by_destination
+            or set(output_by_destination)
+            not in ({primary_destination}, {primary_destination, local_destination})
+        ):
+            raise DeployError("forward_recovery_capsule_environment_projection_invalid")
+        environment_filenames = [EA_RUNTIME_ENV_FILE]
+        if local_destination in output_by_destination:
+            environment_filenames.append(EA_RUNTIME_LOCAL_ENV_FILE)
+        runtime_root = self.root / EA_RUNTIME_ENV_DIRECTORY
+        try:
+            first_runtime_root = self._deployment_input_directory_seal(runtime_root)
+        except DeployError as exc:
+            raise DeployError(
+                "forward_recovery_capsule_environment_root_invalid"
+            ) from exc
+        if (
+            first_runtime_root.get("mode") != "0700"
+            or first_runtime_root.get("uid") != os.geteuid()
+            or first_runtime_root.get("gid") != os.getegid()
+        ):
+            raise DeployError("forward_recovery_capsule_environment_root_mode_invalid")
+        environment_paths = tuple(
+            runtime_root / filename for filename in environment_filenames
+        )
+        first_environment: list[dict[str, object]] = []
+        expected_environment_rows = [(primary_destination, ".env")]
+        if local_destination in output_by_destination:
+            expected_environment_rows.append((local_destination, ".env.local"))
+        for path, (destination, source) in zip(
+            environment_paths, expected_environment_rows, strict=True
+        ):
+            try:
+                seal = self._deployment_input_file_seal(path)
+            except DeployError as exc:
+                raise DeployError(
+                    "forward_recovery_capsule_environment_file_invalid"
+                ) from exc
+            output = output_by_destination[destination]
+            if (
+                seal.get("mode") != "0600"
+                or seal.get("uid") != os.geteuid()
+                or seal.get("gid") != os.getegid()
+                or seal.get("link_count") != 1
+                or output.get("source") != source
+                or output.get("sha256") != seal.get("sha256")
+                or output.get("byte_count") != seal.get("size_bytes")
+            ):
+                raise DeployError(
+                    "forward_recovery_capsule_environment_projection_invalid"
+                )
+            first_environment.append(seal)
+
+        second_prior_root = self._deployment_input_directory_seal(prior_root)
+        second_capsule_seal = self._deployment_input_file_seal(capsule_path)
+        second_release_compose = compose_seals(release_paths)
+        second_runtime_root = self._deployment_input_directory_seal(runtime_root)
+        second_environment = [
+            self._deployment_input_file_seal(path) for path in environment_paths
+        ]
+        if (
+            first_prior_root != second_prior_root
+            or first_capsule_seal != second_capsule_seal
+            or first_release_compose != second_release_compose
+            or first_runtime_root != second_runtime_root
+            or first_environment != second_environment
+        ):
+            raise DeployError("forward_recovery_capsule_seal_unstable")
+
+        self._forward_recovery_capsule_path = capsule_path
+        self._forward_recovery_capsule_seal = dict(first_capsule_seal)
+        self._forward_recovery_capsule_directory_seal = {
+            key: first_prior_root[key]
+            for key in ("path", "mode", "device", "inode", "uid", "gid")
+        }
+        return {
+            "status": "pass",
+            "bridge": "verified_recovery_capsule_to_canonical_release",
+            "capsule_basename": capsule_path.name,
+            "capsule_seal": first_capsule_seal,
+            "historical_deployment_id": historical_deployment_id,
+            "captured_at": captured_at,
+            "functional_identity_sha256": str(
+                functional_identity.get("functional_identity_sha256") or ""
+            ),
+            "external_resource_binding_sha256": _canonical_json_sha256(bindings),
+            "ordered_layer_basenames": list(TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER),
+            "release_compose_file_seals": [
+                {
+                    "basename": basename,
+                    "release": seal,
+                    "release_head_blob": head_blob,
+                }
+                for basename, seal, head_blob in zip(
+                    TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER,
+                    first_release_compose,
+                    head_blobs,
+                    strict=True,
+                )
+            ],
+            "release_environment_files": [
+                path.as_posix() for path in environment_paths
+            ],
+            "release_environment_root_seal": first_runtime_root,
+            "release_environment_file_seals": first_environment,
+            "capsule_bytes_used_as_forward_input": False,
+            "current_live_projection_exact": True,
+            "two_sample_seal_verified": True,
+        }
+
+    def _require_forward_recovery_capsule_bridge_unchanged(self) -> None:
+        capsule_path = self._forward_recovery_capsule_path
+        capsule_seal = self._forward_recovery_capsule_seal
+        directory_seal = self._forward_recovery_capsule_directory_seal
+        if capsule_path is None:
+            return
+        if capsule_seal is None or directory_seal is None:
+            raise DeployError("forward_recovery_capsule_bridge_state_invalid")
+        current_directory = self._deployment_input_directory_seal(capsule_path.parent)
+        trusted_directory = {
+            key: current_directory[key]
+            for key in ("path", "mode", "device", "inode", "uid", "gid")
+        }
+        if (
+            trusted_directory != directory_seal
+            or self._deployment_input_file_seal(capsule_path) != capsule_seal
+        ):
+            raise DeployError("forward_recovery_capsule_changed_before_mutation")
+
     def _configure_forward_topology(self, previous: Mapping[str, Any]) -> None:
         prior_root = Path(str(previous.get("working_dir") or "")).expanduser()
         if not prior_root.is_absolute() or ".." in prior_root.parts:
@@ -3735,6 +4091,36 @@ class MemorialDeployLane:
         ]
         if not prior_files:
             raise DeployError("forward_baseline_compose_files_missing")
+
+        if len(prior_files) == 1 and prior_files[0].name.endswith(
+            ROLLBACK_CAPSULE_FILE_SUFFIX
+        ):
+            bridge = self._validate_recovered_capsule_topology_bridge(
+                previous=previous,
+                prior_root=prior_root,
+                prior_files=prior_files,
+            )
+            release_files = list(TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER)
+            self.target_compose_files = tuple(release_files)
+            self.target_compose_environment_files = tuple(
+                str(item) for item in bridge["release_environment_files"]
+            )
+            self.release_env["EA_DEPLOY_COMPOSE_FILES"] = ",".join(release_files)
+            self.receipt["target_compose_files"] = release_files
+            self.receipt["forward_topology_source"] = {
+                "working_dir": str(prior_root),
+                "compose_config_files": [str(path) for path in prior_files],
+                "compose_environment_files": [],
+                "mapping": (
+                    "verified_recovery_capsule_rebased_to_canonical_release_layers"
+                ),
+                "prior_memorial_layer_replaced": True,
+                "prior_normalization_layer_dropped": False,
+                "external_layer_basenames": [],
+                "verified_recovery_capsule_bridge": bridge,
+            }
+            self._write_receipt()
+            return
 
         external_layer_names: list[str] = []
         for prior_file in prior_files:
@@ -4279,12 +4665,9 @@ class MemorialDeployLane:
                     if item["type"] == "volume"
                 ],
             },
-            "allowed_runtime_differences": [
-                "compose_managed_labels",
-                "container_and_start_timestamps",
-                "container_id",
-                "engine_assigned_endpoint_identity_for_dynamic_network_attachments",
-            ],
+            "allowed_runtime_differences": list(
+                ROLLBACK_CAPSULE_ALLOWED_RUNTIME_DIFFERENCES
+            ),
         }
         document: dict[str, Any] = {
             "name": PROJECT_NAME,
@@ -8890,6 +9273,7 @@ class MemorialDeployLane:
         }
 
     def _require_previous_api_unchanged(self, previous: Mapping[str, Any]) -> None:
+        self._require_forward_recovery_capsule_bridge_unchanged()
         current = self._inspect_container(API_SERVICE)
         self._require_compose_identity(
             current,
@@ -8906,6 +9290,23 @@ class MemorialDeployLane:
             != previous.get("functional_identity")
         ):
             raise DeployError("prior_api_changed_before_mutation")
+        topology = self._compose_topology(
+            current,
+            reason_prefix="prior_api_before_mutation",
+            trust_inputs=False,
+        )
+        labels = dict(dict(current.get("Config") or {}).get("Labels") or {})
+        environment_file_label = str(
+            labels.get("com.docker.compose.project.environment_file") or ""
+        )
+        if (
+            topology.get("working_dir") != previous.get("working_dir")
+            or topology.get("compose_config_files")
+            != previous.get("compose_config_files")
+            or environment_file_label != self._prior_compose_environment_file_label
+        ):
+            raise DeployError("prior_api_topology_changed_before_mutation")
+        self._require_forward_recovery_capsule_bridge_unchanged()
 
     def _container_ready(
         self, name: str, *, require_health: bool
