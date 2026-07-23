@@ -81,12 +81,35 @@ def test_private_review_session_loads_without_bearer_disclosure(
         "Cookie": f"{review_auth.REVIEW_COOKIE_NAME}={token}",
         "Origin": ORIGIN,
     }
-    assert auth.playwright_cookie()["url"] == (
-        f"{ORIGIN}/memorials/manfred/"
-    )
+    assert auth.playwright_cookie()["domain"] == "myexternalbrain.com"
+    assert auth.playwright_cookie()["path"] == "/memorials/manfred"
     assert token not in repr(auth)
     assert token not in json.dumps(auth.public_binding(), sort_keys=True)
     assert auth.public_binding()["bearer_material_exposed"] is False
+
+
+def test_private_review_playwright_cookie_is_host_only_and_slug_scoped() -> None:
+    auth = review_auth.parse_review_session_token(
+        _token(),
+        public_origin=ORIGIN,
+        slug="manfred",
+        expected_source_revision=REVISION,
+        now=NOW,
+    )
+
+    cookie = auth.playwright_cookie()
+
+    assert cookie == {
+        "name": review_auth.REVIEW_COOKIE_NAME,
+        "value": _token(),
+        "domain": "myexternalbrain.com",
+        "path": "/memorials/manfred",
+        "secure": True,
+        "httpOnly": True,
+        "sameSite": "Strict",
+    }
+    assert not str(cookie["domain"]).startswith(".")
+    assert "url" not in cookie
 
 
 @pytest.mark.parametrize(

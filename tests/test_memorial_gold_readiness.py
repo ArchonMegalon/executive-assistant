@@ -84,6 +84,7 @@ def _voice_receipt(*, base_url: str = "https://8.8.8.8", slow: bool = False) -> 
 def _browser_receipt(*, base_url: str = "https://8.8.8.8", mode: str = "live") -> dict[str, object]:
     return {
         "contract_name": "ea.memorial_realtime_browser_exit_gate",
+        "contract_version": 3,
         "git_head": "HEAD",
         "source_git_head": "HEAD",
         "head_semantics": "source_state",
@@ -107,6 +108,22 @@ def _browser_receipt(*, base_url: str = "https://8.8.8.8", mode: str = "live") -
         "ui_audio_play_ended": 1,
         "answer_semantic_passed": True,
     }
+
+
+def test_memorial_gold_readiness_rejects_legacy_browser_contract() -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    receipt = _browser_receipt()
+    receipt["contract_version"] = 2
+
+    issues = readiness._check_browser_receipt(
+        receipt,
+        current_head="HEAD",
+        current_fingerprint="unit-source-state",
+        max_first_answer_ms=4500.0,
+    )
+
+    assert "browser_contract_version_invalid" in issues
 
 
 def _room_receipt(*, base_url: str = "https://8.8.8.8") -> dict[str, object]:

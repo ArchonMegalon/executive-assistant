@@ -280,7 +280,8 @@ class ReviewSessionClientAuth:
         return {
             "name": REVIEW_COOKIE_NAME,
             "value": self._token,
-            "url": f"{self.origin}/memorials/{self.slug}/",
+            "domain": str(urlsplit(self.origin).hostname or ""),
+            "path": f"/memorials/{self.slug}",
             "secure": True,
             "httpOnly": True,
             "sameSite": "Strict",

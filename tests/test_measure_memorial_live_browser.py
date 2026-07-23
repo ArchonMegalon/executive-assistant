@@ -11,14 +11,20 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _private_review_session(module, *, revision: str, token: str):
+def _private_review_session(
+    module,
+    *,
+    revision: str,
+    token: str,
+    expires_at: int = 2_000_000_000,
+):
     return module.ReviewSessionClientAuth(
         origin="https://myexternalbrain.com",
         slug="manfred",
         source_revision=revision,
         image_id=f"sha256:{'b' * 64}",
         voice_identity_sha256="c" * 64,
-        expires_at=2_000_000_000,
+        expires_at=expires_at,
         _token=token,
     )
 
@@ -40,6 +46,22 @@ def test_pure_python_prompt_wav_bytes_returns_valid_wav() -> None:
     assert payload.startswith(b"RIFF")
     assert b"WAVE" in payload[:16]
     assert len(payload) > 4096
+
+
+def test_valid_pcm_riff_wave_rejects_headers_without_decodable_audio() -> None:
+    module = _load_module()
+
+    valid_payload = module._pure_python_prompt_wav_bytes("Hallo Manfred")
+
+    assert module._valid_pcm_riff_wave(valid_payload) is True
+    assert module._valid_pcm_riff_wave(b"not-a-wave") is False
+    assert module._valid_pcm_riff_wave(valid_payload[:-100]) is False
+    assert (
+        module._valid_pcm_riff_wave(
+            b"RIFF" + b"\x00" * 4 + b"WAVE" + b"\x00" * 32
+        )
+        is False
+    )
 
 
 def test_synthesized_prompt_wav_bytes_falls_back_without_host_binaries(
@@ -182,7 +204,9 @@ def test_measure_script_avoids_networkidle_as_primary_page_gate() -> None:
     source = (ROOT / "scripts" / "measure_memorial_live_browser.py").read_text(encoding="utf-8")
 
     assert 'wait_until="domcontentloaded"' in source
-    assert 'page.wait_for_load_state("networkidle", timeout=5000)' in source
+    assert 'page.wait_for_load_state(' in source
+    assert '"networkidle",' in source
+    assert "BROWSER_NETWORK_IDLE_TIMEOUT_SECONDS" in source
     assert "speech_transcribe_mode" in source
     assert "_realtime_stub_turn_init_script(prompt_text)" in source
     assert 'new MessageEvent("message"' in source
@@ -220,11 +244,11 @@ def test_measure_script_avoids_networkidle_as_primary_page_gate() -> None:
 
 def test_prewarm_memorial_origin_reports_ready_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     module = _load_module()
-    calls: list[tuple[str, str]] = []
+    calls: list[tuple[str, str, object]] = []
 
     def _fake_http_json(url: str, *, method: str = "GET", payload=None, timeout: float = 20.0):
-        calls.append((method, url))
-        if method == "POST":
+        calls.append((method, url, payload))
+        if url.endswith("/warmup"):
             return 202, {"status": "queued"}
         return 200, {"warm": True, "voice_required": True, "voice_ready": True}
 
@@ -235,8 +259,16 @@ def test_prewarm_memorial_origin_reports_ready_payload(monkeypatch: pytest.Monke
     assert receipt["ready"] is True
     assert receipt["request_status"] == 202
     assert receipt["status_code"] == 200
-    assert ("POST", "https://example.com/memorials/manfred/warmup") in calls
-    assert ("GET", "https://example.com/memorials/manfred/warmup-status") in calls
+    assert (
+        "POST",
+        "https://example.com/memorials/manfred/warmup",
+        {"reason": "browser_gold_preflight"},
+    ) in calls
+    assert (
+        "POST",
+        "https://example.com/memorials/manfred/warmup-status",
+        {},
+    ) in calls
 
 
 def test_private_review_headers_reach_prewarm_request_and_status(
@@ -263,10 +295,11 @@ def test_private_review_headers_reach_prewarm_request_and_status(
             {
                 "url": url,
                 "method": method,
+                "payload": payload,
                 "request_headers": request_headers,
             }
         )
-        if method == "POST":
+        if url.endswith("/warmup"):
             return 202, {"status": "queued"}
         return 200, {
             "warm": True,
@@ -288,29 +321,183 @@ def test_private_review_headers_reach_prewarm_request_and_status(
         {
             "url": "https://myexternalbrain.com/memorials/manfred/warmup",
             "method": "POST",
+            "payload": {"reason": "browser_gold_preflight"},
             "request_headers": expected_headers,
         },
         {
             "url": "https://myexternalbrain.com/memorials/manfred/warmup-status",
-            "method": "GET",
+            "method": "POST",
+            "payload": {},
             "request_headers": expected_headers,
         },
     ]
 
 
+def test_warmup_preflight_requires_warm_voice_for_private_review() -> None:
+    module = _load_module()
+
+    ready = {
+        "ready": True,
+        "status_code": 200,
+        "payload": {
+            "warm": True,
+            "voice_required": True,
+            "voice_ready": True,
+        },
+    }
+
+    assert module._warmup_preflight_ready(ready, require_voice_ready=True) is True
+    assert (
+        module._warmup_preflight_ready(
+            {
+                **ready,
+                "payload": {
+                    "warm": True,
+                    "voice_required": True,
+                    "voice_ready": False,
+                },
+            },
+            require_voice_ready=True,
+        )
+        is False
+    )
+    assert (
+        module._warmup_preflight_ready(
+            {
+                "ready": True,
+                "status_code": 200,
+                "payload": {
+                    "warm": True,
+                    "voice_required": False,
+                    "voice_ready": False,
+                },
+            },
+            require_voice_ready=False,
+        )
+        is True
+    )
+    assert (
+        module._warmup_preflight_ready(
+            {**ready, "status_code": 503},
+            require_voice_ready=True,
+        )
+        is False
+    )
+    assert (
+        module._warmup_preflight_ready(
+            {
+                "ok": False,
+                "status_code": 403,
+                "payload": ready["payload"],
+            },
+            require_voice_ready=True,
+        )
+        is False
+    )
+
+
+def test_private_review_session_lifetime_budget_has_an_exact_boundary() -> None:
+    module = _load_module()
+    now_epoch = 1_900_000_000
+    required_seconds = int(
+        module.PRIVATE_REVIEW_REQUIRED_REMAINING_LIFETIME_SECONDS
+    )
+    exact_session = _private_review_session(
+        module,
+        revision="a" * 40,
+        token="private-review-token",
+        expires_at=now_epoch + required_seconds,
+    )
+    short_session = _private_review_session(
+        module,
+        revision="a" * 40,
+        token="private-review-token",
+        expires_at=now_epoch + required_seconds - 1,
+    )
+
+    assert (
+        module._review_session_lifetime_sufficient(
+            exact_session,
+            now_epoch=now_epoch,
+        )
+        is True
+    )
+    assert (
+        module._review_session_lifetime_sufficient(
+            short_session,
+            now_epoch=now_epoch,
+        )
+        is False
+    )
+    assert module.PRIVATE_REVIEW_REQUIRED_REMAINING_LIFETIME_SECONDS == float(
+        module.math.ceil(
+            module.PRIVATE_REVIEW_WARMUP_TIMEOUT_SECONDS
+            + module.PRIVATE_REVIEW_PREWARM_OVERSHOOT_SECONDS
+            + module.PROMPT_AUDIO_PREPARATION_BUDGET_SECONDS
+            + module.BROWSER_LAUNCH_TIMEOUT_BUDGET_SECONDS
+            + module.BROWSER_SETUP_OVERHEAD_SECONDS
+            + module.BROWSER_PAGE_LOAD_TIMEOUT_SECONDS
+            + module.BROWSER_NETWORK_IDLE_TIMEOUT_SECONDS
+            + module.BROWSER_WARMUP_STATUS_TIMEOUT_SECONDS
+            + module.BROWSER_CTA_READY_TIMEOUT_SECONDS
+            + module.PRIVATE_REVIEW_PRECLICK_REQUIRED_REMAINING_LIFETIME_SECONDS
+        )
+    )
+
+
+def test_browser_warmup_status_posts_empty_json() -> None:
+    module = _load_module()
+    calls: list[tuple[str, object]] = []
+
+    class FakePage:
+        def evaluate(self, script: str, url: str) -> dict[str, object]:
+            calls.append((script, url))
+            return {
+                "ok": True,
+                "status_code": 200,
+                "payload": {"warm": True},
+            }
+
+    result = module._browser_warmup_status(
+        FakePage(),
+        "https://example.com/memorials/manfred/warmup-status",
+    )
+
+    assert result == {
+        "ok": True,
+        "status_code": 200,
+        "payload": {"warm": True},
+    }
+    assert len(calls) == 1
+    script, arguments = calls[0]
+    assert arguments == {
+        "url": "https://example.com/memorials/manfred/warmup-status",
+        "timeoutMs": int(module.BROWSER_WARMUP_STATUS_TIMEOUT_SECONDS * 1000.0),
+    }
+    assert 'method: "POST"' in script
+    assert '"Content-Type": "application/json"' in script
+    assert 'body: "{}"' in script
+    assert "AbortController" in script
+    assert "controller.abort()" in script
+    assert "clearTimeout(timeoutId)" in script
+    assert "ok: response.ok" in script
+    assert "status_code: response.status" in script
+
+
 def test_prompt_wav_bytes_for_measure_prefers_memorial_speech_synthesize(monkeypatch: pytest.MonkeyPatch) -> None:
     module = _load_module()
+    server_wav = module._pure_python_prompt_wav_bytes("Was war dir wichtig?")
 
     monkeypatch.setattr(
         module,
         "_http_bytes",
-        lambda url, **kwargs: (200, b"memorial-wav", "audio/wav"),
+        lambda url, **kwargs: (200, server_wav, "audio/wav"),
     )
     monkeypatch.setattr(module, "_synthesized_prompt_wav_bytes", lambda text: b"fallback-wav")
 
     payload = module._prompt_wav_bytes_for_measure("https://example.com", "manfred", "Was war dir wichtig?")
 
-    assert payload == b"memorial-wav"
+    assert payload == server_wav
 
 
 def test_private_review_headers_reach_prompt_synthesis(
@@ -324,10 +511,11 @@ def test_private_review_headers_reach_prompt_synthesis(
     )
     expected_headers = review_session.request_headers()
     calls: list[dict[str, object]] = []
+    server_wav = module._pure_python_prompt_wav_bytes("Was war dir wichtig?")
 
     def fake_http_bytes(url: str, **kwargs):
         calls.append({"url": url, **kwargs})
-        return 200, b"memorial-wav", "audio/wav"
+        return 200, server_wav, "audio/wav"
 
     monkeypatch.setattr(module, "_http_bytes", fake_http_bytes)
 
@@ -338,7 +526,7 @@ def test_private_review_headers_reach_prompt_synthesis(
         request_headers=expected_headers,
     )
 
-    assert payload == b"memorial-wav"
+    assert payload == server_wav
     assert calls == [
         {
             "url": "https://myexternalbrain.com/memorials/manfred/speech-synthesize",
@@ -363,6 +551,98 @@ def test_prompt_wav_bytes_for_measure_falls_back_when_synth_route_is_unavailable
     payload = module._prompt_wav_bytes_for_measure("https://example.com", "manfred", "Was war dir wichtig?")
 
     assert payload == b"fallback-wav"
+
+
+def test_prompt_wav_bytes_for_measure_falls_back_when_audio_is_not_valid_wav(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+
+    monkeypatch.setattr(
+        module,
+        "_http_bytes",
+        lambda url, **kwargs: (200, b"not-a-wave", "audio/wav"),
+    )
+    monkeypatch.setattr(
+        module,
+        "_synthesized_prompt_wav_bytes",
+        lambda text: b"fallback-wav",
+    )
+
+    payload = module._prompt_wav_bytes_for_measure(
+        "https://example.com",
+        "manfred",
+        "Was war dir wichtig?",
+    )
+
+    assert payload == b"fallback-wav"
+
+
+def test_browser_turn_timeout_covers_capture_transport_and_margin() -> None:
+    module = _load_module()
+
+    assert module.BROWSER_TURN_TIMEOUT_MARGIN_SECONDS > 0
+    assert module.BROWSER_TURN_TIMEOUT_SECONDS == (
+        module.BROWSER_CAPTURE_TIMEOUT_SECONDS
+        + module.BROWSER_TRANSPORT_TIMEOUT_SECONDS
+        + module.BROWSER_TURN_TIMEOUT_MARGIN_SECONDS
+    )
+    assert (
+        module.BROWSER_TURN_TIMEOUT_SECONDS
+        > module.BROWSER_TRANSPORT_TIMEOUT_SECONDS
+    )
+
+
+def test_browser_turn_deadline_is_shared_across_sequential_waits() -> None:
+    module = _load_module()
+    deadline = 250.0
+
+    assert module._remaining_turn_seconds(deadline, now=200.0) == 50.0
+    assert module._remaining_turn_timeout_ms(deadline, now=249.5) == 500
+    with pytest.raises(TimeoutError, match="browser_turn_deadline_exceeded"):
+        module._remaining_turn_seconds(deadline, now=deadline)
+
+    source = (
+        ROOT / "scripts" / "measure_memorial_live_browser.py"
+    ).read_text(encoding="utf-8")
+    assert "turn_deadline = answer_started + BROWSER_TURN_TIMEOUT_SECONDS" in source
+    assert "timeout=_remaining_turn_timeout_ms(turn_deadline)" in source
+    assert "timeout_seconds=_remaining_turn_seconds(" in source
+
+
+@pytest.mark.parametrize(
+    ("first_answer_ms", "expected_status"),
+    ((4400.0, "pass"), (4600.0, "fail")),
+)
+def test_browser_first_answer_sla_is_independent_of_diagnostic_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+    first_answer_ms: float,
+    expected_status: str,
+) -> None:
+    module = _load_module()
+    monkeypatch.setattr(module, "_git_dirty", lambda: False)
+    monkeypatch.setattr(module, "_git_head", lambda: "HEAD")
+    monkeypatch.setattr(module, "_source_tree_fingerprint", lambda: "tree")
+    monkeypatch.setattr(
+        module,
+        "resolve_source_worktree_fingerprint",
+        lambda _root: "state",
+    )
+    result = _passing_browser_result()
+    result["first_answer_ms"] = first_answer_ms
+
+    receipt = module._with_exit_gate_status(
+        result,
+        exit_gate=True,
+        gold_mode=False,
+        require_public_origin=False,
+        max_first_answer_ms=4500.0,
+    )
+
+    assert receipt["status"] == expected_status
+    assert ("first_answer_too_slow" in receipt["failed_codes"]) is (
+        expected_status == "fail"
+    )
 
 
 def test_browser_exit_gate_receipt_blocks_local_public_gold(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -393,6 +673,7 @@ def test_browser_exit_gate_receipt_blocks_local_public_gold(monkeypatch: pytest.
     )
 
     assert receipt["contract_name"] == "ea.memorial_realtime_browser_exit_gate"
+    assert receipt["contract_version"] == 3
     assert receipt["status"] == "fail"
     assert "public_origin_required" in receipt["failed_codes"]
     assert receipt["source_git_head"] == "HEAD"
@@ -837,6 +1118,228 @@ def test_preferred_answer_preview_prefers_final_payload_answer_over_streamed_dra
     assert "juristisch" in preferred.lower()
 
 
+def test_private_review_measure_stops_before_browser_when_warmup_is_not_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    review_session = _private_review_session(
+        module,
+        revision="a" * 40,
+        token="private-review-token",
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_prewarm(
+        _base_url: str,
+        _slug: str,
+        *,
+        timeout_seconds: float,
+        request_headers: dict[str, str] | None = None,
+    ) -> dict[str, object]:
+        calls.append(
+            {
+                "timeout_seconds": timeout_seconds,
+                "request_headers": request_headers,
+            }
+        )
+        return {
+            "ready": False,
+            "status_code": 200,
+            "payload": {
+                "warm": True,
+                "voice_required": True,
+                "voice_ready": False,
+            },
+        }
+
+    monkeypatch.setattr(module, "_prewarm_memorial_origin", fake_prewarm)
+    monkeypatch.setattr(
+        module,
+        "_prompt_wav_bytes_for_measure",
+        lambda *_args, **_kwargs: pytest.fail("prompt synthesis ran before preflight"),
+    )
+    monkeypatch.setattr(
+        module,
+        "_require_playwright",
+        lambda: pytest.fail("browser launched before preflight"),
+    )
+
+    with pytest.raises(SystemExit, match="warmup_preflight_not_ready"):
+        module._measure(
+            "https://myexternalbrain.com",
+            "manfred",
+            "Hallo Manfred",
+            stub_transcribe=False,
+            review_session=review_session,
+        )
+
+    assert calls == [
+        {
+            "timeout_seconds": module.PRIVATE_REVIEW_WARMUP_TIMEOUT_SECONDS,
+            "request_headers": review_session.request_headers(),
+        }
+    ]
+
+
+def test_private_review_measure_rejects_short_session_before_warmup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    now_epoch = 1_900_000_000
+    review_session = _private_review_session(
+        module,
+        revision="a" * 40,
+        token="private-review-token",
+        expires_at=(
+            now_epoch
+            + int(module.PRIVATE_REVIEW_REQUIRED_REMAINING_LIFETIME_SECONDS)
+            - 1
+        ),
+    )
+    monkeypatch.setattr(module.time, "time", lambda: float(now_epoch))
+    monkeypatch.setattr(
+        module,
+        "_prewarm_memorial_origin",
+        lambda *_args, **_kwargs: pytest.fail(
+            "warmup ran with insufficient session lifetime"
+        ),
+    )
+
+    with pytest.raises(SystemExit, match="review_session_lifetime_insufficient"):
+        module._measure(
+            "https://myexternalbrain.com",
+            "manfred",
+            "Hallo Manfred",
+            stub_transcribe=False,
+            review_session=review_session,
+        )
+
+
+def test_private_review_measure_never_clicks_after_forbidden_browser_warmup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    review_session = _private_review_session(
+        module,
+        revision="a" * 40,
+        token="private-review-token",
+    )
+    valid_wav = module._pure_python_prompt_wav_bytes("Hallo Manfred")
+    events: list[str] = []
+
+    class FakeResponse:
+        ok = True
+        headers: dict[str, str] = {}
+
+    class FakePage:
+        url = "https://myexternalbrain.com/memorials/manfred"
+
+        def goto(self, *_args, **_kwargs):
+            events.append("page_goto")
+            return FakeResponse()
+
+        def wait_for_load_state(self, *_args, **_kwargs):
+            events.append("network_idle")
+
+        def wait_for_function(self, *_args, **_kwargs):
+            events.append("cta_wait")
+
+        def click(self, *_args, **_kwargs):
+            events.append("page_click")
+            pytest.fail("retry-enabled CTA was clicked after forbidden warmup")
+
+    class FakeContext:
+        def add_cookies(self, _values):
+            events.append("add_cookies")
+
+        def grant_permissions(self, *_args, **_kwargs):
+            events.append("grant_permissions")
+
+        def add_init_script(self, *_args, **_kwargs):
+            events.append("add_init_script")
+
+        def new_page(self):
+            events.append("new_page")
+            return FakePage()
+
+        def close(self):
+            events.append("context_close")
+
+    class FakeBrowser:
+        def new_context(self, **_kwargs):
+            events.append("new_context")
+            return FakeContext()
+
+        def close(self):
+            events.append("browser_close")
+
+    class FakePlaywrightContext:
+        def __enter__(self):
+            events.append("playwright_enter")
+            return object()
+
+        def __exit__(self, *_args):
+            events.append("playwright_exit")
+
+    monkeypatch.setattr(module, "_require_playwright", lambda: FakePlaywrightContext)
+    monkeypatch.setattr(
+        module,
+        "_prewarm_memorial_origin",
+        lambda *_args, **_kwargs: {
+            "ready": True,
+            "status_code": 200,
+            "payload": {
+                "warm": True,
+                "voice_required": True,
+                "voice_ready": True,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "_prompt_wav_bytes_for_measure",
+        lambda *_args, **_kwargs: valid_wav,
+    )
+    monkeypatch.setattr(
+        module,
+        "_resolve_chromium_executable",
+        lambda _playwright: (None, "unit_test"),
+    )
+    monkeypatch.setattr(
+        module,
+        "_launch_chromium_with_startup_retry",
+        lambda *_args, **_kwargs: (FakeBrowser(), 1, []),
+    )
+    monkeypatch.setattr(
+        module,
+        "_browser_warmup_status",
+        lambda *_args, **_kwargs: {
+            "ok": False,
+            "status_code": 403,
+            "payload": {
+                "warm": True,
+                "voice_required": True,
+                "voice_ready": True,
+            },
+        },
+    )
+
+    with pytest.raises(SystemExit, match="browser_warmup_preflight_not_ready"):
+        module._measure(
+            "https://myexternalbrain.com",
+            "manfred",
+            "Hallo Manfred",
+            stub_transcribe=False,
+            review_session=review_session,
+        )
+
+    assert "page_goto" in events
+    assert "cta_wait" in events
+    assert "page_click" not in events
+    assert "context_close" in events
+    assert "browser_close" in events
+
+
 def test_private_review_cookie_is_injected_before_page_navigation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -849,6 +1352,8 @@ def test_private_review_cookie_is_injected_before_page_navigation(
     events: list[str] = []
     cookies: list[dict[str, object]] = []
     direct_headers: list[dict[str, str] | None] = []
+    launch_kwargs: dict[str, object] = {}
+    valid_wav = module._pure_python_prompt_wav_bytes("Hallo Manfred")
 
     class FakePage:
         def goto(self, *_args, **_kwargs):
@@ -899,7 +1404,7 @@ def test_private_review_cookie_is_injected_before_page_navigation(
         request_headers: dict[str, str] | None = None,
     ) -> bytes:
         direct_headers.append(request_headers)
-        return b"RIFF\x00\x00\x00\x00WAVE"
+        return valid_wav
 
     def fake_prewarm(
         _base_url: str,
@@ -908,9 +1413,21 @@ def test_private_review_cookie_is_injected_before_page_navigation(
         timeout_seconds: float,
         request_headers: dict[str, str] | None = None,
     ) -> dict[str, object]:
-        assert timeout_seconds == 25.0
+        assert timeout_seconds == module.PRIVATE_REVIEW_WARMUP_TIMEOUT_SECONDS
         direct_headers.append(request_headers)
-        return {"ready": True}
+        return {
+            "ready": True,
+            "status_code": 200,
+            "payload": {
+                "warm": True,
+                "voice_required": True,
+                "voice_ready": True,
+            },
+        }
+
+    def fake_launch(_playwright, **kwargs):
+        launch_kwargs.update(kwargs)
+        return browser, 1, []
 
     monkeypatch.setattr(module, "_require_playwright", lambda: FakePlaywrightContext)
     monkeypatch.setattr(
@@ -931,7 +1448,7 @@ def test_private_review_cookie_is_injected_before_page_navigation(
     monkeypatch.setattr(
         module,
         "_launch_chromium_with_startup_retry",
-        lambda *_args, **_kwargs: (browser, 1, []),
+        fake_launch,
     )
 
     with pytest.raises(RuntimeError, match="stop_after_navigation"):
@@ -950,3 +1467,110 @@ def test_private_review_cookie_is_injected_before_page_navigation(
     assert cookies == [review_session.playwright_cookie()]
     assert events.index("add_cookies") < events.index("new_page")
     assert events.index("add_cookies") < events.index("page_goto")
+    capture_args = [
+        value
+        for value in launch_kwargs["args"]
+        if str(value).startswith("--use-file-for-fake-audio-capture=")
+    ]
+    assert len(capture_args) == 1
+    assert str(capture_args[0]).endswith("%noloop")
+
+
+def test_private_cli_arms_fail_closed_output_before_early_measurement_exit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    revision = "a" * 40
+    raw_token = "private-review-token"
+    review_session = _private_review_session(
+        module,
+        revision=revision,
+        token=raw_token,
+    )
+    private = tmp_path / "private"
+    private.mkdir(mode=0o700)
+    output = private / "browser.json"
+    output.write_text('{"status":"pass"}\n', encoding="utf-8")
+    output.chmod(0o600)
+
+    monkeypatch.setattr(module, "_is_https_public_origin", lambda _url: True)
+    monkeypatch.setattr(module, "_git_head", lambda: revision)
+    monkeypatch.setattr(
+        module,
+        "load_review_session_auth",
+        lambda *_args, **_kwargs: review_session,
+    )
+    monkeypatch.setattr(
+        module,
+        "_measure",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            SystemExit("warmup_preflight_not_ready")
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "measure_memorial_live_browser.py",
+            "--base-url",
+            "https://myexternalbrain.com",
+            "--slug",
+            "manfred",
+            "--real-stt",
+            "--gold-mode",
+            "--require-public-origin",
+            "--review-session-cookie-file",
+            str(private / "session.cookie"),
+            "--output",
+            str(output),
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="warmup_preflight_not_ready"):
+        module.main()
+
+    sentinel = json.loads(output.read_text(encoding="utf-8"))
+    assert sentinel["status"] == "fail"
+    assert sentinel["contract_version"] == 3
+    assert sentinel["failed_codes"] == [
+        "measurement_in_progress_or_aborted"
+    ]
+    assert sentinel["private_review_evidence_allowed"] is False
+    assert sentinel["gold_claim_allowed"] is False
+    assert raw_token not in output.read_text(encoding="utf-8")
+    assert output.stat().st_mode & 0o777 == 0o600
+
+
+def test_public_cli_arms_fail_closed_output_before_early_measurement_exit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    output = tmp_path / "browser.json"
+    output.write_text('{"status":"pass"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        module,
+        "_measure",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            SystemExit("warmup_preflight_not_ready")
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "measure_memorial_live_browser.py",
+            "--output",
+            str(output),
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="warmup_preflight_not_ready"):
+        module.main()
+
+    sentinel = json.loads(output.read_text(encoding="utf-8"))
+    assert sentinel["status"] == "fail"
+    assert sentinel["failed_codes"] == ["measurement_in_progress_or_aborted"]
+    assert sentinel["access_mode"] == "anonymous_public"
+    assert sentinel["gold_claim_allowed"] is False

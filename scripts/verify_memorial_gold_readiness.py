@@ -57,6 +57,7 @@ GENERATED_RECEIPT_PATHS = {
     ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json",
 }
 SOURCE_STATE_FINGERPRINT_SEMANTICS = "worktree_source_files_sha256_excluding_generated_only_paths"
+BROWSER_RECEIPT_CONTRACT_VERSION = 3
 
 
 def _display_path(path: Path) -> str:
@@ -351,6 +352,8 @@ def _check_browser_receipt(
         return ["browser_receipt_missing_or_invalid"]
     if receipt.get("contract_name") != "ea.memorial_realtime_browser_exit_gate":
         issues.append("browser_contract_name_invalid")
+    if receipt.get("contract_version") != BROWSER_RECEIPT_CONTRACT_VERSION:
+        issues.append("browser_contract_version_invalid")
     if str(receipt.get("status") or "").strip().lower() != "pass":
         issues.append("browser_receipt_status_not_pass")
     if current_head and not _receipt_source_state_current(

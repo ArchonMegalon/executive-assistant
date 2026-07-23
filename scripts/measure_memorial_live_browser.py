@@ -33,6 +33,7 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
 
 try:
     from scripts.manfred_voice_review_client_auth import (
+        MIN_REMAINING_LIFETIME_SECONDS,
         ReviewSessionClientAuth,
         ReviewSessionError,
         load_review_session_auth,
@@ -42,6 +43,7 @@ try:
     )
 except ModuleNotFoundError:  # pragma: no cover - script execution path
     from manfred_voice_review_client_auth import (  # type: ignore[no-redef]
+        MIN_REMAINING_LIFETIME_SECONDS,
         ReviewSessionClientAuth,
         ReviewSessionError,
         load_review_session_auth,
@@ -55,6 +57,64 @@ LIVE_PROMPT_TEXT = "Hallo Manfred, kannst du jetzt mit mir sprechen?"
 MEANINGFUL_PROMPT_TEXT = "Was war dir bei Gerechtigkeit wichtig?"
 DEFAULT_EXIT_GATE_MAX_FIRST_ANSWER_MS = 10000.0
 DEFAULT_GOLD_MAX_FIRST_ANSWER_MS = 4500.0
+DEFAULT_WARMUP_TIMEOUT_SECONDS = 25.0
+# Keep headroom before the server voice-prewarm state becomes stale at 150 seconds.
+PRIVATE_REVIEW_WARMUP_TIMEOUT_SECONDS = 145.0
+PREWARM_STATUS_REQUEST_TIMEOUT_SECONDS = 10.0
+PREWARM_POLL_INTERVAL_SECONDS = 0.9
+PRIVATE_REVIEW_PREWARM_OVERSHOOT_SECONDS = (
+    PREWARM_STATUS_REQUEST_TIMEOUT_SECONDS
+    + PREWARM_POLL_INTERVAL_SECONDS
+)
+PROMPT_SYNTHESIS_TIMEOUT_SECONDS = 45.0
+LOCAL_PROMPT_SYNTHESIS_TIMEOUT_SECONDS = 15.0
+PROMPT_AUDIO_PREPARATION_BUDGET_SECONDS = (
+    PROMPT_SYNTHESIS_TIMEOUT_SECONDS
+    + (2.0 * LOCAL_PROMPT_SYNTHESIS_TIMEOUT_SECONDS)
+)
+BROWSER_CAPTURE_TIMEOUT_SECONDS = 12.0
+BROWSER_TRANSPORT_TIMEOUT_SECONDS = 90.0
+BROWSER_TURN_TIMEOUT_MARGIN_SECONDS = 8.0
+BROWSER_TURN_TIMEOUT_SECONDS = (
+    BROWSER_CAPTURE_TIMEOUT_SECONDS
+    + BROWSER_TRANSPORT_TIMEOUT_SECONDS
+    + BROWSER_TURN_TIMEOUT_MARGIN_SECONDS
+)
+BROWSER_LAUNCH_ATTEMPT_TIMEOUT_SECONDS = 30.0
+BROWSER_LAUNCH_MAX_ATTEMPTS = 4
+BROWSER_LAUNCH_RETRY_DELAYS_SECONDS = (0.75, 1.5, 3.0)
+BROWSER_LAUNCH_TIMEOUT_BUDGET_SECONDS = (
+    BROWSER_LAUNCH_ATTEMPT_TIMEOUT_SECONDS
+    * BROWSER_LAUNCH_MAX_ATTEMPTS
+    + sum(BROWSER_LAUNCH_RETRY_DELAYS_SECONDS)
+)
+BROWSER_SETUP_OVERHEAD_SECONDS = 30.0
+BROWSER_PAGE_LOAD_TIMEOUT_SECONDS = 45.0
+BROWSER_NETWORK_IDLE_TIMEOUT_SECONDS = 5.0
+BROWSER_WARMUP_STATUS_TIMEOUT_SECONDS = 15.0
+BROWSER_CTA_READY_TIMEOUT_SECONDS = 30.0
+# Covers two playback waits, teardown, the bounded final warmup snapshot,
+# browser cleanup, receipt materialization, and the final auth-file reload.
+PRIVATE_REVIEW_POST_TURN_OVERHEAD_SECONDS = 60.0
+PRIVATE_REVIEW_PRECLICK_REQUIRED_REMAINING_LIFETIME_SECONDS = (
+    BROWSER_TURN_TIMEOUT_SECONDS
+    + PRIVATE_REVIEW_POST_TURN_OVERHEAD_SECONDS
+    + MIN_REMAINING_LIFETIME_SECONDS
+)
+PRIVATE_REVIEW_REQUIRED_REMAINING_LIFETIME_SECONDS = float(
+    math.ceil(
+        PRIVATE_REVIEW_WARMUP_TIMEOUT_SECONDS
+        + PRIVATE_REVIEW_PREWARM_OVERSHOOT_SECONDS
+        + PROMPT_AUDIO_PREPARATION_BUDGET_SECONDS
+        + BROWSER_LAUNCH_TIMEOUT_BUDGET_SECONDS
+        + BROWSER_SETUP_OVERHEAD_SECONDS
+        + BROWSER_PAGE_LOAD_TIMEOUT_SECONDS
+        + BROWSER_NETWORK_IDLE_TIMEOUT_SECONDS
+        + BROWSER_WARMUP_STATUS_TIMEOUT_SECONDS
+        + BROWSER_CTA_READY_TIMEOUT_SECONDS
+        + PRIVATE_REVIEW_PRECLICK_REQUIRED_REMAINING_LIFETIME_SECONDS
+    )
+)
 DEFAULT_EXIT_GATE_REQUIRED_CONTEXT_MATCHES = 2
 DEFAULT_EXIT_GATE_CONTEXT_TOKENS = (
     "ja",
@@ -396,11 +456,123 @@ def _http_bytes(
         return 0, b"", ""
 
 
+def _warmup_preflight_ready(
+    preflight: object,
+    *,
+    require_voice_ready: bool,
+) -> bool:
+    if not isinstance(preflight, dict):
+        return False
+    if "ready" in preflight and preflight.get("ready") is not True:
+        return False
+    if "ok" in preflight and preflight.get("ok") is not True:
+        return False
+    try:
+        status_code = int(preflight.get("status_code") or 0)
+    except (TypeError, ValueError):
+        return False
+    payload = preflight.get("payload")
+    if status_code != 200 or not isinstance(payload, dict) or payload.get("warm") is not True:
+        return False
+    if require_voice_ready:
+        return (
+            payload.get("voice_required") is True
+            and payload.get("voice_ready") is True
+        )
+    return payload.get("voice_required") is not True or payload.get("voice_ready") is True
+
+
+def _review_session_lifetime_sufficient(
+    review_session: ReviewSessionClientAuth,
+    *,
+    now_epoch: float | None = None,
+    required_seconds: float = PRIVATE_REVIEW_REQUIRED_REMAINING_LIFETIME_SECONDS,
+) -> bool:
+    current_time = time.time() if now_epoch is None else float(now_epoch)
+    remaining_seconds = float(review_session.expires_at) - current_time
+    return remaining_seconds >= float(required_seconds)
+
+
+def _browser_warmup_status(page, warmup_url: str) -> dict[str, object]:  # type: ignore[no-untyped-def]
+    payload = page.evaluate(
+        """async ({ url, timeoutMs }) => {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+          try {
+            const response = await fetch(url, {
+              method: "POST",
+              headers: {
+                Accept: "application/json",
+                "Content-Type": "application/json",
+              },
+              body: "{}",
+              cache: "no-store",
+              signal: controller.signal,
+            });
+            try {
+              return {
+                ok: response.ok,
+                status_code: response.status,
+                payload: await response.json(),
+              };
+            } catch (error) {
+              return {
+                ok: false,
+                status_code: response.status,
+                payload: {
+                  status: "invalid_json",
+                  detail: String(error && error.message ? error.message : error || ""),
+                },
+              };
+            }
+          } catch (error) {
+            return {
+              ok: false,
+              status_code: 0,
+              payload: {
+                status: "request_failed",
+                detail: String(error && error.message ? error.message : error || ""),
+              },
+            };
+          } finally {
+            clearTimeout(timeoutId);
+          }
+        }""",
+        {
+            "url": warmup_url,
+            "timeoutMs": int(BROWSER_WARMUP_STATUS_TIMEOUT_SECONDS * 1000.0),
+        },
+    )
+    if isinstance(payload, dict):
+        return payload
+    return {"status": "invalid_payload"}
+
+
+def _remaining_turn_seconds(
+    deadline: float,
+    *,
+    now: float | None = None,
+) -> float:
+    current = time.perf_counter() if now is None else float(now)
+    remaining = float(deadline) - current
+    if remaining <= 0.0:
+        raise TimeoutError("browser_turn_deadline_exceeded")
+    return remaining
+
+
+def _remaining_turn_timeout_ms(
+    deadline: float,
+    *,
+    now: float | None = None,
+) -> int:
+    return max(1, int(_remaining_turn_seconds(deadline, now=now) * 1000.0))
+
+
 def _prewarm_memorial_origin(
     base_url: str,
     slug: str,
     *,
-    timeout_seconds: float = 25.0,
+    timeout_seconds: float = DEFAULT_WARMUP_TIMEOUT_SECONDS,
     request_headers: dict[str, str] | None = None,
 ) -> dict[str, object]:
     base = str(base_url or "").rstrip("/")
@@ -430,7 +602,8 @@ def _prewarm_memorial_origin(
         )
         last_status, last_payload = _http_json(
             warmup_status_url,
-            method="GET",
+            method="POST",
+            payload={},
             timeout=10.0,
             **status_kwargs,
         )
@@ -507,6 +680,7 @@ def _synthesized_prompt_wav_bytes(text: str) -> bytes:
             ],
             check=True,
             capture_output=True,
+            timeout=LOCAL_PROMPT_SYNTHESIS_TIMEOUT_SECONDS,
         )
         subprocess.run(
             [
@@ -525,8 +699,36 @@ def _synthesized_prompt_wav_bytes(text: str) -> bytes:
             ],
             check=True,
             capture_output=True,
+            timeout=LOCAL_PROMPT_SYNTHESIS_TIMEOUT_SECONDS,
         )
         return normalized_wav.read_bytes()
+
+
+def _valid_pcm_riff_wave(payload: object) -> bool:
+    if (
+        not isinstance(payload, bytes)
+        or len(payload) < 44
+        or payload[:4] != b"RIFF"
+        or payload[8:12] != b"WAVE"
+    ):
+        return False
+    try:
+        with wave.open(io.BytesIO(payload), "rb") as wav:
+            channel_count = wav.getnchannels()
+            sample_width = wav.getsampwidth()
+            frame_count = wav.getnframes()
+            decoded_frames = wav.readframes(frame_count)
+            return bool(
+                wav.getcomptype() == "NONE"
+                and channel_count > 0
+                and sample_width > 0
+                and wav.getframerate() > 0
+                and frame_count > 0
+                and len(decoded_frames)
+                == frame_count * channel_count * sample_width
+            )
+    except (EOFError, wave.Error):
+        return False
 
 
 def _prompt_wav_bytes_for_measure(
@@ -546,10 +748,14 @@ def _prompt_wav_bytes_for_measure(
         synth_url,
         method="POST",
         payload={"text": str(prompt_text or "").strip()},
-        timeout=45.0,
+        timeout=PROMPT_SYNTHESIS_TIMEOUT_SECONDS,
         **request_kwargs,
     )
-    if status == 200 and payload and "audio/" in str(content_type or "").lower():
+    if (
+        status == 200
+        and "audio/" in str(content_type or "").lower()
+        and _valid_pcm_riff_wave(payload)
+    ):
         return payload
     return _synthesized_prompt_wav_bytes(prompt_text)
 
@@ -914,8 +1120,8 @@ def _should_accept_visible_answer_early(
 
 def _launch_chromium_with_startup_retry(playwright, **launch_kwargs):  # type: ignore[no-untyped-def]
     launch_errors: list[str] = []
-    max_attempts = 4
-    retry_delays = (0.75, 1.5, 3.0)
+    max_attempts = BROWSER_LAUNCH_MAX_ATTEMPTS
+    retry_delays = BROWSER_LAUNCH_RETRY_DELAYS_SECONDS
     for attempt in range(1, max_attempts + 1):
         try:
             return playwright.chromium.launch(**launch_kwargs), attempt, launch_errors
@@ -1004,22 +1210,15 @@ def _measure(
     text_prompt: bool = False,
     review_session: ReviewSessionClientAuth | None = None,
 ) -> dict[str, object]:
-    sync_playwright = _require_playwright()
+    if (
+        review_session is not None
+        and not _review_session_lifetime_sufficient(review_session)
+    ):
+        raise SystemExit("review_session_lifetime_insufficient")
     request_headers = (
         review_session.request_headers()
         if review_session is not None
         else None
-    )
-    prompt_kwargs = (
-        {"request_headers": request_headers}
-        if request_headers
-        else {}
-    )
-    audio_bytes = _prompt_wav_bytes_for_measure(
-        base_url,
-        slug,
-        prompt_text,
-        **prompt_kwargs,
     )
     page_url = f"{base_url.rstrip('/')}/memorials/{slug}"
     warmup_url = f"{page_url}/warmup-status"
@@ -1031,9 +1230,32 @@ def _measure(
     warmup_preflight = _prewarm_memorial_origin(
         base_url,
         slug,
-        timeout_seconds=25.0,
+        timeout_seconds=(
+            PRIVATE_REVIEW_WARMUP_TIMEOUT_SECONDS
+            if review_session is not None
+            else DEFAULT_WARMUP_TIMEOUT_SECONDS
+        ),
         **prewarm_kwargs,
     )
+    if not _warmup_preflight_ready(
+        warmup_preflight,
+        require_voice_ready=review_session is not None,
+    ):
+        raise SystemExit("warmup_preflight_not_ready")
+    prompt_kwargs = (
+        {"request_headers": request_headers}
+        if request_headers
+        else {}
+    )
+    audio_bytes = _prompt_wav_bytes_for_measure(
+        base_url,
+        slug,
+        prompt_text,
+        **prompt_kwargs,
+    )
+    if not _valid_pcm_riff_wave(audio_bytes):
+        raise SystemExit("fake_audio_capture_wav_invalid")
+    sync_playwright = _require_playwright()
     semantic_profile = _semantic_profile_for_prompt(prompt_text)
     started = time.perf_counter()
     with _short_playwright_tmpdir() as tmpdir:
@@ -1045,6 +1267,7 @@ def _measure(
                 playwright,
                 headless=True,
                 executable_path=chromium_executable_path,
+                timeout=int(BROWSER_LAUNCH_ATTEMPT_TIMEOUT_SECONDS * 1000.0),
                 args=[
                     "--no-sandbox",
                     "--disable-setuid-sandbox",
@@ -1054,7 +1277,7 @@ def _measure(
                     "--no-proxy-server",
                     "--use-fake-ui-for-media-stream",
                     "--use-fake-device-for-media-stream",
-                    f"--use-file-for-fake-audio-capture={fake_capture_path}",
+                    f"--use-file-for-fake-audio-capture={fake_capture_path}%noloop",
                 ],
             )
             context = browser.new_context(viewport={"width": 1440, "height": 1100})
@@ -1071,7 +1294,11 @@ def _measure(
                 )
             page = context.new_page()
             try:
-                response = page.goto(page_url, wait_until="domcontentloaded", timeout=45000)
+                response = page.goto(
+                    page_url,
+                    wait_until="domcontentloaded",
+                    timeout=int(BROWSER_PAGE_LOAD_TIMEOUT_SECONDS * 1000.0),
+                )
                 if response is None or not response.ok:
                     raise SystemExit("page_load_failed")
                 if review_session is not None:
@@ -1091,21 +1318,13 @@ def _measure(
                     response.headers.get("x-ea-source-revision") or ""
                 ).strip()
                 try:
-                    page.wait_for_load_state("networkidle", timeout=5000)
+                    page.wait_for_load_state(
+                        "networkidle",
+                        timeout=int(BROWSER_NETWORK_IDLE_TIMEOUT_SECONDS * 1000.0),
+                    )
                 except Exception:
                     pass
                 load_ms = (time.perf_counter() - started) * 1000.0
-                warmup_before = page.evaluate(
-                    """async (url) => {
-                      try {
-                        const response = await fetch(url, { headers: { Accept: "application/json" } });
-                        return await response.json();
-                      } catch (error) {
-                        return { status: "invalid_json", detail: String(error && error.message ? error.message : error || "") };
-                      }
-                    }""",
-                    warmup_url,
-                )
                 ready_started = time.perf_counter()
                 page.wait_for_function(
                     """
@@ -1114,10 +1333,30 @@ def _measure(
                       return Boolean(button && !button.disabled && button.getAttribute("aria-disabled") !== "true");
                     }
                     """,
-                    timeout=30000,
+                    timeout=int(BROWSER_CTA_READY_TIMEOUT_SECONDS * 1000.0),
                 )
                 cta_ready_ms = (time.perf_counter() - ready_started) * 1000.0
+                warmup_before = _browser_warmup_status(page, warmup_url)
+                if (
+                    review_session is not None
+                    and not _warmup_preflight_ready(
+                        warmup_before,
+                        require_voice_ready=True,
+                    )
+                ):
+                    raise SystemExit("browser_warmup_preflight_not_ready")
+                if (
+                    review_session is not None
+                    and not _review_session_lifetime_sufficient(
+                        review_session,
+                        required_seconds=(
+                            PRIVATE_REVIEW_PRECLICK_REQUIRED_REMAINING_LIFETIME_SECONDS
+                        ),
+                    )
+                ):
+                    raise SystemExit("review_session_lifetime_insufficient_before_interaction")
                 answer_started = time.perf_counter()
+                turn_deadline = answer_started + BROWSER_TURN_TIMEOUT_SECONDS
                 first_answer_elapsed_ms = 0.0
                 turn_error = ""
                 answer_text = ""
@@ -1171,7 +1410,7 @@ def _measure(
                           return answerReady || audioReady;
                         }
                         """,
-                        timeout=35000,
+                        timeout=_remaining_turn_timeout_ms(turn_deadline),
                     )
                     first_answer_elapsed_ms = (time.perf_counter() - answer_started) * 1000.0
                     try:
@@ -1276,7 +1515,9 @@ def _measure(
                                 slug,
                                 lambda: None,
                                 page=page,
-                                timeout_seconds=35.0,
+                                timeout_seconds=_remaining_turn_seconds(
+                                    turn_deadline
+                                ),
                                 expected_https_origin=(
                                     review_session.origin
                                     if review_session is not None
@@ -1394,17 +1635,7 @@ def _measure(
                 if not first_answer_elapsed_ms:
                     first_answer_elapsed_ms = (time.perf_counter() - answer_started) * 1000.0
                 first_answer_ms = first_answer_elapsed_ms
-                warmup_after = page.evaluate(
-                    """async (url) => {
-                      try {
-                        const response = await fetch(url, { headers: { Accept: "application/json" } });
-                        return await response.json();
-                      } catch (error) {
-                        return { status: "invalid_json", detail: String(error && error.message ? error.message : error || "") };
-                      }
-                    }""",
-                    warmup_url,
-                )
+                warmup_after = _browser_warmup_status(page, warmup_url)
                 payload = dict(conversation_turn_payload or {})
                 answer_text = _preferred_answer_preview(answer_text, payload)
                 audio_base64 = str(payload.get("audio_base64") or "").strip()
@@ -1562,7 +1793,7 @@ def _with_exit_gate_status(
     payload.update(
         {
             "contract_name": "ea.memorial_realtime_browser_exit_gate",
-            "contract_version": 2,
+            "contract_version": 3,
             "generated_at": _utc_now(),
             "generated_by": "scripts/measure_memorial_live_browser.py",
             "source_git_head": source_git_head,
@@ -1634,6 +1865,45 @@ def _with_exit_gate_status(
     return payload
 
 
+def _arm_measurement_output(
+    output_path: Path,
+    review_session: ReviewSessionClientAuth | None,
+) -> None:
+    sentinel = {
+        "contract_name": "ea.memorial_realtime_browser_exit_gate",
+        "contract_version": 3,
+        "generated_at": _utc_now(),
+        "generated_by": "scripts/measure_memorial_live_browser.py",
+        "status": "fail",
+        "failed_codes": ["measurement_in_progress_or_aborted"],
+        "measurement_state": "armed_fail_closed",
+        "access_mode": (
+            "private_review_session"
+            if review_session is not None
+            else "anonymous_public"
+        ),
+        "evidence_scope": (
+            "private_review_precondition_only"
+            if review_session is not None
+            else "public_precondition_only"
+        ),
+        "review_session_authenticated": review_session is not None,
+        "review_session_binding": (
+            review_session.public_binding()
+            if review_session is not None
+            else {}
+        ),
+        "gold_claim_allowed": False,
+        "private_review_evidence_allowed": False,
+        "bearer_material_exposed": False,
+    }
+    rendered = json.dumps(sentinel, ensure_ascii=False, indent=2)
+    if review_session is not None:
+        write_private_review_receipt_text(output_path, rendered)
+    else:
+        output_path.write_text(rendered + "\n", encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Measure the live memorial browser first-turn path.")
     parser.add_argument("--base-url", default="http://127.0.0.1:8090")
@@ -1684,6 +1954,15 @@ def main() -> int:
                 public_origin=args.base_url,
                 slug=args.slug,
                 expected_source_revision=_git_head(),
+            )
+        except ReviewSessionError as exc:
+            parser.error(str(exc))
+
+    if args.output:
+        try:
+            _arm_measurement_output(
+                Path(args.output),
+                review_session,
             )
         except ReviewSessionError as exc:
             parser.error(str(exc))
