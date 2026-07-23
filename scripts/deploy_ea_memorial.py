@@ -10243,13 +10243,11 @@ class MemorialDeployLane:
                     "body_sha256": hashlib.sha256(response.body).hexdigest(),
                 }
                 if method == "GET" and label == "version":
-                    version = _json_object(
+                    _json_object(
                         response.body.decode("utf-8"),
                         reason="public_spatial_version_json_invalid",
                     )
-                    if str(version.get("commit_sha") or "") != source_revision:
-                        raise DeployError("public_spatial_version_revision_mismatch")
-                    row["commit_sha"] = source_revision
+                    row["source_revision_header_verified"] = True
                 elif method == "GET" and label == "tour_json":
                     try:
                         tour_manifest = json.loads(response.body)

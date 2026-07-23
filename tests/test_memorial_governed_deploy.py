@@ -219,7 +219,16 @@ def _public_spatial_response(
             200,
             "application/json",
             json.dumps(
-                {"commit_sha": source_revision},
+                {
+                    "app_name": "ea-rewrite",
+                    "version": "0.3.0",
+                    "role": "api",
+                    "storage_backend": "postgres",
+                    "release_authority_state": "clear",
+                    "release_authority_posture": "authoritative_runtime",
+                    "release_authority_source": "published_status_artifact",
+                    "release_manifest_generated_at": "2026-07-16T16:11:22Z",
+                },
                 separators=(",", ":"),
             ).encode("utf-8"),
         ),
@@ -5607,8 +5616,9 @@ def test_deployed_surface_probes_canonical_and_singular_alias_origins(
     }
     assert set(spatial["routes"]["version_get"]) == {
         *base_route_fields,
-        "commit_sha",
+        "source_revision_header_verified",
     }
+    assert spatial["routes"]["version_get"]["source_revision_header_verified"] is True
     assert set(spatial["routes"]["tour_json_get"]) == {
         *base_route_fields,
         "canonical_json_sha256",
