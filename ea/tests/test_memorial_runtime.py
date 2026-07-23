@@ -137,7 +137,12 @@ class MemorialRuntimeTests(unittest.TestCase):
         self.assertNotIn('id="memorial-contribution-management"', rendered)
         self.assertNotIn('id="memorial-install-hint"', rendered)
         self.assertNotIn("Optional: Am Handy/Desktop installieren.", rendered)
-        self.assertEqual(rendered.count('<details class="conversation-settings">'), 1)
+        self.assertEqual(
+            rendered.count(
+                '<details class="conversation-settings" hidden inert aria-hidden="true">'
+            ),
+            1,
+        )
         self.assertIn("<summary>Datenschutz und Gespräch</summary>", rendered)
         self.assertIn(
             '<input type="checkbox" id="memorial-personal-memory-optin" disabled aria-disabled="true">',
@@ -162,15 +167,39 @@ class MemorialRuntimeTests(unittest.TestCase):
             'id="memorial-speech-message" role="status" aria-live="polite" aria-atomic="true"',
             rendered,
         )
+        self.assertIn(
+            'id="memorial-speech-note" hidden inert aria-hidden="true"',
+            rendered,
+        )
+        self.assertIn(
+            'id="memorial-speech-transcript-shell" hidden inert aria-hidden="true"',
+            rendered,
+        )
+        self.assertIn(
+            'id="memorial-text-turn-form" method="post" '
+            'action="/memorials/manfred/chat" hidden inert aria-hidden="true"',
+            rendered,
+        )
         self.assertNotIn('id="memorial-speech-note" role="status"', rendered)
         self.assertNotIn('id="memorial-speech-transcript-shell" aria-live=', rendered)
         self.assertIn('id="memorial-speech-audio" preload="none" aria-hidden="true"', rendered)
         self.assertNotIn(" autoplay", rendered)
-        self.assertIn("Hier antwortet eine KI anhand freigegebener Erinnerungen und Quellen.", rendered)
-        self.assertIn("Sie ist nicht Manfred und spricht nicht für ihn.", rendered)
+        self.assertIn(
+            "KI-Rekonstruktion in einer aus freigegebenen Erinnerungen und Quellen "
+            "abgeleiteten Ich-Perspektive – nicht der echte Manfred.",
+            rendered,
+        )
         self.assertIn("Die Stimme ist künstlich erzeugt.", rendered)
-        self.assertIn("Das Mikrofon wird erst nach deinem Start verwendet.", rendered)
-        self.assertIn("Gespräch wird vorbereitet …", rendered)
+        self.assertIn(
+            "Mikrofon und Audio werden erst nach „Gespräch beginnen“ verarbeitet.",
+            rendered,
+        )
+        self.assertIn('title="Gespräch beginnen" aria-label="Gespräch beginnen"', rendered)
+        self.assertIn("const memorialPagePrewarmEnabled = false;", rendered)
+        self.assertIn(
+            "if (!memorialConversationOnly) activateProtectedForm(textTurnForm);",
+            rendered,
+        )
 
     def test_public_memorial_operator_preview_is_default_denied(self) -> None:
         payload = {

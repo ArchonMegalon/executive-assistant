@@ -86,6 +86,56 @@ def _speech_synthesize_tail_silence_ms(*, direct_contact_opening: bool) -> int:
     return shared._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS if direct_contact_opening else shared._MEMORIAL_TTS_TAIL_SILENCE_MS
 
 
+def _voice_review_operator_preview_session(
+    *,
+    slug: str,
+    request: Request,
+) -> dict[str, object] | None:
+    return shared._memorial_voice_review_http_session_payload(
+        request,
+        slug=slug,
+        required_scope="realtime",
+    )
+
+
+def _voice_review_operator_preview_allowed(
+    *,
+    slug: str,
+    request: Request,
+) -> bool:
+    return _voice_review_operator_preview_session(slug=slug, request=request) is not None
+
+
+def _require_http_memorial_voice_authorization(
+    *,
+    slug: str,
+    request: Request,
+    action: str,
+    operator_preview_session: dict[str, object] | None,
+) -> None:
+    operator_preview_allowed = False
+    if operator_preview_session is not None:
+        current_session = _voice_review_operator_preview_session(
+            slug=slug,
+            request=request,
+        )
+        if (
+            current_session is None
+            or current_session.get("jti") != operator_preview_session.get("jti")
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="memorial_voice_review_session_expired",
+            )
+        operator_preview_allowed = True
+    memorial = shared._load_memorial(slug)
+    shared._require_voice_consent(
+        shared._payload_with_slug(slug, memorial),
+        action,
+        operator_preview_allowed=operator_preview_allowed,
+    )
+
+
 async def public_memorial_speech_transcribe(slug: str, request: Request) -> JSONResponse:
     runtime = runtime_from_shared(shared)
     try:
@@ -157,9 +207,21 @@ async def public_memorial_speech_synthesize_help(slug: str) -> JSONResponse:
 
 
 async def public_memorial_speech_synthesize(slug: str, request: Request) -> Response:
+    operator_preview_session = _voice_review_operator_preview_session(
+        slug=slug,
+        request=request,
+    )
+
+    def _authorize_provider_step(_step: str) -> None:
+        _require_http_memorial_voice_authorization(
+            slug=slug,
+            request=request,
+            action="synthesize",
+            operator_preview_session=operator_preview_session,
+        )
+
     try:
-        memorial = shared._load_memorial(slug)
-        shared._require_voice_consent(shared._payload_with_slug(slug, memorial), "synthesize")
+        _authorize_provider_step("request")
     except HTTPException as exc:
         return shared._public_memorial_error_response(exc.status_code, shared._text(exc.detail, "request_failed"))
     try:
@@ -196,6 +258,7 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
         tts_plugin_used = selected_plugin
         tts_fallback_reason = ""
         try:
+            _authorize_provider_step("tts")
             audio, content_type = shared._render_memorial_tts_audio(
                 slug=slug,
                 text=text,
@@ -210,6 +273,7 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
                 tail_silence_ms=_speech_synthesize_tail_silence_ms(direct_contact_opening=direct_contact_opening),
                 force_regenerate=force_regenerate,
             )
+            _authorize_provider_step("tts_result")
         except HTTPException as exc:
             fallback = None
             if (
@@ -225,6 +289,7 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
             fallback_config["tts_plugin"] = fallback_plugin
             fallback_config["tts_mode"] = fallback_plugin
             fallback_config["tts_plugin_voice_id"] = shared._text(fallback_option.get("tts_plugin_voice_id"), "")
+            _authorize_provider_step("tts_fallback")
             audio, content_type = shared._render_memorial_tts_audio(
                 slug=slug,
                 text=text,
@@ -239,6 +304,7 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
                 tail_silence_ms=_speech_synthesize_tail_silence_ms(direct_contact_opening=direct_contact_opening),
                 force_regenerate=force_regenerate,
             )
+            _authorize_provider_step("tts_fallback_result")
             tts_plugin_used = fallback_plugin
             tts_fallback_reason = "unmixr_cooldown"
         if not bytes(audio or b""):
@@ -254,6 +320,7 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
         headers["X-Memorial-TTS-Plugin"] = tts_plugin_used
         if tts_fallback_reason:
             headers["X-Memorial-TTS-Fallback"] = tts_fallback_reason
+        _authorize_provider_step("response")
         return Response(content=audio, media_type=content_type, headers=headers)
     except HTTPException as exc:
         return shared._public_memorial_error_response(exc.status_code, shared._text(exc.detail, "request_failed"))
@@ -262,9 +329,21 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
 async def public_memorial_conversation_turn(slug: str, request: Request) -> JSONResponse:
     total_started = time.perf_counter()
     runtime = runtime_from_shared(shared)
+    operator_preview_session = _voice_review_operator_preview_session(
+        slug=slug,
+        request=request,
+    )
+
+    def _authorize_provider_step(_step: str) -> None:
+        _require_http_memorial_voice_authorization(
+            slug=slug,
+            request=request,
+            action="conversation_turn",
+            operator_preview_session=operator_preview_session,
+        )
+
     try:
-        memorial = shared._load_memorial(slug)
-        shared._require_voice_consent(shared._payload_with_slug(slug, memorial), "conversation_turn")
+        _authorize_provider_step("request")
     except HTTPException as exc:
         return shared._public_memorial_error_response(exc.status_code, shared._text(exc.detail, "request_failed"))
     content_length = shared._content_length_or_zero(request)
@@ -292,20 +371,37 @@ async def public_memorial_conversation_turn(slug: str, request: Request) -> JSON
                 difficult_memory_mode=difficult_memory_mode,
             ),
             memory_runtime=memory_runtime,
+            authorize_provider_step=_authorize_provider_step,
         ).as_public_payload()
         response_payload["personal_memory"] = shared._personal_memory_public_status(
             slug=slug,
             context=personal_memory_context,
         )
+        _authorize_provider_step("response")
         return JSONResponse(response_payload, headers=dict(_PUBLIC_MEMORIAL_JSON_HEADERS))
     except HTTPException as exc:
         if shared._memorial_should_rescue_failed_voice_turn(exc.detail):
+            try:
+                _authorize_provider_step("rescue")
+            except HTTPException as authorization_exc:
+                return shared._public_memorial_error_response(
+                    authorization_exc.status_code,
+                    shared._text(authorization_exc.detail, "request_failed"),
+                )
             response_payload = shared._build_memorial_rescue_contact_turn_payload(
                 slug=slug,
                 personal_memory_context=personal_memory_context,
                 difficult_memory_mode=difficult_memory_mode,
                 rescue_reason=shared._text(exc.detail, "conversation_turn_rescue"),
+                authorize_provider_step=_authorize_provider_step,
             )
+            try:
+                _authorize_provider_step("rescue_response")
+            except HTTPException as authorization_exc:
+                return shared._public_memorial_error_response(
+                    authorization_exc.status_code,
+                    shared._text(authorization_exc.detail, "request_failed"),
+                )
             shared._log_memorial_timing(
                 "conversation_turn_rescue",
                 slug=slug,
@@ -348,6 +444,7 @@ async def stream_realtime_audio_chunks(
     cancelled_turn_ids: set[str],
     send_json: Callable[[dict[str, object]], Awaitable[bool]],
     send_cancelled: Callable[[str], Awaitable[None]],
+    authorize_send: Callable[[str], Awaitable[bool]] | None = None,
 ) -> bool:
     audio_base64 = base64.b64encode(audio).decode("ascii")
     if not audio_base64:
@@ -356,6 +453,8 @@ async def stream_realtime_audio_chunks(
     for index in range(total_parts):
         if turn_id in cancelled_turn_ids:
             await send_cancelled(turn_id)
+            return False
+        if authorize_send is not None and not await authorize_send(turn_id):
             return False
         start = index * chunk_size
         end = start + chunk_size
@@ -373,6 +472,8 @@ async def stream_realtime_audio_chunks(
         await asyncio.sleep(shared._MEMORIAL_REALTIME_STREAM_YIELD_SECONDS)
     if turn_id in cancelled_turn_ids:
         await send_cancelled(turn_id)
+        return False
+    if authorize_send is not None and not await authorize_send(turn_id):
         return False
     return await send_json(
         {

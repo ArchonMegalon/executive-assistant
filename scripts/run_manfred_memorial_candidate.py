@@ -29,6 +29,9 @@ if str(ROOT) not in sys.path:
 
 from scripts.prepare_manfred_memorial_candidate import (  # noqa: E402
     CANDIDATE_RELEASE_AUTHORITY_DIRNAME,
+    IMAGE_ID_RE,
+    MANFRED_TTS_MODEL,
+    MANFRED_TTS_PROVIDER,
     PROPERTY_AUTHORITY_SHA256,
     PROPERTY_PUBLICATION_AUTHORITY_SCHEMA,
     RECEIPT_SCHEMA as PROJECTION_RECEIPT_SCHEMA,
@@ -44,7 +47,9 @@ from scripts.prepare_manfred_memorial_candidate import (  # noqa: E402
     _tree_digest,
     _validate_candidate_release_authority_bundle,
     _validated_property_publication,
+    _validate_public_base_url,
     _validate_project_name,
+    _voice_identity,
 )
 from scripts.manfred_candidate_fleet_lock import (  # noqa: E402
     hold_candidate_fleet_lock,
@@ -79,6 +84,7 @@ SPATIAL_BROWSER_RECEIPT_INVALID = "manfred_candidate_spatial_browser_receipt_inv
 ALLOWED_ENV_KEYS = {
     "DATABASE_URL",
     "EA_API_TOKEN",
+    "EA_DEPLOY_IMAGE_ID",
     "EA_MANFRED_COMPOSE_PROJECT",
     "EA_MANFRED_COMMIT",
     "EA_MANFRED_DEPLOYMENT_ID",
@@ -93,6 +99,13 @@ ALLOWED_ENV_KEYS = {
     "EA_MANFRED_SPATIAL_RELEASE_ROOT",
     "EA_MANFRED_SPATIAL_SHA256",
     "EA_MANFRED_SPATIAL_SLUG",
+    "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256",
+    "EA_MEMORIAL_TTS_MODEL",
+    "EA_MEMORIAL_TTS_PROVIDER",
+    "EA_MEMORIAL_VOICE_CONFIG_SHA256",
+    "EA_MEMORIAL_VOICE_IDENTITY_SHA256",
+    "EA_MEMORIAL_VOICE_MANIFEST_SHA256",
+    "EA_MEMORIAL_VOICE_REFERENCE_AGGREGATE_SHA256",
     "EA_PUBLIC_APP_BASE_URL",
     "EA_SIGNING_SECRET",
 }
@@ -1313,6 +1326,27 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
     image = raw_image
     image_id = raw_image_id
     try:
+        public_origin = _validate_public_base_url(
+            env["EA_PUBLIC_APP_BASE_URL"]
+        )
+    except (KeyError, ValueError) as exc:
+        raise RuntimeError("manfred_candidate_public_origin_invalid") from exc
+    try:
+        voice_identity = _voice_identity(
+            voice_config_sha256=env["EA_MEMORIAL_VOICE_CONFIG_SHA256"],
+            voice_manifest_sha256=env["EA_MEMORIAL_VOICE_MANIFEST_SHA256"],
+            voice_reference_aggregate_sha256=env[
+                "EA_MEMORIAL_VOICE_REFERENCE_AGGREGATE_SHA256"
+            ],
+            provider_voice_id_sha256=env[
+                "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256"
+            ],
+            tts_provider=env["EA_MEMORIAL_TTS_PROVIDER"],
+            tts_model=env["EA_MEMORIAL_TTS_MODEL"],
+        )
+    except (KeyError, ValueError) as exc:
+        raise RuntimeError("manfred_candidate_voice_identity_invalid") from exc
+    try:
         operator_gid = int(payload.get("projection_operator_gid"))
     except (TypeError, ValueError):
         operator_gid = -1
@@ -1330,6 +1364,8 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
         or not image_id.startswith("sha256:")
         or len(image_id) != 71
         or any(character not in "0123456789abcdef" for character in image_id[7:])
+        or image_id != env["EA_DEPLOY_IMAGE_ID"]
+        or payload.get("public_origin") != public_origin
         or str(payload.get("compose_project") or "")
         != env["EA_MANFRED_COMPOSE_PROJECT"]
         or operator_gid not in {os.getgid(), *os.getgroups()}
@@ -1338,6 +1374,12 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
         or env["EA_MANFRED_COMMIT"] != commit
         or env["EA_MANFRED_DEPLOYMENT_ID"]
         != f"{env['EA_MANFRED_COMPOSE_PROJECT']}-{commit[:12]}"
+        or env["EA_MEMORIAL_VOICE_IDENTITY_SHA256"]
+        != voice_identity["voice_identity_sha256"]
+        or any(
+            payload.get(name) != value for name, value in voice_identity.items()
+        )
+        or type(payload.get("voice_release_allowed")) is not bool
     ):
         raise RuntimeError("manfred_candidate_projection_receipt_mismatch")
     try:
@@ -1367,6 +1409,10 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
             expected_image_id=image_id,
             expected_project_name=env["EA_MANFRED_COMPOSE_PROJECT"],
             expected_public_origin=env["EA_PUBLIC_APP_BASE_URL"],
+            expected_voice_release_allowed=bool(
+                payload["voice_release_allowed"]
+            ),
+            expected_voice_identity=voice_identity,
         )
     except (OSError, ValueError) as exc:
         raise RuntimeError("manfred_candidate_release_authority_invalid") from exc
@@ -1380,7 +1426,10 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
         "projection_commit": commit,
         "prepared_image_locator": image,
         "prepared_image_id": image_id,
+        "public_origin": public_origin,
         "projection_tree_revalidated": True,
+        "voice_release_allowed": bool(payload["voice_release_allowed"]),
+        **voice_identity,
         "spatial_handoff": spatial,
         "release_authority": release_authority,
     }
@@ -2847,6 +2896,29 @@ def _assert_env_allowlist(
         != f"{env['EA_MANFRED_COMPOSE_PROJECT']}-{commit[:12]}"
     ):
         raise RuntimeError("manfred_candidate_release_identity_invalid")
+    try:
+        voice_identity = _voice_identity(
+            voice_config_sha256=env["EA_MEMORIAL_VOICE_CONFIG_SHA256"],
+            voice_manifest_sha256=env["EA_MEMORIAL_VOICE_MANIFEST_SHA256"],
+            voice_reference_aggregate_sha256=env[
+                "EA_MEMORIAL_VOICE_REFERENCE_AGGREGATE_SHA256"
+            ],
+            provider_voice_id_sha256=env[
+                "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256"
+            ],
+            tts_provider=env["EA_MEMORIAL_TTS_PROVIDER"],
+            tts_model=env["EA_MEMORIAL_TTS_MODEL"],
+        )
+    except (KeyError, ValueError) as exc:
+        raise RuntimeError("manfred_candidate_voice_env_invalid") from exc
+    if (
+        not IMAGE_ID_RE.fullmatch(env["EA_DEPLOY_IMAGE_ID"])
+        or env["EA_MEMORIAL_TTS_PROVIDER"] != MANFRED_TTS_PROVIDER
+        or env["EA_MEMORIAL_TTS_MODEL"] != MANFRED_TTS_MODEL
+        or env["EA_MEMORIAL_VOICE_IDENTITY_SHA256"]
+        != voice_identity["voice_identity_sha256"]
+    ):
+        raise RuntimeError("manfred_candidate_voice_env_invalid")
     included = env["EA_MANFRED_SPATIAL_HANDOFF_INCLUDED"]
     slug = env["EA_MANFRED_SPATIAL_SLUG"]
     digest = env["EA_MANFRED_SPATIAL_SHA256"]

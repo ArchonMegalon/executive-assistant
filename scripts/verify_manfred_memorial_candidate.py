@@ -609,6 +609,7 @@ class _ConversationOnlyDocumentParser(HTMLParser):
         self.voice_release = ""
         self.voice_access = ""
         self.operator_preview = ""
+        self.initial_visible_button_ids: list[str] = []
         self.forbidden_dom_semantics: set[str] = set()
         self._id_text: dict[str, list[str]] = {}
         self._labelled_elements: list[
@@ -617,6 +618,7 @@ class _ConversationOnlyDocumentParser(HTMLParser):
         self._open_text_elements: list[
             tuple[str, str, set[str], list[str]]
         ] = []
+        self._open_visibility_elements: list[tuple[str, bool]] = []
         self._suppressed_text_depth = 0
 
     def _record_forbidden_semantics(
@@ -664,6 +666,20 @@ class _ConversationOnlyDocumentParser(HTMLParser):
     def handle_endtag(self, tag: str) -> None:
         if tag in {"script", "style"} and self._suppressed_text_depth:
             self._suppressed_text_depth -= 1
+        visibility_index = next(
+            (
+                index
+                for index in range(
+                    len(self._open_visibility_elements) - 1,
+                    -1,
+                    -1,
+                )
+                if self._open_visibility_elements[index][0] == tag
+            ),
+            -1,
+        )
+        if visibility_index >= 0:
+            del self._open_visibility_elements[visibility_index:]
         matching_index = next(
             (
                 index
@@ -712,6 +728,16 @@ class _ConversationOnlyDocumentParser(HTMLParser):
         attributes = {
             str(key).casefold(): str(value or "") for key, value in attrs
         }
+        parent_hidden = bool(
+            self._open_visibility_elements
+            and self._open_visibility_elements[-1][1]
+        )
+        initially_hidden = bool(
+            parent_hidden
+            or "hidden" in attributes
+            or "inert" in attributes
+            or attributes.get("aria-hidden", "").strip().casefold() == "true"
+        )
         raw_ids = [
             str(value or "").strip()
             for key, value in attrs
@@ -854,6 +880,18 @@ class _ConversationOnlyDocumentParser(HTMLParser):
             self.voice_access = attributes.get("data-voice-access", "")
         if tag == "details" and "conversation-settings" in classes:
             self.conversation_settings_count += 1
+        if (
+            (
+                tag == "button"
+                or (
+                    tag == "input"
+                    and attributes.get("type", "").strip().casefold()
+                    in {"button", "image", "reset", "submit"}
+                )
+            )
+            and not initially_hidden
+        ):
+            self.initial_visible_button_ids.append(element_id)
         if tag == "input" and element_id == "memorial-personal-memory-optin":
             self.personal_memory_optin_count += 1
             self.personal_memory_optin_default_checked = "checked" in attributes
@@ -877,6 +915,7 @@ class _ConversationOnlyDocumentParser(HTMLParser):
             )
         if tag not in _HTML_VOID_ELEMENTS:
             self._open_text_elements.append((tag, element_id, classes, []))
+            self._open_visibility_elements.append((tag, initially_hidden))
         if tag in {"script", "style"}:
             self._suppressed_text_depth += 1
 
@@ -938,6 +977,14 @@ def verify_conversation_only_page_html(page_body: bytes) -> dict[str, object]:
         if parser.id_counts.get(element_id, 0) > 0
     )
     forbidden_dom_semantics = sorted(parser.forbidden_dom_semantics)
+    conversation_button_label = " ".join(
+        " ".join(parser._id_text.get("memorial-conversation", ())).split()
+    )
+    expected_conversation_button_label = (
+        "Gespräch beginnen"
+        if parser.voice_access == "public-release"
+        else "Frage schreiben"
+    )
     contract = {
         "status": "pass",
         "public_surface": parser.public_surface,
@@ -964,6 +1011,8 @@ def verify_conversation_only_page_html(page_body: bytes) -> dict[str, object]:
         "voice_release": parser.voice_release,
         "voice_access": parser.voice_access,
         "operator_preview": parser.operator_preview,
+        "initial_visible_button_ids": parser.initial_visible_button_ids,
+        "conversation_button_label": conversation_button_label,
         "missing_required_ids": missing_ids,
         "duplicate_ids": duplicate_ids,
         "present_forbidden_ids": present_forbidden_ids,
@@ -988,6 +1037,8 @@ def verify_conversation_only_page_html(page_body: bytes) -> dict[str, object]:
         or parser.memory_room_link_count != 0
         or parser.tour_link_count != 0
         or parser.operator_preview
+        or parser.initial_visible_button_ids != ["memorial-conversation"]
+        or conversation_button_label != expected_conversation_button_label
         or (parser.voice_release, parser.voice_access)
         not in {
             ("blocked", "text-only"),

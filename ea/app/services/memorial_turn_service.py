@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import concurrent.futures
 import time
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import HTTPException
@@ -12,9 +13,25 @@ from app.services.memorial_stt_error_log import classify_memorial_stt_issue, log
 from app.services.memorial_turn_runtime import MemorialTurnRuntime
 
 
-def transcribe_public_memorial_audio(*, runtime: MemorialTurnRuntime, payload: bytes, content_type: str) -> MemorialSpeechTranscription:
+def _authorize_provider_step(
+    authorize_provider_step: Callable[[str], None] | None,
+    step: str,
+) -> None:
+    if authorize_provider_step is not None:
+        authorize_provider_step(step)
+
+
+def transcribe_public_memorial_audio(
+    *,
+    runtime: MemorialTurnRuntime,
+    payload: bytes,
+    content_type: str,
+    authorize_provider_step: Callable[[str], None] | None = None,
+) -> MemorialSpeechTranscription:
+    _authorize_provider_step(authorize_provider_step, "stt")
     stt_started = time.perf_counter()
     result = dict(runtime.transcribe_audio_blob(payload=payload, content_type=content_type))
+    _authorize_provider_step(authorize_provider_step, "stt_result")
     stt_ms = (time.perf_counter() - stt_started) * 1000.0
     transcript_text = runtime.text(result.get("transcript_text"), "")
     effective_question = runtime.canonical_contact_opening_question(transcript_text)
@@ -37,7 +54,13 @@ def transcribe_public_memorial_audio(*, runtime: MemorialTurnRuntime, payload: b
     )
 
 
-def build_public_memorial_turn(*, runtime: MemorialTurnRuntime, request: MemorialTurnRequest, memory_runtime=None) -> MemorialTurnResult:
+def build_public_memorial_turn(
+    *,
+    runtime: MemorialTurnRuntime,
+    request: MemorialTurnRequest,
+    memory_runtime=None,
+    authorize_provider_step: Callable[[str], None] | None = None,
+) -> MemorialTurnResult:
     total_started = time.perf_counter()
     payload = runtime.load_memorial(request.slug)
     private_profile = runtime.load_private_profile(request.slug)
@@ -45,6 +68,7 @@ def build_public_memorial_turn(*, runtime: MemorialTurnRuntime, request: Memoria
         runtime=runtime,
         payload=request.audio_payload,
         content_type=request.content_type,
+        authorize_provider_step=authorize_provider_step,
     )
     transcript_text = transcription.transcript_effective_text
     if not transcript_text:
@@ -60,6 +84,7 @@ def build_public_memorial_turn(*, runtime: MemorialTurnRuntime, request: Memoria
         transcript_text=transcript_text,
         request=request,
         memory_runtime=memory_runtime,
+        authorize_provider_step=authorize_provider_step,
     )
     rendered_audio = _render_turn_audio(
         runtime=runtime,
@@ -67,6 +92,7 @@ def build_public_memorial_turn(*, runtime: MemorialTurnRuntime, request: Memoria
         payload=payload,
         request=request,
         answer_plan=answer_plan,
+        authorize_provider_step=authorize_provider_step,
     )
     if not bytes(rendered_audio.payload or b""):
         raise HTTPException(status_code=502, detail="tts_audio_missing")
@@ -119,6 +145,7 @@ def build_public_memorial_turn(*, runtime: MemorialTurnRuntime, request: Memoria
         pad_ms=rendered_audio.pad_ms,
         total_ms=(time.perf_counter() - total_started) * 1000.0,
     )
+    _authorize_provider_step(authorize_provider_step, "response")
     return MemorialTurnResult(response_payload=response_payload)
 
 
@@ -130,6 +157,7 @@ def _build_answer_plan(
     transcript_text: str,
     request: MemorialTurnRequest,
     memory_runtime=None,
+    authorize_provider_step: Callable[[str], None] | None = None,
 ) -> MemorialAnswerPlan:
     selected_model = runtime.resolve_voice_chat_model(payload, private_profile, transcript_text)
     llm_started = time.perf_counter()
@@ -144,7 +172,7 @@ def _build_answer_plan(
             "private_context_used": bool(runtime.list_of_dicts(private_profile.get("family_context_notes"))),
             "personal_memory_used": False,
             "difficult_memory_mode": bool(request.difficult_memory_mode),
-            "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
+            "safety_note": "KI-Rekonstruktion in Ich-Form: quellengebunden, synthetisch gesprochen und nicht der echte Manfred.",
             "llm_model": "memorial_guardrail",
             "llm_provider": "memorial_guardrail",
             "llm_request_model": selected_model,
@@ -152,6 +180,7 @@ def _build_answer_plan(
             "fallback_reason": "direct_contact_opening",
         }
     else:
+        _authorize_provider_step(authorize_provider_step, "llm")
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"memorial-turn-{request.slug}")
         future = executor.submit(
             runtime.memorial_chat_answer,
@@ -166,8 +195,10 @@ def _build_answer_plan(
         )
         try:
             answer_payload = future.result(timeout=runtime.memorial_conversation_turn_llm_timeout_seconds)
+            _authorize_provider_step(authorize_provider_step, "llm_result")
         except concurrent.futures.TimeoutError:
             future.cancel()
+            _authorize_provider_step(authorize_provider_step, "llm_fallback")
             answer_payload = runtime.memorial_chat_fallback_answer(
                 payload,
                 transcript_text,
@@ -183,6 +214,7 @@ def _build_answer_plan(
             answer_payload["llm_provider"] = "memorial_guardrail"
             answer_payload["llm_request_model"] = selected_model
             answer_payload["llm_fallback_used"] = True
+            _authorize_provider_step(authorize_provider_step, "llm_fallback_result")
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
     return MemorialAnswerPlan(
@@ -200,6 +232,7 @@ def _render_turn_audio(
     payload: dict[str, Any],
     request: MemorialTurnRequest,
     answer_plan: MemorialAnswerPlan,
+    authorize_provider_step: Callable[[str], None] | None = None,
 ) -> MemorialRenderedAudio:
     base_config = runtime.load_voice_config(slug)
     merged_config = dict(base_config)
@@ -229,6 +262,7 @@ def _render_turn_audio(
             else runtime.memorial_tts_lead_in_ms
         )
         tail_silence_ms = runtime.memorial_tts_tail_silence_ms
+    _authorize_provider_step(authorize_provider_step, "tts")
     tts_started = time.perf_counter()
     audio, audio_content_type = runtime.render_memorial_tts_audio(
         slug=slug,
@@ -240,6 +274,7 @@ def _render_turn_audio(
         lead_in_ms=0,
         tail_silence_ms=0,
     )
+    _authorize_provider_step(authorize_provider_step, "tts_result")
     if not bytes(audio or b""):
         raise HTTPException(status_code=502, detail="tts_audio_missing")
     if not runtime.text(audio_content_type, "").strip().lower().startswith("audio/"):

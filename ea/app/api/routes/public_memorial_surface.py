@@ -26,17 +26,19 @@ from app.api.routes.public_memorial_surface_support import (
     _memorial_bundle,
     _memorial_https_redirect,
     _memorial_transport_rejection,
+    _memorial_voice_review_http_session_payload,
     _memorial_archive_publication_html_path,
     _memorial_pwa_icon_file,
     _memorial_pwa_icon_svg,
     _memorial_pwa_manifest_payload,
     _memorial_pwa_service_worker,
     _memorial_video_call_avatar,
-    _prime_memorial_live_warmup_on_page_render,
     _public_memorial_archive_registry,
     _public_memorial_archive_registry_with_digest,
     _public_memorial_page_html,
     _public_memorial_payload,
+    _payload_with_slug,
+    _require_voice_consent,
     _safe_slug,
     _text,
     request_hostname,
@@ -560,12 +562,27 @@ def public_memorial_page(slug: str, request: Request) -> Response:
         payload = _load_public_surface_memorial(slug)
         private_profile = _load_private_profile(slug)
         hostname = request_hostname(request)
-        _prime_memorial_live_warmup_on_page_render(slug)
+        operator_preview_allowed = (
+            _memorial_voice_review_http_session_payload(
+                request,
+                slug=slug,
+                required_scope="page",
+                allow_originless_navigation=True,
+            )
+            is not None
+        )
+        if operator_preview_allowed:
+            _require_voice_consent(
+                _payload_with_slug(slug, payload),
+                "realtime",
+                operator_preview_allowed=True,
+            )
         response = HTMLResponse(
             _public_memorial_page_html(
                 payload,
                 private_profile=private_profile,
                 hostname=hostname,
+                operator_preview_allowed=operator_preview_allowed,
             ),
             headers=dict(_PUBLIC_MEMORIAL_HTML_HEADERS),
         )

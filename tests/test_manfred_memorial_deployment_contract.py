@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+from datetime import datetime, timezone
+import hashlib
 import json
 import os
 import stat
@@ -24,6 +26,84 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_PATH = ROOT / "deploy/manfred-memorial/docker-compose.candidate.yml"
 PROJECT = "ea-manfred-candidate-deployment-contract-a1b2c3d4"
 COMMIT = "a" * 40
+IMAGE_ID = "sha256:" + "b" * 64
+PROVIDER_VOICE_ID_SHA256 = "3" * 64
+
+
+def _hosted_clone_config_bytes(
+    *,
+    plugin_voice_id: str = candidate_prep.MANFRED_PROVIDER_VOICE_ID_PLACEHOLDER,
+    profile_voice_id: str = candidate_prep.MANFRED_PROVIDER_VOICE_ID_PLACEHOLDER,
+) -> bytes:
+    payload = json.loads(
+        (
+            ROOT
+            / "memorial_data/private_memorial_profiles/manfred/tts_voice.json"
+        ).read_bytes()
+    )
+    payload["tts_plugin_voice_id"] = plugin_voice_id
+    payload["voice_profile_id"] = profile_voice_id
+    return candidate_prep._receipt_bytes(payload)
+
+
+def _voice_identity() -> dict[str, str]:
+    return candidate_prep._voice_identity(
+        voice_config_sha256="4" * 64,
+        voice_manifest_sha256="5" * 64,
+        voice_reference_aggregate_sha256="6" * 64,
+        provider_voice_id_sha256=PROVIDER_VOICE_ID_SHA256,
+        tts_provider=candidate_prep.MANFRED_TTS_PROVIDER,
+        tts_model=candidate_prep.MANFRED_TTS_MODEL,
+    )
+
+
+def _voice_release_bytes(
+    *,
+    source_revision: str = COMMIT,
+    public_origin: str = "https://myexternalbrain.com",
+) -> bytes:
+    payload = {
+        "blocked_checks": [],
+        "contract_name": "ea.manfred_voice_release.v1",
+        "conversational_use_authorized": True,
+        "deployed_source_sha256": hashlib.sha256(
+            source_revision.encode("ascii")
+        ).hexdigest(),
+        "deployed_source_sha256_semantics": "sha256_ascii_source_revision",
+        "generated_at": (
+            datetime.now(timezone.utc)
+            .replace(microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z")
+        ),
+        "generated_by": "scripts/materialize_manfred_voice_release.py",
+        "head_semantics": "source_state",
+        "input_digest_semantics": "sha256_exact_input_bytes",
+        "memorial_slug": "manfred",
+        "operator_acceptance_receipt_sha256": "1" * 64,
+        "operator_acceptance_verified": True,
+        "premium_spoken_claim_allowed": True,
+        "public_origin": public_origin,
+        "public_synthetic_voice_authorized": True,
+        "readiness_receipt_sha256": "0" * 64,
+        "readiness_status": "ready_for_realtime_conversation_review",
+        "readiness_verified": True,
+        "realtime_conversation_claim_allowed": True,
+        "room_and_realtime_checks_verified": True,
+        "runtime_enablement_allowed": True,
+        "source_git_head": source_revision,
+        "source_material_authorized": True,
+        "source_revision": source_revision,
+        "source_state_fingerprint": "4" * 64,
+        "source_state_fingerprint_semantics": (
+            "worktree_source_files_sha256_excluding_generated_only_paths"
+        ),
+        "status": "released",
+        "voice_authority_receipt_sha256": "2" * 64,
+        "voice_authority_revoked": False,
+        "voice_authority_verified": True,
+    }
+    return candidate_prep._receipt_bytes(payload)
 
 
 def test_production_memorial_compose_is_image_pure_and_numeric_nonroot() -> None:
@@ -44,6 +124,154 @@ def test_production_memorial_compose_is_image_pure_and_numeric_nonroot() -> None
         "./scripts/",
     ):
         assert forbidden not in raw
+    for required_binding in (
+        "EA_DEPLOY_IMAGE_ID",
+        "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256",
+        "EA_MEMORIAL_TTS_MODEL",
+        "EA_MEMORIAL_TTS_PROVIDER",
+        "EA_MEMORIAL_VOICE_CONFIG_SHA256",
+        "EA_MEMORIAL_VOICE_IDENTITY_SHA256",
+        "EA_MEMORIAL_VOICE_MANIFEST_SHA256",
+        "EA_MEMORIAL_VOICE_REFERENCE_AGGREGATE_SHA256",
+    ):
+        assert raw.count(f"${{{required_binding}:-}}") == 1
+
+
+def test_hosted_clone_manifest_is_deterministic_private_and_reference_free() -> None:
+    config_bytes = _hosted_clone_config_bytes()
+    first_bytes, first_identity = candidate_prep._hosted_clone_voice_binding(
+        voice_config_bytes=config_bytes,
+        provider_voice_id_sha256=PROVIDER_VOICE_ID_SHA256,
+        tts_provider=candidate_prep.MANFRED_TTS_PROVIDER,
+        tts_model=candidate_prep.MANFRED_TTS_MODEL,
+    )
+    second_bytes, second_identity = candidate_prep._hosted_clone_voice_binding(
+        voice_config_bytes=config_bytes,
+        provider_voice_id_sha256=PROVIDER_VOICE_ID_SHA256,
+        tts_provider=candidate_prep.MANFRED_TTS_PROVIDER,
+        tts_model=candidate_prep.MANFRED_TTS_MODEL,
+    )
+    manifest = json.loads(first_bytes)
+    empty_reference_sha256 = hashlib.sha256(b"[]").hexdigest()
+
+    assert first_bytes == second_bytes
+    assert first_identity == second_identity
+    assert manifest == {
+        "schema": candidate_prep.HOSTED_CLONE_VOICE_MANIFEST_SCHEMA,
+        "generated_by": "scripts/prepare_manfred_memorial_candidate.py",
+        "memorial_slug": "manfred",
+        "provider_managed_hosted_clone": True,
+        "no_local_reference_assets": True,
+        "reference_assets": [],
+        "voice_config_sha256": hashlib.sha256(config_bytes).hexdigest(),
+        "voice_artifact_digest_semantics": "sha256_exact_file_bytes",
+        "voice_reference_aggregate_sha256": empty_reference_sha256,
+        "voice_reference_aggregate_sha256_semantics": (
+            "sha256_canonical_json_utf8_sorted_reference_sha256_list_v1"
+        ),
+        "provider_voice_id_sha256": PROVIDER_VOICE_ID_SHA256,
+        "provider_voice_id_sha256_semantics": "sha256_utf8_provider_voice_id",
+        "tts_provider": "unmixr_clone",
+        "tts_model": "unmixr",
+        "raw_provider_voice_id_recorded": False,
+        "provider_credentials_recorded": False,
+    }
+    assert first_identity["voice_manifest_sha256"] == hashlib.sha256(
+        first_bytes
+    ).hexdigest()
+    assert (
+        first_identity["voice_reference_aggregate_sha256"]
+        == empty_reference_sha256
+    )
+    assert candidate_prep.MANFRED_PROVIDER_VOICE_ID_PLACEHOLDER not in first_bytes.decode(
+        "utf-8"
+    )
+
+
+@pytest.mark.parametrize(
+    ("plugin_voice_id", "profile_voice_id"),
+    [
+        ("raw-provider-id", candidate_prep.MANFRED_PROVIDER_VOICE_ID_PLACEHOLDER),
+        (candidate_prep.MANFRED_PROVIDER_VOICE_ID_PLACEHOLDER, "raw-provider-id"),
+    ],
+)
+def test_hosted_clone_manifest_rejects_raw_or_conflicting_provider_ids(
+    plugin_voice_id: str,
+    profile_voice_id: str,
+) -> None:
+    with pytest.raises(ValueError, match="manfred_candidate_voice_config_invalid"):
+        candidate_prep._hosted_clone_voice_binding(
+            voice_config_bytes=_hosted_clone_config_bytes(
+                plugin_voice_id=plugin_voice_id,
+                profile_voice_id=profile_voice_id,
+            ),
+            provider_voice_id_sha256=PROVIDER_VOICE_ID_SHA256,
+            tts_provider=candidate_prep.MANFRED_TTS_PROVIDER,
+            tts_model=candidate_prep.MANFRED_TTS_MODEL,
+        )
+
+
+@pytest.mark.parametrize(
+    "field_path",
+    [
+        ("api_key",),
+        ("voice_consent", "clone_id"),
+    ],
+    ids=("api-key-extra", "nested-clone-id-extra"),
+)
+def test_hosted_clone_config_rejects_secret_or_raw_provider_id_fields(
+    field_path: tuple[str, ...],
+) -> None:
+    payload = json.loads(_hosted_clone_config_bytes())
+    if field_path == ("api_key",):
+        payload["api_key"] = "must-not-be-present"
+    else:
+        consent = payload["voice_consent"]
+        assert isinstance(consent, dict)
+        consent["clone_id"] = "must-not-be-present"
+
+    with pytest.raises(
+        ValueError,
+        match="manfred_candidate_voice_config_secret_field_forbidden",
+    ):
+        candidate_prep._hosted_clone_voice_binding(
+            voice_config_bytes=candidate_prep._receipt_bytes(payload),
+            provider_voice_id_sha256=PROVIDER_VOICE_ID_SHA256,
+            tts_provider=candidate_prep.MANFRED_TTS_PROVIDER,
+            tts_model=candidate_prep.MANFRED_TTS_MODEL,
+        )
+
+
+def test_candidate_release_authority_snapshot_rejects_path_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "authority"
+    root.mkdir()
+    payload = root / "receipt.json"
+    payload.write_bytes(b'{"status":"pass"}\n')
+    original_read = candidate_prep.os.read
+    replaced = False
+
+    def replace_after_read(descriptor: int, size: int) -> bytes:
+        nonlocal replaced
+        content = original_read(descriptor, size)
+        if content and not replaced:
+            replaced = True
+            payload.rename(root / "receipt.original.json")
+            payload.write_bytes(content)
+            (root / "receipt.original.json").unlink()
+        return content
+
+    monkeypatch.setattr(candidate_prep.os, "read", replace_after_read)
+    with pytest.raises(
+        ValueError,
+        match="manfred_candidate_release_authority_files_changed",
+    ):
+        candidate_prep._candidate_release_authority_snapshot(
+            root,
+            expected_names={"receipt.json"},
+        )
 
 
 def test_projection_digest_matches_the_in_container_verifier(tmp_path: Path) -> None:
@@ -1005,10 +1233,17 @@ def test_candidate_spatial_review_inputs_are_explicit_and_threaded(
             str(tmp_path / "final.json"),
             "--spatial-browser-review-receipt",
             str(tmp_path / "browser.json"),
+            "--provider-voice-id-sha256",
+            PROVIDER_VOICE_ID_SHA256,
+            "--tts-provider",
+            candidate_prep.MANFRED_TTS_PROVIDER,
+            "--tts-model",
+            candidate_prep.MANFRED_TTS_MODEL,
         ]
     )
     assert parser_args.spatial_final_review_receipt == str(tmp_path / "final.json")
     assert parser_args.spatial_browser_review_receipt == str(tmp_path / "browser.json")
+    assert parser_args.voice_release_receipt is None
 
     monkeypatch.setattr(candidate_prep, "_commit", lambda *_args: COMMIT)
     monkeypatch.setattr(
@@ -1041,6 +1276,9 @@ def test_candidate_spatial_review_inputs_are_explicit_and_threaded(
             spatial_authority_receipt=tmp_path / "authority.json",
             spatial_final_review_receipt=tmp_path / "review" / ".." / "final.json",
             spatial_browser_review_receipt=tmp_path / "browser.json",
+            provider_voice_id_sha256=PROVIDER_VOICE_ID_SHA256,
+            tts_provider=candidate_prep.MANFRED_TTS_PROVIDER,
+            tts_model=candidate_prep.MANFRED_TTS_MODEL,
         )
 
     assert captured == {
@@ -1101,6 +1339,9 @@ def test_candidate_spatial_review_inputs_fail_closed_as_one_set(
             public_base_url="https://memorial.example.at",
             host_port=18090,
             project_name=PROJECT,
+            provider_voice_id_sha256=PROVIDER_VOICE_ID_SHA256,
+            tts_provider=candidate_prep.MANFRED_TTS_PROVIDER,
+            tts_model=candidate_prep.MANFRED_TTS_MODEL,
             **spatial_inputs,
         )
 
@@ -1118,6 +1359,8 @@ def test_candidate_env_is_allowlisted_private_and_idempotent(tmp_path: Path) -> 
         host_port=18090,
         project_name=PROJECT,
         commit=COMMIT,
+        image_id=IMAGE_ID,
+        voice_identity=_voice_identity(),
     )
     first = candidate_prep._parse_env(env_path)
     candidate_prep._write_env(
@@ -1129,6 +1372,8 @@ def test_candidate_env_is_allowlisted_private_and_idempotent(tmp_path: Path) -> 
         host_port=18090,
         project_name=PROJECT,
         commit=COMMIT,
+        image_id=IMAGE_ID,
+        voice_identity=_voice_identity(),
     )
     second = candidate_prep._parse_env(env_path)
 
@@ -1140,6 +1385,18 @@ def test_candidate_env_is_allowlisted_private_and_idempotent(tmp_path: Path) -> 
     )
     assert second["DATABASE_URL"].startswith("postgresql://ea:")
     assert "+psycopg" not in second["DATABASE_URL"]
+    assert second["EA_DEPLOY_IMAGE_ID"] == IMAGE_ID
+    assert second["EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256"] == (
+        PROVIDER_VOICE_ID_SHA256
+    )
+    assert second["EA_MEMORIAL_TTS_PROVIDER"] == "unmixr_clone"
+    assert second["EA_MEMORIAL_TTS_MODEL"] == "unmixr"
+    assert second["EA_MEMORIAL_VOICE_CONFIG_SHA256"] == "4" * 64
+    assert second["EA_MEMORIAL_VOICE_MANIFEST_SHA256"] == "5" * 64
+    assert second["EA_MEMORIAL_VOICE_REFERENCE_AGGREGATE_SHA256"] == "6" * 64
+    assert second["EA_MEMORIAL_VOICE_IDENTITY_SHA256"] == _voice_identity()[
+        "voice_identity_sha256"
+    ]
     assert (
         not {
             "UNMIXR_API_KEY",
@@ -1162,6 +1419,8 @@ def test_candidate_env_is_allowlisted_private_and_idempotent(tmp_path: Path) -> 
             host_port=18090,
             project_name=PROJECT,
             commit=COMMIT,
+            image_id=IMAGE_ID,
+            voice_identity=_voice_identity(),
             rotate_secrets=True,
         )
     assert env_path.read_bytes() == existing_bytes
@@ -1176,6 +1435,8 @@ def test_candidate_env_is_allowlisted_private_and_idempotent(tmp_path: Path) -> 
         host_port=18090,
         project_name=PROJECT,
         commit=COMMIT,
+        image_id=IMAGE_ID,
+        voice_identity=_voice_identity(),
         rotate_secrets=True,
     )
     rotated = candidate_prep._parse_env(rotated_path)
@@ -1239,16 +1500,40 @@ def test_candidate_release_authority_bundle_is_commit_bound_and_runtime_safe(
         public_origin="https://myexternalbrain.com",
         generated_at="2026-07-14T00:00:00Z",
         public_artifacts=["public_memorials/manfred/memorial.json"],
+        voice_identity=_voice_identity(),
+        voice_release_bytes=None,
     )
 
     assert evidence["runtime_authority_state"] == "clear"
     assert evidence["runtime_authority_posture"] == "authoritative_runtime"
     assert evidence["promotion_authority"] is False
-    paths = candidate_prep._candidate_release_authority_paths(authority_root)
+    assert evidence["voice_release_allowed"] is False
+    assert evidence["descriptor_stable_read"] is True
+    assert evidence["candidate_provider_boundary"] == (
+        candidate_prep.MANFRED_PROVIDER_FREE_CANDIDATE_BOUNDARY
+    )
+    assert evidence["final_voice_promotion_requires_live_review"] is True
+    assert evidence["final_voice_promotion_review_surface"] == (
+        candidate_prep.MANFRED_PHASE_1_LIVE_REVIEW_SURFACE
+    )
+    assert evidence["phase_1_live_review_verified"] is False
+    paths = candidate_prep._candidate_release_authority_paths(
+        authority_root,
+        voice_release_included=False,
+    )
     assert set(path.name for path in authority_root.iterdir()) == {
         path.name for path in paths.values()
     }
-    assert all(stat.S_IMODE(path.stat().st_mode) == 0o444 for path in paths.values())
+    assert all(
+        stat.S_IMODE(path.stat().st_mode) == 0o444
+        for path in paths.values()
+    )
+    assert "voice_release" not in paths
+    assert "voice_release" not in evidence["documents"]
+    assert not (
+        authority_root
+        / candidate_prep.CANDIDATE_RELEASE_AUTHORITY_FILENAMES["voice_release"]
+    ).exists()
     status = json.loads(paths["release_status"].read_text(encoding="utf-8"))
     assert status["commit_sha"] == COMMIT
     assert status["state"] == "clear"
@@ -1272,7 +1557,104 @@ def test_candidate_release_authority_bundle_is_commit_bound_and_runtime_safe(
             expected_image_id=image_id,
             expected_project_name=PROJECT,
             expected_public_origin="https://myexternalbrain.com",
+            expected_voice_release_allowed=False,
+            expected_voice_identity=_voice_identity(),
         )
+
+
+def test_candidate_release_authority_includes_final_voice_receipt_only_when_bound(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    authority_root = tmp_path / "release-authority"
+    project_modes = {
+        "contract_name": "ea.project_modes",
+        "generated_at": "stale",
+        "generated_by": "fixture",
+        "source_git_head": "b" * 40,
+        "head_semantics": "source_state",
+        "modes": [
+            {"key": "MEMORIAL", "status": "separate_risk_zone"},
+            {"key": "PROPERTY", "status": "separate_product_plane"},
+        ],
+    }
+    monkeypatch.setattr(
+        candidate_prep,
+        "_git_blob",
+        lambda *_args, **_kwargs: candidate_prep._receipt_bytes(project_modes),
+    )
+    monkeypatch.setattr(
+        candidate_prep,
+        "_candidate_remote_main_evidence",
+        lambda *_args, **_kwargs: {
+            "source_head_commit_sha": COMMIT,
+            "source_head_matches_candidate_commit": True,
+            "source_remote_ref": "refs/remotes/origin/main",
+            "source_remote_ref_commit_sha": COMMIT,
+            "source_remote_ref_evidence": "local_remote_tracking_ref",
+            "source_commit_reachable_from_remote_ref": True,
+            "git_remote_origin": candidate_prep.OFFICIAL_EA_REMOTE_ORIGIN,
+            "live_remote_ref": "refs/heads/main",
+            "live_remote_ref_commit_sha": COMMIT,
+            "live_remote_ref_evidence": candidate_prep.LIVE_REMOTE_REF_EVIDENCE,
+        },
+    )
+    evaluator_calls: list[dict[str, object]] = []
+
+    def evaluate(**kwargs: object) -> dict[str, object]:
+        evaluator_calls.append(dict(kwargs))
+        return {"allowed": True, "reason": "released"}
+
+    monkeypatch.setattr(
+        candidate_prep,
+        "evaluate_memorial_voice_release_payload",
+        evaluate,
+    )
+    voice_release_bytes = candidate_prep._receipt_bytes(
+        {
+            "contract_name": "fixture.signed.voice.release",
+            "operator_acceptance_verified": True,
+            "operator_acceptance_review_surface": (
+                candidate_prep.MANFRED_PHASE_1_LIVE_REVIEW_SURFACE
+            ),
+        }
+    )
+
+    evidence = candidate_prep._materialize_candidate_release_authority(
+        root=authority_root,
+        source_root=tmp_path,
+        commit=COMMIT,
+        image_id=IMAGE_ID,
+        image_revision=COMMIT,
+        project_name=PROJECT,
+        public_origin="https://myexternalbrain.com",
+        generated_at="2026-07-14T00:00:00Z",
+        public_artifacts=["public_memorials/manfred/memorial.json"],
+        voice_identity=_voice_identity(),
+        voice_release_bytes=voice_release_bytes,
+    )
+
+    voice_path = (
+        authority_root
+        / candidate_prep.CANDIDATE_RELEASE_AUTHORITY_FILENAMES["voice_release"]
+    )
+    assert evidence["voice_release_allowed"] is True
+    assert evidence["phase_1_live_review_verified"] is True
+    assert voice_path.read_bytes() == voice_release_bytes
+    assert stat.S_IMODE(voice_path.stat().st_mode) == 0o400
+    assert len(evaluator_calls) == 2
+    for call in evaluator_calls:
+        assert call["expected_image_id"] == IMAGE_ID
+        assert call["expected_source_revision"] == COMMIT
+        assert call["expected_public_origin"] == "https://myexternalbrain.com"
+        assert call["expected_voice_config_sha256"] == "4" * 64
+        assert call["expected_voice_manifest_sha256"] == "5" * 64
+        assert call["expected_voice_reference_aggregate_sha256"] == "6" * 64
+        assert call["expected_provider_voice_id_sha256"] == (
+            PROVIDER_VOICE_ID_SHA256
+        )
+        assert call["expected_tts_provider"] == "unmixr_clone"
+        assert call["expected_tts_model"] == "unmixr"
 
 
 def test_candidate_remote_main_evidence_queries_exact_official_live_ref(
@@ -1700,20 +2082,45 @@ def test_manfred_public_page_uses_scoped_talk_only_minimal_theme() -> None:
     assert 'id="memorial-story"' not in conversation_only_html
     assert 'id="memorial-contribution"' not in conversation_only_html
     assert 'id="memorial-install-hint"' not in conversation_only_html
-    assert conversation_only_html.count('<details class="conversation-settings">') == 1
+    assert (
+        conversation_only_html.count(
+            '<details class="conversation-settings" hidden inert aria-hidden="true">'
+        )
+        == 1
+    )
     assert "<summary>Datenschutz und Gespräch</summary>" in conversation_only_html
     assert (
         '<input type="checkbox" id="memorial-personal-memory-optin" '
         'disabled aria-disabled="true">'
         in conversation_only_html
     )
-    assert 'id="memorial-conversation"' in conversation_only_html
-    assert 'id="memorial-text-turn-form"' in conversation_only_html
+    assert (
+        'id="memorial-conversation" class="hero-cta is-readying" '
+        'data-hero-action="conversation" title="Gespräch beginnen" '
+        'aria-label="Gespräch beginnen"'
+        in conversation_only_html
+    )
+    assert (
+        'id="memorial-text-turn-form" method="post" '
+        'action="/memorials/manfred/chat" hidden inert aria-hidden="true"'
+        in conversation_only_html
+    )
     assert '<html lang="de-AT">' in conversation_only_html
     assert 'placeholder="Was möchtest du fragen?"' in conversation_only_html
-    assert 'id="memorial-speech-note" hidden' in conversation_only_html
+    assert (
+        'id="memorial-speech-note" hidden inert aria-hidden="true"'
+        in conversation_only_html
+    )
     assert 'id="memorial-retry-button"' in conversation_only_html
-    assert 'id="memorial-speech-transcript" role="log"' in conversation_only_html
+    assert (
+        'id="memorial-speech-transcript-shell" hidden inert aria-hidden="true"'
+        in conversation_only_html
+    )
+    assert 'if (!memorialConversationOnly) activateProtectedForm(textTurnForm);' in conversation_only_html
+    assert (
+        "!memorialConversationOnly && memorialVoiceReleaseAllowed && isPwaLaunch"
+        in conversation_only_html
+    )
     rendered_contract = candidate_verify.verify_conversation_only_page_html(
         conversation_only_html.encode("utf-8")
     )
@@ -1739,6 +2146,8 @@ def test_manfred_public_page_uses_scoped_talk_only_minimal_theme() -> None:
         "voice_release": "available",
         "voice_access": "public-release",
         "operator_preview": "",
+        "initial_visible_button_ids": ["memorial-conversation"],
+        "conversation_button_label": "Gespräch beginnen",
         "missing_required_ids": [],
         "duplicate_ids": [],
         "present_forbidden_ids": [],
@@ -1974,7 +2383,8 @@ def test_candidate_conversation_surface_accepts_benign_semantics_and_navigation(
         "<div><h2>Gesprächshinweis</h2>"
         "<p>Text und Stimme bleiben verfügbar.</p></div>"
         '<label for="neutral-control">Antwortmodus</label>'
-        '<input id="neutral-control" type="button" value="Öffnen">'
+        '<input id="neutral-control" type="button" value="Öffnen" '
+        'hidden inert aria-hidden="true">'
         '<svg aria-hidden="true"><use href="#safe-icon"></use></svg>'
         '<a href="https://example.com/help" title="Weitere Hilfe">Hilfe</a>'
     )
@@ -1985,6 +2395,40 @@ def test_candidate_conversation_surface_accepts_benign_semantics_and_navigation(
             benign_html.encode("utf-8")
         )["status"]
         == "pass"
+    )
+
+
+def test_candidate_conversation_surface_rejects_second_initial_button() -> None:
+    from app.api.routes import public_memorials
+
+    page_html = public_memorials._minimal_public_memorial_html(
+        slug="manfred",
+        person_name="Manfred Hoza",
+        page_title="Erinnerungen an Manfred Hoza",
+        subtitle="Ein ruhiger Ort für ein Gespräch über Manfred.",
+        memorial_avatar_url="/memorials/manfred/icon-180.png",
+        pwa_short_name="Manfred",
+        clickrank_html="",
+        story_html="",
+        conversation_only=True,
+    )
+    page_html = page_html.replace(
+        "</body>",
+        '<button id="unexpected-action" type="button">Weitere Aktion</button></body>',
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="candidate_conversation_surface_invalid",
+    ) as caught:
+        candidate_verify.verify_conversation_only_page_html(
+            page_html.encode("utf-8")
+        )
+
+    assert (
+        '"initial_visible_button_ids":'
+        '["memorial-conversation","unexpected-action"]'
+        in str(caught.value)
     )
 
 

@@ -2302,7 +2302,12 @@ def test_public_memorial_page_retains_in_panel_privacy_controls_default_off(
 
     assert response.status_code == 200
     body = response.text
-    assert body.count('<details class="conversation-settings">') == 1
+    assert (
+        body.count(
+            '<details class="conversation-settings" hidden inert aria-hidden="true">'
+        )
+        == 1
+    )
     assert "<summary>Datenschutz und Gespräch</summary>" in body
     assert 'id="memorial-autostart-optin"' in body
     assert (

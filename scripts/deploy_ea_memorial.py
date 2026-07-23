@@ -81,25 +81,35 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
 
 try:
     from scripts.prepare_manfred_memorial_candidate import (
+        CANDIDATE_RELEASE_AUTHORITY_DIRNAME,
         PROPERTY_ARTIFACT_COMMIT,
         PROPERTY_AUTHORITY_SHA256,
         PROPERTY_PRE_AUTHORITY_SHA256,
         PROPERTY_TOUR_SHA256,
+        MANFRED_TTS_MODEL,
+        MANFRED_TTS_PROVIDER,
         _spatial_package_sha256,
         _spatial_tree_snapshot,
         _tree_digest as _candidate_projection_tree_digest,
+        _validate_candidate_release_authority_bundle,
+        _voice_identity,
     )
 except ModuleNotFoundError as exc:  # pragma: no cover - direct script execution
     if exc.name not in {"scripts", "scripts.prepare_manfred_memorial_candidate"}:
         raise
     from prepare_manfred_memorial_candidate import (  # type: ignore[no-redef]
+        CANDIDATE_RELEASE_AUTHORITY_DIRNAME,
         PROPERTY_ARTIFACT_COMMIT,
         PROPERTY_AUTHORITY_SHA256,
         PROPERTY_PRE_AUTHORITY_SHA256,
         PROPERTY_TOUR_SHA256,
+        MANFRED_TTS_MODEL,
+        MANFRED_TTS_PROVIDER,
         _spatial_package_sha256,
         _spatial_tree_snapshot,
         _tree_digest as _candidate_projection_tree_digest,
+        _validate_candidate_release_authority_bundle,
+        _voice_identity,
     )
 
 try:
@@ -197,7 +207,15 @@ OPENAPI_COMPATIBLE_EVOLUTION_POLICY_ID = (
 )
 OPENAPI_COMPATIBLE_EVOLUTION_ALLOWED_OPERATIONS = ("GET /version",)
 FORWARD_ONLY_ENV_KEYS = {
+    "EA_DEPLOY_IMAGE_ID",
     "EA_MEMORIAL_IMAGE",
+    "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256",
+    "EA_MEMORIAL_TTS_MODEL",
+    "EA_MEMORIAL_TTS_PROVIDER",
+    "EA_MEMORIAL_VOICE_CONFIG_SHA256",
+    "EA_MEMORIAL_VOICE_IDENTITY_SHA256",
+    "EA_MEMORIAL_VOICE_MANIFEST_SHA256",
+    "EA_MEMORIAL_VOICE_REFERENCE_AGGREGATE_SHA256",
     "EA_SOURCE_REVISION",
     "EA_DEPLOYMENT_ID",
     "EA_DEPLOYMENT_ID_SOURCE",
@@ -8010,6 +8028,32 @@ class MemorialDeployLane:
 
         image_reference = str(candidate.get("reference") or "")
         image_id = str(candidate.get("image_id") or "")
+        try:
+            voice_identity = _voice_identity(
+                voice_config_sha256=str(
+                    payload.get("voice_config_sha256") or ""
+                ),
+                voice_manifest_sha256=str(
+                    payload.get("voice_manifest_sha256") or ""
+                ),
+                voice_reference_aggregate_sha256=str(
+                    payload.get("voice_reference_aggregate_sha256") or ""
+                ),
+                provider_voice_id_sha256=str(
+                    payload.get("provider_voice_id_sha256") or ""
+                ),
+                tts_provider=str(payload.get("tts_provider") or ""),
+                tts_model=str(payload.get("tts_model") or ""),
+            )
+        except ValueError:
+            voice_identity = {}
+        try:
+            candidate_public_origin = _validate_public_origin(
+                str(payload.get("public_origin") or ""),
+                allowed_hosts=self.allowed_public_hosts,
+            )
+        except DeployError:
+            candidate_public_origin = ""
         container_id_pattern = re.compile(r"^[0-9a-f]{64}$")
         expected_projection_count = payload.get("projection_file_count")
         expected_projection_bytes = payload.get("projection_bytes")
@@ -8024,6 +8068,7 @@ class MemorialDeployLane:
             {
                 "DATABASE_URL",
                 "EA_API_TOKEN",
+                "EA_DEPLOY_IMAGE_ID",
                 "EA_MANFRED_COMPOSE_PROJECT",
                 "EA_MANFRED_COMMIT",
                 "EA_MANFRED_DEPLOYMENT_ID",
@@ -8038,6 +8083,13 @@ class MemorialDeployLane:
                 "EA_MANFRED_SPATIAL_RELEASE_ROOT",
                 "EA_MANFRED_SPATIAL_SHA256",
                 "EA_MANFRED_SPATIAL_SLUG",
+                "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256",
+                "EA_MEMORIAL_TTS_MODEL",
+                "EA_MEMORIAL_TTS_PROVIDER",
+                "EA_MEMORIAL_VOICE_CONFIG_SHA256",
+                "EA_MEMORIAL_VOICE_IDENTITY_SHA256",
+                "EA_MEMORIAL_VOICE_MANIFEST_SHA256",
+                "EA_MEMORIAL_VOICE_REFERENCE_AGGREGATE_SHA256",
                 "EA_PUBLIC_APP_BASE_URL",
                 "EA_SIGNING_SECRET",
             }
@@ -8678,6 +8730,16 @@ class MemorialDeployLane:
             != str(candidate.get("reference") or "")
             or str(payload.get("prepared_image_id") or "")
             != str(candidate.get("image_id") or "")
+            or not voice_identity
+            or any(
+                payload.get(name) != value
+                for name, value in voice_identity.items()
+            )
+            or voice_identity.get("tts_provider") != MANFRED_TTS_PROVIDER
+            or voice_identity.get("tts_model") != MANFRED_TTS_MODEL
+            or not candidate_public_origin
+            or payload.get("public_origin") != candidate_public_origin
+            or type(payload.get("voice_release_allowed")) is not bool
             or payload.get("projection_tree_revalidated") is not True
             or type(expected_projection_count) is not int
             or int(expected_projection_count) < 0
@@ -8859,6 +8921,47 @@ class MemorialDeployLane:
             or expected_projection_bytes != projection_bytes
         ):
             raise DeployError("memorial_candidate_projection_digest_mismatch")
+        voice_release_authority: dict[str, object] = {}
+        if payload["voice_release_allowed"] is True:
+            try:
+                voice_release_authority = (
+                    _validate_candidate_release_authority_bundle(
+                        expected_data_root
+                        / CANDIDATE_RELEASE_AUTHORITY_DIRNAME,
+                        expected_commit=source_revision,
+                        expected_image_id=image_id,
+                        expected_project_name=candidate_project,
+                        expected_public_origin=candidate_public_origin,
+                        expected_voice_release_allowed=True,
+                        expected_voice_identity=voice_identity,
+                    )
+                )
+            except (OSError, ValueError) as exc:
+                raise DeployError(
+                    "memorial_candidate_voice_release_authority_invalid"
+                ) from exc
+        self.release_env.update(
+            {
+                "EA_DEPLOY_IMAGE_ID": image_id,
+                "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256": voice_identity[
+                    "provider_voice_id_sha256"
+                ],
+                "EA_MEMORIAL_TTS_MODEL": voice_identity["tts_model"],
+                "EA_MEMORIAL_TTS_PROVIDER": voice_identity["tts_provider"],
+                "EA_MEMORIAL_VOICE_CONFIG_SHA256": voice_identity[
+                    "voice_config_sha256"
+                ],
+                "EA_MEMORIAL_VOICE_IDENTITY_SHA256": voice_identity[
+                    "voice_identity_sha256"
+                ],
+                "EA_MEMORIAL_VOICE_MANIFEST_SHA256": voice_identity[
+                    "voice_manifest_sha256"
+                ],
+                "EA_MEMORIAL_VOICE_REFERENCE_AGGREGATE_SHA256": voice_identity[
+                    "voice_reference_aggregate_sha256"
+                ],
+            }
+        )
         evidence = {
             "path": str(path),
             "sha256": hashlib.sha256(raw).hexdigest(),
@@ -8867,11 +8970,17 @@ class MemorialDeployLane:
             "image": str(candidate.get("reference") or ""),
             "image_id": str(candidate.get("image_id") or ""),
             "source_revision": source_revision,
+            "public_origin": candidate_public_origin,
             "release_root": str(candidate_release_root),
             "runtime_revision_matches_image": True,
             "image_locator_revalidated": True,
             "live_ea_unchanged": True,
             "provider_calls_performed": False,
+            "voice_release_allowed": bool(payload["voice_release_allowed"]),
+            "voice_identity": voice_identity,
+            "voice_release_authority_revalidated": bool(
+                voice_release_authority
+            ),
             "projection": {
                 "release_id": expected_data_root.name,
                 "release_root": str(expected_data_root),
@@ -10653,12 +10762,16 @@ class MemorialDeployLane:
             deployment_input_seal=deployment_input_seal
         )
         self._require_deployment_input_seal(deployment_input_seal)
-        target_mounts = self._validate_compose(candidate=candidate)
-        self._require_deployment_input_seal(deployment_input_seal)
         public_origin = _validate_public_origin(
             str(authority.get("public_origin") or ""),
             allowed_hosts=self.allowed_public_hosts,
         )
+        if candidate_promotion.get("public_origin") != public_origin:
+            raise DeployError("memorial_candidate_public_origin_mismatch")
+        candidate_promotion["live_authority_public_origin"] = public_origin
+        candidate_promotion["public_origin_matches_live_authority"] = True
+        target_mounts = self._validate_compose(candidate=candidate)
+        self._require_deployment_input_seal(deployment_input_seal)
         non_memorial_controls = self._capture_non_memorial_controls(
             public_origin=public_origin,
             expected_source_revision=str(previous["source_revision"]),

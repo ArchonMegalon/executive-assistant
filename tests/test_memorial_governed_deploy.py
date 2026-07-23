@@ -1910,6 +1910,14 @@ def _lane(
     )
     projection_bytes = sum(int(row["size_bytes"]) for row in projection_files)
     source_revision = "b" * 40
+    voice_identity = deploy._voice_identity(
+        voice_config_sha256="4" * 64,
+        voice_manifest_sha256="5" * 64,
+        voice_reference_aggregate_sha256="6" * 64,
+        provider_voice_id_sha256="7" * 64,
+        tts_provider=deploy.MANFRED_TTS_PROVIDER,
+        tts_model=deploy.MANFRED_TTS_MODEL,
+    )
     api_container_id = "1" * 64
     gateway_container_id = "2" * 64
     candidate_images = {
@@ -1977,6 +1985,7 @@ def _lane(
         {
             "DATABASE_URL",
             "EA_API_TOKEN",
+            "EA_DEPLOY_IMAGE_ID",
             "EA_MANFRED_COMPOSE_PROJECT",
             "EA_MANFRED_COMMIT",
             "EA_MANFRED_DEPLOYMENT_ID",
@@ -1991,6 +2000,13 @@ def _lane(
             "EA_MANFRED_SPATIAL_RELEASE_ROOT",
             "EA_MANFRED_SPATIAL_SHA256",
             "EA_MANFRED_SPATIAL_SLUG",
+            "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256",
+            "EA_MEMORIAL_TTS_MODEL",
+            "EA_MEMORIAL_TTS_PROVIDER",
+            "EA_MEMORIAL_VOICE_CONFIG_SHA256",
+            "EA_MEMORIAL_VOICE_IDENTITY_SHA256",
+            "EA_MEMORIAL_VOICE_MANIFEST_SHA256",
+            "EA_MEMORIAL_VOICE_REFERENCE_AGGREGATE_SHA256",
             "EA_PUBLIC_APP_BASE_URL",
             "EA_SIGNING_SECRET",
         }
@@ -2201,6 +2217,7 @@ def _lane(
                 "image": runner.candidate_reference,
                 "image_id": runner.candidate_image,
                 "image_source_revision": source_revision,
+                "public_origin": "https://memorial.example.org",
                 "image_locator_evidence": {
                     "locator": runner.candidate_reference,
                     "resolved_image_id": runner.candidate_image,
@@ -2224,6 +2241,8 @@ def _lane(
                 "prepared_image_locator": runner.candidate_reference,
                 "prepared_image_id": runner.candidate_image,
                 "projection_tree_revalidated": True,
+                "voice_release_allowed": False,
+                **voice_identity,
                 "release_id": (root / "memorial_data").name,
                 "release_root": str((root / "memorial_data").resolve()),
                 "projection_sha256": projection_sha256,
@@ -2687,6 +2706,27 @@ def test_candidate_projection_is_rehashed_before_promotion(
     )
     assert evidence["projection"]["tree_revalidated"] is True
     assert evidence["projection"]["file_count"] == len(SPATIAL_TEST_FILES)
+    assert lane.release_env["EA_DEPLOY_IMAGE_ID"] == runner.candidate_image
+    assert lane.release_env["EA_MEMORIAL_VOICE_CONFIG_SHA256"] == "4" * 64
+    assert lane.release_env["EA_MEMORIAL_VOICE_MANIFEST_SHA256"] == "5" * 64
+    assert (
+        lane.release_env["EA_MEMORIAL_VOICE_REFERENCE_AGGREGATE_SHA256"]
+        == "6" * 64
+    )
+    assert lane.release_env["EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256"] == "7" * 64
+    assert lane.release_env["EA_MEMORIAL_TTS_PROVIDER"] == "unmixr_clone"
+    assert lane.release_env["EA_MEMORIAL_TTS_MODEL"] == "unmixr"
+    assert (
+        lane.release_env["EA_MEMORIAL_VOICE_IDENTITY_SHA256"]
+        == deploy._voice_identity(
+            voice_config_sha256="4" * 64,
+            voice_manifest_sha256="5" * 64,
+            voice_reference_aggregate_sha256="6" * 64,
+            provider_voice_id_sha256="7" * 64,
+            tts_provider="unmixr_clone",
+            tts_model="unmixr",
+        )["voice_identity_sha256"]
+    )
 
     projection_root = release_root / "memorial_data"
     projection_root.chmod(0o750)
@@ -2704,6 +2744,33 @@ def test_candidate_projection_is_rehashed_before_promotion(
             source_revision="b" * 40,
         )
     assert runner.calls == []
+
+
+def test_final_voice_promotion_revalidates_projected_signed_authority(
+    release_root: Path,
+) -> None:
+    runner = FakeRunner(release_root)
+    lane = _lane(release_root, runner)
+    receipt_path = Path(lane.candidate_receipt_value)
+    payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    payload["voice_release_allowed"] = True
+    receipt_path.write_text(
+        json.dumps(payload, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    receipt_path.chmod(0o600)
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="memorial_candidate_voice_release_authority_invalid",
+    ):
+        lane._validate_candidate_promotion_receipt(
+            candidate={
+                "reference": runner.candidate_reference,
+                "image_id": runner.candidate_image,
+            },
+            source_revision="b" * 40,
+        )
 
 
 def test_post_recreate_projection_mismatch_rolls_back(
@@ -3674,6 +3741,30 @@ def test_postdeploy_authority_origin_drift_triggers_automatic_rollback(
 
     assert runner.api_mode == "prior"
     assert lane.receipt["status"] == "failed_rolled_back"
+
+
+def test_preflight_rejects_candidate_origin_different_from_live_authority(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.authority_public_origin = "https://other.example.org"
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+    lane.allowed_public_hosts = ("memorial.example.org", "other.example.org")
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="^memorial_candidate_public_origin_mismatch$",
+    ):
+        lane.deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+    assert not any(call[:3] == ("docker", "image", "tag") for call in runner.calls)
 
 
 def test_happy_path_mutates_only_redis_and_api(

@@ -71,8 +71,24 @@ def _client(*, principal_id: str) -> TestClient:
     os.environ.pop("EA_OPERATOR_PRINCIPAL_IDS", None)
     from app.api.app import create_app
 
-    client = TestClient(create_app())
-    client.headers.update({"X-EA-Principal-ID": principal_id})
+    client = TestClient(create_app(), base_url="https://testserver")
+    client.headers.update(
+        {
+            "Origin": "https://testserver",
+            "X-EA-Principal-ID": principal_id,
+        }
+    )
+    websocket_connect = client.websocket_connect
+
+    def _secure_websocket_connect(url: str, *args, **kwargs):
+        target = (
+            url
+            if "://" in url
+            else f"wss://testserver{url}"
+        )
+        return websocket_connect(target, *args, **kwargs)
+
+    client.websocket_connect = _secure_websocket_connect  # type: ignore[method-assign]
     return client
 
 
@@ -289,6 +305,7 @@ def _pcm16_mix_bytes(*parts: bytes) -> bytes:
 def _setup_memorial(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> str:
     slug = "manfred"
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://testserver")
     monkeypatch.setenv("UNMIXR_API_KEY", "unit-test-unmixr-key")
     from app.api.routes import public_memorials
 
@@ -2072,7 +2089,8 @@ def test_memorial_chat_falls_back_without_waiting_for_stalled_redis_rate_backend
     assert body["llm_fallback_used"] is False
     assert body["llm_provider"] == "unit-test-model"
     assert "synthetisch" in body["answer"].lower()
-    assert "gedenkbegleiter" in body["answer"].lower()
+    assert "ki-rekonstruktion" in body["answer"].lower()
+    assert "nicht der echte manfred" in body["answer"].lower()
 
 
 def test_memorial_chat_memory_storage_does_not_touch_disk_rate_backend(
@@ -2508,6 +2526,10 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     assert body["answer"] in CONTACT_REPLY_VARIANTS
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["fallback_reason"] == "direct_contact_opening"
+    assert body["safety_note"] == (
+        "KI-Rekonstruktion in Ich-Form: quellengebunden, synthetisch gesprochen "
+        "und nicht der echte Manfred."
+    )
     decoded_audio = base64.b64decode(body["audio_base64"])
     assert decoded_audio.startswith(b"RIFF")
     assert body["audio_content_type"] == "audio/wav"
@@ -4253,12 +4275,12 @@ def test_memorial_chat_strips_llm_meta_self_reference_from_answer(
     body = response.json()
     assert "llm" not in body["answer"].lower()
     assert "sprachmodell" not in body["answer"].lower()
-    assert "quellengebundene gedenkbegleiter" in body["answer"].lower()
-    assert "spricht nicht fuer manfred" in body["answer"].lower()
+    assert "ki-rekonstruktion" in body["answer"].lower()
+    assert "nicht der echte manfred" in body["answer"].lower()
     assert "ich bin manfred" not in body["answer"].lower()
 
 
-def test_production_narrator_policy_fails_closed_on_subtle_first_person_impersonation(
+def test_production_policy_preserves_disclosed_first_person_reconstruction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.api.routes import public_memorials
@@ -4274,14 +4296,17 @@ def test_production_narrator_policy_fails_closed_on_subtle_first_person_imperson
         question="Was war dir bei Familie wichtig?",
     )
 
-    assert result["mode"] == "memorial_source_grounded_narrator"
-    assert result["fallback_reason"] == "narrator_boundary"
-    assert "ich erinnere mich" not in str(result["answer"]).lower()
+    assert result["mode"] == "memorial_source_grounded_first_person_reconstruction"
+    assert "fallback_reason" not in result
+    assert str(result["answer"]) == (
+        "Ich erinnere mich an meine Familie und habe damals anders entschieden."
+    )
     assert result["narrator"] == {
         "synthetic": True,
         "source_grounded": True,
         "is_memorial_person": False,
         "speaks_for_memorial_person": False,
+        "perspective": "first_person_reconstruction",
     }
 
 
@@ -4349,20 +4374,524 @@ def test_memorial_realtime_ready_declares_current_fallback_and_live_audio_target
     from app.api.routes import public_memorials
 
     _write_unmixr_private_voice(monkeypatch, Path(str(tmp_path / "private")), slug)
+    monkeypatch.setattr(public_memorials, "_gemini_live_available", lambda: False)
     client = _client(principal_id="exec-memorial-live-realtime-mode")
 
     with client.websocket_connect(f"/memorials/{slug}/realtime") as websocket:
         ready = websocket.receive_json()
 
     assert ready["type"] == "ready"
-    assert ready["mode"] == "memorial_realtime_voice"
-    assert ready["audio_transport"] == "gemini_live_websocket_pcm"
-    assert ready["turn_timing"] == "streaming_audio_server_vad"
-    assert ready["provider"] == "gemini_live"
-    assert ready["fallback_provider"] == "ea_memorial_turn"
-    assert ready["fallback_transport"] == "ea_websocket_audio_turn"
+    assert ready["mode"] == "spoken_turn_fallback"
+    assert ready["audio_transport"] == "ea_websocket_audio_turn"
+    assert ready["turn_timing"] == "buffered_audio_turn"
+    assert ready["provider"] == "ea_memorial_turn"
+    assert ready["native_realtime_available"] is False
     assert "openai" not in json.dumps(ready).lower()
-    assert ready["redesign_target"] == "native_speech_to_speech_live_audio"
+
+
+def test_memorial_realtime_without_gemini_runs_grounded_unmixr_spoken_turn(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    provider_voice_id = "live-unmixr-id"
+    _write_unmixr_private_voice(
+        monkeypatch,
+        Path(str(tmp_path / "private")),
+        slug,
+        voice_id=provider_voice_id,
+    )
+    for name in list(os.environ):
+        if name.startswith("GOOGLE_API_KEY_FALLBACK_"):
+            monkeypatch.delenv(name, raising=False)
+    for name in (
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "EA_GEMINI_API_KEY",
+        "EA_GOOGLE_API_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_OAUTH", "0")
+    monkeypatch.setenv(
+        "EA_MEMORIAL_LIVE_TTS_PLUGIN",
+        public_memorials.UNMIXR_TTS_PLUGIN_ID,
+    )
+    assert public_memorials._gemini_live_available() is False
+
+    seen: dict[str, object] = {}
+
+    async def _unexpected_gemini_connect(*args, **kwargs):
+        seen["gemini_connect_called"] = True
+        raise AssertionError(
+            "Gemini must not be contacted in spoken-turn fallback mode"
+        )
+
+    monkeypatch.setattr(
+        public_memorials,
+        "websockets",
+        SimpleNamespace(connect=_unexpected_gemini_connect),
+    )
+
+    def _fake_transcribe(*, payload: bytes, content_type: str) -> dict[str, object]:
+        seen["stt_payload"] = payload
+        seen["stt_content_type"] = content_type
+        return {
+            "transcription_status": "transcribed",
+            "transcript_text": "Was hast du über deine Jugend erzählt?",
+            "transcriber": "deterministic-test-stt",
+        }
+
+    grounded_sources = [
+        {
+            "label": "Interview Audio",
+            "url": "https://youtube.example/interview",
+        }
+    ]
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_transcribe_audio_blob",
+        _fake_transcribe,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_chat_answer",
+        lambda *args, **kwargs: {
+            "answer": (
+                "Ich habe erzählt, dass meine Jugend von Familie und Arbeit "
+                "geprägt war."
+            ),
+            "sources": grounded_sources,
+            "llm_model": "deterministic-test-model",
+            "llm_provider": "deterministic-test-provider",
+            "llm_fallback_used": False,
+        },
+    )
+    rendered_audio = _generated_wav_bytes(
+        textish_seed="Meine Jugend war von Familie und Arbeit geprägt."
+    )
+
+    def _fake_render(**kwargs):
+        seen["tts_text"] = kwargs["text"]
+        seen["tts_plugin"] = kwargs["selected_plugin"]
+        seen["tts_option_voice_id"] = kwargs["selected_option"].get(
+            "tts_plugin_voice_id"
+        )
+        seen["tts_config_voice_id"] = kwargs["merged_config"].get(
+            "tts_plugin_voice_id"
+        )
+        return rendered_audio, "audio/wav"
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_render_memorial_tts_audio",
+        _fake_render,
+    )
+    client = _client(
+        principal_id="exec-memorial-live-no-gemini-spoken-turn"
+    )
+
+    with client.websocket_connect(
+        f"/memorials/{slug}/realtime"
+    ) as websocket:
+        ready = websocket.receive_json()
+        assert ready["mode"] == "spoken_turn_fallback"
+        assert ready["audio_transport"] == "ea_websocket_audio_turn"
+        assert ready["turn_timing"] == "buffered_audio_turn"
+        assert ready["provider"] == "ea_memorial_turn"
+        assert ready["native_realtime_available"] is False
+
+        websocket.send_json(
+            {
+                "type": "user_audio_start",
+                "turn_id": "turn_no_gemini",
+                "content_type": "audio/pcm;rate=16000",
+                "transport": "gemini_live",
+            }
+        )
+        websocket.send_bytes(_pcm16_speech_bytes(samples=3200))
+        websocket.send_json(
+            {
+                "type": "user_audio_end",
+                "turn_id": "turn_no_gemini",
+            }
+        )
+        messages = []
+        for _ in range(24):
+            message = websocket.receive_json()
+            messages.append(message)
+            if message.get("type") in {"turn_complete", "error"}:
+                break
+
+    assert "gemini_connect_called" not in seen
+    assert seen["stt_content_type"] == "audio/wav"
+    assert bytes(seen["stt_payload"]).startswith(b"RIFF")
+    assert seen["tts_plugin"] == public_memorials.UNMIXR_TTS_PLUGIN_ID
+    assert seen["tts_option_voice_id"] == provider_voice_id
+    assert seen["tts_config_voice_id"] == provider_voice_id
+    assert "Jugend" in str(seen["tts_text"])
+    assert any(
+        message.get("type") == "transcript"
+        and message.get("text")
+        == "Was hast du über deine Jugend erzählt?"
+        for message in messages
+    )
+    answer_message = next(
+        message for message in messages if message.get("type") == "answer"
+    )
+    assert answer_message["sources"] == grounded_sources
+    assert answer_message["text"].startswith("Ich habe erzählt")
+    assert any(
+        message.get("type") == "audio_chunk"
+        and message.get("content_type") == "audio/wav"
+        for message in messages
+    )
+    assert any(
+        message.get("type") == "audio_complete"
+        and message.get("content_type") == "audio/wav"
+        for message in messages
+    )
+    assert any(
+        message.get("type") == "turn_complete"
+        for message in messages
+    )
+
+
+def test_memorial_realtime_rechecks_public_release_before_later_turn(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_unmixr_private_voice(
+        monkeypatch,
+        Path(str(tmp_path / "private")),
+        slug,
+    )
+    release = {"allowed": True}
+    provider_calls: list[str] = []
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_enforced",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_decision",
+        lambda _slug: dict(release),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_support_require_voice_consent",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_gemini_live_available",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_chat_answer",
+        lambda *_args, **_kwargs: provider_calls.append("llm"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_render_memorial_tts_audio",
+        lambda **_kwargs: provider_calls.append("tts"),
+    )
+    client = _client(principal_id="exec-memorial-release-revocation")
+
+    with client.websocket_connect(
+        f"/memorials/{slug}/realtime"
+    ) as websocket:
+        assert websocket.receive_json()["type"] == "ready"
+        release["allowed"] = False
+        websocket.send_json(
+            {
+                "type": "user_text_turn",
+                "turn_id": "revoked-turn",
+                "text": "Hallo?",
+            }
+        )
+        error = websocket.receive_json()
+
+    assert error == {
+        "type": "error",
+        "turn_id": "revoked-turn",
+        "message": "memorial_voice_release_not_verified",
+    }
+    assert provider_calls == []
+
+
+@pytest.mark.parametrize("revoked_boundary", ["release", "consent"])
+def test_memorial_realtime_revocation_during_llm_emits_no_answer_or_audio(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    revoked_boundary: str,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from fastapi import HTTPException
+    from app.api.routes import public_memorials
+
+    _write_unmixr_private_voice(
+        monkeypatch,
+        Path(str(tmp_path / "private")),
+        slug,
+    )
+    release = {"allowed": True}
+    consent = {"allowed": True}
+    llm_started = threading.Event()
+    llm_continue = threading.Event()
+    tts_calls: list[str] = []
+
+    def _require_consent(*_args, **_kwargs) -> None:
+        if not consent["allowed"]:
+            raise HTTPException(status_code=409, detail="voice_consent_revoked")
+
+    def _blocking_answer(*_args, **_kwargs) -> dict[str, object]:
+        llm_started.set()
+        assert llm_continue.wait(timeout=5.0)
+        return {
+            "answer": "Ich antworte erst nach der Freigabeprüfung.",
+            "sources": [],
+            "llm_model": "midflight-test",
+            "llm_provider": "midflight-test",
+            "llm_fallback_used": False,
+        }
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_enforced",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_decision",
+        lambda _slug: dict(release),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_support_require_voice_consent",
+        _require_consent,
+    )
+    monkeypatch.setattr(public_memorials, "_gemini_live_available", lambda: False)
+    monkeypatch.setattr(public_memorials, "_memorial_chat_answer", _blocking_answer)
+    monkeypatch.setattr(
+        public_memorials,
+        "_render_memorial_tts_audio",
+        lambda **_kwargs: tts_calls.append("tts") or (b"audio", "audio/wav"),
+    )
+    client = _client(principal_id=f"exec-midflight-{revoked_boundary}")
+
+    messages: list[dict[str, object]] = []
+    with client.websocket_connect(f"/memorials/{slug}/realtime") as websocket:
+        assert websocket.receive_json()["type"] == "ready"
+        websocket.send_json(
+            {
+                "type": "user_text_turn",
+                "turn_id": f"midflight-{revoked_boundary}",
+                "text": "Was war dir im Leben wichtig?",
+            }
+        )
+        assert llm_started.wait(timeout=3.0)
+        if revoked_boundary == "release":
+            release["allowed"] = False
+        else:
+            consent["allowed"] = False
+        llm_continue.set()
+        for _ in range(6):
+            message = websocket.receive_json()
+            messages.append(message)
+            if message.get("type") == "error":
+                break
+
+    assert any(
+        message.get("type") == "error"
+        and message.get("message") == "memorial_voice_release_not_verified"
+        for message in messages
+    )
+    assert not any(
+        message.get("type") in {"answer", "audio", "audio_chunk"}
+        for message in messages
+    )
+    assert tts_calls == []
+
+
+def test_memorial_realtime_preview_expiry_revokes_later_turn(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_unmixr_private_voice(
+        monkeypatch,
+        Path(str(tmp_path / "private")),
+        slug,
+    )
+    monkeypatch.setenv("EA_SOURCE_REVISION", "a" * 40)
+    review_image_id = f"sha256:{'b' * 64}"
+    monkeypatch.setenv("EA_DEPLOY_IMAGE_ID", review_image_id)
+    monkeypatch.setenv(
+        "EA_MEMORIAL_VOICE_IDENTITY_SHA256",
+        "c" * 64,
+    )
+    review_state_dir = tmp_path / "review-state"
+    review_state_dir.mkdir(mode=0o700)
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_state_dir",
+        lambda: review_state_dir,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_runtime_bindings",
+        lambda: ({"expected_image_id": review_image_id}, ""),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_review_signing_secret",
+        lambda: "voice-review-realtime-test-secret",
+    )
+    bootstrap = (
+        public_memorials._issue_memorial_voice_review_bootstrap_token()
+    )
+    exchange = (
+        public_memorials._exchange_memorial_voice_review_bootstrap_token(
+            bootstrap
+        )
+    )
+    assert exchange is not None
+    session_token = exchange[0]
+    session_payload = (
+        public_memorials._memorial_voice_review_token_payload(
+            session_token,
+            expected_kind="session",
+            required_scope="realtime",
+        )
+    )
+    assert session_payload is not None
+    provider_calls: list[str] = []
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_enforced",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_decision",
+        lambda _slug: pytest.fail(
+            "operator preview consulted public final release"
+        ),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_runtime_bindings",
+        lambda: ({"expected_image_id": review_image_id}, ""),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_support_require_voice_consent",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_gemini_live_available",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_chat_answer",
+        lambda *_args, **_kwargs: provider_calls.append("llm"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_render_memorial_tts_audio",
+        lambda **_kwargs: provider_calls.append("tts"),
+    )
+    client = _client(principal_id="exec-memorial-preview-expiry")
+    with client.websocket_connect(
+        f"/memorials/{slug}/realtime",
+        headers={
+            "Origin": "https://testserver",
+            "Cookie": (
+                f"{public_memorials._MEMORIAL_VOICE_REVIEW_COOKIE}="
+                f"{session_token}"
+            ),
+        },
+    ) as websocket:
+        assert websocket.receive_json()["type"] == "ready"
+        monkeypatch.setattr(
+            public_memorials,
+            "_memorial_realtime_wall_time",
+            lambda: float(session_payload["expires_at"]) + 1.0,
+        )
+        websocket.send_json(
+            {
+                "type": "user_text_turn",
+                "turn_id": "expired-preview-turn",
+                "text": "Hallo?",
+            }
+        )
+        error = websocket.receive_json()
+
+    assert error == {
+        "type": "error",
+        "turn_id": "expired-preview-turn",
+        "message": "memorial_voice_review_session_expired",
+    }
+    assert provider_calls == []
+
+
+@pytest.mark.parametrize(
+    ("idle_seconds", "max_age_seconds", "message"),
+    [
+        (0.02, 60.0, "memorial_realtime_idle_timeout"),
+        (60.0, 0.02, "memorial_realtime_connection_expired"),
+    ],
+)
+def test_memorial_realtime_connections_have_bounded_lifetime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    idle_seconds: float,
+    max_age_seconds: float,
+    message: str,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_unmixr_private_voice(
+        monkeypatch,
+        Path(str(tmp_path / "private")),
+        slug,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_MEMORIAL_REALTIME_IDLE_TIMEOUT_SECONDS",
+        idle_seconds,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_MEMORIAL_REALTIME_MAX_CONNECTION_AGE_SECONDS",
+        max_age_seconds,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_gemini_live_available",
+        lambda: False,
+    )
+    client = _client(principal_id=f"exec-{message}")
+
+    with client.websocket_connect(
+        f"/memorials/{slug}/realtime"
+    ) as websocket:
+        assert websocket.receive_json()["type"] == "ready"
+        error = websocket.receive_json()
+
+    assert error == {"type": "error", "message": message}
 
 
 def test_memorial_realtime_text_turn_falls_back_when_llm_times_out(
@@ -5434,7 +5963,7 @@ def test_memorial_warmup_route_schedules_background_prewarm(
     assert seen == [slug]
 
 
-def test_public_memorial_page_primes_background_warmup_on_render(
+def test_public_memorial_page_does_not_prime_warmup_before_conversation_start(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -5452,7 +5981,8 @@ def test_public_memorial_page_primes_background_warmup_on_render(
     response = client.get(f"/memorials/{slug}")
 
     assert response.status_code == 200
-    assert seen == [slug]
+    assert "Gespräch beginnen" in response.text
+    assert seen == []
 
 
 def test_memorial_warmup_route_enforces_rate_limit(
@@ -6514,6 +7044,59 @@ def test_memorial_server_voice_contact_prewarm_deduplicates_canonical_contact_ph
     public_memorials._run_memorial_server_voice_contact_prewarm("manfred")
 
     assert seen_texts == [public_memorials._memorial_contact_answer_body("Bist du da?")]
+
+
+def test_memorial_server_voice_prewarm_rechecks_after_each_provider_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi import HTTPException
+    from app.api.routes import public_memorials
+
+    public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] = {}
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_voice_config",
+        lambda _slug: {"tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID},
+    )
+    monkeypatch.setattr(public_memorials, "_tts_plugin_options", lambda **_kwargs: {})
+    monkeypatch.setattr(
+        public_memorials,
+        "_resolve_server_tts_plugin",
+        lambda **_kwargs: (
+            public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            {"tts_plugin_enabled": True},
+        ),
+    )
+    rendered: list[str] = []
+
+    def _authorize(**_kwargs) -> None:
+        if rendered:
+            raise HTTPException(
+                status_code=409,
+                detail="memorial_voice_review_session_expired",
+            )
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_require_memorial_voice_provider_authorization",
+        _authorize,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_render_memorial_tts_audio",
+        lambda **kwargs: rendered.append(str(kwargs["text"]))
+        or (b"audio", "audio/wav"),
+    )
+
+    public_memorials._run_memorial_server_voice_contact_prewarm("manfred")
+
+    assert len(rendered) == 1
+    state = public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"]
+    assert state["voice_contact_inflight"] is False
+    assert state.get("voice_contact_completed_at", 0.0) == 0.0
+    assert state["voice_contact_errors"] == [
+        "server_voice_prewarm:409: memorial_voice_review_session_expired"
+    ]
 
 
 def test_memorial_contact_tts_cache_survives_pad_function_identity_change(

@@ -38,7 +38,16 @@ def _candidate_env(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     authority_root = release_root / prepare.CANDIDATE_RELEASE_AUTHORITY_DIRNAME
     authority_root.mkdir()
     runtime_root.mkdir(parents=True)
+    voice_identity = prepare._voice_identity(
+        voice_config_sha256="4" * 64,
+        voice_manifest_sha256="5" * 64,
+        voice_reference_aggregate_sha256="6" * 64,
+        provider_voice_id_sha256="3" * 64,
+        tts_provider=prepare.MANFRED_TTS_PROVIDER,
+        tts_model=prepare.MANFRED_TTS_MODEL,
+    )
     values = {
+        "EA_DEPLOY_IMAGE_ID": IMAGE_ID,
         "EA_MANFRED_COMPOSE_PROJECT": PROJECT,
         "EA_MANFRED_COMMIT": COMMIT,
         "EA_MANFRED_DEPLOYMENT_ID": f"{PROJECT}-{COMMIT[:12]}",
@@ -51,6 +60,23 @@ def _candidate_env(tmp_path: Path) -> tuple[Path, dict[str, str]]:
         "EA_MANFRED_SPATIAL_RELEASE_ROOT": str(spatial_root),
         "EA_MANFRED_SPATIAL_SHA256": prepare._sha256(b"[]"),
         "EA_MANFRED_SPATIAL_SLUG": "",
+        "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256": voice_identity[
+            "provider_voice_id_sha256"
+        ],
+        "EA_MEMORIAL_TTS_MODEL": voice_identity["tts_model"],
+        "EA_MEMORIAL_TTS_PROVIDER": voice_identity["tts_provider"],
+        "EA_MEMORIAL_VOICE_CONFIG_SHA256": voice_identity[
+            "voice_config_sha256"
+        ],
+        "EA_MEMORIAL_VOICE_IDENTITY_SHA256": voice_identity[
+            "voice_identity_sha256"
+        ],
+        "EA_MEMORIAL_VOICE_MANIFEST_SHA256": voice_identity[
+            "voice_manifest_sha256"
+        ],
+        "EA_MEMORIAL_VOICE_REFERENCE_AGGREGATE_SHA256": voice_identity[
+            "voice_reference_aggregate_sha256"
+        ],
         "EA_MANFRED_HOST_PORT": "18091",
         "EA_MANFRED_POSTGRES_PASSWORD": "p" * 64,
         "DATABASE_URL": "postgresql://ea:private@postgres:5432/ea",
@@ -254,7 +280,22 @@ def _patch_prestart(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> Non
             "projection_commit": COMMIT,
             "prepared_image_locator": env["EA_MANFRED_IMAGE"],
             "prepared_image_id": IMAGE_ID,
+            "public_origin": env["EA_PUBLIC_APP_BASE_URL"],
             "projection_tree_revalidated": True,
+            "voice_release_allowed": False,
+            "voice_config_sha256": env["EA_MEMORIAL_VOICE_CONFIG_SHA256"],
+            "voice_manifest_sha256": env["EA_MEMORIAL_VOICE_MANIFEST_SHA256"],
+            "voice_reference_aggregate_sha256": env[
+                "EA_MEMORIAL_VOICE_REFERENCE_AGGREGATE_SHA256"
+            ],
+            "provider_voice_id_sha256": env[
+                "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256"
+            ],
+            "tts_provider": env["EA_MEMORIAL_TTS_PROVIDER"],
+            "tts_model": env["EA_MEMORIAL_TTS_MODEL"],
+            "voice_identity_sha256": env[
+                "EA_MEMORIAL_VOICE_IDENTITY_SHA256"
+            ],
         },
     )
     monkeypatch.setattr(
@@ -379,6 +420,9 @@ def test_property_candidate_requires_approved_spatial_handoff_before_source_acce
             public_base_url="https://myexternalbrain.com",
             host_port=18091,
             project_name=PROJECT,
+            provider_voice_id_sha256="3" * 64,
+            tts_provider=prepare.MANFRED_TTS_PROVIDER,
+            tts_model=prepare.MANFRED_TTS_MODEL,
         )
 
 
@@ -1291,6 +1335,18 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
     )
     prepare._set_modes(release_root)
     projection_sha256, projected_files = prepare._tree_digest(release_root)
+    voice_identity = prepare._voice_identity(
+        voice_config_sha256=env["EA_MEMORIAL_VOICE_CONFIG_SHA256"],
+        voice_manifest_sha256=env["EA_MEMORIAL_VOICE_MANIFEST_SHA256"],
+        voice_reference_aggregate_sha256=env[
+            "EA_MEMORIAL_VOICE_REFERENCE_AGGREGATE_SHA256"
+        ],
+        provider_voice_id_sha256=env[
+            "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256"
+        ],
+        tts_provider=env["EA_MEMORIAL_TTS_PROVIDER"],
+        tts_model=env["EA_MEMORIAL_TTS_MODEL"],
+    )
     spatial_root = release_root / "public_property_tours"
     spatial_sha256, spatial_files = prepare._tree_digest(spatial_root)
     receipt_path = release_root.parent.parent / "receipts" / f"{release_root.name}.json"
@@ -1335,6 +1391,7 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
                 "release_root": str(release_root),
                 "image": env["EA_MANFRED_IMAGE"],
                 "image_id": IMAGE_ID,
+                "public_origin": env["EA_PUBLIC_APP_BASE_URL"],
                 "compose_project": PROJECT,
                 "projection_sha256": projection_sha256,
                 "projection_operator_gid": os.getgid(),
@@ -1354,6 +1411,8 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
                 ),
                 "spatial_upstream_public_activation_authority": False,
                 "spatial_ea_public_activation_authority": False,
+                "voice_release_allowed": False,
+                **voice_identity,
             }
         ),
     )
@@ -1367,6 +1426,8 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
         "runtime_authority_state": "clear",
         "runtime_authority_posture": "authoritative_runtime",
         "promotion_authority": False,
+        "voice_release_allowed": False,
+        **voice_identity,
     }
     monkeypatch.setattr(
         runner,
@@ -1407,9 +1468,12 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
         "projection_commit": COMMIT,
         "prepared_image_locator": env["EA_MANFRED_IMAGE"],
         "prepared_image_id": IMAGE_ID,
+        "public_origin": env["EA_PUBLIC_APP_BASE_URL"],
         "projection_tree_revalidated": True,
         "spatial_handoff": empty_spatial_evidence,
         "release_authority": release_authority_evidence,
+        "voice_release_allowed": False,
+        **voice_identity,
     }
 
     prepare._make_tree_removable(release_root)

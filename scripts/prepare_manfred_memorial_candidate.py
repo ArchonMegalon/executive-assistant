@@ -23,6 +23,20 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
+EA_SOURCE_ROOT = SOURCE_ROOT / "ea"
+for import_root in (SOURCE_ROOT, EA_SOURCE_ROOT):
+    if str(import_root) not in sys.path:
+        sys.path.insert(0, str(import_root))
+
+from app.services.memorial_release_policy import (  # noqa: E402
+    evaluate_memorial_voice_release_payload,
+)
+from app.services.manfred_voice_signing import (  # noqa: E402
+    MANFRED_PHASE_1_LIVE_REVIEW_SURFACE,
+    MANFRED_PROVIDER_FREE_CANDIDATE_BOUNDARY,
+)
+
 try:
     from scripts.manfred_candidate_fleet_lock import hold_candidate_fleet_lock
     from scripts.materialize_release_authority_status import build_status
@@ -170,11 +184,94 @@ SPATIAL_PRIVATE_PATH_TOKENS = {
 SPATIAL_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
-CANDIDATE_RELEASE_AUTHORITY_SCHEMA = "ea.manfred_candidate_release_authority.v1"
+IMAGE_ID_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+VOICE_BINDING_LABEL_RE = re.compile(r"^[a-z0-9][a-z0-9._/+:-]{0,127}$")
+MANFRED_TTS_PROVIDER = "unmixr_clone"
+MANFRED_TTS_MODEL = "unmixr"
+MANFRED_PROVIDER_VOICE_ID_PLACEHOLDER = "${UNMIXR_VOICE_ID}"
+HOSTED_CLONE_VOICE_CONFIG_FIELDS = frozenset(
+    {
+        "consent_basis",
+        "lang",
+        "notes",
+        "pitch",
+        "rate",
+        "synthetic_voice_clone_of_memorial_person",
+        "tts_backup_candidates",
+        "tts_base_voice_variant",
+        "tts_mode",
+        "tts_plugin",
+        "tts_plugin_voice_id",
+        "tts_postprocess_profile",
+        "unmixr_speaking_pitch",
+        "unmixr_speaking_rate",
+        "unmixr_speaking_volume",
+        "voice_consent",
+        "voice_label",
+        "voice_name_hints",
+        "voice_profile_id",
+        "volume",
+    }
+)
+HOSTED_CLONE_VOICE_CONSENT_FIELDS = frozenset(
+    {
+        "authorized_at",
+        "authorized_by",
+        "revoked",
+        "scope",
+        "source_assets_reviewed",
+        "status",
+    }
+)
+HOSTED_CLONE_BACKUP_CANDIDATE_FIELDS = frozenset(
+    {
+        "detail",
+        "provider",
+        "reason",
+        "status",
+        "voice_label",
+    }
+)
+HOSTED_CLONE_PLACEHOLDER_ID_PATHS = frozenset(
+    {
+        ("tts_plugin_voice_id",),
+        ("voice_profile_id",),
+    }
+)
+HOSTED_CLONE_FORBIDDEN_FIELD_NAMES = frozenset(
+    {
+        "access_token",
+        "api_key",
+        "api_secret",
+        "client_secret",
+        "clone_id",
+        "credential",
+        "credentials",
+        "password",
+        "provider_voice_id",
+        "raw_provider_voice_id",
+        "raw_voice_id",
+        "refresh_token",
+        "secret",
+        "token",
+        "voice_id",
+    }
+)
+HOSTED_CLONE_VOICE_MANIFEST_SCHEMA = (
+    "ea.manfred_provider_managed_hosted_clone_manifest.v1"
+)
+VOICE_ARTIFACT_DIGEST_SEMANTICS = "sha256_exact_file_bytes"
+VOICE_REFERENCE_AGGREGATE_SEMANTICS = (
+    "sha256_canonical_json_utf8_sorted_reference_sha256_list_v1"
+)
+PROVIDER_VOICE_ID_SHA256_SEMANTICS = "sha256_utf8_provider_voice_id"
+VOICE_IDENTITY_SHA256_SEMANTICS = "sha256_canonical_json_utf8_voice_identity_v1"
+CANDIDATE_RELEASE_AUTHORITY_SCHEMA = "ea.manfred_candidate_release_authority.v2"
 CANDIDATE_RELEASE_AUTHORITY_DIRNAME = "release-authority"
 CANDIDATE_RELEASE_AUTHORITY_CONTAINER_ROOT = Path("/data/release-authority")
 CANDIDATE_RELEASE_AUTHORITY_FILENAMES = {
     "deploy_context": "deploy_context.generated.json",
+    "voice_release": "manfred_voice_release.generated.json",
     "project_modes": "PROJECT_MODES.generated.json",
     "release_manifest": "release_manifest.generated.json",
     "release_status": "release_authority_status.generated.json",
@@ -288,6 +385,229 @@ def _safe_relative(value: object, *, suffix_required: bool = False) -> Path:
 
 def _sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
+
+
+def _voice_reference_aggregate_sha256(reference_sha256s: list[str]) -> str:
+    if type(reference_sha256s) is not list or any(
+        type(value) is not str
+        or not SHA256_RE.fullmatch(value)
+        for value in reference_sha256s
+    ):
+        raise ValueError("manfred_candidate_voice_reference_digest_invalid")
+    encoded = json.dumps(
+        sorted(reference_sha256s),
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+        allow_nan=False,
+    ).encode("utf-8")
+    return _sha256(encoded)
+
+
+def _assert_hosted_clone_config_has_no_secret_id_fields(
+    value: object,
+    *,
+    path: tuple[str, ...] = (),
+) -> None:
+    if type(value) is dict:
+        for raw_key, nested in value.items():
+            key = str(raw_key).strip().casefold().replace("-", "_")
+            child_path = (*path, key)
+            secret_or_id_looking = (
+                key in HOSTED_CLONE_FORBIDDEN_FIELD_NAMES
+                or key.endswith(
+                    (
+                        "_access_token",
+                        "_api_key",
+                        "_api_secret",
+                        "_client_secret",
+                        "_clone_id",
+                        "_credential",
+                        "_credentials",
+                        "_password",
+                        "_provider_voice_id",
+                        "_raw_voice_id",
+                        "_refresh_token",
+                        "_secret",
+                        "_token",
+                        "_voice_id",
+                    )
+                )
+            )
+            if (
+                secret_or_id_looking
+                and child_path not in HOSTED_CLONE_PLACEHOLDER_ID_PATHS
+            ):
+                raise ValueError(
+                    "manfred_candidate_voice_config_secret_field_forbidden"
+                )
+            _assert_hosted_clone_config_has_no_secret_id_fields(
+                nested,
+                path=child_path,
+            )
+    elif type(value) is list:
+        for nested in value:
+            _assert_hosted_clone_config_has_no_secret_id_fields(
+                nested,
+                path=path,
+            )
+
+
+def _validate_hosted_clone_config_schema(
+    voice_config: dict[str, object],
+) -> None:
+    _assert_hosted_clone_config_has_no_secret_id_fields(voice_config)
+    consent = voice_config.get("voice_consent")
+    backups = voice_config.get("tts_backup_candidates")
+    if (
+        set(voice_config) != HOSTED_CLONE_VOICE_CONFIG_FIELDS
+        or type(consent) is not dict
+        or set(consent) != HOSTED_CLONE_VOICE_CONSENT_FIELDS
+        or type(backups) is not dict
+        or any(
+            type(provider) is not str
+            or not provider.strip()
+            or type(candidate) is not dict
+            or set(candidate) != HOSTED_CLONE_BACKUP_CANDIDATE_FIELDS
+            for provider, candidate in backups.items()
+        )
+        or type(voice_config.get("voice_name_hints")) is not list
+        or any(
+            type(value) is not str or not value.strip()
+            for value in voice_config.get("voice_name_hints", [])
+        )
+        or type(consent.get("scope")) is not list
+        or any(
+            type(value) is not str or not value.strip()
+            for value in consent.get("scope", [])
+        )
+    ):
+        raise ValueError("manfred_candidate_voice_config_fields_invalid")
+
+
+def _hosted_clone_voice_binding(
+    *,
+    voice_config_bytes: bytes,
+    provider_voice_id_sha256: str,
+    tts_provider: str,
+    tts_model: str,
+) -> tuple[bytes, dict[str, str]]:
+    voice_config = _strict_json_object(
+        voice_config_bytes,
+        error="manfred_candidate_voice_config_invalid",
+    )
+    _validate_hosted_clone_config_schema(voice_config)
+    provider_id_fields = {
+        name: str(voice_config.get(name) or "").strip()
+        for name in ("tts_plugin_voice_id", "voice_profile_id")
+    }
+    if (
+        voice_config.get("tts_plugin") != MANFRED_TTS_PROVIDER
+        or voice_config.get("tts_mode") != MANFRED_TTS_PROVIDER
+        or voice_config.get("tts_base_voice_variant") != MANFRED_TTS_MODEL
+        or not SHA256_RE.fullmatch(provider_voice_id_sha256)
+        or tts_provider != MANFRED_TTS_PROVIDER
+        or tts_model != MANFRED_TTS_MODEL
+        or any(
+            value != MANFRED_PROVIDER_VOICE_ID_PLACEHOLDER
+            for value in provider_id_fields.values()
+        )
+    ):
+        raise ValueError("manfred_candidate_voice_config_invalid")
+
+    voice_config_sha256 = _sha256(voice_config_bytes)
+    reference_aggregate_sha256 = _voice_reference_aggregate_sha256([])
+    manifest = {
+        "schema": HOSTED_CLONE_VOICE_MANIFEST_SCHEMA,
+        "generated_by": "scripts/prepare_manfred_memorial_candidate.py",
+        "memorial_slug": "manfred",
+        "provider_managed_hosted_clone": True,
+        "no_local_reference_assets": True,
+        "reference_assets": [],
+        "voice_config_sha256": voice_config_sha256,
+        "voice_artifact_digest_semantics": VOICE_ARTIFACT_DIGEST_SEMANTICS,
+        "voice_reference_aggregate_sha256": reference_aggregate_sha256,
+        "voice_reference_aggregate_sha256_semantics": (
+            VOICE_REFERENCE_AGGREGATE_SEMANTICS
+        ),
+        "provider_voice_id_sha256": provider_voice_id_sha256,
+        "provider_voice_id_sha256_semantics": (
+            PROVIDER_VOICE_ID_SHA256_SEMANTICS
+        ),
+        "tts_provider": tts_provider,
+        "tts_model": tts_model,
+        "raw_provider_voice_id_recorded": False,
+        "provider_credentials_recorded": False,
+    }
+    voice_manifest_bytes = _receipt_bytes(manifest)
+    voice_identity = _voice_identity(
+        voice_config_sha256=voice_config_sha256,
+        voice_manifest_sha256=_sha256(voice_manifest_bytes),
+        voice_reference_aggregate_sha256=reference_aggregate_sha256,
+        provider_voice_id_sha256=provider_voice_id_sha256,
+        tts_provider=tts_provider,
+        tts_model=tts_model,
+    )
+    return voice_manifest_bytes, voice_identity
+
+
+def _voice_identity(
+    *,
+    voice_config_sha256: str,
+    voice_manifest_sha256: str,
+    voice_reference_aggregate_sha256: str,
+    provider_voice_id_sha256: str,
+    tts_provider: str,
+    tts_model: str,
+) -> dict[str, str]:
+    values = {
+        "provider_voice_id_sha256": str(provider_voice_id_sha256 or "").strip(),
+        "tts_model": str(tts_model or "").strip(),
+        "tts_provider": str(tts_provider or "").strip(),
+        "voice_config_sha256": str(voice_config_sha256 or "").strip(),
+        "voice_manifest_sha256": str(voice_manifest_sha256 or "").strip(),
+        "voice_reference_aggregate_sha256": str(
+            voice_reference_aggregate_sha256 or ""
+        ).strip(),
+    }
+    if (
+        any(
+            not SHA256_RE.fullmatch(values[name])
+            for name in (
+                "provider_voice_id_sha256",
+                "voice_config_sha256",
+                "voice_manifest_sha256",
+                "voice_reference_aggregate_sha256",
+            )
+        )
+        or values["tts_provider"] != MANFRED_TTS_PROVIDER
+        or values["tts_model"] != MANFRED_TTS_MODEL
+        or not VOICE_BINDING_LABEL_RE.fullmatch(values["tts_provider"])
+        or not VOICE_BINDING_LABEL_RE.fullmatch(values["tts_model"])
+    ):
+        raise ValueError("manfred_candidate_voice_identity_invalid")
+    identity_sha256 = _sha256(
+        json.dumps(
+            values,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+            allow_nan=False,
+        ).encode("utf-8")
+    )
+    return {
+        **values,
+        "image_id_semantics": "docker_image_id_sha256",
+        "provider_voice_id_sha256_semantics": (
+            PROVIDER_VOICE_ID_SHA256_SEMANTICS
+        ),
+        "voice_artifact_digest_semantics": VOICE_ARTIFACT_DIGEST_SEMANTICS,
+        "voice_identity_sha256": identity_sha256,
+        "voice_identity_sha256_semantics": VOICE_IDENTITY_SHA256_SEMANTICS,
+        "voice_reference_aggregate_sha256_semantics": (
+            VOICE_REFERENCE_AGGREGATE_SEMANTICS
+        ),
+    }
 
 
 def _canonical_json_bytes(payload: object) -> bytes:
@@ -2102,17 +2422,26 @@ def _write_bytes(destination: Path, content: bytes, *, mode: int) -> dict[str, o
     return {"sha256": _sha256(content), "size_bytes": len(content)}
 
 
-def _candidate_release_authority_paths(root: Path) -> dict[str, Path]:
+def _candidate_release_authority_paths(
+    root: Path,
+    *,
+    voice_release_included: bool = True,
+) -> dict[str, Path]:
     return {
         name: root / filename
         for name, filename in CANDIDATE_RELEASE_AUTHORITY_FILENAMES.items()
+        if voice_release_included or name != "voice_release"
     }
 
 
-def _candidate_release_authority_container_paths() -> dict[str, str]:
+def _candidate_release_authority_container_paths(
+    *,
+    voice_release_included: bool = True,
+) -> dict[str, str]:
     return {
         name: str(CANDIDATE_RELEASE_AUTHORITY_CONTAINER_ROOT / filename)
         for name, filename in CANDIDATE_RELEASE_AUTHORITY_FILENAMES.items()
+        if voice_release_included or name != "voice_release"
     }
 
 
@@ -2227,16 +2556,75 @@ def _materialize_candidate_release_authority(
     public_origin: str,
     generated_at: str,
     public_artifacts: list[str],
+    voice_identity: dict[str, str],
+    voice_release_bytes: bytes | None,
 ) -> dict[str, object]:
-    if commit != image_revision or not COMMIT_RE.fullmatch(commit):
+    if (
+        commit != image_revision
+        or not COMMIT_RE.fullmatch(commit)
+        or not IMAGE_ID_RE.fullmatch(image_id)
+    ):
         raise ValueError("manfred_candidate_release_identity_mismatch")
+    normalized_voice_identity = _voice_identity(
+        voice_config_sha256=voice_identity.get("voice_config_sha256", ""),
+        voice_manifest_sha256=voice_identity.get("voice_manifest_sha256", ""),
+        voice_reference_aggregate_sha256=voice_identity.get(
+            "voice_reference_aggregate_sha256", ""
+        ),
+        provider_voice_id_sha256=voice_identity.get(
+            "provider_voice_id_sha256", ""
+        ),
+        tts_provider=voice_identity.get("tts_provider", ""),
+        tts_model=voice_identity.get("tts_model", ""),
+    )
+    if voice_identity != normalized_voice_identity:
+        raise ValueError("manfred_candidate_voice_identity_invalid")
+    voice_release_allowed = voice_release_bytes is not None
     remote = _candidate_remote_main_evidence(source_root, commit=commit)
     deployment_id = f"{project_name}-{commit[:12]}"
     enabled_modes = ["MEMORIAL", "PROPERTY"]
     compose_files = ["deploy/manfred-memorial/docker-compose.candidate.yml"]
-    paths = _candidate_release_authority_paths(root)
-    container_paths = _candidate_release_authority_container_paths()
+    paths = _candidate_release_authority_paths(
+        root,
+        voice_release_included=voice_release_allowed,
+    )
+    container_paths = _candidate_release_authority_container_paths(
+        voice_release_included=voice_release_allowed,
+    )
     root.mkdir(parents=True, mode=0o700)
+
+    if voice_release_bytes is not None:
+        voice_release = _strict_json_object(
+            voice_release_bytes,
+            error="manfred_candidate_voice_release_invalid",
+        )
+        voice_release_decision = evaluate_memorial_voice_release_payload(
+            slug="manfred",
+            payload=voice_release,
+            expected_source_revision=commit,
+            expected_public_origin=public_origin,
+            expected_image_id=image_id,
+            expected_voice_config_sha256=normalized_voice_identity[
+                "voice_config_sha256"
+            ],
+            expected_voice_manifest_sha256=normalized_voice_identity[
+                "voice_manifest_sha256"
+            ],
+            expected_voice_reference_aggregate_sha256=(
+                normalized_voice_identity["voice_reference_aggregate_sha256"]
+            ),
+            expected_provider_voice_id_sha256=normalized_voice_identity[
+                "provider_voice_id_sha256"
+            ],
+            expected_tts_provider=normalized_voice_identity["tts_provider"],
+            expected_tts_model=normalized_voice_identity["tts_model"],
+        )
+        if voice_release_decision.get("allowed") is not True:
+            raise ValueError(
+                "manfred_candidate_voice_release_"
+                + str(voice_release_decision.get("reason") or "invalid")
+            )
+        _write_bytes(paths["voice_release"], voice_release_bytes, mode=0o400)
 
     tracked_modes = _strict_json_object(
         _git_blob(
@@ -2289,8 +2677,18 @@ def _materialize_candidate_release_authority(
     deploy_context_bytes = _receipt_bytes(deploy_context)
     _write_bytes(paths["deploy_context"], deploy_context_bytes, mode=0o444)
 
+    artifact_values = [*public_artifacts]
+    if voice_release_allowed:
+        artifact_values.append(
+            f"{CANDIDATE_RELEASE_AUTHORITY_DIRNAME}/"
+            f"{CANDIDATE_RELEASE_AUTHORITY_FILENAMES['voice_release']}"
+        )
     artifacts = sorted(
-        {str(value).strip() for value in public_artifacts if str(value).strip()}
+        {
+            str(value).strip()
+            for value in artifact_values
+            if str(value).strip()
+        }
     )
     if not artifacts:
         raise ValueError("manfred_candidate_release_artifacts_missing")
@@ -2376,6 +2774,8 @@ def _materialize_candidate_release_authority(
         "release_manifest": release_manifest_bytes,
         "release_status": release_status_bytes,
     }
+    if voice_release_bytes is not None:
+        document_bytes["voice_release"] = voice_release_bytes
     receipt = {
         "schema": CANDIDATE_RELEASE_AUTHORITY_SCHEMA,
         "status": "pass",
@@ -2404,6 +2804,15 @@ def _materialize_candidate_release_authority(
         "runtime_authority_state": "clear",
         "runtime_authority_posture": "authoritative_runtime",
         "promotion_authority": False,
+        "voice_release_allowed": voice_release_allowed,
+        "candidate_provider_boundary": (
+            MANFRED_PROVIDER_FREE_CANDIDATE_BOUNDARY
+        ),
+        "final_voice_promotion_requires_live_review": True,
+        "final_voice_promotion_review_surface": (
+            MANFRED_PHASE_1_LIVE_REVIEW_SURFACE
+        ),
+        **normalized_voice_identity,
         "secret_material_recorded": False,
     }
     receipt_bytes = _receipt_bytes(receipt)
@@ -2414,7 +2823,167 @@ def _materialize_candidate_release_authority(
         expected_image_id=image_id,
         expected_project_name=project_name,
         expected_public_origin=public_origin,
+        expected_voice_release_allowed=voice_release_allowed,
+        expected_voice_identity=normalized_voice_identity,
     )
+
+
+def _candidate_release_authority_snapshot(
+    root: Path,
+    *,
+    expected_names: set[str],
+) -> tuple[Path, dict[str, bytes]]:
+    normalized_root = Path(os.path.abspath(os.fspath(root.expanduser())))
+    if (
+        not expected_names
+        or any(
+            not name
+            or name in {".", ".."}
+            or Path(name).name != name
+            for name in expected_names
+        )
+    ):
+        raise ValueError("manfred_candidate_release_authority_files_invalid")
+
+    def identity(metadata: os.stat_result) -> tuple[int, ...]:
+        return (
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_mode,
+            metadata.st_nlink,
+            metadata.st_uid,
+            metadata.st_gid,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+            metadata.st_ctime_ns,
+        )
+
+    try:
+        root_descriptor = _open_directory_path_nofollow(normalized_root)
+    except (OSError, ValueError) as exc:
+        raise ValueError(
+            "manfred_candidate_release_authority_root_invalid"
+        ) from exc
+    try:
+        root_before = os.fstat(root_descriptor)
+        if not stat.S_ISDIR(root_before.st_mode):
+            raise ValueError(
+                "manfred_candidate_release_authority_root_invalid"
+            )
+        try:
+            if set(os.listdir(root_descriptor)) != expected_names:
+                raise ValueError(
+                    "manfred_candidate_release_authority_files_invalid"
+                )
+        except OSError as exc:
+            raise ValueError(
+                "manfred_candidate_release_authority_files_invalid"
+            ) from exc
+
+        nofollow = getattr(os, "O_NOFOLLOW", None)
+        if nofollow is None:
+            raise ValueError(
+                "manfred_candidate_release_authority_nofollow_unavailable"
+            )
+        file_flags = (
+            os.O_RDONLY
+            | os.O_CLOEXEC
+            | getattr(os, "O_NONBLOCK", 0)
+            | nofollow
+        )
+        contents: dict[str, bytes] = {}
+        for name in sorted(expected_names):
+            descriptor = -1
+            try:
+                before_path = os.stat(
+                    name,
+                    dir_fd=root_descriptor,
+                    follow_symlinks=False,
+                )
+                if (
+                    not stat.S_ISREG(before_path.st_mode)
+                    or stat.S_ISLNK(before_path.st_mode)
+                    or before_path.st_nlink != 1
+                    or before_path.st_size <= 0
+                    or before_path.st_size > 8 * 1024 * 1024
+                ):
+                    raise ValueError(
+                        "manfred_candidate_release_authority_files_invalid"
+                    )
+                descriptor = os.open(
+                    name,
+                    file_flags,
+                    dir_fd=root_descriptor,
+                )
+                before_open = os.fstat(descriptor)
+                if identity(before_open) != identity(before_path):
+                    raise ValueError(
+                        "manfred_candidate_release_authority_files_changed"
+                    )
+                chunks: list[bytes] = []
+                remaining = int(before_open.st_size)
+                while remaining:
+                    chunk = os.read(descriptor, min(remaining, 64 * 1024))
+                    if not chunk:
+                        raise ValueError(
+                            "manfred_candidate_release_authority_files_changed"
+                        )
+                    chunks.append(chunk)
+                    remaining -= len(chunk)
+                if os.read(descriptor, 1):
+                    raise ValueError(
+                        "manfred_candidate_release_authority_files_changed"
+                    )
+                after_open = os.fstat(descriptor)
+                if identity(after_open) != identity(before_open):
+                    raise ValueError(
+                        "manfred_candidate_release_authority_files_changed"
+                    )
+                after_path = os.stat(
+                    name,
+                    dir_fd=root_descriptor,
+                    follow_symlinks=False,
+                )
+                if identity(after_path) != identity(before_open):
+                    raise ValueError(
+                        "manfred_candidate_release_authority_files_changed"
+                    )
+                contents[name] = b"".join(chunks)
+            except ValueError:
+                raise
+            except OSError as exc:
+                raise ValueError(
+                    "manfred_candidate_release_authority_files_invalid"
+                ) from exc
+            finally:
+                if descriptor >= 0:
+                    os.close(descriptor)
+
+        if (
+            set(os.listdir(root_descriptor)) != expected_names
+            or identity(os.fstat(root_descriptor)) != identity(root_before)
+        ):
+            raise ValueError(
+                "manfred_candidate_release_authority_files_changed"
+            )
+        try:
+            final_root_descriptor = _open_directory_path_nofollow(
+                normalized_root
+            )
+        except (OSError, ValueError) as exc:
+            raise ValueError(
+                "manfred_candidate_release_authority_root_changed"
+            ) from exc
+        try:
+            if identity(os.fstat(final_root_descriptor)) != identity(root_before):
+                raise ValueError(
+                    "manfred_candidate_release_authority_root_changed"
+                )
+        finally:
+            os.close(final_root_descriptor)
+        return normalized_root, contents
+    finally:
+        os.close(root_descriptor)
 
 
 def _validate_candidate_release_authority_bundle(
@@ -2424,28 +2993,49 @@ def _validate_candidate_release_authority_bundle(
     expected_image_id: str,
     expected_project_name: str,
     expected_public_origin: str,
+    expected_voice_release_allowed: bool,
+    expected_voice_identity: dict[str, str],
 ) -> dict[str, object]:
-    normalized_root = root.resolve()
-    if root.is_symlink() or not normalized_root.is_dir():
-        raise ValueError("manfred_candidate_release_authority_root_invalid")
-    paths = _candidate_release_authority_paths(normalized_root)
-    if {path.name for path in normalized_root.iterdir()} != {
-        path.name for path in paths.values()
-    }:
-        raise ValueError("manfred_candidate_release_authority_files_invalid")
+    if type(expected_voice_release_allowed) is not bool:
+        raise ValueError("manfred_candidate_voice_release_state_invalid")
+    normalized_voice_identity = _voice_identity(
+        voice_config_sha256=expected_voice_identity.get(
+            "voice_config_sha256", ""
+        ),
+        voice_manifest_sha256=expected_voice_identity.get(
+            "voice_manifest_sha256", ""
+        ),
+        voice_reference_aggregate_sha256=expected_voice_identity.get(
+            "voice_reference_aggregate_sha256", ""
+        ),
+        provider_voice_id_sha256=expected_voice_identity.get(
+            "provider_voice_id_sha256", ""
+        ),
+        tts_provider=expected_voice_identity.get("tts_provider", ""),
+        tts_model=expected_voice_identity.get("tts_model", ""),
+    )
+    if expected_voice_identity != normalized_voice_identity:
+        raise ValueError("manfred_candidate_voice_identity_invalid")
+    unresolved_paths = _candidate_release_authority_paths(
+        root,
+        voice_release_included=expected_voice_release_allowed,
+    )
+    normalized_root, contents_by_filename = (
+        _candidate_release_authority_snapshot(
+            root,
+            expected_names={
+                path.name for path in unresolved_paths.values()
+            },
+        )
+    )
+    paths = _candidate_release_authority_paths(
+        normalized_root,
+        voice_release_included=expected_voice_release_allowed,
+    )
     payloads: dict[str, dict[str, object]] = {}
     contents: dict[str, bytes] = {}
     for name, path in paths.items():
-        metadata = path.lstat()
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or stat.S_ISLNK(metadata.st_mode)
-            or metadata.st_nlink != 1
-            or metadata.st_size <= 0
-            or metadata.st_size > 8 * 1024 * 1024
-        ):
-            raise ValueError("manfred_candidate_release_authority_files_invalid")
-        contents[name] = path.read_bytes()
+        contents[name] = contents_by_filename[path.name]
         payloads[name] = _strict_json_object(
             contents[name],
             error="manfred_candidate_release_authority_json_invalid",
@@ -2454,11 +3044,14 @@ def _validate_candidate_release_authority_bundle(
     project_modes = payloads["project_modes"]
     deploy_context = payloads["deploy_context"]
     status = payloads["release_status"]
+    voice_release = payloads.get("voice_release")
     receipt = payloads["receipt"]
     expected_deployment_id = (
         f"{_validate_project_name(expected_project_name)}-{expected_commit[:12]}"
     )
-    container_paths = _candidate_release_authority_container_paths()
+    container_paths = _candidate_release_authority_container_paths(
+        voice_release_included=expected_voice_release_allowed,
+    )
     document_evidence = {
         name: {
             "sha256": _sha256(contents[name]),
@@ -2469,10 +3062,48 @@ def _validate_candidate_release_authority_bundle(
             "project_modes",
             "release_manifest",
             "release_status",
+            *(("voice_release",) if expected_voice_release_allowed else ()),
         )
     }
+    voice_release_decision: dict[str, object] = {
+        "allowed": False,
+        "reason": "missing",
+    }
+    if expected_voice_release_allowed:
+        if not isinstance(voice_release, dict):
+            raise ValueError("manfred_candidate_voice_release_invalid")
+        voice_release_decision = evaluate_memorial_voice_release_payload(
+            slug="manfred",
+            payload=voice_release,
+            expected_source_revision=expected_commit,
+            expected_public_origin=expected_public_origin,
+            expected_image_id=expected_image_id,
+            expected_voice_config_sha256=normalized_voice_identity[
+                "voice_config_sha256"
+            ],
+            expected_voice_manifest_sha256=normalized_voice_identity[
+                "voice_manifest_sha256"
+            ],
+            expected_voice_reference_aggregate_sha256=(
+                normalized_voice_identity["voice_reference_aggregate_sha256"]
+            ),
+            expected_provider_voice_id_sha256=normalized_voice_identity[
+                "provider_voice_id_sha256"
+            ],
+            expected_tts_provider=normalized_voice_identity["tts_provider"],
+            expected_tts_model=normalized_voice_identity["tts_model"],
+        )
+    voice_release_artifact = (
+        f"{CANDIDATE_RELEASE_AUTHORITY_DIRNAME}/"
+        f"{CANDIDATE_RELEASE_AUTHORITY_FILENAMES['voice_release']}"
+    )
     if (
         not COMMIT_RE.fullmatch(expected_commit)
+        or not IMAGE_ID_RE.fullmatch(expected_image_id)
+        or (
+            expected_voice_release_allowed
+            and voice_release_decision.get("allowed") is not True
+        )
         or validate_release_authority(
             release_manifest=manifest,
             project_modes=project_modes,
@@ -2500,6 +3131,10 @@ def _validate_candidate_release_authority_bundle(
         or manifest.get("compose_files")
         != ["deploy/manfred-memorial/docker-compose.candidate.yml"]
         or manifest.get("compose_overrides") != []
+        or (
+            voice_release_artifact in list(manifest.get("artifact_set") or [])
+        )
+        is not expected_voice_release_allowed
         or deploy_context.get("commit_sha") != expected_commit
         or deploy_context.get("deployment_id") != expected_deployment_id
         or deploy_context.get("public_origin") != expected_public_origin
@@ -2533,6 +3168,17 @@ def _validate_candidate_release_authority_bundle(
         or receipt.get("runtime_authority_state") != "clear"
         or receipt.get("runtime_authority_posture") != "authoritative_runtime"
         or receipt.get("promotion_authority") is not False
+        or receipt.get("voice_release_allowed")
+        is not expected_voice_release_allowed
+        or receipt.get("candidate_provider_boundary")
+        != MANFRED_PROVIDER_FREE_CANDIDATE_BOUNDARY
+        or receipt.get("final_voice_promotion_requires_live_review") is not True
+        or receipt.get("final_voice_promotion_review_surface")
+        != MANFRED_PHASE_1_LIVE_REVIEW_SURFACE
+        or any(
+            receipt.get(name) != value
+            for name, value in normalized_voice_identity.items()
+        )
         or receipt.get("secret_material_recorded") is not False
     ):
         raise ValueError("manfred_candidate_release_authority_binding_invalid")
@@ -2554,6 +3200,21 @@ def _validate_candidate_release_authority_bundle(
         "runtime_authority_state": "clear",
         "runtime_authority_posture": "authoritative_runtime",
         "promotion_authority": False,
+        "voice_release_allowed": expected_voice_release_allowed,
+        "descriptor_stable_read": True,
+        "candidate_provider_boundary": MANFRED_PROVIDER_FREE_CANDIDATE_BOUNDARY,
+        "final_voice_promotion_requires_live_review": True,
+        "final_voice_promotion_review_surface": (
+            MANFRED_PHASE_1_LIVE_REVIEW_SURFACE
+        ),
+        "phase_1_live_review_verified": bool(
+            expected_voice_release_allowed
+            and isinstance(voice_release, dict)
+            and voice_release.get("operator_acceptance_verified") is True
+            and voice_release.get("operator_acceptance_review_surface")
+            == MANFRED_PHASE_1_LIVE_REVIEW_SURFACE
+        ),
+        **normalized_voice_identity,
         "secret_material_recorded": False,
     }
 
@@ -3121,14 +3782,30 @@ def _write_env(
     host_port: int,
     project_name: str,
     commit: str,
+    image_id: str,
+    voice_identity: dict[str, str],
     spatial_release_root: Path | None = None,
     spatial_handoff_included: bool = False,
     spatial_slug: str = "",
     spatial_sha256: str = "",
     rotate_secrets: bool = False,
 ) -> None:
-    if not COMMIT_RE.fullmatch(commit):
+    if not COMMIT_RE.fullmatch(commit) or not IMAGE_ID_RE.fullmatch(image_id):
         raise ValueError("manfred_candidate_commit_invalid")
+    normalized_voice_identity = _voice_identity(
+        voice_config_sha256=voice_identity.get("voice_config_sha256", ""),
+        voice_manifest_sha256=voice_identity.get("voice_manifest_sha256", ""),
+        voice_reference_aggregate_sha256=voice_identity.get(
+            "voice_reference_aggregate_sha256", ""
+        ),
+        provider_voice_id_sha256=voice_identity.get(
+            "provider_voice_id_sha256", ""
+        ),
+        tts_provider=voice_identity.get("tts_provider", ""),
+        tts_model=voice_identity.get("tts_model", ""),
+    )
+    if voice_identity != normalized_voice_identity:
+        raise ValueError("manfred_candidate_voice_identity_invalid")
     normalized_project_name = _validate_project_name(project_name)
     deployment_id = f"{normalized_project_name}-{commit[:12]}"
     current = _parse_env(path)
@@ -3170,6 +3847,24 @@ def _write_env(
         "EA_MANFRED_POSTGRES_PASSWORD": postgres_password,
         "DATABASE_URL": f"postgresql://ea:{postgres_password}@postgres:5432/ea",
         "EA_API_TOKEN": api_token,
+        "EA_DEPLOY_IMAGE_ID": image_id,
+        "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256": normalized_voice_identity[
+            "provider_voice_id_sha256"
+        ],
+        "EA_MEMORIAL_TTS_MODEL": normalized_voice_identity["tts_model"],
+        "EA_MEMORIAL_TTS_PROVIDER": normalized_voice_identity["tts_provider"],
+        "EA_MEMORIAL_VOICE_CONFIG_SHA256": normalized_voice_identity[
+            "voice_config_sha256"
+        ],
+        "EA_MEMORIAL_VOICE_IDENTITY_SHA256": normalized_voice_identity[
+            "voice_identity_sha256"
+        ],
+        "EA_MEMORIAL_VOICE_MANIFEST_SHA256": normalized_voice_identity[
+            "voice_manifest_sha256"
+        ],
+        "EA_MEMORIAL_VOICE_REFERENCE_AGGREGATE_SHA256": (
+            normalized_voice_identity["voice_reference_aggregate_sha256"]
+        ),
         "EA_SIGNING_SECRET": signing_secret,
         "EA_PUBLIC_APP_BASE_URL": public_base_url,
     }
@@ -3216,6 +3911,10 @@ def prepare_candidate(
     spatial_authority_receipt: Path | None = None,
     spatial_final_review_receipt: Path | None = None,
     spatial_browser_review_receipt: Path | None = None,
+    voice_release_receipt: Path | None = None,
+    provider_voice_id_sha256: str,
+    tts_provider: str,
+    tts_model: str,
     runtime_uid: int = 10001,
     runtime_gid: int = 10001,
     rotate_secrets: bool = False,
@@ -3241,10 +3940,27 @@ def prepare_candidate(
         )
     ):
         raise ValueError("manfred_candidate_spatial_handoff_required")
+    provider_voice_id_sha256 = str(provider_voice_id_sha256 or "").strip()
+    tts_provider = str(tts_provider or "").strip()
+    tts_model = str(tts_model or "").strip()
+    if (
+        not SHA256_RE.fullmatch(provider_voice_id_sha256)
+        or tts_provider != MANFRED_TTS_PROVIDER
+        or tts_model != MANFRED_TTS_MODEL
+    ):
+        raise ValueError("manfred_candidate_voice_provider_binding_invalid")
     commit = _commit(source_root, ref)
     image_id, image_commit = _image_revision(image)
-    if image_commit != commit:
+    if image_commit != commit or not IMAGE_ID_RE.fullmatch(image_id):
         raise ValueError("manfred_candidate_image_revision_mismatch")
+    voice_release_bytes = (
+        _read_private_output(
+            voice_release_receipt,
+            maximum=PRIVATE_OUTPUT_MAX_BYTES,
+        )
+        if voice_release_receipt is not None
+        else None
+    )
     spatial_handoff: dict[str, object] = {
         "included": False,
         "slug": "",
@@ -3335,10 +4051,23 @@ def prepare_candidate(
         private_source = (
             source_root / "memorial_data" / "private_memorial_profiles" / slug
         )
+        voice_config_bytes: bytes | None = None
         for name in PRIVATE_METADATA_FILES:
             source = private_source / name
             if name == PRIVATE_CONTEXT_FILENAME:
                 info = _write_bytes(private_root / name, private_document, mode=0o400)
+            elif name == "voice_profile_manifest.json":
+                continue
+            elif name == "tts_voice.json":
+                content = _read_regular_source(
+                    source,
+                    maximum=8 * 1024 * 1024,
+                    missing_ok=True,
+                )
+                if content is None:
+                    continue
+                info = _write_bytes(private_root / name, content, mode=0o400)
+                voice_config_bytes = content
             elif source.exists():
                 info = _copy_regular(
                     source, private_root / name, maximum=8 * 1024 * 1024, mode=0o400
@@ -3349,52 +4078,28 @@ def prepare_candidate(
                 {"path": f"private_memorial_profiles/{slug}/{name}", **info}
             )
 
-        voice_manifest_path = private_source / "voice_profile_manifest.json"
-        voice_manifest_bytes = _read_regular_source(
-            voice_manifest_path,
-            maximum=8 * 1024 * 1024,
-            missing_ok=True,
+        if voice_config_bytes is None:
+            raise ValueError("manfred_candidate_voice_config_required")
+        voice_manifest_bytes, voice_identity = _hosted_clone_voice_binding(
+            voice_config_bytes=voice_config_bytes,
+            provider_voice_id_sha256=provider_voice_id_sha256,
+            tts_provider=tts_provider,
+            tts_model=tts_model,
         )
-        if voice_manifest_bytes is not None:
-            try:
-                voice_manifest = json.loads(voice_manifest_bytes)
-            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                raise ValueError("manfred_candidate_voice_manifest_invalid") from exc
-            if not isinstance(voice_manifest, dict):
-                raise ValueError("manfred_candidate_voice_manifest_invalid")
-            for item in list(voice_manifest.get("audio_assets") or []):
-                if not isinstance(item, dict):
-                    continue
-                relative_value = str(item.get("asset_relpath") or "").strip()
-                if not relative_value.startswith("voice_profile/"):
-                    continue
-                relative = _safe_relative(relative_value, suffix_required=True)
-                info = _copy_regular(
-                    private_source / relative,
-                    private_root / relative,
-                    maximum=MAX_ASSET_BYTES,
-                    mode=0o400,
-                )
-                file_receipts.append(
-                    {
-                        "path": f"private_memorial_profiles/{slug}/{relative.as_posix()}",
-                        **info,
-                    }
-                )
-        curated = Path("voice_profile/curated/unmixr-challenger-youtube-v5.wav")
-        if (private_source / curated).is_file():
-            info = _copy_regular(
-                private_source / curated,
-                private_root / curated,
-                maximum=MAX_ASSET_BYTES,
-                mode=0o400,
-            )
-            file_receipts.append(
-                {
-                    "path": f"private_memorial_profiles/{slug}/{curated.as_posix()}",
-                    **info,
-                }
-            )
+        manifest_info = _write_bytes(
+            private_root / "voice_profile_manifest.json",
+            voice_manifest_bytes,
+            mode=0o600,
+        )
+        file_receipts.append(
+            {
+                "path": (
+                    f"private_memorial_profiles/{slug}/"
+                    "voice_profile_manifest.json"
+                ),
+                **manifest_info,
+            }
+        )
 
         archive_receipts = _copy_archive(
             source_root=source_root,
@@ -3446,6 +4151,8 @@ def prepare_candidate(
             public_origin=public_base_url,
             generated_at=authority_generated_at,
             public_artifacts=public_release_artifacts,
+            voice_identity=voice_identity,
+            voice_release_bytes=voice_release_bytes,
         )
         _set_modes(staging)
         _authority_digest, authority_files = _tree_digest(authority_root)
@@ -3497,6 +4204,8 @@ def prepare_candidate(
             host_port=host_port,
             project_name=project_name,
             commit=commit,
+            image_id=image_id,
+            voice_identity=voice_identity,
             spatial_release_root=release_root / "public_property_tours",
             spatial_handoff_included=bool(spatial_handoff.get("included")),
             spatial_slug=spatial_slug,
@@ -3509,6 +4218,8 @@ def prepare_candidate(
             expected_image_id=image_id,
             expected_project_name=project_name,
             expected_public_origin=public_base_url,
+            expected_voice_release_allowed=voice_release_bytes is not None,
+            expected_voice_identity=voice_identity,
         )
         spatial_receipt_path = receipts_root / f"{release_id}.spatial.json"
         spatial_receipt = {
@@ -3563,6 +4274,7 @@ def prepare_candidate(
             "commit": commit,
             "image": image,
             "image_id": image_id,
+            "public_origin": public_base_url,
             "release_id": release_id,
             "release_root": str(release_root),
             "runtime_root": str(runtime_root),
@@ -3600,6 +4312,13 @@ def prepare_candidate(
             "release_authority": release_authority,
             "release_authority_runtime_clear": True,
             "release_authority_promotion_authority": False,
+            "voice_release_allowed": voice_release_bytes is not None,
+            "voice_release_receipt_sha256": (
+                _sha256(voice_release_bytes)
+                if voice_release_bytes is not None
+                else ""
+            ),
+            **voice_identity,
         }
         _atomic_receipt(receipts_root / f"{release_id}.json", receipt)
         return receipt
@@ -3650,6 +4369,28 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Mode-0600 pinned Property exact-viewer browser receipt paired with the bundle.",
     )
+    parser.add_argument(
+        "--voice-release-receipt",
+        help=(
+            "Optional mode-0600 final human-reviewed Manfred voice-release "
+            "receipt. Omit for the reviewer-gated, public-text-only phase."
+        ),
+    )
+    parser.add_argument(
+        "--provider-voice-id-sha256",
+        required=True,
+        help="SHA-256 of the resolved provider voice ID; never pass the raw ID.",
+    )
+    parser.add_argument(
+        "--tts-provider",
+        required=True,
+        help=f"Exact governed TTS provider ({MANFRED_TTS_PROVIDER}).",
+    )
+    parser.add_argument(
+        "--tts-model",
+        required=True,
+        help=f"Exact governed TTS model ({MANFRED_TTS_MODEL}).",
+    )
     return parser
 
 
@@ -3684,6 +4425,14 @@ def main(argv: list[str] | None = None) -> int:
                 if args.spatial_browser_review_receipt
                 else None
             ),
+            voice_release_receipt=(
+                Path(args.voice_release_receipt)
+                if args.voice_release_receipt
+                else None
+            ),
+            provider_voice_id_sha256=args.provider_voice_id_sha256,
+            tts_provider=args.tts_provider,
+            tts_model=args.tts_model,
             rotate_secrets=args.rotate_secrets,
         )
     except (
