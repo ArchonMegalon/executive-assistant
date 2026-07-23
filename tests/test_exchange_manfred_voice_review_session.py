@@ -129,6 +129,7 @@ def test_exchange_writes_only_private_session_value(
     assert request.full_url == f"{ORIGIN}{exchange.EXCHANGE_PATH}"
     assert "#" not in request.full_url
     assert request.get_header("Origin") == ORIGIN
+    assert request.get_header("User-agent") == exchange.REVIEW_EXCHANGE_USER_AGENT
     assert json.loads(request.data.decode("ascii")) == {"token": bootstrap}
     assert output.read_text(encoding="ascii") == f"{session_token}\n"
     assert output.stat().st_mode & 0o777 == 0o600

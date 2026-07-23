@@ -36,6 +36,7 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
 
 MAX_REVIEW_URL_BYTES = 8192
 EXCHANGE_PATH = "/admin/memorials/manfred/voice-review"
+REVIEW_EXCHANGE_USER_AGENT = "EA-Memorial-Review-Client/1.0"
 
 
 def _origin_from_url(value: object) -> str:
@@ -133,6 +134,7 @@ def exchange_review_url(
             "Accept": "application/json",
             "Content-Type": "application/json",
             "Origin": origin,
+            "User-Agent": REVIEW_EXCHANGE_USER_AGENT,
         },
     )
     try:
