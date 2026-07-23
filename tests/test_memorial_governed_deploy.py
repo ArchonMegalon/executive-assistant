@@ -5148,10 +5148,26 @@ def test_forward_topology_rebases_canonical_five_layer_release_in_place(
             f"services: {{}}\n# canonical-layer-{index}\n",
             encoding="utf-8",
         )
+    local_environment = release_root / ".env.local"
+    local_environment.write_text("EA_RUNTIME_LOCAL=retained\n", encoding="utf-8")
+    local_environment.chmod(0o600)
+    expected_environment_files = [
+        str(
+            release_root
+            / deploy.EA_RUNTIME_ENV_DIRECTORY
+            / deploy.EA_RUNTIME_ENV_FILE
+        ),
+        str(
+            release_root
+            / deploy.EA_RUNTIME_ENV_DIRECTORY
+            / deploy.EA_RUNTIME_LOCAL_ENV_FILE
+        ),
+    ]
     runner = FakeRunner(
         release_root,
         baseline_root=release_root,
         baseline_files=tuple(expected_layers),
+        baseline_environment_files=tuple(expected_environment_files),
     )
     monkeypatch.setattr(
         deploy,
@@ -5174,6 +5190,11 @@ def test_forward_topology_rebases_canonical_five_layer_release_in_place(
     )
     assert topology["prior_memorial_layer_replaced"] is True
     assert topology["external_layer_basenames"] == []
+    assert topology["compose_environment_files"] == expected_environment_files
+    assert (
+        topology["target_compose_environment_files"]
+        == expected_environment_files
+    )
     assert "trusted_external_bridge" not in topology
     config_call = [call for call in runner.calls if call[-2:] == ["config", "--quiet"]][
         0
@@ -5184,10 +5205,87 @@ def test_forward_topology_rebases_canonical_five_layer_release_in_place(
         if item == "-f"
     ]
     assert configured_layers == expected_layers
+    configured_environment_files = [
+        config_call[index + 1]
+        for index, item in enumerate(config_call[:-1])
+        if item == "--env-file"
+    ]
+    assert configured_environment_files == expected_environment_files
     assert config_call.count(str(release_root / deploy.MEMORIAL_COMPOSE_FILE)) == 1
     assert receipt["rollback_compose_files"] == [
         "memorial-release-001.rollback-capsule.compose.json"
     ]
+    assert not any("up" in call for call in runner.calls)
+
+
+def test_canonical_five_layer_release_requires_governed_environment_label(
+    release_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    expected_layers = deploy.TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER
+    for filename in expected_layers:
+        (release_root / filename).write_text("services: {}\n", encoding="utf-8")
+    runner = FakeRunner(
+        release_root,
+        baseline_root=release_root,
+        baseline_files=expected_layers,
+        baseline_environment_files=(),
+    )
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(
+        deploy.DeployError, match="forward_canonical_environment_label_invalid"
+    ):
+        _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+
+
+@pytest.mark.parametrize(
+    "baseline_files",
+    [
+        (
+            "docker-compose.yml",
+            "docker-compose.prod.yml",
+            "docker-compose.whatsapp-web-session.yml",
+            deploy.MEMORIAL_COMPOSE_FILE,
+            "docker-compose.cloudflared.yml",
+        ),
+        (
+            "docker-compose.yml",
+            "docker-compose.prod.yml",
+            "docker-compose.whatsapp-web-session.yml",
+            "docker-compose.cloudflared.yml",
+        ),
+    ],
+    ids=("order-drift", "missing-memorial"),
+)
+def test_in_root_bridge_only_layers_require_exact_canonical_topology(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    baseline_files: tuple[str, ...],
+) -> None:
+    for filename in baseline_files:
+        (release_root / filename).write_text("services: {}\n", encoding="utf-8")
+    runner = FakeRunner(
+        release_root,
+        baseline_root=release_root,
+        baseline_files=baseline_files,
+    )
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(
+        deploy.DeployError, match="forward_canonical_layer_topology_invalid"
+    ):
+        _lane(release_root, runner).deploy(preflight_only=True)
+
     assert not any("up" in call for call in runner.calls)
 
 

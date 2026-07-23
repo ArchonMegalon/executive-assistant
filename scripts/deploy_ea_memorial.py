@@ -4153,6 +4153,20 @@ class MemorialDeployLane:
                         f"forward_baseline_compose_file_unmappable:{prior_file.name}"
                     )
                 external_layer_names.append(prior_file.name)
+        observed_layer_names = tuple(path.name for path in prior_files)
+        canonical_in_root_topology = (
+            prior_root == self.root
+            and not external_layer_names
+            and observed_layer_names == TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER
+            and all(
+                path == prior_root / basename
+                for path, basename in zip(
+                    prior_files,
+                    TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER,
+                    strict=True,
+                )
+            )
+        )
         if TRUSTED_EXTERNAL_BRIDGE_ONLY_LAYERS.intersection(external_layer_names):
             bridge = self._validate_trusted_external_topology_bridge(
                 previous=previous,
@@ -4184,6 +4198,11 @@ class MemorialDeployLane:
             }
             self._write_receipt()
             return
+        if (
+            TRUSTED_EXTERNAL_BRIDGE_ONLY_LAYERS.intersection(observed_layer_names)
+            and not canonical_in_root_topology
+        ):
+            raise DeployError("forward_canonical_layer_topology_invalid")
 
         release_files: list[str] = []
         seen: set[str] = set()
@@ -4239,12 +4258,41 @@ class MemorialDeployLane:
 
         if not prior_memorial_layer_replaced:
             release_files.append(MEMORIAL_COMPOSE_FILE)
+        if canonical_in_root_topology:
+            release_environment_files = [
+                self.root / EA_RUNTIME_ENV_DIRECTORY / EA_RUNTIME_ENV_FILE
+            ]
+            if (self.root / ".env.local").is_file():
+                release_environment_files.append(
+                    self.root
+                    / EA_RUNTIME_ENV_DIRECTORY
+                    / EA_RUNTIME_LOCAL_ENV_FILE
+                )
+            release_environment_file_names = tuple(
+                path.as_posix() for path in release_environment_files
+            )
+            if (
+                self._prior_compose_environment_files
+                != release_environment_file_names
+                or self._prior_compose_environment_file_label
+                != ",".join(release_environment_file_names)
+            ):
+                raise DeployError("forward_canonical_environment_label_invalid")
+            self.target_compose_environment_files = (
+                release_environment_file_names
+            )
         self.target_compose_files = tuple(release_files)
         self.release_env["EA_DEPLOY_COMPOSE_FILES"] = ",".join(release_files)
         self.receipt["target_compose_files"] = release_files
         self.receipt["forward_topology_source"] = {
             "working_dir": str(prior_root),
             "compose_config_files": [str(path) for path in prior_files],
+            "compose_environment_files": list(
+                self._prior_compose_environment_files
+            ),
+            "target_compose_environment_files": list(
+                self.target_compose_environment_files
+            ),
             "mapping": (
                 "recognized_layers_rebased_to_release_root_"
                 "with_current_memorial_layer_without_external_byte_reads"
