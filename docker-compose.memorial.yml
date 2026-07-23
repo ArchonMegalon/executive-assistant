@@ -3,6 +3,7 @@ services:
     image: ${EA_MEMORIAL_IMAGE:?set an immutable revision-bound EA_MEMORIAL_IMAGE}
     pull_policy: never
     user: "10001:10001"
+    group_add: !reset []
     environment:
       - EA_SOURCE_REVISION=${EA_SOURCE_REVISION:?set EA_SOURCE_REVISION for memorial deployments}
       - EA_DEPLOY_PRIMARY_MODE=MEMORIAL

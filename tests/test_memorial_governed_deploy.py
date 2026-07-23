@@ -6005,6 +6005,7 @@ def test_memorial_compose_override_is_api_only() -> None:
     assert "image: ${EA_MEMORIAL_IMAGE:?" in raw
     assert "pull_policy: never" in raw
     assert 'user: "10001:10001"' in raw
+    assert "group_add: !reset []" in raw
     assert "volumes: !override" in raw
     assert "EA_SOURCE_REVISION=${EA_SOURCE_REVISION:?" in raw
     assert "EA_TRUST_API_TOKEN_PRINCIPAL_HEADER=0" in raw
@@ -6036,6 +6037,53 @@ def test_memorial_compose_override_is_api_only() -> None:
     assert raw.count("${EA_MEMORIAL_RUNTIME_HOST_PATH:?") == 3
     assert "\n  ea-worker:" not in raw
     assert "\n  ea-scheduler:" not in raw
+
+
+def test_memorial_compose_override_resets_base_supplemental_groups() -> None:
+    if shutil.which("docker") is None:
+        pytest.skip("docker CLI unavailable")
+    version = subprocess.run(  # nosec B603 - read-only fixed Docker command
+        ["docker", "compose", "version"],
+        cwd=deploy.ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if version.returncode != 0:
+        pytest.skip("Docker Compose plugin unavailable")
+
+    completed = subprocess.run(  # nosec B603 - config-only; no daemon mutation
+        [
+            "docker",
+            "compose",
+            "-f",
+            "docker-compose.yml",
+            "-f",
+            deploy.MEMORIAL_COMPOSE_FILE,
+            "config",
+            "--no-interpolate",
+            "--format",
+            "json",
+        ],
+        cwd=deploy.ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    if completed.returncode != 0:
+        pytest.fail(
+            f"Docker Compose memorial config-only probe failed:{completed.returncode}"
+        )
+    rendered = json.loads(completed.stdout)
+    service = dict(rendered["services"])["ea-api"]
+
+    assert service["user"] == "10001:10001"
+    assert "group_add" not in service
+    assert not any(
+        token in completed.args for token in ("up", "start", "create", "run")
+    )
 
 
 def test_bind_source_denial_fails_preflight_before_any_mutation(
@@ -6150,6 +6198,7 @@ def _configure_observed_live_rollback_posture(
         "CgroupnsMode": "private",
         "CpuShares": 512,
         "ExtraHosts": ["host.docker.internal:host-gateway"],
+        "GroupAdd": ["1000"],
         "IpcMode": "private",
         "LogConfig": {
             "Type": "json-file",
@@ -6525,6 +6574,81 @@ def test_capsule_is_private_rendered_and_receipt_redacts_environment_values(
     assert context["rollback_render"]["environment_count"] == 3
     lane._clear_rollback_artifacts(terminal_status="discarded_test")
     assert not lane.rollback_capsule_path.exists()
+
+
+def test_supplemental_groups_round_trip_through_sealed_capsule(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.prior_host_config["GroupAdd"] = ["1000"]
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+
+    context = lane.preflight()
+
+    capsule = json.loads(lane.rollback_capsule_path.read_text(encoding="utf-8"))
+    assert capsule["services"]["ea-api"]["group_add"] == ["1000"]
+    assert context["rollback_render"]["status"] == "pass"
+    lane._clear_rollback_artifacts(terminal_status="discarded_test")
+
+
+@pytest.mark.parametrize("group_add", [1000, [1000], [""], ["bad\nvalue"]])
+def test_invalid_supplemental_groups_fail_before_mutation(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    group_add: object,
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.prior_host_config["GroupAdd"] = group_add
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(
+        deploy.DeployError, match="rollback_capsule_group_add_invalid"
+    ):
+        _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+    assert not any(call[:3] == ["docker", "image", "tag"] for call in runner.calls)
+
+
+def test_supplemental_group_render_drift_fails_before_mutation(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.prior_host_config["GroupAdd"] = ["1000"]
+
+    def drift(rendered: dict[str, object]) -> None:
+        services = rendered["services"]
+        assert isinstance(services, dict)
+        service = services["ea-api"]
+        assert isinstance(service, dict)
+        service["group_add"] = ["1001"]
+
+    runner.rollback_capsule_render_mutator = drift
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="rollback_capsule_render_functional_identity_mismatch:host_config",
+    ):
+        _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+    assert not any(call[:3] == ["docker", "image", "tag"] for call in runner.calls)
 
 
 @pytest.mark.parametrize(
@@ -7121,6 +7245,7 @@ def test_real_compose_config_normalization_round_trips_every_runtime_domain(
 
     assert deploy._container_functional_identity(projected) == expected_identity
     rendered_service = dict(rendered["services"])["ea-api"]
+    assert rendered_service["group_add"] == ["1000"]
     assert rendered_service["extra_hosts"] == [
         "host.docker.internal=host-gateway"
     ]

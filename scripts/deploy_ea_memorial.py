@@ -290,6 +290,7 @@ ROLLBACK_CAPSULE_HOST_MAPPED_KEYS = frozenset(
         "CgroupnsMode",
         "CpuShares",
         "ExtraHosts",
+        "GroupAdd",
         "IpcMode",
         "LogConfig",
         "Memory",
@@ -403,6 +404,7 @@ ROLLBACK_CAPSULE_RENDER_SERVICE_KEYS = frozenset(
         "environment",
         "expose",
         "extra_hosts",
+        "group_add",
         "healthcheck",
         "hostname",
         "image",
@@ -1323,6 +1325,21 @@ def _rollback_capsule_extra_hosts(value: object) -> list[str]:
     return sorted(normalized)
 
 
+def _rollback_capsule_group_add(value: object) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(
+        isinstance(item, str)
+        and item
+        and "\x00" not in item
+        and "\n" not in item
+        and "\r" not in item
+        for item in value
+    ):
+        raise DeployError("rollback_capsule_group_add_invalid")
+    return sorted(set(value))
+
+
 def _rollback_capsule_healthcheck_identity(value: object) -> dict[str, object]:
     if value in (None, {}):
         return {}
@@ -1435,6 +1452,8 @@ def _rollback_capsule_host_identity(host: Mapping[str, Any]) -> dict[str, object
             result[key] = sorted(set(value))
         elif key == "ExtraHosts":
             result[key] = _rollback_capsule_extra_hosts(value)
+        elif key == "GroupAdd":
+            result[key] = _rollback_capsule_group_add(value)
         elif key == "Tmpfs":
             if not isinstance(value, dict) or not all(
                 isinstance(path, str)
@@ -4102,6 +4121,11 @@ class MemorialDeployLane:
             )
 
         service["read_only"] = bool(host.get("ReadonlyRootfs"))
+        group_add = _rollback_capsule_group_add(host.get("GroupAdd"))
+        if group_add:
+            service["group_add"] = [
+                _rollback_capsule_compose_literal(item) for item in group_add
+            ]
         for host_key, compose_key in (
             ("CapDrop", "cap_drop"),
             ("ExtraHosts", "extra_hosts"),
@@ -6449,6 +6473,9 @@ class MemorialDeployLane:
         extra_hosts = _rollback_capsule_extra_hosts(service.get("extra_hosts"))
         if extra_hosts:
             host["ExtraHosts"] = extra_hosts
+        group_add = _rollback_capsule_group_add(service.get("group_add"))
+        if group_add:
+            host["GroupAdd"] = group_add
         for compose_key, runtime_key, allowed in (
             ("cgroup", "CgroupnsMode", {"private"}),
             ("ipc", "IpcMode", {"private"}),
