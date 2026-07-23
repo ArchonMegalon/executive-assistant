@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from scripts import run_manfred_memorial_candidate as candidate_runner
 from scripts.manfred_candidate_registry import (
     CANDIDATE_ENV_KEYS,
     EXECUTION_INPUT_SCHEMA,
@@ -35,6 +36,10 @@ API_CONTAINER_ID = "3" * 64
 GATEWAY_CONTAINER_ID = "4" * 64
 PROJECT = "ea-manfred-candidate-a1b2c3d4"
 PROJECT_B = "ea-manfred-candidate-b1c2d3e4"
+
+
+def test_registry_execution_input_allowlist_matches_candidate_runner() -> None:
+    assert CANDIDATE_ENV_KEYS == frozenset(candidate_runner.ALLOWED_ENV_KEYS)
 
 
 class CandidateRegistryTests(unittest.TestCase):
