@@ -7646,3 +7646,47 @@ def test_private_artifact_parent_walk_rejects_symlink_and_fchmods_final_dir(
     )
     assert stat.S_IMODE(real.stat().st_mode) == 0o700
     assert seal["mode"] == "0600"
+
+
+def test_private_artifact_parent_walk_allows_same_inode_child_churn(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    private = tmp_path / "private"
+    artifact = private / "secret.json"
+    deploy.MemorialDeployLane._write_private_artifact_once(
+        artifact,
+        b"{}\n",
+        reason_prefix="private_test",
+    )
+    real_open = deploy.os.open
+    child_created = False
+
+    def open_after_child_churn(
+        path: str | bytes | int,
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        nonlocal child_created
+        if (
+            not child_created
+            and path == private.name
+            and dir_fd is not None
+            and flags & deploy.os.O_DIRECTORY
+        ):
+            child_created = True
+            (private / "unrelated-sibling").write_bytes(b"sibling churn\n")
+        return real_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(deploy.os, "open", open_after_child_churn)
+
+    loaded = deploy.MemorialDeployLane._read_private_artifact(
+        artifact,
+        reason_prefix="private_test",
+    )
+
+    assert child_created is True
+    assert loaded is not None
+    assert loaded[0] == b"{}\n"

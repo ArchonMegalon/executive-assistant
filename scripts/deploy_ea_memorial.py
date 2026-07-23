@@ -851,6 +851,18 @@ def _trusted_file_identity(metadata: os.stat_result) -> tuple[int, ...]:
     )
 
 
+def _trusted_directory_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    """Bind a directory descriptor without treating child churn as replacement."""
+
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_uid,
+        metadata.st_gid,
+    )
+
+
 def _parse_env_file(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     try:
@@ -2718,8 +2730,8 @@ class MemorialDeployLane:
                     not stat.S_ISDIR(path_metadata.st_mode)
                     or stat.S_ISLNK(path_metadata.st_mode)
                     or not stat.S_ISDIR(child_metadata.st_mode)
-                    or _trusted_file_identity(path_metadata)
-                    != _trusted_file_identity(child_metadata)
+                    or _trusted_directory_identity(path_metadata)
+                    != _trusted_directory_identity(child_metadata)
                 ):
                     os.close(child)
                     raise DeployError(f"{reason_prefix}_directory_invalid")
