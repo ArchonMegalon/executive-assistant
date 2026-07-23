@@ -8060,7 +8060,7 @@ class MemorialDeployLane:
         required_smoke_checks = {
             "archive_publication_gate",
             "singular_memorial_alias",
-            "source_grounded_narrator_boundary",
+            "source_grounded_first_person_reconstruction_boundary",
             "voice_provider_boundary_blocked",
         }
         first_checks = {
@@ -10541,7 +10541,7 @@ class MemorialDeployLane:
         required_checks = {
             "archive_publication_gate",
             "singular_memorial_alias",
-            "source_grounded_narrator_boundary",
+            "source_grounded_first_person_reconstruction_boundary",
             "voice_provider_boundary_blocked",
             "browser_provider_websocket_boundary",
         }

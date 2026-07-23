@@ -1205,7 +1205,7 @@ class FakeRunner:
             else:
                 candidate_checks = [
                     "singular_memorial_alias",
-                    "source_grounded_narrator_boundary",
+                    "source_grounded_first_person_reconstruction_boundary",
                     "voice_provider_boundary_blocked",
                     "browser_provider_websocket_boundary",
                 ]
@@ -2421,13 +2421,13 @@ def _lane(
                 "first_smoke_checks": [
                     "archive_publication_gate",
                     "singular_memorial_alias",
-                    "source_grounded_narrator_boundary",
+                    "source_grounded_first_person_reconstruction_boundary",
                     "voice_provider_boundary_blocked",
                 ],
                 "second_smoke_checks": [
                     "archive_publication_gate",
                     "singular_memorial_alias",
-                    "source_grounded_narrator_boundary",
+                    "source_grounded_first_person_reconstruction_boundary",
                     "voice_provider_boundary_blocked",
                 ],
                 "browser_surface": {
@@ -4267,6 +4267,7 @@ def test_candidate_promotion_receipt_is_explicit_private_and_non_symlink(
         (
             "first_smoke_checks",
             [
+                "archive_publication_gate",
                 "singular_memorial_alias",
                 "source_grounded_narrator_boundary",
                 "voice_provider_boundary_blocked",
@@ -4275,6 +4276,7 @@ def test_candidate_promotion_receipt_is_explicit_private_and_non_symlink(
         (
             "second_smoke_checks",
             [
+                "archive_publication_gate",
                 "singular_memorial_alias",
                 "source_grounded_narrator_boundary",
                 "voice_provider_boundary_blocked",
