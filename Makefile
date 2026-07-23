@@ -250,6 +250,7 @@ test-api:
 
 # Provider-free source proof only. This target never creates a candidate runtime,
 # calls a public origin, reconciles ingress, or authorizes production promotion.
+verify-manfred-memorial-source-gate: export EA_PUBLIC_APP_BASE_URL :=
 verify-manfred-memorial-source-gate:
 	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q \
 		tests/test_manfred_memorial_deployment_contract.py \

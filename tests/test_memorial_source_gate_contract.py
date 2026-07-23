@@ -54,6 +54,15 @@ def test_manfred_source_gate_covers_launch_critical_contracts() -> None:
     assert "--rootdir=ea ea/tests/test_memorial_runtime.py" in body
 
 
+def test_manfred_source_gate_isolates_deployment_public_origin() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert (
+        "verify-manfred-memorial-source-gate: export "
+        "EA_PUBLIC_APP_BASE_URL :=\n"
+    ) in makefile
+
+
 def test_manfred_source_gate_cannot_mutate_or_contact_live_runtime() -> None:
     body = _make_target_body("verify-manfred-memorial-source-gate").lower()
 
