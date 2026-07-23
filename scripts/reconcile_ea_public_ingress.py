@@ -827,7 +827,7 @@ class PublicIngressReconciliationLane(MemorialDeployLane):
         ipv4 = str(endpoint.get("IPAddress") or "")
         aliases_value = endpoint.get("Aliases")
         aliases = (
-            sorted(str(item) for item in aliases_value)
+            sorted({str(item) for item in aliases_value})
             if isinstance(aliases_value, list)
             and all(isinstance(item, str) and item for item in aliases_value)
             else []

@@ -459,6 +459,51 @@ def test_preflight_captures_private_redacted_baseline_and_stable_api(tmp_path: P
     _assert_no_mutation(runner.commands)
 
 
+@pytest.mark.parametrize(
+    "aliases",
+    [
+        [
+            ingress.CLOUDFLARED_CONTAINER,
+            ingress.CLOUDFLARED_SERVICE,
+            ingress.CLOUDFLARED_SERVICE,
+            ingress.CLOUDFLARED_CONTAINER,
+        ],
+        [
+            ingress.CLOUDFLARED_SERVICE,
+            ingress.CLOUDFLARED_CONTAINER,
+            ingress.CLOUDFLARED_CONTAINER,
+            ingress.CLOUDFLARED_SERVICE,
+        ],
+    ],
+)
+def test_network_endpoint_identity_canonicalizes_duplicate_aliases(
+    tmp_path: Path,
+    aliases: list[str],
+) -> None:
+    root = _root(tmp_path)
+    lane = _lane(tmp_path, runner=FakeRunner(root))
+    endpoint = {
+        "NetworkID": "e" * 64,
+        "IPAddress": "172.22.0.4",
+        "Aliases": list(aliases),
+    }
+
+    identity = lane._network_endpoint_identity(
+        name="ea_default",
+        endpoint=endpoint,
+        container_id="cloudflared-container-id",
+        expected_aliases={
+            ingress.CLOUDFLARED_CONTAINER,
+            ingress.CLOUDFLARED_SERVICE,
+        },
+    )
+
+    assert identity["aliases"] == sorted(
+        [ingress.CLOUDFLARED_CONTAINER, ingress.CLOUDFLARED_SERVICE]
+    )
+    assert endpoint["Aliases"] == aliases
+
+
 def test_current_proxy_mismatch_denies_joint_reconciliation_without_mutation(
     tmp_path: Path,
 ) -> None:
