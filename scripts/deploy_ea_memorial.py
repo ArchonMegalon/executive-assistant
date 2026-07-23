@@ -259,6 +259,9 @@ TRUSTED_EXTERNAL_BRIDGE_ONLY_LAYERS = frozenset(
         "docker-compose.cloudflared.yml",
     }
 )
+TRUSTED_EXTERNAL_BRIDGE_REPLACEABLE_LAYERS = frozenset(
+    {MEMORIAL_COMPOSE_FILE}
+)
 ROLLBACK_CAPSULE_ALLOWED_EXTERNAL_LAYERS = frozenset(
     TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER
 )
@@ -3548,10 +3551,14 @@ class MemorialDeployLane:
             first_release_compose,
             strict=True,
         ):
+            blobs_match = (
+                external_seal.get("sha256") == release_seal.get("sha256")
+                and external_seal.get("size_bytes")
+                == release_seal.get("size_bytes")
+            )
             if (
-                external_seal.get("sha256") != release_seal.get("sha256")
-                or external_seal.get("size_bytes")
-                != release_seal.get("size_bytes")
+                basename not in TRUSTED_EXTERNAL_BRIDGE_REPLACEABLE_LAYERS
+                and not blobs_match
             ):
                 raise DeployError(
                     f"forward_external_bridge_compose_blob_mismatch:{basename}"
@@ -3722,6 +3729,9 @@ class MemorialDeployLane:
             "working_dir": prior_root.as_posix(),
             "common_external_root": common_root.as_posix(),
             "ordered_layer_basenames": list(expected_names),
+            "replaceable_layer_basenames": sorted(
+                TRUSTED_EXTERNAL_BRIDGE_REPLACEABLE_LAYERS
+            ),
             "environment_files": [
                 path.as_posix() for path in prior_environment_files
             ],
@@ -3734,6 +3744,16 @@ class MemorialDeployLane:
                     "external": external_seal,
                     "release": release_seal,
                     "release_head_blob": head_blob,
+                    "external_matches_release": (
+                        external_seal.get("sha256") == release_seal.get("sha256")
+                        and external_seal.get("size_bytes")
+                        == release_seal.get("size_bytes")
+                    ),
+                    "forward_policy": (
+                        "replace_with_release_head"
+                        if basename in TRUSTED_EXTERNAL_BRIDGE_REPLACEABLE_LAYERS
+                        else "require_exact_external_release_blob"
+                    ),
                 }
                 for basename, external_seal, release_seal, head_blob in zip(
                     expected_names,

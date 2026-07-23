@@ -6380,6 +6380,46 @@ def test_captured_five_layer_topology_uses_direct_joint_bridge_in_place(
     assert not any("up" in call for call in runner.calls)
 
 
+def test_captured_five_layer_bridge_replaces_only_prior_memorial_blob(
+    release_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, _prior_root, external_root = _captured_five_layer_live_runner(
+        release_root, tmp_path
+    )
+    prior_memorial = external_root / deploy.MEMORIAL_COMPOSE_FILE
+    prior_memorial.write_bytes(b"services: {}\n# prior-memorial-layer\n")
+    prior_memorial.chmod(0o600)
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    receipt = _lane(release_root, runner).deploy(preflight_only=True)
+
+    bridge = receipt["forward_topology_source"]["trusted_external_bridge"]
+    seals = {row["basename"]: row for row in bridge["compose_file_seals"]}
+    memorial = seals[deploy.MEMORIAL_COMPOSE_FILE]
+    assert receipt["status"] == "preflight_only_pass"
+    assert bridge["replaceable_layer_basenames"] == [
+        deploy.MEMORIAL_COMPOSE_FILE
+    ]
+    assert memorial["external_matches_release"] is False
+    assert memorial["forward_policy"] == "replace_with_release_head"
+    assert all(
+        row["external_matches_release"] is True
+        and row["forward_policy"] == "require_exact_external_release_blob"
+        for name, row in seals.items()
+        if name != deploy.MEMORIAL_COMPOSE_FILE
+    )
+    assert receipt["target_compose_files"] == list(
+        deploy.TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER
+    )
+    assert not any("up" in call for call in runner.calls)
+
+
 @pytest.mark.parametrize(
     ("drift", "reason"),
     [
@@ -6388,6 +6428,10 @@ def test_captured_five_layer_topology_uses_direct_joint_bridge_in_place(
         ("root", "forward_external_bridge_common_root_invalid"),
         ("blob", "forward_external_bridge_compose_blob_mismatch"),
         ("head_blob", "forward_external_bridge_release_head_blob_mismatch"),
+        (
+            "head_memorial_blob",
+            "forward_external_bridge_release_head_blob_mismatch",
+        ),
         ("common_root_mode", "forward_external_bridge_common_root_mode_invalid"),
         ("environment_label", "forward_external_bridge_environment_label_invalid"),
         (
@@ -6440,6 +6484,8 @@ def test_captured_five_layer_bridge_rejects_drift_before_mutation(
         (external_root / layers[1]).write_bytes(b"services: {drift: true}\n")
     elif drift == "head_blob":
         runner.head_blob_overrides[layers[1]] = "0" * 40
+    elif drift == "head_memorial_blob":
+        runner.head_blob_overrides[deploy.MEMORIAL_COMPOSE_FILE] = "0" * 40
     elif drift == "common_root_mode":
         external_root.chmod(0o750)
     elif drift == "environment_label":
