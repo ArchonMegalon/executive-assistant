@@ -983,6 +983,28 @@ def piper_fast_synthesize_request(*, text: str, lang: str, base_voice_variant: s
     raise HTTPException(status_code=410, detail="openvoice_tts_pipeline_removed")
 
 
+def _downloaded_audio_content_type(*, payload: bytes, declared_content_type: object) -> str:
+    normalized = (
+        str(declared_content_type or "audio/mpeg").split(";", 1)[0].strip().lower()
+        or "audio/mpeg"
+    )
+    if normalized.startswith("audio/"):
+        return normalized
+    if payload.startswith(b"RIFF") and payload[8:12] == b"WAVE":
+        return "audio/wav"
+    if payload.startswith(b"ID3") or (
+        len(payload) >= 2
+        and payload[0] == 0xFF
+        and payload[1] & 0xE0 == 0xE0
+    ):
+        return "audio/mpeg"
+    if payload.startswith(b"OggS"):
+        return "audio/ogg"
+    if payload.startswith(b"fLaC"):
+        return "audio/flac"
+    return normalized
+
+
 def unmixr_synthesize_request(
     *,
     text: str,
@@ -1037,5 +1059,8 @@ def unmixr_synthesize_request(
         raise HTTPException(status_code=502, detail=f"unmixr_audio_fetch_failed:{type(exc).__name__}") from exc
     if audio_response.status_code >= 400 or not audio_response.ok or not audio_response.content:
         raise HTTPException(status_code=502, detail=f"unmixr_audio_fetch_failed:{audio_response.status_code}")
-    content_type = str(audio_response.headers.get("Content-Type") or "audio/mpeg").split(";", 1)[0].strip().lower() or "audio/mpeg"
+    content_type = _downloaded_audio_content_type(
+        payload=audio_response.content,
+        declared_content_type=audio_response.headers.get("Content-Type"),
+    )
     return audio_response.content, content_type

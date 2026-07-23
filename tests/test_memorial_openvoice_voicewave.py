@@ -386,6 +386,45 @@ def test_unmixr_smart_selector_accepts_successful_audio_url_with_credit_usage(
     assert state["slots"]["UNMIXR_API_KEY"]["last_status"] == "ok"
 
 
+@pytest.mark.parametrize("declared_content_type", ["binary/octet-stream", "application/octet-stream"])
+def test_unmixr_synthesize_recognizes_provider_mp3_with_generic_content_type(
+    monkeypatch,
+    tmp_path: Path,
+    declared_content_type: str,
+) -> None:
+    _clear_unmixr_key_env(monkeypatch)
+    monkeypatch.setenv("EA_UNMIXR_SLOT_SELECTOR_STATE_FILE", str(tmp_path / "unmixr-slots.json"))
+    monkeypatch.setenv("UNMIXR_API_KEY", "primary-key")
+    mp3_payload = b"ID3\x04\x00\x00\x00\x00\x00\x00provider-audio"
+
+    monkeypatch.setattr(
+        memorial_openvoice.requests,
+        "request",
+        lambda **kwargs: _FakeResponse(
+            status_code=200,
+            payload={"audio_url": "https://audio.example/render.mp3"},
+        ),
+    )
+    monkeypatch.setattr(
+        memorial_openvoice.requests,
+        "get",
+        lambda *args, **kwargs: _FakeResponse(
+            status_code=200,
+            content=mp3_payload,
+            headers={"Content-Type": declared_content_type},
+        ),
+    )
+
+    audio, content_type = memorial_openvoice.unmixr_synthesize_request(
+        text="Guten Morgen.",
+        voice_id="voice-1",
+        lang="de-AT",
+    )
+
+    assert audio == mp3_payload
+    assert content_type == "audio/mpeg"
+
+
 def test_unmixr_language_preserves_provider_locale_casing(monkeypatch) -> None:
     monkeypatch.setenv("UNMIXR_LANGUAGE", "en_US")
 
