@@ -1205,7 +1205,7 @@ def test_memorial_public_evaluation_is_enabled_without_review_cookie_and_stays_m
         assert page.locator("#memorial-conversation-disclosure").inner_text() == (
             "Öffentliche Testphase: Diese KI-Rekonstruktion antwortet aus einer "
             "aus freigegebenen Erinnerungen und Quellen abgeleiteten Ich-Perspektive. "
-            "Sie ist nicht der echte Manfred und spricht nicht für ihn. Die künstlich erzeugte "
+            "Sie ist nicht Manfred und spricht nicht für ihn. Die künstlich erzeugte "
             "Stimme wird noch beurteilt. Mikrofon und Audio werden erst nach "
             "„Gespräch beginnen“ verarbeitet."
         )

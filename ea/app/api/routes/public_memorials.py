@@ -13092,20 +13092,20 @@ def _minimal_public_memorial_html(
             "Operator-Vorschau: Die öffentliche Sprachfreigabe bleibt blockiert. "
             "Dieser kurzlebige Zugang dient nur der geprüften Gesprächsabnahme. "
             "Die KI-Rekonstruktion antwortet aus einer quellengebundenen Ich-Perspektive; "
-            "sie ist nicht der echte Manfred. Die Stimme ist künstlich erzeugt."
+            "sie ist nicht Manfred und spricht nicht für ihn. Die Stimme ist künstlich erzeugt."
         )
     elif public_voice_evaluation_allowed:
         voice_guidance = (
             "Öffentliche Testphase: Diese KI-Rekonstruktion antwortet aus einer "
             "aus freigegebenen Erinnerungen und Quellen abgeleiteten Ich-Perspektive. "
-            "Sie ist nicht der echte Manfred und spricht nicht für ihn. Die künstlich erzeugte "
+            "Sie ist nicht Manfred und spricht nicht für ihn. Die künstlich erzeugte "
             "Stimme wird noch beurteilt. Mikrofon und Audio werden erst nach "
             "„Gespräch beginnen“ verarbeitet."
         )
     elif voice_access_blocked:
         voice_guidance = (
             "Hier antwortet eine KI anhand freigegebener Erinnerungen und Quellen. "
-            "Sie ist nicht der echte Manfred und spricht nicht für ihn. "
+            "Sie ist nicht Manfred und spricht nicht für ihn. "
             + (
                 "Sprechen ist derzeit nicht verfügbar."
                 if conversation_only
@@ -13115,14 +13115,14 @@ def _minimal_public_memorial_html(
     elif conversation_only:
         voice_guidance = (
             "KI-Rekonstruktion in einer aus freigegebenen Erinnerungen und Quellen "
-            "abgeleiteten Ich-Perspektive. Sie ist nicht der echte Manfred und spricht nicht "
+            "abgeleiteten Ich-Perspektive. Sie ist nicht Manfred und spricht nicht "
             "für ihn. Die Stimme ist künstlich erzeugt. Mikrofon und Audio werden erst nach "
             "„Gespräch beginnen“ verarbeitet."
         )
     else:
         voice_guidance = (
             "Hier antwortet eine KI anhand freigegebener Erinnerungen und Quellen. "
-            "Sie ist nicht der echte Manfred und spricht nicht für ihn. Die Stimme ist künstlich erzeugt. "
+            "Sie ist nicht Manfred und spricht nicht für ihn. Die Stimme ist künstlich erzeugt. "
             "Dein Mikrofon wird erst nach deinem Start verwendet; für Spracherkennung und Wiedergabe "
             "wird dein Audio verarbeitet. Du kannst jederzeit schreiben."
         )

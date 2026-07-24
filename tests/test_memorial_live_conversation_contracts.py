@@ -4409,7 +4409,7 @@ def test_blocked_voice_release_renders_polished_text_only_memorial_guide(
     assert "Schriftliche Frage stellen" not in page
     assert "Zum Gespräch" in page
     assert "Zum quellengebundenen Gedenkbegleiter" not in page
-    assert "ist nicht der echte Manfred und spricht nicht für ihn" in page
+    assert "ist nicht Manfred und spricht nicht für ihn" in page
     assert "Was möchtest du Manfred fragen?" not in page
     assert "KI-gestützten, synthetischen Manfred-Stimme" not in page
     assert "const memorialVoiceReleaseAllowed = false;" in page

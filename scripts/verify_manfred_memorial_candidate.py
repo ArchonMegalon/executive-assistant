@@ -1749,7 +1749,7 @@ def audit_browser_surface(
                 or accessibility.get("voice_access") != expected_voice_access
                 or accessibility.get("evaluation_status")
                 != expected_evaluation_status
-                or "ist nicht der echte Manfred" not in str(accessibility.get("guidance") or "")
+                or "ist nicht Manfred" not in str(accessibility.get("guidance") or "")
                 or "spricht nicht für ihn"
                 not in str(accessibility.get("guidance") or "")
                 or accessibility.get("text_form_visible") is not False
