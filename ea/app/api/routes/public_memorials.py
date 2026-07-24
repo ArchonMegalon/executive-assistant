@@ -1898,6 +1898,12 @@ def _memorial_voice_release_receipt_path() -> Path:
 _MANFRED_HOSTED_CLONE_MANIFEST_SCHEMA = (
     "ea.manfred_provider_managed_hosted_clone_manifest.v1"
 )
+_MANFRED_HOSTED_CLONE_PROVENANCE_MANIFEST_SCHEMA = (
+    "ea.manfred_provider_managed_hosted_clone_manifest.v2"
+)
+_MANFRED_VOICE_SOURCE_PROVENANCE_RECEIPT_SHA256_SEMANTICS = (
+    "sha256_exact_private_receipt_bytes"
+)
 _MANFRED_PROVIDER_VOICE_ID_PLACEHOLDER = "${UNMIXR_VOICE_ID}"
 _MANFRED_VOICE_ARTIFACT_MAX_BYTES = 8 * 1024 * 1024
 
@@ -2164,7 +2170,7 @@ def _memorial_voice_runtime_bindings() -> tuple[dict[str, str], str]:
         != voice_values["voice_manifest_sha256"]
     ):
         return {}, "release_runtime_voice_identity_missing"
-    expected_manifest_fields = {
+    base_manifest_fields = {
         "schema",
         "generated_by",
         "memorial_slug",
@@ -2182,13 +2188,46 @@ def _memorial_voice_runtime_bindings() -> tuple[dict[str, str], str]:
         "raw_provider_voice_id_recorded",
         "provider_credentials_recorded",
     }
+    provenance_manifest_fields = {
+        "source_provenance_receipt_embedded",
+        "source_provenance_receipt_sha256",
+        "source_provenance_receipt_sha256_semantics",
+    }
+    manifest_schema = manifest.get("schema")
+    if manifest_schema == _MANFRED_HOSTED_CLONE_MANIFEST_SCHEMA:
+        expected_manifest_fields = base_manifest_fields
+    elif (
+        manifest_schema
+        == _MANFRED_HOSTED_CLONE_PROVENANCE_MANIFEST_SCHEMA
+    ):
+        expected_manifest_fields = (
+            base_manifest_fields | provenance_manifest_fields
+        )
+    else:
+        return {}, "release_runtime_voice_identity_missing"
     try:
         empty_reference_aggregate = reference_aggregate_sha256([])
     except ManfredVoiceSignatureError:
         return {}, "release_runtime_voice_identity_missing"
     if (
         set(manifest) != expected_manifest_fields
-        or manifest.get("schema") != _MANFRED_HOSTED_CLONE_MANIFEST_SCHEMA
+        or (
+            manifest_schema
+            == _MANFRED_HOSTED_CLONE_PROVENANCE_MANIFEST_SCHEMA
+            and (
+                manifest.get("source_provenance_receipt_embedded")
+                is not False
+                or not valid_sha256(
+                    manifest.get("source_provenance_receipt_sha256")
+                )
+                or manifest.get(
+                    "source_provenance_receipt_sha256_semantics"
+                )
+                != (
+                    _MANFRED_VOICE_SOURCE_PROVENANCE_RECEIPT_SHA256_SEMANTICS
+                )
+            )
+        )
         or manifest.get("generated_by")
         != "scripts/prepare_manfred_memorial_candidate.py"
         or manifest.get("memorial_slug") != "manfred"

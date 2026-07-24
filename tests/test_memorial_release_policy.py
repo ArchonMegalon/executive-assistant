@@ -737,6 +737,8 @@ def test_blocked_release_prevents_page_prewarm(monkeypatch) -> None:
 def _set_voice_runtime_bindings(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    *,
+    source_provenance_receipt_sha256: str = "",
 ) -> dict[str, str]:
     raw_provider_voice_id = "provider-voice-id-secret"
     provider_voice_id_sha256 = hashlib.sha256(
@@ -755,6 +757,9 @@ def _set_voice_runtime_bindings(
             provider_voice_id_sha256=provider_voice_id_sha256,
             tts_provider=MANFRED_TTS_PROVIDER,
             tts_model=MANFRED_TTS_MODEL,
+            source_provenance_receipt_sha256=(
+                source_provenance_receipt_sha256
+            ),
         )
     )
     private_root = tmp_path / "private"
@@ -799,6 +804,117 @@ def _set_voice_runtime_bindings(
         "config_path": str(config_path),
         "manifest_path": str(manifest_path),
     }
+
+
+def _rewrite_runtime_voice_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    values: dict[str, str],
+    manifest: dict[str, object],
+) -> None:
+    manifest_bytes = candidate_prep._receipt_bytes(manifest)
+    manifest_path = Path(values["manifest_path"])
+    manifest_path.write_bytes(manifest_bytes)
+    manifest_path.chmod(0o600)
+    manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
+    monkeypatch.setenv(
+        "EA_MEMORIAL_VOICE_MANIFEST_SHA256",
+        manifest_sha256,
+    )
+    monkeypatch.setenv(
+        "EA_MEMORIAL_VOICE_IDENTITY_SHA256",
+        voice_identity_sha256(
+            voice_config_sha256=values[
+                "EA_MEMORIAL_VOICE_CONFIG_SHA256"
+            ],
+            voice_manifest_sha256=manifest_sha256,
+            voice_reference_aggregate_sha256=values[
+                "EA_MEMORIAL_VOICE_REFERENCE_AGGREGATE_SHA256"
+            ],
+            provider_voice_id_sha256=values[
+                "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256"
+            ],
+            tts_provider=MANFRED_TTS_PROVIDER,
+            tts_model=MANFRED_TTS_MODEL,
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "source_provenance_receipt_sha256",
+    ["", "1" * 64],
+    ids=["v1", "v2"],
+)
+def test_runtime_voice_manifest_accepts_exact_v1_and_v2_contracts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    source_provenance_receipt_sha256: str,
+) -> None:
+    values = _set_voice_runtime_bindings(
+        monkeypatch,
+        tmp_path,
+        source_provenance_receipt_sha256=(
+            source_provenance_receipt_sha256
+        ),
+    )
+
+    bindings, reason = public_memorials._memorial_voice_runtime_bindings()
+
+    assert reason == ""
+    assert bindings["expected_voice_manifest_sha256"] == values[
+        "EA_MEMORIAL_VOICE_MANIFEST_SHA256"
+    ]
+    assert public_memorials._memorial_voice_review_context() == (
+        SOURCE_REVISION,
+        PUBLIC_ORIGIN,
+        IMAGE_ID,
+        values["EA_MEMORIAL_VOICE_IDENTITY_SHA256"],
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing_field",
+        "extra_field",
+        "embedded",
+        "digest",
+        "semantics",
+        "v1_schema_with_provenance",
+    ],
+)
+def test_runtime_voice_manifest_v2_provenance_descriptor_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    values = _set_voice_runtime_bindings(
+        monkeypatch,
+        tmp_path,
+        source_provenance_receipt_sha256="1" * 64,
+    )
+    manifest = json.loads(Path(values["manifest_path"]).read_bytes())
+    if mutation == "missing_field":
+        manifest.pop("source_provenance_receipt_sha256")
+    elif mutation == "extra_field":
+        manifest["source_provenance_receipt_path"] = "/private/receipt.json"
+    elif mutation == "embedded":
+        manifest["source_provenance_receipt_embedded"] = True
+    elif mutation == "digest":
+        manifest["source_provenance_receipt_sha256"] = "A" * 64
+    elif mutation == "semantics":
+        manifest["source_provenance_receipt_sha256_semantics"] = (
+            "sha256_canonical_json"
+        )
+    else:
+        manifest["schema"] = (
+            "ea.manfred_provider_managed_hosted_clone_manifest.v1"
+        )
+    _rewrite_runtime_voice_manifest(monkeypatch, values, manifest)
+
+    assert public_memorials._memorial_voice_runtime_bindings() == (
+        {},
+        "release_runtime_voice_identity_missing",
+    )
 
 
 def test_runtime_release_decision_passes_exact_deploy_voice_bindings(
