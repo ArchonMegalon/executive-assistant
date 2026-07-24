@@ -321,8 +321,6 @@ def unmixr_memorial_voice_id() -> str:
 
 def unmixr_language(default: str = "de") -> str:
     preferred = str(default or "").strip()
-    if preferred.lower().startswith("de"):
-        return "de"
     configured = str(os.environ.get(_UNMIXR_LANGUAGE_ENV) or "").strip()
     selected = preferred or configured or "de"
     normalized = selected.replace("_", "-").strip()

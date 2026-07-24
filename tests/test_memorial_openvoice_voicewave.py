@@ -431,7 +431,47 @@ def test_unmixr_language_preserves_provider_locale_casing(monkeypatch) -> None:
     assert memorial_openvoice.unmixr_language("en-us") == "en-US"
     assert memorial_openvoice.unmixr_language("en_US") == "en-US"
     assert memorial_openvoice.unmixr_language("") == "en-US"
-    assert memorial_openvoice.unmixr_language("de-DE") == "de"
+    assert memorial_openvoice.unmixr_language("de-DE") == "de-DE"
+    assert memorial_openvoice.unmixr_language("de_AT") == "de-AT"
+    assert memorial_openvoice.unmixr_language("de-AT") == "de-AT"
+
+
+def test_unmixr_synthesize_sends_explicit_german_locale_without_changing_voice_id(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _clear_unmixr_key_env(monkeypatch)
+    monkeypatch.setenv("EA_UNMIXR_SLOT_SELECTOR_STATE_FILE", str(tmp_path / "unmixr-slots.json"))
+    monkeypatch.setenv("UNMIXR_API_KEY", "primary-key")
+    seen_payloads: list[dict[str, object]] = []
+
+    def fake_request(method, url, headers=None, **kwargs):  # noqa: ANN001
+        seen_payloads.append(dict(kwargs.get("json") or {}))
+        return _FakeResponse(status_code=200, payload={"audio_url": "https://audio.example/render.mp3"})
+
+    monkeypatch.setattr(memorial_openvoice.requests, "request", fake_request)
+    monkeypatch.setattr(
+        memorial_openvoice.requests,
+        "get",
+        lambda *args, **kwargs: _FakeResponse(
+            status_code=200,
+            content=b"ID3\x04\x00\x00\x00\x00\x00\x00provider-audio",
+            headers={"Content-Type": "audio/mpeg"},
+        ),
+    )
+
+    audio, content_type = memorial_openvoice.unmixr_synthesize_request(
+        text="Ich antworte ruhig auf Deutsch.",
+        voice_id="approved-manfred-voice",
+        lang="de-AT",
+        speaking_rate="0.90",
+    )
+
+    assert audio.startswith(b"ID3")
+    assert content_type == "audio/mpeg"
+    assert seen_payloads[0]["language"] == "de-AT"
+    assert seen_payloads[0]["voice_id"] == "approved-manfred-voice"
+    assert seen_payloads[0]["speaking_rate"] == "0.90"
 
 
 def test_voicewave_runtime_script_path_prefers_existing_container_path(monkeypatch) -> None:

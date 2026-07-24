@@ -4250,6 +4250,11 @@ def test_memorial_speech_synthesize_reuses_final_render_cache(
     assert second.content == b"RIFFcached"
     assert synth_calls["count"] == 1
     assert pad_calls["count"] == 1
+    cache_metadata_paths = list(cache_root.glob("*.json"))
+    assert len(cache_metadata_paths) == 1
+    cache_metadata = json.loads(cache_metadata_paths[0].read_text(encoding="utf-8"))
+    assert cache_metadata["lang"] == "de-AT"
+    assert cache_metadata["provider_language_policy"] == "unmixr_locale_preserving_v1"
 
 
 def test_memorial_chat_strips_llm_meta_self_reference_from_answer(
@@ -7336,7 +7341,7 @@ def test_memorial_contact_tts_cache_survives_pad_function_identity_change(
     assert audio_one == audio_two
 
 
-def test_memorial_contact_tts_cache_adopts_legacy_runtime_key(
+def test_memorial_contact_tts_cache_rejects_pre_locale_policy_key(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -7389,10 +7394,17 @@ def test_memorial_contact_tts_cache_adopts_legacy_runtime_key(
         encoding="utf-8",
     )
 
+    synth_calls: list[dict[str, object]] = []
     monkeypatch.setattr(
         public_memorials,
         "unmixr_synthesize_request",
-        lambda **kwargs: (_ for _ in ()).throw(AssertionError("legacy cache entry should be adopted before synthesis")),
+        lambda **kwargs: synth_calls.append(dict(kwargs))
+        or (_generated_wav_bytes(textish_seed=f"locale-policy:{text}"), "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_transcribe_audio_blob",
+        lambda **kwargs: {"transcript_text": text, "transcriber": "unit"},
     )
 
     audio, content_type = public_memorials._render_memorial_tts_audio(
@@ -7407,7 +7419,18 @@ def test_memorial_contact_tts_cache_adopts_legacy_runtime_key(
     )
 
     assert content_type == "audio/wav"
-    assert audio == legacy_audio
+    assert audio != legacy_audio
+    assert len(synth_calls) == 1
+    assert synth_calls[0]["lang"] == "de-AT"
+    assert synth_calls[0]["voice_id"] == "voice-1"
+    cache_metadata = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in public_memorials._memorial_tts_render_cache_root().glob("*.json")
+    ]
+    assert any(
+        item.get("provider_language_policy") == "unmixr_locale_preserving_v1"
+        for item in cache_metadata
+    )
 
 
 def test_memorial_live_page_uses_minimal_realtime_client(

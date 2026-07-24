@@ -9539,6 +9539,8 @@ def _render_memorial_tts_audio(
             f"{getattr(_pad_speech_audio_lead_in, '__qualname__', '')}:v2"
         ),
     }
+    if selected_plugin == UNMIXR_TTS_PLUGIN_ID:
+        cache_payload["provider_language_policy"] = "unmixr_locale_preserving_v1"
     cache_audio_path, cache_meta_path = _memorial_tts_render_cache_paths(cache_payload=cache_payload)
     direct_contact_phrase = _is_memorial_direct_contact_opening_text(normalized_text)
     contact_phrase_validation: dict[str, object] = {}
