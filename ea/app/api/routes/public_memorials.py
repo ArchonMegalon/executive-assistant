@@ -13045,6 +13045,7 @@ def _minimal_public_memorial_html(
     voice_release_enforced = _memorial_voice_release_enforced()
     public_voice_release_allowed = True
     public_voice_evaluation_allowed = False
+    provider_work_allowed = True
     if voice_release_enforced:
         release_decision = _memorial_voice_release_decision(slug)
         public_voice_release_allowed = (
@@ -13052,6 +13053,9 @@ def _minimal_public_memorial_html(
         )
         public_voice_evaluation_allowed = (
             release_decision.get("public_evaluation") is True
+        )
+        provider_work_allowed = (
+            release_decision.get("provider_work_allowed") is True
         )
     operator_preview_allowed = bool(
         operator_preview_allowed
@@ -13092,10 +13096,11 @@ def _minimal_public_memorial_html(
         )
     elif public_voice_evaluation_allowed:
         voice_guidance = (
-            "Öffentliche Testphase: KI-Rekonstruktion in einer aus freigegebenen "
-            "Erinnerungen und Quellen abgeleiteten Ich-Perspektive – nicht der echte "
-            "Manfred. Die künstlich erzeugte Stimme wird noch beurteilt. Mikrofon und "
-            "Audio werden erst nach „Gespräch beginnen“ verarbeitet."
+            "Öffentliche Testphase: Diese KI-Rekonstruktion antwortet aus einer "
+            "aus freigegebenen Erinnerungen und Quellen abgeleiteten Ich-Perspektive. "
+            "Sie ist nicht Manfred und spricht nicht für ihn. Die künstlich erzeugte "
+            "Stimme wird noch beurteilt. Mikrofon und Audio werden erst nach "
+            "„Gespräch beginnen“ verarbeitet."
         )
     elif voice_access_blocked:
         voice_guidance = (
@@ -13110,8 +13115,8 @@ def _minimal_public_memorial_html(
     elif conversation_only:
         voice_guidance = (
             "KI-Rekonstruktion in einer aus freigegebenen Erinnerungen und Quellen "
-            "abgeleiteten Ich-Perspektive – nicht der echte Manfred. Die Stimme ist künstlich erzeugt. "
-            "Mikrofon und Audio werden erst nach "
+            "abgeleiteten Ich-Perspektive. Sie ist nicht Manfred und spricht nicht "
+            "für ihn. Die Stimme ist künstlich erzeugt. Mikrofon und Audio werden erst nach "
             "„Gespräch beginnen“ verarbeitet."
         )
     else:
@@ -14682,6 +14687,7 @@ def _minimal_public_memorial_html(
       const memorialPublicEvaluationAllowed = {_json_for_html_script(public_voice_evaluation_allowed)};
       const memorialOperatorPreviewAllowed = {_json_for_html_script(operator_preview_allowed)};
       const memorialVoiceAccessAllowed = {_json_for_html_script(voice_access_allowed)};
+      const memorialProviderWorkAllowed = {_json_for_html_script(provider_work_allowed)};
       // Compatibility alias for the existing client guards; this is never a
       // release receipt and server endpoints independently reverify access.
       const memorialVoiceReleaseAllowed = {_json_for_html_script(voice_release_allowed)};
@@ -18233,6 +18239,10 @@ def _minimal_public_memorial_html(
       }}
 
       function toggleConversation() {{
+        // A provider-free signed candidate may render the exact public
+        // evaluation surface, but its browser proof must not initiate
+        // readiness, microphone, socket, STT, or TTS work.
+        if (memorialVoiceAccessAllowed && !memorialProviderWorkAllowed) return;
         if (conversationSessionActive) {{
           abortActiveTurn();
           setSpeechStatus("Bereit für deine Frage.", "idle", "");

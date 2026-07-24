@@ -193,6 +193,7 @@ def memorial_minimal_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
     monkeypatch.setenv("EA_API_TOKEN", "")
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_SOURCE_REVISION", "a" * 40)
     monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "playwright-gemini-live-key")
     monkeypatch.setenv("UNMIXR_API_KEY", "playwright-unmixr-key")
     monkeypatch.setenv("UNMIXR_VOICE_ID", "playwright-unmixr-voice")
@@ -680,7 +681,12 @@ def test_memorial_blocked_voice_release_fails_closed_without_requesting_micropho
     monkeypatch.setattr(
         public_memorials,
         "_memorial_voice_release_decision",
-        lambda slug: {"allowed": False, "status": "blocked", "reason": "release_human_acceptance_missing"},
+        lambda slug: {
+            "allowed": False,
+            "status": "blocked",
+            "reason": "release_human_acceptance_missing",
+            "provider_work_allowed": True,
+        },
     )
     base_url = str(memorial_minimal_server["base_url"])
     slug = str(memorial_minimal_server["slug"])
@@ -796,10 +802,11 @@ def test_memorial_public_evaluation_is_enabled_without_review_cookie_and_stays_m
             "memorial-conversation-disclosure"
         )
         assert page.locator("#memorial-conversation-disclosure").inner_text() == (
-            "Öffentliche Testphase: KI-Rekonstruktion in einer aus freigegebenen "
-            "Erinnerungen und Quellen abgeleiteten Ich-Perspektive – nicht der echte "
-            "Manfred. Die künstlich erzeugte Stimme wird noch beurteilt. Mikrofon und "
-            "Audio werden erst nach „Gespräch beginnen“ verarbeitet."
+            "Öffentliche Testphase: Diese KI-Rekonstruktion antwortet aus einer "
+            "aus freigegebenen Erinnerungen und Quellen abgeleiteten Ich-Perspektive. "
+            "Sie ist nicht Manfred und spricht nicht für ihn. Die künstlich erzeugte "
+            "Stimme wird noch beurteilt. Mikrofon und Audio werden erst nach "
+            "„Gespräch beginnen“ verarbeitet."
         )
         assert all(
             cookie["name"] != "ea_manfred_voice_review"
@@ -842,6 +849,7 @@ def test_memorial_public_evaluation_revocation_blocks_before_microphone_or_socke
         "receipt_status": "public_evaluation_authorized",
         "access_mode": "owner-authorized-public-evaluation",
         "disclosure_required": True,
+        "provider_work_allowed": True,
     }
     monkeypatch.setattr(
         public_memorials,
@@ -1076,6 +1084,135 @@ def test_candidate_browser_audit_requires_single_blocked_action(
     assert evidence["text_form_visible"] is False
     assert evidence["text_input_focused"] is False
     assert evidence["separate_retry_visible"] is False
+    for field in candidate_verify.BROWSER_ZERO_COUNT_FIELDS:
+        assert evidence[field] == 0
+
+
+def test_provider_free_candidate_browser_click_performs_no_provider_work(
+    memorial_minimal_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from scripts.measure_memorial_live_browser import _resolve_chromium_executable
+    from scripts import verify_manfred_memorial_candidate as candidate_verify
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_enforced",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_decision",
+        lambda _slug: {
+            "allowed": False,
+            "public_evaluation": True,
+            "status": "public_evaluation",
+            "reason": "",
+            "receipt_status": "public_evaluation_authorized",
+            "access_mode": "owner-authorized-public-evaluation",
+            "disclosure_required": True,
+            "provider_work_allowed": False,
+        },
+    )
+    with urllib.request.urlopen(
+        f"{memorial_minimal_server['base_url']}/memorials/manfred",
+        timeout=5,
+    ) as response:
+        source_revision = str(
+            response.headers.get("X-EA-Source-Revision") or ""
+        ).strip()
+    assert len(source_revision) == 40
+    assert all(character in "0123456789abcdef" for character in source_revision)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        def _resolve_installed_chromium() -> str | None:
+            with sync_playwright() as playwright:
+                executable_path, _executable_source = _resolve_chromium_executable(playwright)
+            return executable_path
+
+        executable_path = executor.submit(_resolve_installed_chromium).result(timeout=10)
+        assert executable_path is not None
+        monkeypatch.setenv("EA_PLAYWRIGHT_CHROMIUM_EXECUTABLE", executable_path)
+        evidence = executor.submit(
+            candidate_verify.audit_browser_surface,
+            str(memorial_minimal_server["base_url"]),
+            public_origin="https://myexternalbrain.com",
+            expected_voice_release="blocked",
+            expected_voice_access="public-evaluation",
+            expected_evaluation_status="owner-authorized",
+            expected_source_revision=source_revision,
+        ).result(timeout=30)
+
+    assert evidence["status"] == "pass"
+    assert evidence["memorial_surface"] == "conversation_only"
+    assert evidence["voice_release"] == "blocked"
+    assert evidence["voice_access"] == "public-evaluation"
+    assert evidence["evaluation_status"] == "owner-authorized"
+    assert evidence["visible_button_ids"] == ["memorial-conversation"]
+    assert evidence["visible_button_labels"] == ["Gespräch beginnen"]
+    assert evidence["visible_non_button_control_ids"] == []
+    assert evidence["text_form_visible"] is False
+    assert evidence["text_input_focused"] is False
+    assert evidence["separate_retry_visible"] is False
+    for field in candidate_verify.BROWSER_ZERO_COUNT_FIELDS:
+        assert evidence[field] == 0
+
+
+def test_enforced_authorized_page_missing_provider_marker_fails_closed(
+    memorial_minimal_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from scripts.measure_memorial_live_browser import _resolve_chromium_executable
+    from scripts import verify_manfred_memorial_candidate as candidate_verify
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_enforced",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_decision",
+        lambda _slug: {
+            "allowed": True,
+            "public_evaluation": False,
+            "status": "released",
+            "reason": "",
+        },
+    )
+    with urllib.request.urlopen(
+        f"{memorial_minimal_server['base_url']}/memorials/manfred",
+        timeout=5,
+    ) as response:
+        source_revision = str(
+            response.headers.get("X-EA-Source-Revision") or ""
+        ).strip()
+    assert len(source_revision) == 40
+    assert all(character in "0123456789abcdef" for character in source_revision)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        def _resolve_installed_chromium() -> str | None:
+            with sync_playwright() as playwright:
+                executable_path, _executable_source = _resolve_chromium_executable(playwright)
+            return executable_path
+
+        executable_path = executor.submit(_resolve_installed_chromium).result(timeout=10)
+        assert executable_path is not None
+        monkeypatch.setenv("EA_PLAYWRIGHT_CHROMIUM_EXECUTABLE", executable_path)
+        evidence = executor.submit(
+            candidate_verify.audit_browser_surface,
+            str(memorial_minimal_server["base_url"]),
+            public_origin="https://myexternalbrain.com",
+            expected_voice_release="available",
+            expected_voice_access="public-release",
+            expected_source_revision=source_revision,
+        ).result(timeout=30)
+
+    assert evidence["status"] == "pass"
+    assert evidence["visible_button_ids"] == ["memorial-conversation"]
+    assert evidence["visible_button_labels"] == ["Gespräch beginnen"]
     for field in candidate_verify.BROWSER_ZERO_COUNT_FIELDS:
         assert evidence[field] == 0
 
@@ -1386,7 +1523,7 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
         disclosure = page.locator("#memorial-conversation-disclosure")
         assert disclosure.is_visible()
         assert "KI-Rekonstruktion" in (disclosure.text_content() or "")
-        assert "nicht der echte Manfred" in (disclosure.text_content() or "")
+        assert "ist nicht Manfred" in (disclosure.text_content() or "")
         page.wait_for_function(
             """() => {
               const button = document.getElementById("memorial-conversation");

@@ -26,6 +26,8 @@ PRIVATE_CONTEXT_FILENAME = "memorial_private_context.json"
 PRIVATE_AUDIO_RELPATH = "audio/hanusch-hospital-visit-enhanced.mp3"
 BROWSER_ZERO_COUNT_FIELDS = (
     "automatic_provider_requests",
+    "automatic_readiness_requests",
+    "automatic_microphone_requests",
     "automatic_websockets",
     "external_requests",
     "failed_requests",
@@ -1374,6 +1376,36 @@ def audit_browser_surface(
             context = browser.new_context(
                 **context_options,
             )
+            context.add_init_script(
+                """
+                (() => {
+                  window.__candidateGetUserMediaCalls = 0;
+                  window.__candidateMediaGuardInstallError = "";
+                  const guardedGetUserMedia = async () => {
+                    window.__candidateGetUserMediaCalls += 1;
+                    throw new DOMException(
+                      "candidate browser proof forbids microphone access",
+                      "NotAllowedError",
+                    );
+                  };
+                  try {
+                    if (!navigator.mediaDevices) {
+                      Object.defineProperty(navigator, "mediaDevices", {
+                        configurable: false,
+                        value: {},
+                      });
+                    }
+                    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+                      configurable: false,
+                      writable: false,
+                      value: guardedGetUserMedia,
+                    });
+                  } catch (error) {
+                    window.__candidateMediaGuardInstallError = String(error || "unknown");
+                  }
+                })();
+                """
+            )
             page = context.new_page()
             page.on("request", lambda request: requested_urls.append(request.url))
             page.on(
@@ -1415,6 +1447,7 @@ def audit_browser_surface(
             page.wait_for_timeout(150)
 
             provider_work_paths = {
+                "/memorials/manfred/readiness",
                 "/memorials/manfred/warmup",
                 "/memorials/manfred/warmup-status",
                 "/memorials/manfred/speech-transcribe",
@@ -1429,8 +1462,34 @@ def audit_browser_surface(
                     if urlparse(url).path in provider_work_paths
                 }
             )
+            automatic_readiness_requests = sum(
+                1
+                for url in requested_urls
+                if urlparse(url).path == "/memorials/manfred/readiness"
+            )
+            microphone_guard = page.evaluate(
+                """() => ({
+                  calls: Number(window.__candidateGetUserMediaCalls || 0),
+                  install_error: String(
+                    window.__candidateMediaGuardInstallError || ""
+                  ),
+                })"""
+            )
+            if str(microphone_guard.get("install_error") or ""):
+                raise RuntimeError("candidate_browser_microphone_guard_unavailable")
+            automatic_microphone_requests = int(
+                microphone_guard.get("calls") or 0
+            )
+            if automatic_readiness_requests:
+                raise RuntimeError(
+                    "candidate_browser_automatic_readiness_detected"
+                )
             if automatic_provider_requests:
                 raise RuntimeError("candidate_browser_automatic_provider_work_detected")
+            if automatic_microphone_requests:
+                raise RuntimeError(
+                    "candidate_browser_automatic_microphone_detected"
+                )
             if websocket_urls:
                 raise RuntimeError("candidate_browser_automatic_websocket_detected")
             external_requests = sorted(
@@ -1790,6 +1849,8 @@ def audit_browser_surface(
         "text_input_focused": accessibility["text_input_focused"],
         "separate_retry_visible": accessibility["retry_visible"],
         "automatic_provider_requests": 0,
+        "automatic_readiness_requests": 0,
+        "automatic_microphone_requests": 0,
         "automatic_websockets": 0,
         "external_requests": 0,
         "failed_requests": 0,
