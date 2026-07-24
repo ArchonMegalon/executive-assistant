@@ -46,6 +46,44 @@ def _hosted_clone_config_bytes(
     return candidate_prep._receipt_bytes(payload)
 
 
+def _voice_source_provenance_receipt_bytes(
+    *,
+    private_marker: str = "private-marker-a",
+    interviewer_turn_detected: bool = False,
+) -> bytes:
+    return candidate_prep._receipt_bytes(
+        {
+            "receipt_type": (
+                candidate_prep.VOICE_SOURCE_PROVENANCE_RECEIPT_TYPE
+            ),
+            "status": candidate_prep.VOICE_SOURCE_PROVENANCE_READY_STATUS,
+            "subject": {
+                "name": "Manfred Hoza",
+                "memorial_slug": "manfred",
+            },
+            "user_authorization": {
+                "received": True,
+                "provider_upload_for_voice_cloning": True,
+            },
+            "source": {"raw_sha256": "7" * 64},
+            "selected_audio": {"sha256": "8" * 64},
+            "speaker_isolation": {
+                "required_speaker": "Manfred Hoza",
+                "excluded_speaker": "interviewer",
+                "contiguous_segment": True,
+                "video_contact_sheet_reviewed": True,
+                "first_person_answer_only": True,
+                "interviewer_turn_detected": interviewer_turn_detected,
+            },
+            "publication_constraints": {
+                "source_media_must_remain_private": True,
+                "voice_profile_identifier_must_remain_private": True,
+            },
+            "private_marker": private_marker,
+        }
+    )
+
+
 def _voice_identity() -> dict[str, str]:
     return candidate_prep._voice_identity(
         voice_config_sha256="4" * 64,
@@ -185,6 +223,103 @@ def test_hosted_clone_manifest_is_deterministic_private_and_reference_free() -> 
     )
     assert candidate_prep.MANFRED_PROVIDER_VOICE_ID_PLACEHOLDER not in first_bytes.decode(
         "utf-8"
+    )
+
+
+def test_hosted_clone_manifest_binds_private_source_provenance_without_copying_it() -> (
+    None
+):
+    config_bytes = _hosted_clone_config_bytes()
+    first_receipt = _voice_source_provenance_receipt_bytes()
+    first_digest = (
+        candidate_prep._validated_voice_source_provenance_receipt_sha256(
+            first_receipt
+        )
+    )
+    first_bytes, first_identity = candidate_prep._hosted_clone_voice_binding(
+        voice_config_bytes=config_bytes,
+        provider_voice_id_sha256=PROVIDER_VOICE_ID_SHA256,
+        tts_provider=candidate_prep.MANFRED_TTS_PROVIDER,
+        tts_model=candidate_prep.MANFRED_TTS_MODEL,
+        source_provenance_receipt_sha256=first_digest,
+    )
+    first_manifest = json.loads(first_bytes)
+
+    assert first_manifest["schema"] == (
+        candidate_prep.HOSTED_CLONE_PROVENANCE_VOICE_MANIFEST_SCHEMA
+    )
+    assert first_manifest["source_provenance_receipt_sha256"] == first_digest
+    assert first_manifest["source_provenance_receipt_sha256_semantics"] == (
+        candidate_prep.VOICE_SOURCE_PROVENANCE_RECEIPT_SHA256_SEMANTICS
+    )
+    assert first_manifest["source_provenance_receipt_embedded"] is False
+    assert first_manifest["reference_assets"] == []
+    assert first_manifest["no_local_reference_assets"] is True
+    assert first_manifest["voice_reference_aggregate_sha256"] == (
+        hashlib.sha256(b"[]").hexdigest()
+    )
+    assert b"private-marker-a" not in first_bytes
+    assert first_receipt not in first_bytes
+
+    second_receipt = _voice_source_provenance_receipt_bytes(
+        private_marker="private-marker-b"
+    )
+    second_digest = (
+        candidate_prep._validated_voice_source_provenance_receipt_sha256(
+            second_receipt
+        )
+    )
+    second_bytes, second_identity = candidate_prep._hosted_clone_voice_binding(
+        voice_config_bytes=config_bytes,
+        provider_voice_id_sha256=PROVIDER_VOICE_ID_SHA256,
+        tts_provider=candidate_prep.MANFRED_TTS_PROVIDER,
+        tts_model=candidate_prep.MANFRED_TTS_MODEL,
+        source_provenance_receipt_sha256=second_digest,
+    )
+
+    assert second_digest != first_digest
+    assert second_bytes != first_bytes
+    assert second_identity != first_identity
+    assert (
+        second_identity["voice_reference_aggregate_sha256"]
+        == first_identity["voice_reference_aggregate_sha256"]
+    )
+
+
+def test_voice_source_provenance_rejects_interviewer_turns() -> None:
+    with pytest.raises(
+        ValueError,
+        match="manfred_candidate_voice_source_provenance_invalid",
+    ):
+        candidate_prep._validated_voice_source_provenance_receipt_sha256(
+            _voice_source_provenance_receipt_bytes(
+                interviewer_turn_detected=True
+            )
+        )
+
+
+def test_voice_source_provenance_receipt_requires_private_mode(
+    tmp_path: Path,
+) -> None:
+    receipt_path = tmp_path / "source-provenance.json"
+    receipt_bytes = _voice_source_provenance_receipt_bytes()
+    receipt_path.write_bytes(receipt_bytes)
+    receipt_path.chmod(0o644)
+
+    with pytest.raises(
+        ValueError,
+        match="manfred_candidate_private_output_invalid",
+    ):
+        candidate_prep._read_private_output(receipt_path)
+
+    receipt_path.chmod(0o600)
+    observed = candidate_prep._read_private_output(receipt_path)
+    assert observed == receipt_bytes
+    assert (
+        candidate_prep._validated_voice_source_provenance_receipt_sha256(
+            observed
+        )
+        == hashlib.sha256(receipt_bytes).hexdigest()
     )
 
 
@@ -1243,6 +1378,7 @@ def test_candidate_spatial_review_inputs_are_explicit_and_threaded(
     )
     assert parser_args.spatial_final_review_receipt == str(tmp_path / "final.json")
     assert parser_args.spatial_browser_review_receipt == str(tmp_path / "browser.json")
+    assert parser_args.voice_source_provenance_receipt is None
     assert parser_args.voice_release_receipt is None
 
     monkeypatch.setattr(candidate_prep, "_commit", lambda *_args: COMMIT)
@@ -1288,6 +1424,77 @@ def test_candidate_spatial_review_inputs_are_explicit_and_threaded(
         "browser_review_receipt_path": tmp_path / "browser.json",
         "target_origin": "https://memorial.example.at",
     }
+
+
+def test_candidate_cli_threads_source_provenance_for_phase_one(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def prepare(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"status": "pass"}
+
+    monkeypatch.setattr(candidate_prep, "prepare_candidate", prepare)
+    provenance_path = tmp_path / "source-provenance.json"
+    result = candidate_prep.main(
+        [
+            "--image",
+            "ea-runtime:manfred-abcdef123456",
+            "--public-base-url",
+            "https://memorial.example.at",
+            "--project-name",
+            PROJECT,
+            "--spatial-tour-bundle-dir",
+            str(tmp_path / "bundle"),
+            "--spatial-authority-receipt",
+            str(tmp_path / "authority.json"),
+            "--spatial-final-review-receipt",
+            str(tmp_path / "final.json"),
+            "--spatial-browser-review-receipt",
+            str(tmp_path / "browser.json"),
+            "--voice-source-provenance-receipt",
+            str(provenance_path),
+            "--provider-voice-id-sha256",
+            PROVIDER_VOICE_ID_SHA256,
+            "--tts-provider",
+            candidate_prep.MANFRED_TTS_PROVIDER,
+            "--tts-model",
+            candidate_prep.MANFRED_TTS_MODEL,
+        ]
+    )
+
+    assert result == 0
+    assert captured["voice_source_provenance_receipt"] == provenance_path
+    assert captured["voice_release_receipt"] is None
+
+
+def test_final_voice_candidate_requires_source_provenance_before_source_access(
+    tmp_path: Path,
+) -> None:
+    unlocked_prepare = candidate_prep.prepare_candidate.__wrapped__
+    with pytest.raises(
+        ValueError,
+        match="manfred_candidate_voice_source_provenance_required",
+    ):
+        unlocked_prepare(
+            source_root=tmp_path,
+            ref="HEAD",
+            image="ea-runtime:manfred-abcdef123456",
+            deploy_root=tmp_path / "deploy",
+            public_base_url="https://memorial.example.at",
+            host_port=18090,
+            project_name=PROJECT,
+            spatial_tour_bundle_dir=tmp_path / "bundle",
+            spatial_authority_receipt=tmp_path / "authority.json",
+            spatial_final_review_receipt=tmp_path / "final.json",
+            spatial_browser_review_receipt=tmp_path / "browser.json",
+            voice_release_receipt=tmp_path / "voice-release.json",
+            provider_voice_id_sha256=PROVIDER_VOICE_ID_SHA256,
+            tts_provider=candidate_prep.MANFRED_TTS_PROVIDER,
+            tts_model=candidate_prep.MANFRED_TTS_MODEL,
+        )
 
 
 @pytest.mark.parametrize(

@@ -260,6 +260,14 @@ HOSTED_CLONE_FORBIDDEN_FIELD_NAMES = frozenset(
 HOSTED_CLONE_VOICE_MANIFEST_SCHEMA = (
     "ea.manfred_provider_managed_hosted_clone_manifest.v1"
 )
+HOSTED_CLONE_PROVENANCE_VOICE_MANIFEST_SCHEMA = (
+    "ea.manfred_provider_managed_hosted_clone_manifest.v2"
+)
+VOICE_SOURCE_PROVENANCE_RECEIPT_TYPE = "ea.memorial_voice_source_intake.v1"
+VOICE_SOURCE_PROVENANCE_READY_STATUS = "ready_for_single_candidate_clone"
+VOICE_SOURCE_PROVENANCE_RECEIPT_SHA256_SEMANTICS = (
+    "sha256_exact_private_receipt_bytes"
+)
 VOICE_ARTIFACT_DIGEST_SEMANTICS = "sha256_exact_file_bytes"
 VOICE_REFERENCE_AGGREGATE_SEMANTICS = (
     "sha256_canonical_json_utf8_sorted_reference_sha256_list_v1"
@@ -404,6 +412,51 @@ def _voice_reference_aggregate_sha256(reference_sha256s: list[str]) -> str:
     return _sha256(encoded)
 
 
+def _validated_voice_source_provenance_receipt_sha256(
+    receipt_bytes: bytes,
+) -> str:
+    receipt = _strict_json_object(
+        receipt_bytes,
+        error="manfred_candidate_voice_source_provenance_invalid",
+    )
+    subject = receipt.get("subject")
+    authorization = receipt.get("user_authorization")
+    source = receipt.get("source")
+    selected_audio = receipt.get("selected_audio")
+    speaker_isolation = receipt.get("speaker_isolation")
+    publication_constraints = receipt.get("publication_constraints")
+    if (
+        receipt.get("receipt_type") != VOICE_SOURCE_PROVENANCE_RECEIPT_TYPE
+        or receipt.get("status") != VOICE_SOURCE_PROVENANCE_READY_STATUS
+        or type(subject) is not dict
+        or subject.get("memorial_slug") != "manfred"
+        or subject.get("name") != "Manfred Hoza"
+        or type(authorization) is not dict
+        or authorization.get("received") is not True
+        or authorization.get("provider_upload_for_voice_cloning") is not True
+        or type(source) is not dict
+        or not SHA256_RE.fullmatch(str(source.get("raw_sha256") or ""))
+        or type(selected_audio) is not dict
+        or not SHA256_RE.fullmatch(str(selected_audio.get("sha256") or ""))
+        or type(speaker_isolation) is not dict
+        or speaker_isolation.get("required_speaker") != "Manfred Hoza"
+        or not str(speaker_isolation.get("excluded_speaker") or "").strip()
+        or speaker_isolation.get("contiguous_segment") is not True
+        or speaker_isolation.get("video_contact_sheet_reviewed") is not True
+        or speaker_isolation.get("first_person_answer_only") is not True
+        or speaker_isolation.get("interviewer_turn_detected") is not False
+        or type(publication_constraints) is not dict
+        or publication_constraints.get("source_media_must_remain_private")
+        is not True
+        or publication_constraints.get(
+            "voice_profile_identifier_must_remain_private"
+        )
+        is not True
+    ):
+        raise ValueError("manfred_candidate_voice_source_provenance_invalid")
+    return _sha256(receipt_bytes)
+
+
 def _assert_hosted_clone_config_has_no_secret_id_fields(
     value: object,
     *,
@@ -491,6 +544,7 @@ def _hosted_clone_voice_binding(
     provider_voice_id_sha256: str,
     tts_provider: str,
     tts_model: str,
+    source_provenance_receipt_sha256: str = "",
 ) -> tuple[bytes, dict[str, str]]:
     voice_config = _strict_json_object(
         voice_config_bytes,
@@ -514,11 +568,23 @@ def _hosted_clone_voice_binding(
         )
     ):
         raise ValueError("manfred_candidate_voice_config_invalid")
+    source_provenance_receipt_sha256 = str(
+        source_provenance_receipt_sha256 or ""
+    ).strip()
+    if (
+        source_provenance_receipt_sha256
+        and not SHA256_RE.fullmatch(source_provenance_receipt_sha256)
+    ):
+        raise ValueError("manfred_candidate_voice_source_provenance_invalid")
 
     voice_config_sha256 = _sha256(voice_config_bytes)
     reference_aggregate_sha256 = _voice_reference_aggregate_sha256([])
     manifest = {
-        "schema": HOSTED_CLONE_VOICE_MANIFEST_SCHEMA,
+        "schema": (
+            HOSTED_CLONE_PROVENANCE_VOICE_MANIFEST_SCHEMA
+            if source_provenance_receipt_sha256
+            else HOSTED_CLONE_VOICE_MANIFEST_SCHEMA
+        ),
         "generated_by": "scripts/prepare_manfred_memorial_candidate.py",
         "memorial_slug": "manfred",
         "provider_managed_hosted_clone": True,
@@ -539,6 +605,18 @@ def _hosted_clone_voice_binding(
         "raw_provider_voice_id_recorded": False,
         "provider_credentials_recorded": False,
     }
+    if source_provenance_receipt_sha256:
+        manifest.update(
+            {
+                "source_provenance_receipt_embedded": False,
+                "source_provenance_receipt_sha256": (
+                    source_provenance_receipt_sha256
+                ),
+                "source_provenance_receipt_sha256_semantics": (
+                    VOICE_SOURCE_PROVENANCE_RECEIPT_SHA256_SEMANTICS
+                ),
+            }
+        )
     voice_manifest_bytes = _receipt_bytes(manifest)
     voice_identity = _voice_identity(
         voice_config_sha256=voice_config_sha256,
@@ -3911,6 +3989,7 @@ def prepare_candidate(
     spatial_authority_receipt: Path | None = None,
     spatial_final_review_receipt: Path | None = None,
     spatial_browser_review_receipt: Path | None = None,
+    voice_source_provenance_receipt: Path | None = None,
     voice_release_receipt: Path | None = None,
     provider_voice_id_sha256: str,
     tts_provider: str,
@@ -3949,10 +4028,32 @@ def prepare_candidate(
         or tts_model != MANFRED_TTS_MODEL
     ):
         raise ValueError("manfred_candidate_voice_provider_binding_invalid")
+    if (
+        voice_release_receipt is not None
+        and voice_source_provenance_receipt is None
+    ):
+        raise ValueError(
+            "manfred_candidate_voice_source_provenance_required"
+        )
     commit = _commit(source_root, ref)
     image_id, image_commit = _image_revision(image)
     if image_commit != commit or not IMAGE_ID_RE.fullmatch(image_id):
         raise ValueError("manfred_candidate_image_revision_mismatch")
+    voice_source_provenance_bytes = (
+        _read_private_output(
+            voice_source_provenance_receipt,
+            maximum=PRIVATE_OUTPUT_MAX_BYTES,
+        )
+        if voice_source_provenance_receipt is not None
+        else None
+    )
+    voice_source_provenance_sha256 = (
+        _validated_voice_source_provenance_receipt_sha256(
+            voice_source_provenance_bytes
+        )
+        if voice_source_provenance_bytes is not None
+        else ""
+    )
     voice_release_bytes = (
         _read_private_output(
             voice_release_receipt,
@@ -4085,6 +4186,9 @@ def prepare_candidate(
             provider_voice_id_sha256=provider_voice_id_sha256,
             tts_provider=tts_provider,
             tts_model=tts_model,
+            source_provenance_receipt_sha256=(
+                voice_source_provenance_sha256
+            ),
         )
         manifest_info = _write_bytes(
             private_root / "voice_profile_manifest.json",
@@ -4370,6 +4474,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Mode-0600 pinned Property exact-viewer browser receipt paired with the bundle.",
     )
     parser.add_argument(
+        "--voice-source-provenance-receipt",
+        help=(
+            "Optional mode-0600 private Manfred-only source-provenance "
+            "receipt. Its exact-byte SHA-256 is bound; its content is never "
+            "copied into the candidate. Required with --voice-release-receipt."
+        ),
+    )
+    parser.add_argument(
         "--voice-release-receipt",
         help=(
             "Optional mode-0600 final human-reviewed Manfred voice-release "
@@ -4428,6 +4540,11 @@ def main(argv: list[str] | None = None) -> int:
             voice_release_receipt=(
                 Path(args.voice_release_receipt)
                 if args.voice_release_receipt
+                else None
+            ),
+            voice_source_provenance_receipt=(
+                Path(args.voice_source_provenance_receipt)
+                if args.voice_source_provenance_receipt
                 else None
             ),
             provider_voice_id_sha256=args.provider_voice_id_sha256,
