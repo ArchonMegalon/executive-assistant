@@ -293,6 +293,16 @@ def memorial_minimal_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
         "_render_memorial_tts_audio",
         lambda **kwargs: (_wav_bytes() + b"memorial-answer-audio:" + str(kwargs.get("text") or "").encode("utf-8"), "audio/wav"),
     )
+    original_phrase_bank_entry = public_memorials._memorial_phrase_bank_entry
+
+    def _fake_phrase_bank_entry(phrase_id: str) -> dict[str, object]:
+        entry = original_phrase_bank_entry(phrase_id)
+        if phrase_id == "contact_opening":
+            entry["audio_text"] = "Ich höre dir zu. Worum geht es?"
+            entry["visible_text"] = "Ich höre dir zu. Worum geht es?"
+        return entry
+
+    monkeypatch.setattr(public_memorials, "_memorial_phrase_bank_entry", _fake_phrase_bank_entry)
 
     class _FakeGeminiLiveSocket:
         def __init__(self) -> None:
@@ -369,17 +379,23 @@ def browser() -> Iterator[Browser]:
             browser.close()
 
 
-def _install_fake_audio_runtime(context) -> None:
+def _install_fake_audio_runtime(context, *, playback_delay_ms: int = 1750) -> None:
+    assert playback_delay_ms > 0
     context.add_init_script(
         """
         (() => {
           navigator.mediaDevices = navigator.mediaDevices || {};
           window.__getUserMediaCalls = 0;
+          window.__memorialMediaTrackStopCalls = 0;
           navigator.mediaDevices.getUserMedia = async () => {
             window.__getUserMediaCalls += 1;
             return {
               getTracks() {
-                return [{ stop() {} }];
+                return [{
+                  stop() {
+                    window.__memorialMediaTrackStopCalls += 1;
+                  },
+                }];
               },
             };
           };
@@ -416,6 +432,9 @@ def _install_fake_audio_runtime(context) -> None:
 
           window.MediaRecorder = FakeMediaRecorder;
           window.__memorialRealtimeFrames = [];
+          window.__memorialAudioPlayCalls = 0;
+          window.__memorialAudioEndedEvents = 0;
+          window.__memorialAudioPauseCalls = 0;
           const OriginalWebSocket = window.WebSocket;
           if (typeof OriginalWebSocket === "function") {
             window.WebSocket = function(url, protocols) {
@@ -431,16 +450,23 @@ def _install_fake_audio_runtime(context) -> None:
             window.WebSocket.CLOSED = OriginalWebSocket.CLOSED;
             window.WebSocket.prototype = OriginalWebSocket.prototype;
           }
+          const originalPause = HTMLMediaElement.prototype.pause;
+          HTMLMediaElement.prototype.pause = function pause() {
+            window.__memorialAudioPauseCalls += 1;
+            return originalPause.call(this);
+          };
           HTMLMediaElement.prototype.play = function play() {
+            window.__memorialAudioPlayCalls += 1;
             return new Promise((resolve) => {
-              setTimeout(() => {
+              window.setTimeout(() => {
+                window.__memorialAudioEndedEvents += 1;
                 this.dispatchEvent(new Event("ended"));
                 resolve();
-              }, 1750);
+              }, __PLAYBACK_DELAY_MS__);
             });
           };
         })();
-        """
+        """.replace("__PLAYBACK_DELAY_MS__", str(playback_delay_ms))
     )
 
 
@@ -709,6 +735,115 @@ def test_memorial_blocked_voice_release_fails_closed_without_requesting_micropho
         assert page.locator("#memorial-text-turn-form").is_hidden()
         assert page.locator("#memorial-retry-button").is_hidden()
         assert conversation.inner_text().strip() == "Gespräch beginnen"
+    finally:
+        context.close()
+
+
+def test_memorial_fresh_revocation_discards_preloaded_voice_before_playback(
+    browser: Browser,
+    memorial_minimal_server: dict[str, object],
+) -> None:
+    base_url = str(memorial_minimal_server["base_url"])
+    slug = str(memorial_minimal_server["slug"])
+    context = browser.new_context(viewport={"width": 390, "height": 844})
+    _install_fake_audio_runtime(context)
+    page: Page = context.new_page()
+    revoked_readiness_requests: list[str] = []
+    websockets: list[str] = []
+    page.on("websocket", lambda websocket: websockets.append(websocket.url))
+    try:
+        response = page.goto(
+            f"{base_url}/memorials/{slug}",
+            wait_until="domcontentloaded",
+        )
+        assert response is not None and response.ok
+        page.get_by_role(
+            "button",
+            name="Gespräch beginnen",
+            exact=True,
+        ).wait_for(state="visible", timeout=12000)
+        page.get_by_role(
+            "button",
+            name="Gespräch beginnen",
+            exact=True,
+        ).click()
+        page.wait_for_function(
+            "() => Number(window.__memorialAudioPlayCalls || 0) >= 1",
+            timeout=12000,
+        )
+        page.get_by_role(
+            "button",
+            name="Gespräch beenden",
+            exact=True,
+        ).click()
+        page.get_by_role(
+            "button",
+            name="Gespräch beginnen",
+            exact=True,
+        ).wait_for(state="visible", timeout=7000)
+        play_calls_before_revocation = page.evaluate(
+            "window.__memorialAudioPlayCalls"
+        )
+        microphone_calls_before_revocation = page.evaluate(
+            "window.__getUserMediaCalls"
+        )
+        websocket_count_before_revocation = len(websockets)
+
+        def revoke_readiness(route) -> None:
+            revoked_readiness_requests.append(route.request.url)
+            route.fulfill(
+                status=409,
+                content_type="application/json",
+                body=json.dumps(
+                    {
+                        "slug": slug,
+                        "ready": False,
+                        "spoken_voice_ready": False,
+                        "release": {
+                            "enforced": True,
+                            "allowed": False,
+                            "operator_preview": False,
+                            "reason": "release_revoked",
+                        },
+                    }
+                ),
+            )
+
+        page.route(
+            f"{base_url}/memorials/{slug}/readiness",
+            revoke_readiness,
+        )
+        page.get_by_role(
+            "button",
+            name="Gespräch beginnen",
+            exact=True,
+        ).click()
+        page.wait_for_function(
+            """() => document.getElementById("memorial-speech-message")
+              ?.textContent.includes("Sprechen ist derzeit nicht verfügbar")""",
+            timeout=7000,
+        )
+
+        assert revoked_readiness_requests
+        assert (
+            page.evaluate("window.__memorialAudioPlayCalls")
+            == play_calls_before_revocation
+        )
+        assert (
+            page.evaluate("window.__getUserMediaCalls")
+            == microphone_calls_before_revocation
+        )
+        assert len(websockets) == websocket_count_before_revocation
+        assert page.locator("#memorial-speech-audio").get_attribute("src") in {
+            None,
+            "",
+        }
+        assert page.locator("button:visible").count() == 1
+        assert page.get_by_role(
+            "button",
+            name="Gespräch beginnen",
+            exact=True,
+        ).is_visible()
     finally:
         context.close()
 
@@ -1057,12 +1192,18 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
             "() => !document.getElementById('memorial-conversation').disabled",
             timeout=12000,
         )
-        _await_realtime_turn_complete(
+        turn = _await_realtime_turn_complete(
             page,
             slug,
-            lambda: page.evaluate("window.__memorialStartConversation && window.__memorialStartConversation()"),
+            lambda: page.get_by_role("button", name="Gespräch beginnen", exact=True).click(),
             timeout_ms=12000,
         )
+        assert page.evaluate("window.__getUserMediaCalls") >= 1
+        assert " ich " in f" {str(turn['answer']).casefold()} "
+        disclosure = page.locator("#memorial-conversation-disclosure")
+        assert disclosure.is_visible()
+        assert "KI-Rekonstruktion" in (disclosure.text_content() or "")
+        assert "nicht der echte Manfred" in (disclosure.text_content() or "")
         page.wait_for_function(
             """() => {
               const button = document.getElementById("memorial-conversation");
@@ -1077,11 +1218,19 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
             }""",
             timeout=7000,
         )
-        page.evaluate("window.__memorialStartConversation && window.__memorialStartConversation()")
+        page.wait_for_function(
+            "() => Number(window.__memorialAudioPlayCalls || 0) >= 1",
+            timeout=7000,
+        )
+        page.wait_for_function(
+            "() => Number(window.__memorialAudioEndedEvents || 0) >= 1",
+            timeout=7000,
+        )
+        page.locator("#memorial-conversation").click()
         page.wait_for_function(
             """() => {
               const button = document.getElementById("memorial-conversation");
-              return Boolean(button && button.textContent && button.textContent.includes("Gespräch starten"));
+              return Boolean(button && button.textContent && button.textContent.includes("Gespräch beginnen"));
             }""",
             timeout=7000,
         )
@@ -1091,13 +1240,57 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
         assert "Bitte noch einmal" not in message_text
         assert page.locator("#memorial-retry-button").is_hidden()
         turns = page.locator("#memorial-speech-transcript > .speech-turn")
-        assert turns.count() == 2
+        assert turns.count() >= 2
         assert turns.nth(0).get_attribute("class") == "speech-turn user"
         assert turns.nth(1).get_attribute("class") == "speech-turn assistant"
         assert turns.nth(0).locator("strong").text_content() == "Du"
         assert turns.nth(1).locator("strong").text_content() == "KI-Begleiter"
+        assert "ich " in (turns.nth(1).text_content() or "").casefold()
+        assert page.evaluate("window.__memorialAudioPlayCalls") >= 1
+        assert page.evaluate("window.__memorialAudioEndedEvents") >= 1
         assert page.locator("#memorial-speech-transcript-live").is_hidden()
         assert page.locator("#memorial-chat-answer").is_hidden()
+    finally:
+        context.close()
+
+
+@pytest.mark.skipif(not _HAS_WEBSOCKET_PROTOCOL, reason="uvicorn websocket protocol support requires websockets or wsproto")
+def test_memorial_active_tts_can_be_interrupted_without_claiming_physical_audibility(
+    browser: Browser,
+    memorial_minimal_server: dict[str, object],
+) -> None:
+    base_url = str(memorial_minimal_server["base_url"])
+    slug = str(memorial_minimal_server["slug"])
+    context = browser.new_context(viewport={"width": 430, "height": 932})
+    _install_fake_audio_runtime(context, playback_delay_ms=30000)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        start = page.get_by_role("button", name="Gespräch beginnen", exact=True)
+        start.wait_for(state="visible", timeout=12000)
+        start.click()
+        page.wait_for_function(
+            "() => Number(window.__memorialAudioPlayCalls || 0) >= 1",
+            timeout=12000,
+        )
+        assert page.evaluate("window.__memorialAudioEndedEvents") == 0
+
+        page.locator("#memorial-conversation").click()
+        page.get_by_role("button", name="Gespräch beginnen", exact=True).wait_for(
+            state="visible",
+            timeout=7000,
+        )
+        assert page.evaluate("window.__memorialAudioPauseCalls") >= 1
+        assert page.evaluate("window.__memorialAudioEndedEvents") == 0
+        assert page.evaluate("window.__memorialMediaTrackStopCalls") >= 1
+        assistant_turns = page.locator(
+            "#memorial-speech-transcript > .speech-turn.assistant"
+        )
+        assert assistant_turns.count() >= 1
+        assert assistant_turns.first.is_visible()
+        assert page.locator("button:visible").count() == 1
+        # These counters prove browser events only; room audibility remains a human-only gate.
     finally:
         context.close()
 
@@ -1106,7 +1299,17 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
 def test_memorial_minimal_browser_voice_exit_gate_roundtrips_tts_to_stt(
     browser: Browser,
     memorial_minimal_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from app.api.routes import public_memorials
+
+    # This test owns the in-browser audio roundtrip. TLS/proxy admission is
+    # covered separately and cannot be represented by this loopback HTTP server.
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_realtime_websocket_transport_allowed",
+        lambda _websocket: True,
+    )
     base_url = str(memorial_minimal_server["base_url"])
     slug = str(memorial_minimal_server["slug"])
     spoken_pcm_base64 = base64.b64encode(_spoken_pcm16_bytes()).decode("ascii")
@@ -1232,6 +1435,7 @@ def test_memorial_minimal_browser_voice_exit_gate_roundtrips_tts_to_stt(
             "Ich höre dich. Sag es mir in Ruhe.",
             "Ja. Sag mir, was dich gerade beschäftigt.",
             "Sprich ruhig weiter. Ich antworte dir direkt.",
+            "Ich höre dir zu. Worum geht es?",
         }
         assert "Ich bin da" not in result["assistantText"]
         stt = result["stt"]

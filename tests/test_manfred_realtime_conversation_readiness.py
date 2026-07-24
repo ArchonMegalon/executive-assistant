@@ -39,6 +39,16 @@ def _load_script(name: str) -> ModuleType:
     return module
 
 
+def _load_root_script(name: str) -> ModuleType:
+    path = Path(__file__).resolve().parents[1] / "scripts" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def _load_test_fixture(name: str) -> ModuleType:
     path = Path(__file__).resolve().parent / f"{name}.py"
     spec = importlib.util.spec_from_file_location(f"readiness_fixture_{name}", path)
@@ -603,6 +613,14 @@ def _ready_evidence_payloads(
         "memorial_voice_roundtrip_public_origin.generated.json": {
             "contract_name": "ea.memorial_voice_roundtrip_exit_gate",
             "status": "pass",
+            "access_mode": "anonymous_public",
+            "review_session_authenticated": False,
+            "evidence_scope": "anonymous_public",
+            "private_review_evidence_allowed": False,
+            "review_session_binding": {},
+            "base_url": "https://myexternalbrain.com",
+            "slug": "manfred",
+            "runtime_source_revision": source_state["source_git_head"],
             "gold_claim_allowed": True,
             "failed_codes": [],
             "metrics": {
@@ -614,6 +632,19 @@ def _ready_evidence_payloads(
         "memorial_realtime_browser_public_origin.generated.json": {
             "contract_name": "ea.memorial_realtime_browser_exit_gate",
             "status": "pass",
+            "access_mode": "anonymous_public",
+            "review_session_authenticated": False,
+            "evidence_scope": "anonymous_public",
+            "private_review_evidence_allowed": False,
+            "review_session_binding": {},
+            "base_url": "https://myexternalbrain.com",
+            "slug": "manfred",
+            "runtime_source_revision": source_state["source_git_head"],
+            "gold_claim_allowed": True,
+            "gold_mode": True,
+            "require_public_origin": True,
+            "speech_transcribe_mode": "live",
+            "launch_proof_scope": "real_public_microphone",
             "failed_codes": [],
             "audio_ready_for_ui": True,
             "ui_audio_play_calls": 1,
@@ -622,8 +653,45 @@ def _ready_evidence_payloads(
         },
         "memorial_room_audio_public_origin.generated.json": {
             "contract_name": "ea.memorial_room_audio_public_origin",
+            "contract_version": 2,
+            "generated_by": "scripts/materialize_memorial_room_audio_receipt.py",
+            "proof_type": "manual_room_attestation",
             "status": "pass",
+            "source_tree_fingerprint": "a" * 64,
+            "dirty_worktree": False,
+            "base_url": "https://myexternalbrain.com",
+            "slug": "manfred",
+            "require_public_origin": True,
+            "access_mode": "anonymous_public",
+            "evidence_scope": "anonymous_public",
+            "review_session_authenticated": False,
+            "review_session_binding": {},
+            "runtime_source_revision_required": True,
+            "runtime_source_revision": source_state["source_git_head"],
+            "reviewer": "Tibor Operator",
+            "device_label": "Framework Laptop 13 · Chromium",
+            "speaker_label": "Sony MDR-7506 headphones",
+            "room_label": "Vienna home office desk",
+            "checks": {
+                check_id: True
+                for check_id in ROOM_CHECK_IDS
+            },
+            "check_requirements": {
+                check_id: f"Manual room requirement: {check_id}"
+                for check_id in ROOM_CHECK_IDS
+            },
+            "manual_attestation": {
+                "attestation_id": "room-review-20260724-001",
+                "signed_at": generated_at,
+                "source": "operator_room_review",
+                "ci_must_not_auto_assert": True,
+            },
+            "notes": (
+                "Audible on the named headphones; first syllable, "
+                "interruption, fallback, and retry were checked."
+            ),
             "gold_claim_allowed": True,
+            "private_review_evidence_allowed": False,
             "failed_codes": [],
             **source_state,
         },
@@ -853,6 +921,244 @@ def test_manfred_realtime_private_browser_requires_live_public_gold_contract(
     assert status["spoken_conversation_tts"][
         "browser_audio_ready_for_ui"
     ] is False
+
+
+def test_manfred_realtime_room_audio_accepts_canonical_manual_contract(
+    monkeypatch,
+) -> None:
+    materializer = _load_script(
+        "materialize_manfred_realtime_conversation_readiness"
+    )
+    producer = _load_root_script(
+        "materialize_memorial_room_audio_receipt"
+    )
+    source_revision = materializer.resolve_source_state_head(
+        materializer.REPO_ROOT
+    )
+    source_fingerprint = (
+        materializer.resolve_source_worktree_fingerprint(
+            materializer.REPO_ROOT
+        )
+    )
+    monkeypatch.setattr(producer, "_git_dirty", lambda: False)
+    monkeypatch.setattr(
+        producer,
+        "_git_head",
+        lambda: source_revision,
+    )
+    monkeypatch.setattr(
+        producer,
+        "_source_tree_fingerprint",
+        lambda: "a" * 64,
+    )
+    monkeypatch.setattr(
+        producer,
+        "resolve_source_worktree_fingerprint",
+        lambda _root: source_fingerprint,
+    )
+    monkeypatch.setattr(
+        producer,
+        "_probe_runtime_source_revision",
+        lambda **_kwargs: (source_revision, None),
+    )
+    room_receipt = producer.build_receipt(
+        producer.argparse.Namespace(
+            base_url="https://myexternalbrain.com",
+            slug="manfred",
+            reviewer="Tibor Operator",
+            device_label="Framework Laptop 13 · Chromium",
+            speaker_label="Sony MDR-7506 headphones",
+            room_label="Vienna home office desk",
+            notes=(
+                "Audible on the named headphones; first syllable, "
+                "interruption, fallback, and retry were checked."
+            ),
+            manual_attestation_id="room-review-20260724-001",
+            manual_attestation_signed_at=producer._utc_now(),
+            manual_attestation_source="operator_room_review",
+            require_public_origin=True,
+            actual_device_checked=True,
+            actual_speaker_checked=True,
+            first_syllable_not_clipped=True,
+            intelligibility_confirmed=True,
+            answer_text_fallback_visible=True,
+            no_internet_search_confirmed=True,
+            normal_spoken_turn_confirmed=True,
+            interruption_behavior_confirmed=True,
+            retry_path_confirmed=True,
+            review_session=None,
+        )
+    )
+
+    assert materializer._room_audio_receipt_is_authoritative(
+        room_receipt
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "wrong_contract_version",
+        "wrong_generated_by",
+        "wrong_proof_type",
+        "dirty_worktree",
+        "wrong_public_origin",
+        "public_origin_not_required",
+        "runtime_source_mismatch",
+        "scope_missing",
+        "generic_reviewer",
+        "device_missing",
+        "speaker_missing",
+        "room_missing",
+        "notes_missing",
+        "manual_attestation_id_missing",
+        "manual_attestation_signed_at_invalid",
+        "manual_attestation_source_missing",
+        "manual_attestation_ci_guard_false",
+        "check_requirement_missing",
+        "failed_codes_missing",
+        "unexpected_browser_field",
+    ],
+)
+def test_manfred_realtime_room_audio_rejects_incomplete_manual_contract(
+    mutation: str,
+) -> None:
+    materializer = _load_script(
+        "materialize_manfred_realtime_conversation_readiness"
+    )
+    payloads = _ready_evidence_payloads(
+        materializer,
+        generated_at=materializer._now(),
+    )
+    room_receipt = payloads[
+        "memorial_room_audio_public_origin.generated.json"
+    ]
+
+    if mutation == "wrong_contract_version":
+        room_receipt["contract_version"] = 3
+    elif mutation == "wrong_generated_by":
+        room_receipt["generated_by"] = (
+            "scripts/measure_memorial_live_browser.py"
+        )
+    elif mutation == "wrong_proof_type":
+        room_receipt["proof_type"] = "browser_automation"
+    elif mutation == "dirty_worktree":
+        room_receipt["dirty_worktree"] = True
+    elif mutation == "wrong_public_origin":
+        room_receipt["base_url"] = "https://preview.example.test"
+    elif mutation == "public_origin_not_required":
+        room_receipt["require_public_origin"] = False
+    elif mutation == "runtime_source_mismatch":
+        room_receipt["runtime_source_revision"] = "f" * 40
+    elif mutation == "scope_missing":
+        room_receipt.pop("evidence_scope")
+    elif mutation == "generic_reviewer":
+        room_receipt["reviewer"] = "test reviewer"
+    elif mutation == "device_missing":
+        room_receipt["device_label"] = ""
+    elif mutation == "speaker_missing":
+        room_receipt["speaker_label"] = ""
+    elif mutation == "room_missing":
+        room_receipt["room_label"] = ""
+    elif mutation == "notes_missing":
+        room_receipt["notes"] = ""
+    elif mutation == "manual_attestation_id_missing":
+        room_receipt["manual_attestation"]["attestation_id"] = ""  # type: ignore[index]
+    elif mutation == "manual_attestation_signed_at_invalid":
+        room_receipt["manual_attestation"]["signed_at"] = "not-a-time"  # type: ignore[index]
+    elif mutation == "manual_attestation_source_missing":
+        room_receipt["manual_attestation"]["source"] = ""  # type: ignore[index]
+    elif mutation == "manual_attestation_ci_guard_false":
+        room_receipt["manual_attestation"]["ci_must_not_auto_assert"] = False  # type: ignore[index]
+    elif mutation == "check_requirement_missing":
+        room_receipt["check_requirements"].pop(ROOM_CHECK_IDS[0])  # type: ignore[union-attr]
+    elif mutation == "failed_codes_missing":
+        room_receipt.pop("failed_codes")
+    elif mutation == "unexpected_browser_field":
+        room_receipt["speech_transcribe_mode"] = "live"
+    else:  # pragma: no cover - guarded by the parameter list
+        raise AssertionError(f"unknown mutation: {mutation}")
+
+    assert not materializer._room_audio_receipt_is_authoritative(
+        room_receipt
+    )
+
+
+@pytest.mark.parametrize("check_id", ROOM_CHECK_IDS)
+def test_manfred_realtime_room_audio_requires_each_exact_boolean_check(
+    check_id: str,
+) -> None:
+    materializer = _load_script(
+        "materialize_manfred_realtime_conversation_readiness"
+    )
+    payloads = _ready_evidence_payloads(
+        materializer,
+        generated_at=materializer._now(),
+    )
+    room_receipt = payloads[
+        "memorial_room_audio_public_origin.generated.json"
+    ]
+    room_receipt["checks"][check_id] = False  # type: ignore[index]
+
+    assert not materializer._room_audio_receipt_is_authoritative(
+        room_receipt
+    )
+
+    room_receipt["checks"][check_id] = 1  # type: ignore[index]
+    assert not materializer._room_audio_receipt_is_authoritative(
+        room_receipt
+    )
+
+
+def test_manfred_realtime_automated_browser_spoof_never_passes_room_audio(
+    tmp_path: Path,
+) -> None:
+    materializer = _load_script(
+        "materialize_manfred_realtime_conversation_readiness"
+    )
+    payloads = _ready_evidence_payloads(
+        materializer,
+        generated_at=materializer._now(),
+    )
+    browser_receipt = dict(
+        payloads[
+            "memorial_realtime_browser_public_origin.generated.json"
+        ]
+    )
+    browser_receipt.update(
+        {
+            "contract_name": "ea.memorial_room_audio_public_origin",
+            "contract_version": 2,
+            "generated_by": "scripts/measure_memorial_live_browser.py",
+            "proof_type": "browser_automation",
+            "status": "pass",
+            "gold_claim_allowed": True,
+            "failed_codes": [],
+        }
+    )
+    payloads[
+        "memorial_room_audio_public_origin.generated.json"
+    ] = browser_receipt
+    _write_evidence_payloads(tmp_path, payloads)
+
+    status = materializer._operator_status_from_receipts(tmp_path)
+
+    assert status["status"] == "blocked"
+    assert status["room_audio_receipt"] == "missing_or_blocked"
+    assert status["spoken_conversation_tts"]["status"] == "pass"
+    assert status["spoken_conversation_tts"]["premium_status"] == "blocked"
+    assert status["spoken_conversation_tts"][
+        "browser_audio_ready_for_ui"
+    ] is True
+    assert status["spoken_conversation_tts"][
+        "room_audio_receipt"
+    ] == "blocked"
+    assert not materializer._release_evidence_claim_allowed(
+        {
+            "contract_name": "ea.memorial_room_audio_public_origin",
+            "gold_claim_allowed": True,
+        }
+    )
 
 
 def test_manfred_realtime_private_evidence_expires_after_24_hours(

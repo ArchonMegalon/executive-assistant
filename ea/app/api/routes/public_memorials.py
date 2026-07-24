@@ -14187,7 +14187,9 @@ def _minimal_public_memorial_html(
       let contactAcknowledgementAudioPromise = null;
       let contactAcknowledgementInFlight = false;
       let contactAcknowledgementReady = false;
+      let contactAcknowledgementCacheEpoch = 0;
       const contactAcknowledgementText = "Worüber möchtest du sprechen?";
+      const memorialReadinessEndpoint = "/memorials/{html.escape(slug)}/readiness";
       const browserPreferredLanguage = "de-AT";
       const memorialReducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
       let speechMeterLive = false;
@@ -15774,11 +15776,89 @@ def _minimal_public_memorial_html(
         if (replayAnswerButton) replayAnswerButton.hidden = memorialConversationOnly || !lastAnswerAudioBlob;
       }}
 
+      function clearMemorialVoiceAudioCache() {{
+        contactAcknowledgementCacheEpoch += 1;
+        contactAcknowledgementAudioBlob = null;
+        contactAcknowledgementAudioPromise = null;
+        contactAcknowledgementReady = false;
+        contactAcknowledgementInFlight = false;
+        setLastAnswerAudioBlob(null);
+        stopSpeechPlayback();
+      }}
+
+      function blockMemorialVoiceAuthorization() {{
+        clearMemorialVoiceAudioCache();
+        memorialReadySnapshot = null;
+        memorialLandingReady = false;
+        abortActiveTurn();
+        memorialInteractionStarted = true;
+        suppressMinimalActionControls();
+        setSpeechStatus("Sprechen ist derzeit nicht verfügbar.", "error", "");
+      }}
+
+      async function requireFreshMemorialVoiceAuthorization(options = {{}}) {{
+        const requireReady = options.requireReady !== false;
+        try {{
+          if (!memorialVoiceReleaseAllowed) throw new Error("memorial_voice_release_not_verified");
+          const response = await fetchWithTimeout(
+            memorialReadinessEndpoint,
+            {{
+              method: "GET",
+              credentials: "same-origin",
+              mode: "same-origin",
+              cache: "no-store",
+              redirect: "error",
+              headers: {{
+                "Accept": "application/json",
+                "Cache-Control": "no-store",
+              }},
+            }},
+            10000,
+          );
+          const payload = await response.json().catch(() => null);
+          if (
+            !payload
+            || typeof payload !== "object"
+            || Array.isArray(payload)
+            || String(payload.slug || "") !== memorialContributionSlug
+            || !payload.release
+            || typeof payload.release !== "object"
+            || Array.isArray(payload.release)
+          ) {{
+            throw new Error("memorial_readiness_invalid");
+          }}
+          const releaseAuthorized = (
+            payload.release.enforced !== true
+            || payload.release.allowed === true
+            || payload.release.operator_preview === true
+          );
+          if (!releaseAuthorized) throw new Error("memorial_voice_release_not_verified");
+          if (
+            requireReady
+            && (
+              !response.ok
+              || payload.ready !== true
+              || payload.spoken_voice_ready !== true
+            )
+          ) {{
+            throw new Error("memorial_voice_not_ready");
+          }}
+          if (!requireReady && response.status !== 200 && response.status !== 503) {{
+            throw new Error("memorial_readiness_failed");
+          }}
+          return payload;
+        }} catch (error) {{
+          blockMemorialVoiceAuthorization();
+          return null;
+        }}
+      }}
+
       async function ensureContactAcknowledgementAudio() {{
         if (!memorialVoiceReleaseAllowed) throw new Error("memorial_voice_release_not_verified");
         if (contactAcknowledgementAudioBlob) return contactAcknowledgementAudioBlob;
         if (contactAcknowledgementAudioPromise) return await contactAcknowledgementAudioPromise;
-        contactAcknowledgementAudioPromise = (async () => {{
+        const cacheEpoch = contactAcknowledgementCacheEpoch;
+        const audioPromise = (async () => {{
           const response = await fetchWithTimeout(
             "/memorials/{html.escape(slug)}/speech-synthesize",
             {{
@@ -15794,28 +15874,40 @@ def _minimal_public_memorial_html(
           if (!response.ok) throw new Error("contact_acknowledgement_audio_failed");
           const blob = await response.blob();
           if (!blob || blob.size < 128) throw new Error("contact_acknowledgement_audio_empty");
+          if (cacheEpoch !== contactAcknowledgementCacheEpoch) {{
+            throw new Error("contact_acknowledgement_cache_invalidated");
+          }}
           contactAcknowledgementAudioBlob = blob;
           contactAcknowledgementReady = true;
           syncConversationButton();
           return blob;
-        }})().finally(() => {{
-          contactAcknowledgementAudioPromise = null;
         }});
-        return await contactAcknowledgementAudioPromise;
+        contactAcknowledgementAudioPromise = audioPromise;
+        try {{
+          return await audioPromise;
+        }} finally {{
+          if (contactAcknowledgementAudioPromise === audioPromise) {{
+            contactAcknowledgementAudioPromise = null;
+          }}
+        }}
       }}
 
       async function playFastContactAcknowledgement(generation) {{
-        if (generation !== activeGeneration || completedConversationTurns > 0 || contactAcknowledgementInFlight) return;
+        if (generation !== activeGeneration || completedConversationTurns > 0 || contactAcknowledgementInFlight) return true;
         contactAcknowledgementInFlight = true;
-        showAnswerText(contactAcknowledgementText);
-        setAnswerStatus("");
-        setSpeechStatus("Antwort wird abgespielt.", "playing", contactAcknowledgementText);
         try {{
+          const authorization = await requireFreshMemorialVoiceAuthorization();
+          if (!authorization || generation !== activeGeneration || !conversationSessionActive) return false;
+          showAnswerText(contactAcknowledgementText);
+          setAnswerStatus("");
+          setSpeechStatus("Antwort wird abgespielt.", "playing", contactAcknowledgementText);
           const blob = await ensureContactAcknowledgementAudio();
-          if (generation !== activeGeneration || !blob) return;
+          if (generation !== activeGeneration || !blob) return false;
           setLastAnswerAudioBlob(blob);
           await playMemorialAudio(blob, generation, contactAcknowledgementText);
+          return true;
         }} catch (error) {{
+          return generation === activeGeneration;
         }} finally {{
           contactAcknowledgementInFlight = false;
         }}
@@ -16060,6 +16152,8 @@ def _minimal_public_memorial_html(
 
       async function ensureInputStream() {{
         if (!memorialVoiceReleaseAllowed) throw new Error("memorial_voice_release_not_verified");
+        const authorization = await requireFreshMemorialVoiceAuthorization();
+        if (!authorization) throw new Error("memorial_voice_release_not_verified");
         if (activeStream) return activeStream;
         activeStream = await navigator.mediaDevices.getUserMedia({{
           audio: {{ echoCancellation: true, noiseSuppression: true, autoGainControl: true }},
@@ -16744,6 +16838,8 @@ def _minimal_public_memorial_html(
         if (!supportsLiveRealtimeSession()) throw new Error("live_realtime_unsupported");
         cleanupLiveRealtimeSession();
         setSpeechStatus("Ich verbinde die Sprachverbindung.", "working", "");
+        const authorization = await requireFreshMemorialVoiceAuthorization();
+        if (!authorization) throw new Error("memorial_voice_release_not_verified");
         const stream = await navigator.mediaDevices.getUserMedia({{
           audio: {{ echoCancellation: true, noiseSuppression: true, autoGainControl: true }},
           video: false,
@@ -17351,6 +17447,8 @@ def _minimal_public_memorial_html(
           return;
         }}
         if (conversationSessionActive || recordingActive || requestInFlight) return;
+        const authorization = await requireFreshMemorialVoiceAuthorization({{ requireReady: false }});
+        if (!authorization) return;
         try {{
           await ensureLandingReadyForConversation();
         }} catch (error) {{
@@ -17372,9 +17470,8 @@ def _minimal_public_memorial_html(
         recordingActive = true;
         syncConversationButton();
         if (completedConversationTurns === 0 && contactAcknowledgementReady) {{
-          try {{
-            await playFastContactAcknowledgement(generation);
-          }} catch (error) {{}}
+          const acknowledgementAllowed = await playFastContactAcknowledgement(generation);
+          if (!acknowledgementAllowed) return;
           if (generation !== activeGeneration || !conversationSessionActive) return;
         }}
         setSpeechStatus("Ich höre zu.", "listening", "Sprich einfach los");
@@ -17565,9 +17662,12 @@ def _minimal_public_memorial_html(
         }});
       }}
       if (replayAnswerButton) {{
-        replayAnswerButton.addEventListener("click", () => {{
+        replayAnswerButton.addEventListener("click", async () => {{
           if (!lastAnswerAudioBlob) return;
-          void playMemorialAudio(lastAnswerAudioBlob, activeGeneration, String(answer && !answer.hidden ? answer.textContent || "" : ""));
+          const replayBlob = lastAnswerAudioBlob;
+          const authorization = await requireFreshMemorialVoiceAuthorization();
+          if (!authorization || replayBlob !== lastAnswerAudioBlob) return;
+          void playMemorialAudio(replayBlob, activeGeneration, String(answer && !answer.hidden ? answer.textContent || "" : ""));
         }});
       }}
       if (toggleStatusButton) {{
@@ -23163,20 +23263,21 @@ def public_memorial_readiness(
             )
             is not None
         )
-        if operator_preview_allowed:
-            memorial = _load_memorial(slug)
-            _require_voice_consent(
-                _payload_with_slug(slug, memorial),
-                "realtime",
-                operator_preview_allowed=True,
-            )
+        safe_slug = _safe_slug(slug)
+        _memorial_runtime_readiness_cache_invalidate(safe_slug)
+        memorial = _load_memorial(safe_slug)
+        _require_voice_consent(
+            _payload_with_slug(safe_slug, memorial),
+            "realtime",
+            operator_preview_allowed=operator_preview_allowed,
+        )
         readiness = (
             _memorial_runtime_readiness(
-                slug,
+                safe_slug,
                 operator_preview_allowed=True,
             )
             if operator_preview_allowed
-            else _memorial_runtime_readiness(slug)
+            else _memorial_runtime_readiness(safe_slug)
         )
         status_code = 200 if bool(readiness["ready"]) else 503
         return JSONResponse(readiness, headers=dict(_PUBLIC_MEMORIAL_RUNTIME_JSON_HEADERS), status_code=status_code)

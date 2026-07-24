@@ -6275,6 +6275,82 @@ def test_memorial_readiness_route_reports_degraded_runtime_state(
     assert response.json()["operator_recheck_after_seconds"] == 60
 
 
+def test_memorial_readiness_rechecks_release_and_invalidates_cache_after_allowed_load(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    release = {
+        "allowed": True,
+        "status": "released",
+        "reason": "",
+        "receipt_status": "accepted",
+    }
+    runtime_calls: list[str] = []
+    cache_invalidations: list[str] = []
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_enforced",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_decision",
+        lambda _slug: dict(release),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_support_require_voice_consent",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_runtime_readiness_cache_invalidate",
+        lambda cache_slug: cache_invalidations.append(cache_slug),
+    )
+
+    def _runtime_readiness(readiness_slug: str) -> dict[str, object]:
+        runtime_calls.append(readiness_slug)
+        return {
+            "slug": readiness_slug,
+            "status": "ready",
+            "surface_ready": True,
+            "spoken_voice_ready": True,
+            "realtime_ready": True,
+            "ready": True,
+            "degraded_reasons": [],
+            "release": dict(release),
+        }
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_runtime_readiness",
+        _runtime_readiness,
+    )
+    client = _client(principal_id="exec-memorial-readiness-revocation")
+
+    allowed = client.get(f"/memorials/{slug}/readiness")
+    assert allowed.status_code == 200
+    assert allowed.json()["release"]["allowed"] is True
+
+    release.update(
+        {
+            "allowed": False,
+            "status": "blocked",
+            "reason": "release_revoked",
+            "receipt_status": "revoked",
+        }
+    )
+    revoked = client.get(f"/memorials/{slug}/readiness")
+
+    assert revoked.status_code == 409
+    assert revoked.json()["error"]["code"] == "memorial_voice_release_not_verified"
+    assert runtime_calls == [slug]
+    assert cache_invalidations == [slug, slug]
+
+
 def test_memorial_readiness_missing_slug_uses_memorial_error_response(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -7338,6 +7414,75 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     assert "playFastContactAcknowledgement" in source
     assert "if (completedConversationTurns === 0 && contactAcknowledgementReady)" in source
     assert "await playFastContactAcknowledgement(generation);" in source
+    assert f'const memorialReadinessEndpoint = "/memorials/{slug}/readiness";' in source
+    authorization_start = source.index(
+        "async function requireFreshMemorialVoiceAuthorization"
+    )
+    authorization_end = source.index(
+        "async function ensureContactAcknowledgementAudio",
+        authorization_start,
+    )
+    authorization_source = source[authorization_start:authorization_end]
+    assert 'credentials: "same-origin"' in authorization_source
+    assert 'mode: "same-origin"' in authorization_source
+    assert 'cache: "no-store"' in authorization_source
+    assert 'redirect: "error"' in authorization_source
+    assert '"Cache-Control": "no-store"' in authorization_source
+    assert "payload.release.allowed === true" in authorization_source
+    assert "payload.spoken_voice_ready !== true" in authorization_source
+    assert "blockMemorialVoiceAuthorization();" in authorization_source
+    assert "contactAcknowledgementCacheEpoch += 1;" in source
+    assert "contactAcknowledgementAudioBlob = null;" in source
+    assert "contactAcknowledgementAudioPromise = null;" in source
+    assert "setLastAnswerAudioBlob(null);" in source
+    assert "cacheEpoch !== contactAcknowledgementCacheEpoch" in source
+    acknowledgement_start = source.index(
+        "async function playFastContactAcknowledgement"
+    )
+    acknowledgement_end = source.index(
+        "function syncConversationButton",
+        acknowledgement_start,
+    )
+    acknowledgement_source = source[acknowledgement_start:acknowledgement_end]
+    assert acknowledgement_source.index(
+        "await requireFreshMemorialVoiceAuthorization()"
+    ) < acknowledgement_source.index(
+        "await ensureContactAcknowledgementAudio()"
+    )
+    input_start = source.index("async function ensureInputStream")
+    input_end = source.index("function pickRecorderMimeType", input_start)
+    input_source = source[input_start:input_end]
+    assert input_source.index(
+        "await requireFreshMemorialVoiceAuthorization()"
+    ) < input_source.index(
+        "navigator.mediaDevices.getUserMedia"
+    )
+    conversation_start = source.index(
+        "async function startConversationSession"
+    )
+    conversation_end = source.index(
+        "async function finishConversationTurn",
+        conversation_start,
+    )
+    conversation_source = source[conversation_start:conversation_end]
+    assert conversation_source.index(
+        "await requireFreshMemorialVoiceAuthorization({ requireReady: false })"
+    ) < conversation_source.index(
+        "await ensureLandingReadyForConversation()"
+    )
+    replay_start = source.index(
+        'replayAnswerButton.addEventListener("click", async () =>'
+    )
+    replay_end = source.index(
+        "if (toggleStatusButton)",
+        replay_start,
+    )
+    replay_source = source[replay_start:replay_end]
+    assert replay_source.index(
+        "await requireFreshMemorialVoiceAuthorization()"
+    ) < replay_source.index(
+        "playMemorialAudio(replayBlob"
+    )
     assert 'const contactAcknowledgementText = "Worüber möchtest du sprechen?";' in source
     assert 'const contactAcknowledgementText = "Worum geht es?";' not in source
     assert 'id="memorial-read-answer"' in source

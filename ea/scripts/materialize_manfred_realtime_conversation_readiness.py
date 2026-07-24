@@ -33,6 +33,77 @@ REQUIRED_ROOM_CHECK_IDS = [
     "interruption_behavior_confirmed",
     "retry_path_confirmed",
 ]
+ROOM_AUDIO_RECEIPT_CONTRACT = "ea.memorial_room_audio_public_origin"
+ROOM_AUDIO_RECEIPT_CONTRACT_VERSION = 2
+ROOM_AUDIO_RECEIPT_GENERATED_BY = (
+    "scripts/materialize_memorial_room_audio_receipt.py"
+)
+ROOM_AUDIO_RECEIPT_PROOF_TYPE = "manual_room_attestation"
+ROOM_AUDIO_RECEIPT_FIELDS = {
+    "access_mode",
+    "base_url",
+    "check_requirements",
+    "checks",
+    "contract_name",
+    "contract_version",
+    "dirty_worktree",
+    "evidence_scope",
+    "failed_codes",
+    "generated_at",
+    "generated_by",
+    "gold_claim_allowed",
+    "head_semantics",
+    "manual_attestation",
+    "notes",
+    "private_review_evidence_allowed",
+    "proof_type",
+    "require_public_origin",
+    "review_session_authenticated",
+    "review_session_binding",
+    "reviewer",
+    "room_label",
+    "runtime_source_revision",
+    "runtime_source_revision_required",
+    "slug",
+    "source_git_head",
+    "source_state_fingerprint",
+    "source_state_fingerprint_semantics",
+    "source_tree_fingerprint",
+    "speaker_label",
+    "status",
+    "device_label",
+}
+ROOM_AUDIO_MANUAL_ATTESTATION_FIELDS = {
+    "attestation_id",
+    "ci_must_not_auto_assert",
+    "signed_at",
+    "source",
+}
+ROOM_AUDIO_GENERIC_LABELS = {
+    "reviewer": {
+        "qa-room-reviewer",
+        "qa room reviewer",
+        "reviewer",
+        "test reviewer",
+    },
+    "device_label": {
+        "laptop speaker test",
+        "presentation laptop",
+        "laptop",
+        "test device",
+    },
+    "speaker_label": {
+        "room speaker",
+        "speaker",
+        "laptop speaker",
+        "test speaker",
+    },
+    "room_label": {
+        "office",
+        "room",
+        "test room",
+    },
+}
 
 REQUIRED_LIVE_PROOF_AFTER_READINESS = [
     "operator acceptance that this behaves like an ongoing spoken conversation",
@@ -723,10 +794,7 @@ def _release_evidence_claim_allowed(
     # pre-scope receipt contracts. They retain their original gold semantics;
     # new receipts must use an explicit scope.
     contract_name = str(receipt.get("contract_name") or "")
-    if contract_name in {
-        EVIDENCE_RECEIPTS["voice_roundtrip"][1],
-        EVIDENCE_RECEIPTS["room_audio"][1],
-    }:
+    if contract_name == EVIDENCE_RECEIPTS["voice_roundtrip"][1]:
         return bool(
             receipt.get("gold_claim_allowed") is True
             and not _raw_credential_material_exposed(receipt)
@@ -786,6 +854,119 @@ def _browser_release_evidence_is_valid(receipt: dict[str, Any]) -> bool:
     return bool(
         scope == ANONYMOUS_PUBLIC_EVIDENCE_SCOPE
         and receipt.get("launch_proof_scope") == "real_public_microphone"
+    )
+
+
+def _room_audio_label_is_specific(field: str, value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    stripped = value.strip()
+    if not stripped or stripped != value:
+        return False
+    normalized = " ".join(stripped.casefold().split())
+    return normalized not in ROOM_AUDIO_GENERIC_LABELS.get(field, set())
+
+
+def _room_audio_receipt_is_authoritative(
+    receipt: dict[str, Any],
+) -> bool:
+    if set(receipt) != ROOM_AUDIO_RECEIPT_FIELDS:
+        return False
+
+    source_revision = str(receipt.get("source_git_head") or "")
+    runtime_revision = str(receipt.get("runtime_source_revision") or "")
+    checks = _mapping(receipt.get("checks"))
+    requirements = _mapping(receipt.get("check_requirements"))
+    manual_attestation = _mapping(receipt.get("manual_attestation"))
+    signed_at = manual_attestation.get("signed_at")
+    if (
+        receipt.get("contract_name") != ROOM_AUDIO_RECEIPT_CONTRACT
+        or receipt.get("contract_version")
+        != ROOM_AUDIO_RECEIPT_CONTRACT_VERSION
+        or receipt.get("generated_by")
+        != ROOM_AUDIO_RECEIPT_GENERATED_BY
+        or receipt.get("proof_type") != ROOM_AUDIO_RECEIPT_PROOF_TYPE
+        or receipt.get("head_semantics") != "source_state"
+        or receipt.get("source_state_fingerprint_semantics")
+        != "worktree_source_files_sha256_excluding_generated_only_paths"
+        or not _valid_sha256(receipt.get("source_tree_fingerprint"))
+        or not _valid_sha256(receipt.get("source_state_fingerprint"))
+        or len(source_revision) != 40
+        or any(
+            character not in "0123456789abcdef"
+            for character in source_revision
+        )
+        or runtime_revision != source_revision
+        or receipt.get("runtime_source_revision_required") is not True
+        or receipt.get("dirty_worktree") is not False
+        or receipt.get("status") != "pass"
+        or receipt.get("base_url") != "https://myexternalbrain.com"
+        or receipt.get("slug") != "manfred"
+        or receipt.get("require_public_origin") is not True
+        or not _failure_codes_are_empty(receipt.get("failed_codes"))
+        or set(checks) != set(REQUIRED_ROOM_CHECK_IDS)
+        or any(value is not True for value in checks.values())
+        or set(requirements) != set(REQUIRED_ROOM_CHECK_IDS)
+        or any(
+            not isinstance(value, str) or not value.strip()
+            for value in requirements.values()
+        )
+        or not _room_audio_label_is_specific(
+            "reviewer",
+            receipt.get("reviewer"),
+        )
+        or not _room_audio_label_is_specific(
+            "device_label",
+            receipt.get("device_label"),
+        )
+        or not _room_audio_label_is_specific(
+            "speaker_label",
+            receipt.get("speaker_label"),
+        )
+        or not _room_audio_label_is_specific(
+            "room_label",
+            receipt.get("room_label"),
+        )
+        or not isinstance(receipt.get("notes"), str)
+        or not str(receipt.get("notes") or "").strip()
+        or str(receipt.get("notes") or "").strip()
+        != receipt.get("notes")
+        or set(manual_attestation)
+        != ROOM_AUDIO_MANUAL_ATTESTATION_FIELDS
+        or not isinstance(
+            manual_attestation.get("attestation_id"),
+            str,
+        )
+        or not str(
+            manual_attestation.get("attestation_id") or ""
+        ).strip()
+        or str(
+            manual_attestation.get("attestation_id") or ""
+        ).strip()
+        != manual_attestation.get("attestation_id")
+        or not isinstance(signed_at, str)
+        or not signed_at.endswith("Z")
+        or not _safe_timestamp(signed_at)
+        or not isinstance(manual_attestation.get("source"), str)
+        or not str(manual_attestation.get("source") or "").strip()
+        or str(manual_attestation.get("source") or "").strip()
+        != manual_attestation.get("source")
+        or manual_attestation.get("ci_must_not_auto_assert") is not True
+    ):
+        return False
+
+    scope = str(receipt.get("evidence_scope") or "").strip()
+    if scope == PRIVATE_REVIEW_EVIDENCE_SCOPE:
+        return _private_review_binding_is_valid(receipt)
+    if scope != ANONYMOUS_PUBLIC_EVIDENCE_SCOPE:
+        return False
+    return bool(
+        receipt.get("access_mode") == "anonymous_public"
+        and receipt.get("review_session_authenticated") is False
+        and receipt.get("review_session_binding") == {}
+        and receipt.get("gold_claim_allowed") is True
+        and receipt.get("private_review_evidence_allowed") is False
+        and _release_evidence_claim_allowed(receipt)
     )
 
 
@@ -2037,10 +2218,8 @@ def _operator_status_from_open_receipts(
         room_evidence.get("contract_valid")
         and room_evidence.get("source_state_matches_current")
         and room_evidence.get("fresh")
-        and room_audio.get("status") == "pass"
-        and _release_evidence_claim_allowed(room_audio)
+        and _room_audio_receipt_is_authoritative(room_audio)
         and release_evidence_scopes_consistent
-        and _failure_codes_are_empty(room_audio.get("failed_codes"))
     )
     roundtrip_metrics = dict(roundtrip.get("metrics") or {})
     tts_automated_ready = roundtrip_ready and browser_ready
