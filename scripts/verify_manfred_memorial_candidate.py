@@ -44,18 +44,30 @@ MEMORIAL_SURFACE = "conversation_only"
 SPATIAL_SCOPE = "separate_propertyquarry_lane"
 VOICE_RELEASE_EXPECTATION_FIELDS = frozenset(
     {
+        "access_mode",
         "source_revision",
     }
 )
+LEGACY_VOICE_RELEASE_EXPECTATION_FIELDS = frozenset(
+    {
+        "source_revision",
+    }
+)
+VOICE_ACCESS_MODE_PUBLIC_RELEASE = "public-release"
+VOICE_ACCESS_MODE_PUBLIC_EVALUATION = "owner-authorized-public-evaluation"
 VOICE_RELEASE_AUTHORIZATION_PROOF = (
     "authorization_precedes_empty_text_validation_without_provider_call"
 )
 VOICE_RELEASE_BROWSER_STATES = frozenset({"available", "blocked"})
-VOICE_ACCESS_BROWSER_STATES = frozenset({"public-release", "text-only"})
-VOICE_BROWSER_STATE_PAIRS = frozenset(
+VOICE_ACCESS_BROWSER_STATES = frozenset(
+    {"public-evaluation", "public-release", "text-only"}
+)
+VOICE_EVALUATION_BROWSER_STATES = frozenset({"", "owner-authorized"})
+VOICE_BROWSER_STATE_TRIPLES = frozenset(
     {
-        ("available", "public-release"),
-        ("blocked", "text-only"),
+        ("available", "public-release", ""),
+        ("blocked", "public-evaluation", "owner-authorized"),
+        ("blocked", "text-only", ""),
     }
 )
 CONVERSATION_ONLY_BLOCKED_ACTION_LABEL = "Gespräch beginnen"
@@ -813,6 +825,7 @@ class _ConversationOnlyDocumentParser(HTMLParser):
         self.public_surface = ""
         self.voice_release = ""
         self.voice_access = ""
+        self.evaluation_status = ""
         self.operator_preview = ""
         self.initial_visible_button_ids: list[str] = []
         self.forbidden_dom_semantics: set[str] = set()
@@ -1083,6 +1096,9 @@ class _ConversationOnlyDocumentParser(HTMLParser):
         if element_id == "memorial-conversation-region":
             self.voice_release = attributes.get("data-voice-release", "")
             self.voice_access = attributes.get("data-voice-access", "")
+            self.evaluation_status = attributes.get(
+                "data-evaluation-status", ""
+            )
         if tag == "details" and "conversation-settings" in classes:
             self.conversation_settings_count += 1
         if (
@@ -1211,6 +1227,7 @@ def verify_conversation_only_page_html(page_body: bytes) -> dict[str, object]:
         "tour_link_count": parser.tour_link_count,
         "voice_release": parser.voice_release,
         "voice_access": parser.voice_access,
+        "evaluation_status": parser.evaluation_status,
         "operator_preview": parser.operator_preview,
         "initial_visible_button_ids": parser.initial_visible_button_ids,
         "conversation_button_label": conversation_button_label,
@@ -1240,11 +1257,12 @@ def verify_conversation_only_page_html(page_body: bytes) -> dict[str, object]:
         or parser.operator_preview
         or parser.initial_visible_button_ids != ["memorial-conversation"]
         or conversation_button_label != expected_conversation_button_label
-        or (parser.voice_release, parser.voice_access)
-        not in {
-            ("blocked", "text-only"),
-            ("available", "public-release"),
-        }
+        or (
+            parser.voice_release,
+            parser.voice_access,
+            parser.evaluation_status,
+        )
+        not in VOICE_BROWSER_STATE_TRIPLES
         or missing_ids
         or duplicate_ids
         or present_forbidden_ids
@@ -1287,16 +1305,22 @@ def audit_browser_surface(
     public_origin: str | None = None,
     expected_voice_release: str = "blocked",
     expected_voice_access: str = "text-only",
+    expected_evaluation_status: str = "",
     expected_source_revision: str | None = None,
 ) -> dict[str, object]:
     if expected_voice_release not in VOICE_RELEASE_BROWSER_STATES:
         raise ValueError("candidate_browser_voice_release_expectation_invalid")
     if expected_voice_access not in VOICE_ACCESS_BROWSER_STATES:
         raise ValueError("candidate_browser_voice_access_expectation_invalid")
+    if expected_evaluation_status not in VOICE_EVALUATION_BROWSER_STATES:
+        raise ValueError(
+            "candidate_browser_voice_evaluation_expectation_invalid"
+        )
     if (
         expected_voice_release,
         expected_voice_access,
-    ) not in VOICE_BROWSER_STATE_PAIRS:
+        expected_evaluation_status,
+    ) not in VOICE_BROWSER_STATE_TRIPLES:
         raise ValueError("candidate_browser_voice_state_pair_invalid")
     if expected_source_revision is not None and (
         len(expected_source_revision) != 40
@@ -1306,7 +1330,7 @@ def audit_browser_surface(
         )
     ):
         raise ValueError("candidate_browser_source_revision_expectation_invalid")
-    if expected_voice_release == "available" and expected_source_revision is None:
+    if expected_voice_access != "text-only" and expected_source_revision is None:
         raise ValueError("candidate_browser_source_revision_expectation_required")
     try:
         from playwright.sync_api import Error as PlaywrightError
@@ -1595,6 +1619,7 @@ def audit_browser_surface(
                     ),
                     voice_release: String(document.getElementById("memorial-conversation-region")?.dataset.voiceRelease || ""),
                     voice_access: String(document.getElementById("memorial-conversation-region")?.dataset.voiceAccess || ""),
+                    evaluation_status: String(document.getElementById("memorial-conversation-region")?.dataset.evaluationStatus || ""),
                     guidance: String(document.querySelector("#memorial-conversation-region .hero-guidance")?.textContent || "").trim(),
                     text_form_visible: visible(document.getElementById("memorial-text-turn-form")),
                     text_input_focused: document.activeElement === document.getElementById("memorial-text-turn-input"),
@@ -1659,6 +1684,8 @@ def audit_browser_surface(
                 or accessibility.get("visible_non_button_control_ids")
                 or accessibility.get("voice_release") != expected_voice_release
                 or accessibility.get("voice_access") != expected_voice_access
+                or accessibility.get("evaluation_status")
+                != expected_evaluation_status
                 or "ist nicht Manfred" not in str(accessibility.get("guidance") or "")
                 or "spricht nicht für ihn"
                 not in str(accessibility.get("guidance") or "")
@@ -1757,6 +1784,7 @@ def audit_browser_surface(
         ],
         "voice_release": accessibility["voice_release"],
         "voice_access": accessibility["voice_access"],
+        "evaluation_status": accessibility["evaluation_status"],
         "source_revision": observed_source_revision,
         "text_form_visible": accessibility["text_form_visible"],
         "text_input_focused": accessibility["text_input_focused"],
@@ -1878,13 +1906,56 @@ def _validated_voice_release_expectation(
         return None
     expectation = dict(value)
     source_revision = str(expectation.get("source_revision") or "")
+    access_mode = str(
+        expectation.get("access_mode")
+        or (
+            VOICE_ACCESS_MODE_PUBLIC_RELEASE
+            if set(expectation) == LEGACY_VOICE_RELEASE_EXPECTATION_FIELDS
+            else ""
+        )
+    )
     if (
-        set(expectation) != VOICE_RELEASE_EXPECTATION_FIELDS
+        set(expectation)
+        not in {
+            LEGACY_VOICE_RELEASE_EXPECTATION_FIELDS,
+            VOICE_RELEASE_EXPECTATION_FIELDS,
+        }
         or re.fullmatch(r"[0-9a-f]{40}", source_revision) is None
+        or access_mode
+        not in {
+            VOICE_ACCESS_MODE_PUBLIC_RELEASE,
+            VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+        }
     ):
         raise ValueError("candidate_voice_release_expectation_invalid")
     return {
+        "access_mode": access_mode,
         "source_revision": source_revision,
+    }
+
+
+def _voice_browser_expectation(
+    voice_release_expectation: Mapping[str, object] | None,
+) -> dict[str, str]:
+    expectation = _validated_voice_release_expectation(
+        voice_release_expectation
+    )
+    if expectation is None:
+        return {
+            "voice_release": "blocked",
+            "voice_access": "text-only",
+            "evaluation_status": "",
+        }
+    if expectation["access_mode"] == VOICE_ACCESS_MODE_PUBLIC_RELEASE:
+        return {
+            "voice_release": "available",
+            "voice_access": "public-release",
+            "evaluation_status": "",
+        }
+    return {
+        "voice_release": "blocked",
+        "voice_access": "public-evaluation",
+        "evaluation_status": "owner-authorized",
     }
 
 
@@ -1934,8 +2005,13 @@ def _verify_voice_provider_boundary(
         != expectation["source_revision"]
     ):
         raise RuntimeError("candidate_voice_release_authorization_boundary_invalid")
+    mode = (
+        "signed_voice_release_authorized"
+        if expectation["access_mode"] == VOICE_ACCESS_MODE_PUBLIC_RELEASE
+        else "public_evaluation_authorization_verified"
+    )
     return {
-        "mode": "signed_voice_release_authorized",
+        "mode": mode,
         "status_code": 400,
         "detail": "tts_text_missing",
         "authorization_proof": VOICE_RELEASE_AUTHORIZATION_PROOF,
@@ -1956,6 +2032,9 @@ def verify_candidate(
     voice_release_expectation: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     voice_release_expectation = _validated_voice_release_expectation(
+        voice_release_expectation
+    )
+    voice_browser_expectation = _voice_browser_expectation(
         voice_release_expectation
     )
     _wait_for_health(base_url, wait_seconds)
@@ -1991,6 +2070,16 @@ def verify_candidate(
     if page_headers.get("x-content-type-options", "").lower() != "nosniff":
         raise RuntimeError("candidate_public_headers_incomplete")
     conversation_surface = verify_conversation_only_page_html(page_body)
+    if any(
+        conversation_surface.get(name)
+        != voice_browser_expectation[name]
+        for name in (
+            "voice_release",
+            "voice_access",
+            "evaluation_status",
+        )
+    ):
+        raise RuntimeError("candidate_conversation_voice_access_mismatch")
     checks.append("conversation_only_public_surface")
 
     transport_security = _verify_memorial_transport_security(
@@ -2069,11 +2158,19 @@ def verify_candidate(
         base_url,
         voice_release_expectation=voice_release_expectation,
     )
-    checks.append(
-        "voice_release_authorization_verified_provider_not_called"
-        if voice_release_expectation is not None
-        else "voice_provider_boundary_blocked"
-    )
+    if voice_release_expectation is None:
+        checks.append("voice_provider_boundary_blocked")
+    elif (
+        voice_release_expectation["access_mode"]
+        == VOICE_ACCESS_MODE_PUBLIC_RELEASE
+    ):
+        checks.append(
+            "voice_release_authorization_verified_provider_not_called"
+        )
+    else:
+        checks.append(
+            "voice_public_evaluation_authorization_verified_provider_not_called"
+        )
 
     _status, share_body, _headers = _request(
         base_url,
@@ -2110,17 +2207,17 @@ def verify_candidate(
 
     browser_evidence: dict[str, object] = {"status": "not_run"}
     if browser_audit:
-        expected_voice_release = (
-            "available" if voice_release_expectation is not None else "blocked"
-        )
-        expected_voice_access = (
-            "public-release" if voice_release_expectation is not None else "text-only"
-        )
+        expected_voice_release = voice_browser_expectation["voice_release"]
+        expected_voice_access = voice_browser_expectation["voice_access"]
+        expected_evaluation_status = voice_browser_expectation[
+            "evaluation_status"
+        ]
         browser_evidence = audit_browser_surface(
             base_url,
             public_origin=public_origin,
             expected_voice_release=expected_voice_release,
             expected_voice_access=expected_voice_access,
+            expected_evaluation_status=expected_evaluation_status,
             expected_source_revision=(
                 str(voice_release_expectation["source_revision"])
                 if voice_release_expectation is not None
@@ -2131,6 +2228,8 @@ def verify_candidate(
             browser_evidence.get("status") != "pass"
             or browser_evidence.get("voice_release") != expected_voice_release
             or browser_evidence.get("voice_access") != expected_voice_access
+            or browser_evidence.get("evaluation_status")
+            != expected_evaluation_status
             or (
                 voice_release_expectation is not None
                 and browser_evidence.get("source_revision")
@@ -2182,8 +2281,21 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Expect the runtime's already signed, source/image/voice-bound "
-            "release authorization. The proof uses an empty-text request and "
-            "must stop before provider work."
+            "normal release or owner-authorized public-evaluation "
+            "authorization. The proof uses an empty-text request and must "
+            "stop before provider work."
+        ),
+    )
+    parser.add_argument(
+        "--voice-access-mode",
+        choices=(
+            VOICE_ACCESS_MODE_PUBLIC_RELEASE,
+            VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+        ),
+        default="",
+        help=(
+            "Signed authorization mode; defaults to public-release for "
+            "backward-compatible normal release verification."
         ),
     )
     parser.add_argument("--expected-source-revision", default="")
@@ -2196,7 +2308,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     expected_source_revision = str(args.expected_source_revision or "")
-    if not args.expect_signed_voice_release and expected_source_revision:
+    if not args.expect_signed_voice_release and (
+        expected_source_revision or args.voice_access_mode
+    ):
         raise SystemExit(
             "release binding arguments require --expect-signed-voice-release"
         )
@@ -2206,6 +2320,10 @@ def main(argv: list[str] | None = None) -> int:
         )
     voice_release_expectation = (
         {
+            "access_mode": (
+                str(args.voice_access_mode)
+                or VOICE_ACCESS_MODE_PUBLIC_RELEASE
+            ),
             "source_revision": expected_source_revision,
         }
         if args.expect_signed_voice_release

@@ -45,6 +45,9 @@ try:
         HttpResponse,
         MemorialDeployLane,
         Runner,
+        VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+        VOICE_ACCESS_MODE_PUBLIC_RELEASE,
+        VOICE_ACCESS_MODE_TEXT_ONLY,
         _NoRedirectHandler,
         _default_http_get,
         _default_http_no_redirect,
@@ -80,6 +83,9 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
         HttpResponse,
         MemorialDeployLane,
         Runner,
+        VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+        VOICE_ACCESS_MODE_PUBLIC_RELEASE,
+        VOICE_ACCESS_MODE_TEXT_ONLY,
         _NoRedirectHandler,
         _default_http_get,
         _default_http_no_redirect,
@@ -395,13 +401,15 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         if type(require_signed_voice_release) is not bool:
             raise DeployError("joint_voice_release_intent_invalid")
         self.require_signed_voice_release = require_signed_voice_release
-        self.receipt["voice_release_intent"] = {
+        self.receipt["voice_authorization_intent"] = {
             "mode": (
-                "signed_release_required"
+                "signed_voice_authorization_required"
                 if require_signed_voice_release
                 else "phase_one_allowed"
             ),
-            "signed_release_required": require_signed_voice_release,
+            "signed_voice_authorization_required": (
+                require_signed_voice_release
+            ),
             "preflight_verified": False,
         }
         self.public_snapshot = public_snapshot
@@ -510,15 +518,101 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         raw_evidence = self.receipt.get("candidate_promotion_evidence")
         evidence = dict(raw_evidence) if isinstance(raw_evidence, Mapping) else {}
         release_allowed = evidence.get("voice_release_allowed")
-        authority_revalidated = evidence.get("voice_release_authority_revalidated")
-        if release_allowed is not True:
-            if release_allowed not in {None, False} or authority_revalidated is True:
-                raise DeployError("joint_voice_release_candidate_state_invalid")
+        public_evaluation_allowed = evidence.get(
+            "public_evaluation_allowed"
+        )
+        runtime_enablement_allowed = evidence.get(
+            "voice_runtime_enablement_allowed"
+        )
+        voice_access_mode = evidence.get("voice_access_mode")
+        release_authority_revalidated = evidence.get(
+            "voice_release_authority_revalidated"
+        )
+        evaluation_authority_revalidated = evidence.get(
+            "voice_public_evaluation_authority_revalidated"
+        )
+        authority_revalidated = evidence.get(
+            "voice_authorization_authority_revalidated"
+        )
+        legacy_state = (
+            release_allowed in {None, False, True}
+            and public_evaluation_allowed is None
+            and runtime_enablement_allowed is None
+            and voice_access_mode is None
+            and evaluation_authority_revalidated is None
+            and authority_revalidated is None
+        )
+        if legacy_state:
+            release_allowed = release_allowed is True
+            public_evaluation_allowed = False
+            runtime_enablement_allowed = release_allowed is True
+            voice_access_mode = (
+                VOICE_ACCESS_MODE_PUBLIC_RELEASE
+                if release_allowed is True
+                else VOICE_ACCESS_MODE_TEXT_ONLY
+            )
+            evaluation_authority_revalidated = False
+            authority_revalidated = (
+                release_authority_revalidated is True
+            )
+        authorization_state = (
+            release_allowed,
+            public_evaluation_allowed,
+            runtime_enablement_allowed,
+            voice_access_mode,
+        )
+        if authorization_state == (
+            False,
+            False,
+            False,
+            VOICE_ACCESS_MODE_TEXT_ONLY,
+        ):
+            if any(
+                value is True
+                for value in (
+                    release_authority_revalidated,
+                    evaluation_authority_revalidated,
+                    authority_revalidated,
+                )
+            ):
+                raise DeployError(
+                    "joint_voice_authorization_candidate_state_invalid"
+                )
             if self.require_signed_voice_release:
                 raise DeployError("joint_signed_voice_release_required")
             return None
-        if authority_revalidated is not True:
-            raise DeployError("joint_voice_release_authority_not_revalidated")
+        if authorization_state not in {
+            (True, False, True, VOICE_ACCESS_MODE_PUBLIC_RELEASE),
+            (
+                False,
+                True,
+                True,
+                VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+            ),
+        }:
+            raise DeployError(
+                "joint_voice_authorization_candidate_state_invalid"
+            )
+        if (
+            authority_revalidated is not True
+            or (
+                release_allowed is True
+                and (
+                    release_authority_revalidated is not True
+                    or evaluation_authority_revalidated is not False
+                )
+            )
+            or (
+                public_evaluation_allowed is True
+                and (
+                    evaluation_authority_revalidated is not True
+                    or release_authority_revalidated is not False
+                )
+            )
+        ):
+            raise DeployError(
+                "joint_voice_authorization_authority_not_revalidated"
+            )
 
         voice_identity_raw = evidence.get("voice_identity")
         voice_identity = (
@@ -548,13 +642,25 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             or recorded_source_revision != source_revision
             or recorded_image_id != image_id
         ):
-            raise DeployError("joint_voice_release_candidate_binding_invalid")
+            raise DeployError(
+                "joint_voice_authorization_candidate_binding_invalid"
+            )
         return {
+            "authorization_mode": (
+                "signed_voice_release"
+                if release_allowed is True
+                else "owner_authorized_public_evaluation"
+            ),
+            "voice_access_mode": voice_access_mode,
             "source_revision": source_revision,
             "image_id": image_id,
             "voice_identity_sha256": voice_identity_sha256,
-            "voice_release_allowed": True,
-            "voice_release_authority_revalidated": True,
+            "voice_release_allowed": bool(release_allowed),
+            "public_evaluation_allowed": bool(
+                public_evaluation_allowed
+            ),
+            "voice_runtime_enablement_allowed": True,
+            "voice_authorization_authority_revalidated": True,
         }
 
     def _verify_candidate_origin(
@@ -582,15 +688,24 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             str(max(1, min(600, int(self.wait_seconds or 1)))),
             "--browser-audit",
             "--expect-signed-voice-release",
+            "--voice-access-mode",
+            str(expectation["voice_access_mode"]),
             "--expected-source-revision",
             str(expectation["source_revision"]),
             origin=label,
+        )
+        public_evaluation = (
+            expectation["public_evaluation_allowed"] is True
         )
         required_checks = {
             "archive_publication_gate",
             "singular_memorial_alias",
             "source_grounded_first_person_reconstruction_boundary",
-            "voice_release_authorization_verified_provider_not_called",
+            (
+                "voice_public_evaluation_authorization_verified_provider_not_called"
+                if public_evaluation
+                else "voice_release_authorization_verified_provider_not_called"
+            ),
             "browser_provider_websocket_boundary",
         }
         checks = {
@@ -599,14 +714,32 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             if str(item).strip()
         }
         browser = dict(payload.get("browser_audit") or {})
+        expected_browser = (
+            {
+                "voice_release": "blocked",
+                "voice_access": "public-evaluation",
+                "evaluation_status": "owner-authorized",
+            }
+            if public_evaluation
+            else {
+                "voice_release": "available",
+                "voice_access": "public-release",
+                "evaluation_status": "",
+            }
+        )
         expected_verification = {
-            "mode": "signed_voice_release_authorized",
+            "mode": (
+                "public_evaluation_authorization_verified"
+                if public_evaluation
+                else "signed_voice_release_authorized"
+            ),
             "status_code": 400,
             "detail": "tts_text_missing",
             "authorization_proof": (
                 "authorization_precedes_empty_text_validation_without_provider_call"
             ),
             "provider_calls_performed": False,
+            "access_mode": expectation["voice_access_mode"],
             "source_revision": expectation["source_revision"],
         }
         browser_zero = all(
@@ -628,8 +761,10 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             or payload.get("page_get_performed") is not True
             or payload.get("voice_release_verification") != expected_verification
             or str(browser.get("status") or "").lower() != "pass"
-            or browser.get("voice_release") != "available"
-            or browser.get("voice_access") != "public-release"
+            or any(
+                browser.get(name) != value
+                for name, value in expected_browser.items()
+            )
             or browser.get("source_revision") != expectation["source_revision"]
             or not browser_zero
         ):
@@ -637,28 +772,33 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 "candidate_verifier_origin",
                 "fail",
                 origin=label,
-                error_code=("candidate_voice_release_verifier_contract_failed"),
+                error_code=(
+                    "candidate_voice_authorization_verifier_contract_failed"
+                ),
             )
             raise DeployError(
-                f"candidate_voice_release_verifier_contract_failed:{label}"
+                f"candidate_voice_authorization_verifier_contract_failed:{label}"
             )
-        return {
+        result = {
             "origin": label,
             "status": "pass",
             "checks": sorted(required_checks),
             "provider_calls_performed": False,
-            "voice_release_verification": expected_verification,
-            "voice_release_candidate_binding": {
+            "voice_authorization_verification": expected_verification,
+            "voice_authorization_candidate_binding": {
                 **expectation,
                 "binding_proof": (
                     "validated_candidate_promotion_evidence_plus_"
-                    "signed_runtime_authorization"
+                    + (
+                        "signed_public_evaluation_authorization"
+                        if public_evaluation
+                        else "signed_runtime_release_authorization"
+                    )
                 ),
             },
             "browser": {
                 "status": "pass",
-                "voice_release": "available",
-                "voice_access": "public-release",
+                **expected_browser,
                 "source_revision": expectation["source_revision"],
                 "automatic_provider_requests": 0,
                 "automatic_websockets": 0,
@@ -668,6 +808,16 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 "http_errors": 0,
             },
         }
+        if public_evaluation:
+            result["voice_public_evaluation_candidate_binding"] = dict(
+                result["voice_authorization_candidate_binding"]
+            )
+        else:
+            result["voice_release_verification"] = expected_verification
+            result["voice_release_candidate_binding"] = dict(
+                result["voice_authorization_candidate_binding"]
+            )
+        return result
 
     @contextmanager
     def _rollback_deadline_scope(self) -> Iterator[None]:
@@ -4967,24 +5117,26 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         voice_release_expectation = (
             self._release_enabled_candidate_verifier_expectation()
         )
-        self.receipt["voice_release_intent"] = {
+        self.receipt["voice_authorization_intent"] = {
             "mode": (
-                "signed_release_required"
+                "signed_voice_authorization_required"
                 if self.require_signed_voice_release
                 else "phase_one_allowed"
             ),
-            "signed_release_required": self.require_signed_voice_release,
+            "signed_voice_authorization_required": (
+                self.require_signed_voice_release
+            ),
             "preflight_verified": True,
             "resolved_candidate_mode": (
-                "signed_voice_release"
+                str(voice_release_expectation["authorization_mode"])
                 if voice_release_expectation is not None
                 else "phase_one_voice_blocked"
             ),
         }
         self._record_check(
-            "voice_release_intent",
+            "voice_authorization_intent",
             "pass",
-            **dict(self.receipt["voice_release_intent"]),
+            **dict(self.receipt["voice_authorization_intent"]),
         )
         spatial_browser_binding = self._load_spatial_browser_binding(
             dict(context["candidate_promotion"])
@@ -6406,7 +6558,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help=(
             "Fail before mutation unless the exact candidate has revalidated, "
-            "source/image/voice-bound signed release authority."
+            "source/image/voice-bound signed normal-release or owner-authorized "
+            "public-evaluation authority."
         ),
     )
     return parser.parse_args(argv)

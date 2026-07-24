@@ -371,6 +371,7 @@ def test_phase_one_voice_boundary_remains_blocked_and_provider_free() -> None:
 def test_signed_voice_boundary_uses_empty_text_authorization_probe() -> None:
     requests: list[dict[str, object]] = []
     expectation = {
+        "access_mode": candidate_verifier.VOICE_ACCESS_MODE_PUBLIC_RELEASE,
         "source_revision": COMMIT,
     }
 
@@ -422,11 +423,96 @@ def test_signed_voice_boundary_uses_empty_text_authorization_probe() -> None:
     ]
 
 
+def test_public_evaluation_voice_boundary_is_provider_free_and_not_released() -> None:
+    requests: list[dict[str, object]] = []
+    expectation = {
+        "access_mode": (
+            candidate_verifier.VOICE_ACCESS_MODE_PUBLIC_EVALUATION
+        ),
+        "source_revision": COMMIT,
+    }
+
+    def fake_request(
+        base_url: str,
+        path: str,
+        *,
+        method: str,
+        payload: dict[str, object],
+        expected: set[int],
+    ) -> tuple[int, bytes, dict[str, str]]:
+        requests.append(
+            {
+                "base_url": base_url,
+                "path": path,
+                "method": method,
+                "payload": payload,
+                "expected": expected,
+            }
+        )
+        return (
+            400,
+            json.dumps({"detail": "tts_text_missing"}).encode(),
+            {"x-ea-source-revision": COMMIT},
+        )
+
+    result = candidate_verifier._verify_voice_provider_boundary(
+        "https://memorial.example",
+        voice_release_expectation=expectation,
+        request_fn=fake_request,
+    )
+
+    assert result == {
+        "mode": "public_evaluation_authorization_verified",
+        "status_code": 400,
+        "detail": "tts_text_missing",
+        "authorization_proof": (
+            candidate_verifier.VOICE_RELEASE_AUTHORIZATION_PROOF
+        ),
+        "provider_calls_performed": False,
+        **expectation,
+    }
+    assert requests == [
+        {
+            "base_url": "https://memorial.example",
+            "path": "/memorials/manfred/speech-synthesize",
+            "method": "POST",
+            "payload": {},
+            "expected": {400},
+        }
+    ]
+
+
 @pytest.mark.parametrize(
-    ("voice_release_expectation", "expected_voice_release", "expected_voice_access"),
+    (
+        "voice_release_expectation",
+        "expected_voice_release",
+        "expected_voice_access",
+        "expected_evaluation_status",
+    ),
     [
-        (None, "blocked", "text-only"),
-        ({"source_revision": COMMIT}, "available", "public-release"),
+        (None, "blocked", "text-only", ""),
+        (
+            {
+                "access_mode": (
+                    candidate_verifier.VOICE_ACCESS_MODE_PUBLIC_RELEASE
+                ),
+                "source_revision": COMMIT,
+            },
+            "available",
+            "public-release",
+            "",
+        ),
+        (
+            {
+                "access_mode": (
+                    candidate_verifier.VOICE_ACCESS_MODE_PUBLIC_EVALUATION
+                ),
+                "source_revision": COMMIT,
+            },
+            "blocked",
+            "public-evaluation",
+            "owner-authorized",
+        ),
     ],
 )
 def test_candidate_browser_audit_binds_runtime_voice_state(
@@ -434,6 +520,7 @@ def test_candidate_browser_audit_binds_runtime_voice_state(
     voice_release_expectation: dict[str, object] | None,
     expected_voice_release: str,
     expected_voice_access: str,
+    expected_evaluation_status: str,
 ) -> None:
     browser_calls: list[dict[str, object]] = []
     base_url = "https://memorial.example"
@@ -449,7 +536,12 @@ def test_candidate_browser_audit_binds_runtime_voice_state(
     monkeypatch.setattr(
         candidate_verifier,
         "verify_conversation_only_page_html",
-        lambda _body: {"status": "pass"},
+        lambda _body: {
+            "status": "pass",
+            "voice_release": expected_voice_release,
+            "voice_access": expected_voice_access,
+            "evaluation_status": expected_evaluation_status,
+        },
     )
     monkeypatch.setattr(
         candidate_verifier,
@@ -475,11 +567,16 @@ def test_candidate_browser_audit_binds_runtime_voice_state(
         candidate_verifier,
         "_verify_voice_provider_boundary",
         lambda *_args, **_kwargs: {
-            "mode": (
-                "signed_voice_release_authorized"
-                if voice_release_expectation is not None
-                else "phase_one_voice_blocked"
-            ),
+                "mode": (
+                    "phase_one_voice_blocked"
+                    if voice_release_expectation is None
+                    else (
+                        "public_evaluation_authorization_verified"
+                        if voice_release_expectation["access_mode"]
+                        == candidate_verifier.VOICE_ACCESS_MODE_PUBLIC_EVALUATION
+                        else "signed_voice_release_authorized"
+                    )
+                ),
             "provider_calls_performed": False,
         },
     )
@@ -523,6 +620,7 @@ def test_candidate_browser_audit_binds_runtime_voice_state(
         public_origin: str | None,
         expected_voice_release: str,
         expected_voice_access: str,
+        expected_evaluation_status: str,
         expected_source_revision: str | None,
     ) -> dict[str, object]:
         browser_calls.append(
@@ -531,6 +629,7 @@ def test_candidate_browser_audit_binds_runtime_voice_state(
                 "public_origin": public_origin,
                 "voice_release": expected_voice_release,
                 "voice_access": expected_voice_access,
+                "evaluation_status": expected_evaluation_status,
                 "source_revision": expected_source_revision,
             }
         )
@@ -538,6 +637,7 @@ def test_candidate_browser_audit_binds_runtime_voice_state(
             "status": "pass",
             "voice_release": expected_voice_release,
             "voice_access": expected_voice_access,
+            "evaluation_status": expected_evaluation_status,
             "source_revision": expected_source_revision or "",
             **{
                 field: 0
@@ -561,12 +661,17 @@ def test_candidate_browser_audit_binds_runtime_voice_state(
     assert receipt["status"] == "pass"
     assert receipt["browser_audit"]["voice_release"] == expected_voice_release
     assert receipt["browser_audit"]["voice_access"] == expected_voice_access
+    assert (
+        receipt["browser_audit"]["evaluation_status"]
+        == expected_evaluation_status
+    )
     assert browser_calls == [
         {
             "base_url": base_url,
             "public_origin": public_origin,
             "voice_release": expected_voice_release,
             "voice_access": expected_voice_access,
+            "evaluation_status": expected_evaluation_status,
             "source_revision": (
                 COMMIT if voice_release_expectation is not None else None
             ),
@@ -656,6 +761,7 @@ def test_signed_voice_boundary_fails_closed_on_runtime_mismatch(
     source_revision: str,
 ) -> None:
     expectation = {
+        "access_mode": candidate_verifier.VOICE_ACCESS_MODE_PUBLIC_RELEASE,
         "source_revision": COMMIT,
     }
 
@@ -712,6 +818,7 @@ def _runner_voice_release_projection(
     *,
     release_allowed: bool,
     review_verified: bool,
+    public_evaluation_allowed: bool = False,
 ) -> dict[str, object]:
     voice_identity = prepare._voice_identity(
         voice_config_sha256="4" * 64,
@@ -721,10 +828,25 @@ def _runner_voice_release_projection(
         tts_provider=prepare.MANFRED_TTS_PROVIDER,
         tts_model=prepare.MANFRED_TTS_MODEL,
     )
+    runtime_enablement_allowed = (
+        release_allowed or public_evaluation_allowed
+    )
+    voice_access_mode = (
+        prepare.VOICE_ACCESS_MODE_PUBLIC_RELEASE
+        if release_allowed
+        else (
+            prepare.VOICE_ACCESS_MODE_PUBLIC_EVALUATION
+            if public_evaluation_allowed
+            else prepare.VOICE_ACCESS_MODE_TEXT_ONLY
+        )
+    )
     return {
         "projection_commit": COMMIT,
         "prepared_image_id": IMAGE_ID,
         "voice_release_allowed": release_allowed,
+        "public_evaluation_allowed": public_evaluation_allowed,
+        "voice_runtime_enablement_allowed": runtime_enablement_allowed,
+        "voice_access_mode": voice_access_mode,
         **voice_identity,
         "release_authority": {
             "schema": prepare.CANDIDATE_RELEASE_AUTHORITY_SCHEMA,
@@ -732,6 +854,11 @@ def _runner_voice_release_projection(
             "commit_sha": COMMIT,
             "image_id": IMAGE_ID,
             "voice_release_allowed": release_allowed,
+            "public_evaluation_allowed": public_evaluation_allowed,
+            "voice_runtime_enablement_allowed": (
+                runtime_enablement_allowed
+            ),
+            "voice_access_mode": voice_access_mode,
             "phase_1_live_review_verified": review_verified,
             **voice_identity,
         },
@@ -739,19 +866,45 @@ def _runner_voice_release_projection(
 
 
 @pytest.mark.parametrize(
-    ("release_allowed", "expect_signed", "expected"),
+    (
+        "release_allowed",
+        "public_evaluation_allowed",
+        "expect_signed",
+        "expected",
+    ),
     [
-        (False, False, None),
-        (True, True, {"source_revision": COMMIT}),
+        (False, False, False, None),
+        (
+            True,
+            False,
+            True,
+            {
+                "source_revision": COMMIT,
+                "access_mode": prepare.VOICE_ACCESS_MODE_PUBLIC_RELEASE,
+            },
+        ),
+        (
+            False,
+            True,
+            True,
+            {
+                "source_revision": COMMIT,
+                "access_mode": (
+                    prepare.VOICE_ACCESS_MODE_PUBLIC_EVALUATION
+                ),
+            },
+        ),
     ],
 )
 def test_runner_derives_voice_expectation_from_exact_release_authority(
     release_allowed: bool,
+    public_evaluation_allowed: bool,
     expect_signed: bool,
     expected: dict[str, object] | None,
 ) -> None:
     projection = _runner_voice_release_projection(
         release_allowed=release_allowed,
+        public_evaluation_allowed=public_evaluation_allowed,
         review_verified=release_allowed,
     )
 
@@ -1079,6 +1232,9 @@ def _patch_prestart(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> Non
             "public_origin": env["EA_PUBLIC_APP_BASE_URL"],
             "projection_tree_revalidated": True,
             "voice_release_allowed": False,
+            "public_evaluation_allowed": False,
+            "voice_runtime_enablement_allowed": False,
+            "voice_access_mode": prepare.VOICE_ACCESS_MODE_TEXT_ONLY,
             "voice_config_sha256": env["EA_MEMORIAL_VOICE_CONFIG_SHA256"],
             "voice_manifest_sha256": env["EA_MEMORIAL_VOICE_MANIFEST_SHA256"],
             "voice_reference_aggregate_sha256": env[
@@ -1098,6 +1254,9 @@ def _patch_prestart(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> Non
                 "commit_sha": COMMIT,
                 "image_id": IMAGE_ID,
                 "voice_release_allowed": False,
+                "public_evaluation_allowed": False,
+                "voice_runtime_enablement_allowed": False,
+                "voice_access_mode": prepare.VOICE_ACCESS_MODE_TEXT_ONLY,
                 "phase_1_live_review_verified": False,
                 "voice_config_sha256": env[
                     "EA_MEMORIAL_VOICE_CONFIG_SHA256"
@@ -2233,6 +2392,9 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
                 "spatial_upstream_public_activation_authority": False,
                 "spatial_ea_public_activation_authority": False,
                 "voice_release_allowed": False,
+                "public_evaluation_allowed": False,
+                "voice_runtime_enablement_allowed": False,
+                "voice_access_mode": prepare.VOICE_ACCESS_MODE_TEXT_ONLY,
                 **voice_identity,
             }
         ),
@@ -2248,6 +2410,9 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
         "runtime_authority_posture": "authoritative_runtime",
         "promotion_authority": False,
         "voice_release_allowed": False,
+        "public_evaluation_allowed": False,
+        "voice_runtime_enablement_allowed": False,
+        "voice_access_mode": prepare.VOICE_ACCESS_MODE_TEXT_ONLY,
         **voice_identity,
     }
     monkeypatch.setattr(
@@ -2294,6 +2459,9 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
         "spatial_handoff": empty_spatial_evidence,
         "release_authority": release_authority_evidence,
         "voice_release_allowed": False,
+        "public_evaluation_allowed": False,
+        "voice_runtime_enablement_allowed": False,
+        "voice_access_mode": prepare.VOICE_ACCESS_MODE_TEXT_ONLY,
         **voice_identity,
     }
 

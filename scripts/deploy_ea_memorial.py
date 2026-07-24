@@ -88,6 +88,9 @@ try:
         PROPERTY_TOUR_SHA256,
         MANFRED_TTS_MODEL,
         MANFRED_TTS_PROVIDER,
+        VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+        VOICE_ACCESS_MODE_PUBLIC_RELEASE,
+        VOICE_ACCESS_MODE_TEXT_ONLY,
         _spatial_package_sha256,
         _spatial_tree_snapshot,
         _tree_digest as _candidate_projection_tree_digest,
@@ -105,6 +108,9 @@ except ModuleNotFoundError as exc:  # pragma: no cover - direct script execution
         PROPERTY_TOUR_SHA256,
         MANFRED_TTS_MODEL,
         MANFRED_TTS_PROVIDER,
+        VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+        VOICE_ACCESS_MODE_PUBLIC_RELEASE,
+        VOICE_ACCESS_MODE_TEXT_ONLY,
         _spatial_package_sha256,
         _spatial_tree_snapshot,
         _tree_digest as _candidate_projection_tree_digest,
@@ -8057,12 +8063,61 @@ class MemorialDeployLane:
                 f"{candidate_project}_redis_data",
             ],
         }
+        voice_release_allowed = payload.get("voice_release_allowed")
+        public_evaluation_allowed = payload.get(
+            "public_evaluation_allowed"
+        )
+        voice_runtime_enablement_allowed = payload.get(
+            "voice_runtime_enablement_allowed"
+        )
+        voice_access_mode = payload.get("voice_access_mode")
+        voice_authorization_state = (
+            voice_release_allowed,
+            public_evaluation_allowed,
+            voice_runtime_enablement_allowed,
+            voice_access_mode,
+        )
+        valid_voice_authorization_states = {
+            (False, False, False, VOICE_ACCESS_MODE_TEXT_ONLY),
+            (True, False, True, VOICE_ACCESS_MODE_PUBLIC_RELEASE),
+            (
+                False,
+                True,
+                True,
+                VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+            ),
+        }
+        expected_voice_release_expectation = (
+            {
+                "access_mode": str(voice_access_mode),
+                "source_revision": source_revision,
+            }
+            if voice_runtime_enablement_allowed is True
+            else None
+        )
+        expected_browser_voice_state = (
+            ("available", "public-release", "")
+            if voice_release_allowed is True
+            else (
+                ("blocked", "public-evaluation", "owner-authorized")
+                if public_evaluation_allowed is True
+                else ("blocked", "text-only", "")
+            )
+        )
         required_smoke_checks = {
             "archive_publication_gate",
             "singular_memorial_alias",
             "source_grounded_first_person_reconstruction_boundary",
-            "voice_provider_boundary_blocked",
         }
+        required_smoke_checks.add(
+            "voice_release_authorization_verified_provider_not_called"
+            if voice_release_allowed is True
+            else (
+                "voice_public_evaluation_authorization_verified_provider_not_called"
+                if public_evaluation_allowed is True
+                else "voice_provider_boundary_blocked"
+            )
+        )
         first_checks = {
             str(item).strip()
             for item in list(payload.get("first_smoke_checks") or [])
@@ -8788,6 +8843,11 @@ class MemorialDeployLane:
             or not candidate_public_origin
             or payload.get("public_origin") != candidate_public_origin
             or type(payload.get("voice_release_allowed")) is not bool
+            or type(payload.get("public_evaluation_allowed")) is not bool
+            or type(payload.get("voice_runtime_enablement_allowed")) is not bool
+            or voice_authorization_state not in valid_voice_authorization_states
+            or payload.get("voice_release_expectation")
+            != expected_voice_release_expectation
             or payload.get("projection_tree_revalidated") is not True
             or type(expected_projection_count) is not int
             or int(expected_projection_count) < 0
@@ -8878,6 +8938,12 @@ class MemorialDeployLane:
             or payload.get("candidate_left_running") is not True
             or payload.get("promotion_authority") is not False
             or str(browser.get("status") or "").lower() != "pass"
+            or (
+                browser.get("voice_release"),
+                browser.get("voice_access"),
+                browser.get("evaluation_status"),
+            )
+            != expected_browser_voice_state
             or not _has_exact_zero_browser_counts(browser)
             or not required_smoke_checks <= first_checks
             or not required_smoke_checks <= second_checks
@@ -8969,10 +9035,10 @@ class MemorialDeployLane:
             or expected_projection_bytes != projection_bytes
         ):
             raise DeployError("memorial_candidate_projection_digest_mismatch")
-        voice_release_authority: dict[str, object] = {}
-        if payload["voice_release_allowed"] is True:
+        voice_authorization_authority: dict[str, object] = {}
+        if payload["voice_runtime_enablement_allowed"] is True:
             try:
-                voice_release_authority = (
+                voice_authorization_authority = (
                     _validate_candidate_release_authority_bundle(
                         expected_data_root
                         / CANDIDATE_RELEASE_AUTHORITY_DIRNAME,
@@ -8980,8 +9046,13 @@ class MemorialDeployLane:
                         expected_image_id=image_id,
                         expected_project_name=candidate_project,
                         expected_public_origin=candidate_public_origin,
-                        expected_voice_release_allowed=True,
+                        expected_voice_release_allowed=bool(
+                            payload["voice_release_allowed"]
+                        ),
                         expected_voice_identity=voice_identity,
+                        expected_public_evaluation_allowed=bool(
+                            payload["public_evaluation_allowed"]
+                        ),
                     )
                 )
             except (OSError, ValueError) as exc:
@@ -9025,9 +9096,24 @@ class MemorialDeployLane:
             "live_ea_unchanged": True,
             "provider_calls_performed": False,
             "voice_release_allowed": bool(payload["voice_release_allowed"]),
+            "public_evaluation_allowed": bool(
+                payload["public_evaluation_allowed"]
+            ),
+            "voice_runtime_enablement_allowed": bool(
+                payload["voice_runtime_enablement_allowed"]
+            ),
+            "voice_access_mode": str(payload["voice_access_mode"]),
             "voice_identity": voice_identity,
             "voice_release_authority_revalidated": bool(
-                voice_release_authority
+                voice_authorization_authority
+                and payload["voice_release_allowed"] is True
+            ),
+            "voice_public_evaluation_authority_revalidated": bool(
+                voice_authorization_authority
+                and payload["public_evaluation_allowed"] is True
+            ),
+            "voice_authorization_authority_revalidated": bool(
+                voice_authorization_authority
             ),
             "projection": {
                 "release_id": expected_data_root.name,

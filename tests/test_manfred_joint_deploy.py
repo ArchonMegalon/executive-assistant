@@ -261,6 +261,13 @@ def _released_voice_candidate_state(
                 "image_id": image_id,
                 "voice_release_allowed": True,
                 "voice_release_authority_revalidated": True,
+                "public_evaluation_allowed": False,
+                "voice_runtime_enablement_allowed": True,
+                "voice_access_mode": (
+                    api_deploy.VOICE_ACCESS_MODE_PUBLIC_RELEASE
+                ),
+                "voice_public_evaluation_authority_revalidated": False,
+                "voice_authorization_authority_revalidated": True,
                 "voice_identity": {
                     "voice_identity_sha256": voice_identity_sha256,
                 },
@@ -268,11 +275,15 @@ def _released_voice_candidate_state(
         }
     )
     return {
+        "authorization_mode": "signed_voice_release",
+        "voice_access_mode": api_deploy.VOICE_ACCESS_MODE_PUBLIC_RELEASE,
         "source_revision": SOURCE_REVISION,
         "image_id": image_id,
         "voice_identity_sha256": voice_identity_sha256,
         "voice_release_allowed": True,
-        "voice_release_authority_revalidated": True,
+        "public_evaluation_allowed": False,
+        "voice_runtime_enablement_allowed": True,
+        "voice_authorization_authority_revalidated": True,
     }
 
 
@@ -281,6 +292,7 @@ def _released_voice_candidate_verifier_payload(
     *,
     browser_voice_release: str = "available",
     browser_voice_access: str = "public-release",
+    browser_evaluation_status: str = "",
     browser_source_revision: str | None = None,
 ) -> dict[str, object]:
     source_revision = str(expectation["source_revision"])
@@ -304,13 +316,103 @@ def _released_voice_candidate_verifier_payload(
                 "authorization_precedes_empty_text_validation_without_provider_call"
             ),
             "provider_calls_performed": False,
+            "access_mode": expectation["voice_access_mode"],
             "source_revision": source_revision,
         },
         "browser_audit": {
             "status": "pass",
             "voice_release": browser_voice_release,
             "voice_access": browser_voice_access,
+            "evaluation_status": browser_evaluation_status,
             "source_revision": browser_source_revision or source_revision,
+            "automatic_provider_requests": 0,
+            "automatic_websockets": 0,
+            "external_requests": 0,
+            "failed_requests": 0,
+            "page_errors": 0,
+            "http_errors": 0,
+        },
+    }
+
+
+def _public_evaluation_candidate_state(
+    lane: joint.JointMemorialIngressDeployLane,
+) -> dict[str, object]:
+    image_id = f"sha256:{'b' * 64}"
+    voice_identity_sha256 = "c" * 64
+    lane.receipt.update(
+        {
+            "source_revision": SOURCE_REVISION,
+            "candidate_image": {"image_id": image_id},
+            "candidate_promotion_evidence": {
+                "source_revision": SOURCE_REVISION,
+                "image_id": image_id,
+                "voice_release_allowed": False,
+                "public_evaluation_allowed": True,
+                "voice_runtime_enablement_allowed": True,
+                "voice_access_mode": (
+                    api_deploy.VOICE_ACCESS_MODE_PUBLIC_EVALUATION
+                ),
+                "voice_release_authority_revalidated": False,
+                "voice_public_evaluation_authority_revalidated": True,
+                "voice_authorization_authority_revalidated": True,
+                "voice_identity": {
+                    "voice_identity_sha256": voice_identity_sha256,
+                },
+            },
+        }
+    )
+    return {
+        "authorization_mode": "owner_authorized_public_evaluation",
+        "voice_access_mode": (
+            api_deploy.VOICE_ACCESS_MODE_PUBLIC_EVALUATION
+        ),
+        "source_revision": SOURCE_REVISION,
+        "image_id": image_id,
+        "voice_identity_sha256": voice_identity_sha256,
+        "voice_release_allowed": False,
+        "public_evaluation_allowed": True,
+        "voice_runtime_enablement_allowed": True,
+        "voice_authorization_authority_revalidated": True,
+    }
+
+
+def _public_evaluation_candidate_verifier_payload(
+    expectation: Mapping[str, object],
+) -> dict[str, object]:
+    source_revision = str(expectation["source_revision"])
+    return {
+        "schema": "ea.manfred_memorial_candidate_smoke.v1",
+        "status": "pass",
+        "checks": [
+            "archive_publication_gate",
+            "singular_memorial_alias",
+            "source_grounded_first_person_reconstruction_boundary",
+            (
+                "voice_public_evaluation_authorization_verified_"
+                "provider_not_called"
+            ),
+            "browser_provider_websocket_boundary",
+        ],
+        "provider_calls_performed": False,
+        "page_get_performed": True,
+        "voice_release_verification": {
+            "mode": "public_evaluation_authorization_verified",
+            "status_code": 400,
+            "detail": "tts_text_missing",
+            "authorization_proof": (
+                "authorization_precedes_empty_text_validation_without_provider_call"
+            ),
+            "provider_calls_performed": False,
+            "access_mode": expectation["voice_access_mode"],
+            "source_revision": source_revision,
+        },
+        "browser_audit": {
+            "status": "pass",
+            "voice_release": "blocked",
+            "voice_access": "public-evaluation",
+            "evaluation_status": "owner-authorized",
+            "source_revision": source_revision,
             "automatic_provider_requests": 0,
             "automatic_websockets": 0,
             "external_requests": 0,
@@ -362,7 +464,7 @@ def test_joint_release_verifier_requires_revalidated_signed_authority(
 
     with pytest.raises(
         api_deploy.DeployError,
-        match="joint_voice_release_authority_not_revalidated",
+        match="joint_voice_authorization_authority_not_revalidated",
     ):
         lane._release_enabled_candidate_verifier_expectation()
 
@@ -380,6 +482,7 @@ def test_joint_release_verifier_binds_validated_candidate_state(
             "authorization_precedes_empty_text_validation_without_provider_call"
         ),
         "provider_calls_performed": False,
+        "access_mode": expectation["voice_access_mode"],
         "source_revision": expectation["source_revision"],
     }
     lane._run_json_script = Mock(  # type: ignore[method-assign]
@@ -397,12 +500,13 @@ def test_joint_release_verifier_binds_validated_candidate_state(
     assert result["voice_release_verification"] == voice_verification
     assert result["browser"]["voice_release"] == "available"
     assert result["browser"]["voice_access"] == "public-release"
+    assert result["browser"]["evaluation_status"] == ""
     assert result["browser"]["source_revision"] == SOURCE_REVISION
     assert result["voice_release_candidate_binding"] == {
         **expectation,
         "binding_proof": (
             "validated_candidate_promotion_evidence_plus_"
-            "signed_runtime_authorization"
+            "signed_runtime_release_authorization"
         ),
     }
     command = lane._run_json_script.call_args.args
@@ -410,6 +514,46 @@ def test_joint_release_verifier_binds_validated_candidate_state(
     assert SOURCE_REVISION in command
     assert expectation["image_id"] not in command
     assert expectation["voice_identity_sha256"] not in command
+
+
+def test_joint_public_evaluation_is_verified_without_public_release_claim(
+    tmp_path: Path,
+) -> None:
+    lane, _runner = _lane(
+        tmp_path,
+        require_signed_voice_release=True,
+    )
+    expectation = _public_evaluation_candidate_state(lane)
+    lane._run_json_script = Mock(  # type: ignore[method-assign]
+        return_value=_public_evaluation_candidate_verifier_payload(
+            expectation
+        )
+    )
+
+    result = lane._verify_candidate_origin(
+        label="public",
+        base_url=ORIGIN,
+        public_origin=ORIGIN,
+    )
+
+    assert result["status"] == "pass"
+    assert result["provider_calls_performed"] is False
+    assert result["browser"]["voice_release"] == "blocked"
+    assert result["browser"]["voice_access"] == "public-evaluation"
+    assert result["browser"]["evaluation_status"] == "owner-authorized"
+    assert "voice_release_verification" not in result
+    assert "voice_release_candidate_binding" not in result
+    assert result["voice_public_evaluation_candidate_binding"] == {
+        **expectation,
+        "binding_proof": (
+            "validated_candidate_promotion_evidence_plus_"
+            "signed_public_evaluation_authorization"
+        ),
+    }
+    command = lane._run_json_script.call_args.args
+    assert "--expect-signed-voice-release" in command
+    assert "--voice-access-mode" in command
+    assert api_deploy.VOICE_ACCESS_MODE_PUBLIC_EVALUATION in command
 
 
 @pytest.mark.parametrize(
@@ -436,9 +580,9 @@ def test_joint_explicit_signed_release_intent_rejects_phase_one_fallback(
     ):
         lane._release_enabled_candidate_verifier_expectation()
 
-    assert lane.receipt["voice_release_intent"] == {
-        "mode": "signed_release_required",
-        "signed_release_required": True,
+    assert lane.receipt["voice_authorization_intent"] == {
+        "mode": "signed_voice_authorization_required",
+        "signed_voice_authorization_required": True,
         "preflight_verified": False,
     }
 
@@ -481,7 +625,7 @@ def test_joint_signed_release_verifier_rejects_browser_state_drift(
 
     with pytest.raises(
         api_deploy.DeployError,
-        match="candidate_voice_release_verifier_contract_failed",
+        match="candidate_voice_authorization_verifier_contract_failed",
     ):
         lane._verify_candidate_origin(
             label="public",
@@ -501,7 +645,7 @@ def test_joint_release_verifier_rejects_receipt_binding_drift(
 
     with pytest.raises(
         api_deploy.DeployError,
-        match="joint_voice_release_candidate_binding_invalid",
+        match="joint_voice_authorization_candidate_binding_invalid",
     ):
         lane._release_enabled_candidate_verifier_expectation()
 
@@ -517,7 +661,7 @@ def test_joint_release_verifier_requires_recorded_top_level_binding(
 
     with pytest.raises(
         api_deploy.DeployError,
-        match="joint_voice_release_candidate_binding_invalid",
+        match="joint_voice_authorization_candidate_binding_invalid",
     ):
         lane._release_enabled_candidate_verifier_expectation()
 

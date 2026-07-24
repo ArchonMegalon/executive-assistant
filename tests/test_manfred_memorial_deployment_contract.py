@@ -788,7 +788,12 @@ def test_verify_candidate_wires_archive_publication_gate(
     monkeypatch.setattr(
         candidate_verify,
         "verify_conversation_only_page_html",
-        lambda _body: {"status": "pass"},
+        lambda _body: {
+            "status": "pass",
+            "voice_release": "blocked",
+            "voice_access": "text-only",
+            "evaluation_status": "",
+        },
     )
 
     def singular_alias(
@@ -1715,6 +1720,12 @@ def test_candidate_release_authority_bundle_is_commit_bound_and_runtime_safe(
     assert evidence["runtime_authority_posture"] == "authoritative_runtime"
     assert evidence["promotion_authority"] is False
     assert evidence["voice_release_allowed"] is False
+    assert evidence["public_evaluation_allowed"] is False
+    assert evidence["voice_runtime_enablement_allowed"] is False
+    assert (
+        evidence["voice_access_mode"]
+        == candidate_prep.VOICE_ACCESS_MODE_TEXT_ONLY
+    )
     assert evidence["descriptor_stable_read"] is True
     assert evidence["candidate_provider_boundary"] == (
         candidate_prep.MANFRED_PROVIDER_FREE_CANDIDATE_BOUNDARY
@@ -1769,9 +1780,54 @@ def test_candidate_release_authority_bundle_is_commit_bound_and_runtime_safe(
         )
 
 
-def test_candidate_release_authority_includes_final_voice_receipt_only_when_bound(
+@pytest.mark.parametrize(
+    (
+        "voice_decision",
+        "expected_release_allowed",
+        "expected_public_evaluation_allowed",
+        "expected_access_mode",
+        "expected_live_review_verified",
+    ),
+    [
+        (
+            {
+                "allowed": True,
+                "status": "released",
+                "reason": "",
+            },
+            True,
+            False,
+            candidate_prep.VOICE_ACCESS_MODE_PUBLIC_RELEASE,
+            True,
+        ),
+        (
+            {
+                "allowed": False,
+                "public_evaluation": True,
+                "status": "public_evaluation",
+                "reason": "",
+                "receipt_status": "public_evaluation_authorized",
+                "access_mode": (
+                    candidate_prep.VOICE_ACCESS_MODE_PUBLIC_EVALUATION
+                ),
+                "disclosure_required": True,
+            },
+            False,
+            True,
+            candidate_prep.VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+            False,
+        ),
+    ],
+    ids=("normal-release", "owner-authorized-public-evaluation"),
+)
+def test_candidate_release_authority_includes_signed_voice_authorization_when_bound(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    voice_decision: dict[str, object],
+    expected_release_allowed: bool,
+    expected_public_evaluation_allowed: bool,
+    expected_access_mode: str,
+    expected_live_review_verified: bool,
 ) -> None:
     authority_root = tmp_path / "release-authority"
     project_modes = {
@@ -1810,7 +1866,7 @@ def test_candidate_release_authority_includes_final_voice_receipt_only_when_boun
 
     def evaluate(**kwargs: object) -> dict[str, object]:
         evaluator_calls.append(dict(kwargs))
-        return {"allowed": True, "reason": "released"}
+        return dict(voice_decision)
 
     monkeypatch.setattr(
         candidate_prep,
@@ -1845,8 +1901,17 @@ def test_candidate_release_authority_includes_final_voice_receipt_only_when_boun
         authority_root
         / candidate_prep.CANDIDATE_RELEASE_AUTHORITY_FILENAMES["voice_release"]
     )
-    assert evidence["voice_release_allowed"] is True
-    assert evidence["phase_1_live_review_verified"] is True
+    assert evidence["voice_release_allowed"] is expected_release_allowed
+    assert (
+        evidence["public_evaluation_allowed"]
+        is expected_public_evaluation_allowed
+    )
+    assert evidence["voice_runtime_enablement_allowed"] is True
+    assert evidence["voice_access_mode"] == expected_access_mode
+    assert (
+        evidence["phase_1_live_review_verified"]
+        is expected_live_review_verified
+    )
     assert voice_path.read_bytes() == voice_release_bytes
     assert stat.S_IMODE(voice_path.stat().st_mode) == 0o400
     assert len(evaluator_calls) == 2
@@ -2352,6 +2417,7 @@ def test_manfred_public_page_uses_scoped_talk_only_minimal_theme() -> None:
         "tour_link_count": 0,
         "voice_release": "available",
         "voice_access": "public-release",
+        "evaluation_status": "",
         "operator_preview": "",
         "initial_visible_button_ids": ["memorial-conversation"],
         "conversation_button_label": "Gespräch beginnen",

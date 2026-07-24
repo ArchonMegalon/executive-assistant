@@ -29,6 +29,7 @@ from app.services.manfred_voice_signing import (
     voice_identity_sha256,
 )
 from app.services.memorial_release_policy import (
+    MANFRED_VOICE_PUBLIC_EVALUATION_CONFIRMATION,
     evaluate_memorial_voice_release,
     evaluate_memorial_voice_release_payload,
 )
@@ -161,6 +162,103 @@ def _release_payload(
     return sign_receipt(unsigned, private_key=private_key)
 
 
+def _public_evaluation_payload(
+    private_key: Ed25519PrivateKey,
+    *,
+    overrides: dict[str, object] | None = None,
+) -> dict[str, object]:
+    unsigned: dict[str, object] = {
+        "authorization_ref_sha256": "7" * 64,
+        "authorization_ref_sha256_semantics": (
+            "sha256_utf8_pseudonymous_public_evaluation_"
+            "authorization_reference_v1"
+        ),
+        "authorization_scope": "public_live_owner_evaluation_only",
+        "authorization_statement_sha256": hashlib.sha256(
+            MANFRED_VOICE_PUBLIC_EVALUATION_CONFIRMATION.encode("utf-8")
+        ).hexdigest(),
+        "authorization_statement_sha256_semantics": (
+            "sha256_utf8_exact_public_evaluation_confirmation_v1"
+        ),
+        "blocked_checks": [
+            "real_captured_stt_fixture_ready",
+            "captured_candidate_diagnostic_clean",
+            "automated_voice_browser_tts_ready",
+            "room_audio_receipt_passed",
+            "manual_room_checks_confirmed",
+        ],
+        "contract_name": "ea.manfred_voice_public_evaluation_release.v1",
+        "conversational_use_authorized": True,
+        "deployed_source_sha256": hashlib.sha256(
+            SOURCE_REVISION.encode("ascii")
+        ).hexdigest(),
+        "deployed_source_sha256_semantics": "sha256_ascii_source_revision",
+        "expires_at": "2026-07-30T11:00:00Z",
+        "generated_at": "2026-07-23T11:00:00Z",
+        "generated_by": (
+            "scripts/materialize_manfred_voice_public_evaluation_release.py"
+        ),
+        "goal_completion_claim_allowed": False,
+        "head_semantics": "source_state",
+        "image_id": IMAGE_ID,
+        "image_id_semantics": IMAGE_ID_SEMANTICS,
+        "input_digest_semantics": "sha256_exact_input_bytes",
+        "memorial_slug": "manfred",
+        "native_realtime_claim_allowed": False,
+        "operator_acceptance_verified": False,
+        "premium_spoken_claim_allowed": False,
+        "public_evaluation_allowed": True,
+        "public_evaluation_disclosure_required": True,
+        "public_origin": PUBLIC_ORIGIN,
+        "public_synthetic_voice_authorized": True,
+        "readiness_prerequisites_satisfied": False,
+        "baseline_readiness_receipt_contract_verified": True,
+        "baseline_readiness_receipt_sha256": "0" * 64,
+        "baseline_readiness_same_source_revision": False,
+        "baseline_readiness_source_revision": "9" * 40,
+        "baseline_readiness_status": "blocked_realtime_prerequisites",
+        "realtime_conversation_claim_allowed": False,
+        "release_mode": "owner_authorized_public_evaluation",
+        "revoked": False,
+        "room_and_spoken_turn_checks_verified": False,
+        "runtime_enablement_allowed": True,
+        "source_git_head": SOURCE_REVISION,
+        "source_material_authorized": True,
+        "source_revision": SOURCE_REVISION,
+        "source_state_fingerprint": "4" * 64,
+        "source_state_fingerprint_semantics": (
+            "worktree_source_files_sha256_excluding_generated_only_paths"
+        ),
+        "spoken_turn_claim_allowed": False,
+        "status": "public_evaluation_authorized",
+        "unverified_evidence_keys": [
+            "captured_candidate_diagnostic",
+            "room_audio",
+            "stt_benchmark",
+            "stt_candidate",
+            "stt_captured_benchmark",
+        ],
+        "unverified_manual_check_ids": [
+            "actual_device_checked",
+            "actual_speaker_checked",
+            "first_syllable_not_clipped",
+            "intelligibility_confirmed",
+            "answer_text_fallback_visible",
+            "no_internet_search_confirmed",
+            "normal_spoken_turn_confirmed",
+            "interruption_behavior_confirmed",
+            "retry_path_confirmed",
+        ],
+        "voice_authority_receipt_sha256": "2" * 64,
+        "voice_authority_revoked": False,
+        "voice_authority_verified": True,
+        **_voice_fields(),
+    }
+    if overrides:
+        unsigned.update(overrides)
+    return sign_receipt(unsigned, private_key=private_key)
+
+
 def _expected(public_path: Path) -> dict[str, object]:
     return {
         "expected_source_revision": SOURCE_REVISION,
@@ -210,6 +308,181 @@ def test_signed_release_is_durable_and_exactly_bound(
     # The final receipt intentionally remains valid beyond 24 hours. Deleting
     # or replacing this file is the immediate fail-closed revocation action.
     assert datetime.fromtimestamp(NOW, timezone.utc).year == 2026
+
+
+def test_signed_public_evaluation_is_distinct_and_preserves_blockers(
+    signing_material: tuple[Ed25519PrivateKey, Path, Path],
+) -> None:
+    private_key, _private_path, public_path = signing_material
+
+    decision = evaluate_memorial_voice_release_payload(
+        slug="manfred",
+        payload=_public_evaluation_payload(private_key),
+        **_expected(public_path),
+    )
+
+    assert decision == {
+        "allowed": False,
+        "public_evaluation": True,
+        "status": "public_evaluation",
+        "reason": "",
+        "receipt_status": "public_evaluation_authorized",
+        "access_mode": "owner-authorized-public-evaluation",
+        "disclosure_required": True,
+    }
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("allowed", True),
+        ("public_evaluation", False),
+        ("status", "released"),
+        ("receipt_status", "released"),
+        ("access_mode", "public-release"),
+        ("disclosure_required", False),
+        ("reason", "revoked"),
+    ],
+)
+def test_public_evaluation_runtime_access_requires_the_full_decision_shape(
+    field: str,
+    replacement: object,
+) -> None:
+    decision: dict[str, object] = {
+        "allowed": False,
+        "public_evaluation": True,
+        "status": "public_evaluation",
+        "reason": "",
+        "receipt_status": "public_evaluation_authorized",
+        "access_mode": "owner-authorized-public-evaluation",
+        "disclosure_required": True,
+    }
+    assert public_memorials._memorial_voice_access_allowed(decision) is True
+
+    decision[field] = replacement
+    if field == "allowed" and replacement is True:
+        # A genuine final release remains independently authorized.
+        assert public_memorials._memorial_voice_access_allowed(decision) is True
+    else:
+        assert public_memorials._memorial_voice_access_allowed(decision) is False
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"blocked_checks": []},
+        {"blocked_checks": [{"not": "a check id"}]},
+        {"baseline_readiness_same_source_revision": True},
+        {"operator_acceptance_verified": True},
+        {"room_and_spoken_turn_checks_verified": True},
+        {"spoken_turn_claim_allowed": True},
+        {"premium_spoken_claim_allowed": True},
+        {"realtime_conversation_claim_allowed": True},
+        {"public_evaluation_disclosure_required": False},
+        {"revoked": True},
+        {"unverified_manual_check_ids": []},
+    ],
+)
+def test_public_evaluation_never_converts_unverified_checks_to_release_claims(
+    signing_material: tuple[Ed25519PrivateKey, Path, Path],
+    overrides: dict[str, object],
+) -> None:
+    private_key, _private_path, public_path = signing_material
+
+    decision = evaluate_memorial_voice_release_payload(
+        slug="manfred",
+        payload=_public_evaluation_payload(private_key, overrides=overrides),
+        **_expected(public_path),
+    )
+
+    assert decision["allowed"] is False
+    assert decision.get("public_evaluation") is not True
+
+
+def test_public_evaluation_expires_and_remains_source_image_voice_bound(
+    signing_material: tuple[Ed25519PrivateKey, Path, Path],
+) -> None:
+    private_key, _private_path, public_path = signing_material
+    expired = _expected(public_path)
+    expired["now"] = datetime(
+        2026, 7, 30, 11, 0, 1, tzinfo=timezone.utc
+    ).timestamp()
+
+    decision = evaluate_memorial_voice_release_payload(
+        slug="manfred",
+        payload=_public_evaluation_payload(private_key),
+        **expired,
+    )
+    assert decision["reason"] == "public_evaluation_expired"
+
+    wrong_image = _expected(public_path)
+    wrong_image["expected_image_id"] = f"sha256:{'8' * 64}"
+    decision = evaluate_memorial_voice_release_payload(
+        slug="manfred",
+        payload=_public_evaluation_payload(private_key),
+        **wrong_image,
+    )
+    assert decision["reason"] == "release_receipt_image_id_mismatch"
+
+
+def test_public_evaluation_rejects_tampering_and_untrusted_signers(
+    signing_material: tuple[Ed25519PrivateKey, Path, Path],
+) -> None:
+    private_key, _private_path, public_path = signing_material
+    tampered = _public_evaluation_payload(private_key)
+    tampered["runtime_enablement_allowed"] = False
+    decision = evaluate_memorial_voice_release_payload(
+        slug="manfred",
+        payload=tampered,
+        **_expected(public_path),
+    )
+    assert decision["reason"] == "public_evaluation_receipt_signature_invalid"
+
+    decision = evaluate_memorial_voice_release_payload(
+        slug="manfred",
+        payload=_public_evaluation_payload(Ed25519PrivateKey.generate()),
+        **_expected(public_path),
+    )
+    assert decision["reason"] == "public_evaluation_receipt_signature_invalid"
+
+
+@pytest.mark.parametrize(
+    ("binding", "replacement", "reason"),
+    [
+        (
+            "expected_source_revision",
+            "8" * 40,
+            "release_receipt_source_revision_mismatch",
+        ),
+        (
+            "expected_public_origin",
+            "https://example.test",
+            "release_receipt_public_origin_mismatch",
+        ),
+        (
+            "expected_voice_manifest_sha256",
+            "8" * 64,
+            "release_receipt_voice_identity_mismatch",
+        ),
+    ],
+)
+def test_public_evaluation_rejects_wrong_source_origin_and_voice_bindings(
+    signing_material: tuple[Ed25519PrivateKey, Path, Path],
+    binding: str,
+    replacement: str,
+    reason: str,
+) -> None:
+    private_key, _private_path, public_path = signing_material
+    expected = _expected(public_path)
+    expected[binding] = replacement
+
+    decision = evaluate_memorial_voice_release_payload(
+        slug="manfred",
+        payload=_public_evaluation_payload(private_key),
+        **expected,
+    )
+
+    assert decision["reason"] == reason
 
 
 def test_missing_final_receipt_is_fail_closed_not_an_exception(

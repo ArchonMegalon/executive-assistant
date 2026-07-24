@@ -739,6 +739,188 @@ def test_memorial_blocked_voice_release_fails_closed_without_requesting_micropho
         context.close()
 
 
+def test_memorial_public_evaluation_is_enabled_without_review_cookie_and_stays_minimal(
+    browser: Browser,
+    memorial_minimal_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_enforced",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_decision",
+        lambda _slug: {
+            "allowed": False,
+            "public_evaluation": True,
+            "status": "public_evaluation",
+            "receipt_status": "public_evaluation_authorized",
+            "access_mode": "owner-authorized-public-evaluation",
+            "disclosure_required": True,
+        },
+    )
+    base_url = str(memorial_minimal_server["base_url"])
+    slug = str(memorial_minimal_server["slug"])
+    context = browser.new_context(viewport={"width": 390, "height": 844})
+    page: Page = context.new_page()
+    try:
+        response = page.goto(
+            f"{base_url}/memorials/{slug}",
+            wait_until="domcontentloaded",
+        )
+        assert response is not None and response.ok
+        conversation = page.get_by_role(
+            "button",
+            name="Gespräch beginnen",
+            exact=True,
+        )
+        conversation.wait_for(state="visible", timeout=12000)
+        page.wait_for_function(
+            "() => !document.getElementById('memorial-conversation').disabled",
+            timeout=12000,
+        )
+
+        region = page.locator("#memorial-conversation-region")
+        assert region.get_attribute("data-voice-release") == "blocked"
+        assert region.get_attribute("data-voice-access") == "public-evaluation"
+        assert region.get_attribute("data-evaluation-status") == "owner-authorized"
+        assert page.locator("body").get_attribute("data-operator-voice-preview") is None
+        assert page.locator("button:visible").count() == 1
+        assert page.locator("input:visible,textarea:visible,select:visible").count() == 0
+        assert conversation.get_attribute("aria-describedby") == (
+            "memorial-conversation-disclosure"
+        )
+        assert page.locator("#memorial-conversation-disclosure").inner_text() == (
+            "Öffentliche Testphase: KI-Rekonstruktion in einer aus freigegebenen "
+            "Erinnerungen und Quellen abgeleiteten Ich-Perspektive – nicht der echte "
+            "Manfred. Die künstlich erzeugte Stimme wird noch beurteilt. Mikrofon und "
+            "Audio werden erst nach „Gespräch beginnen“ verarbeitet."
+        )
+        assert all(
+            cookie["name"] != "ea_manfred_voice_review"
+            for cookie in context.cookies()
+        )
+
+        readiness = context.request.get(
+            f"{base_url}/memorials/{slug}/readiness",
+            headers={"Accept": "application/json"},
+        )
+        assert readiness.status == 200
+        readiness_payload = readiness.json()
+        assert readiness_payload["ready"] is True
+        assert readiness_payload["spoken_voice_ready"] is True
+        assert readiness_payload["release"] == {
+            "enforced": True,
+            "allowed": False,
+            "public_evaluation": True,
+            "access_mode": "owner-authorized-public-evaluation",
+            "disclosure_required": True,
+            "status": "public_evaluation",
+            "reason": "",
+            "receipt_status": "public_evaluation_authorized",
+        }
+    finally:
+        context.close()
+
+
+def test_memorial_public_evaluation_revocation_blocks_before_microphone_or_socket(
+    browser: Browser,
+    memorial_minimal_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    decision: dict[str, object] = {
+        "allowed": False,
+        "public_evaluation": True,
+        "status": "public_evaluation",
+        "receipt_status": "public_evaluation_authorized",
+        "access_mode": "owner-authorized-public-evaluation",
+        "disclosure_required": True,
+    }
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_enforced",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_decision",
+        lambda _slug: dict(decision),
+    )
+    base_url = str(memorial_minimal_server["base_url"])
+    slug = str(memorial_minimal_server["slug"])
+    context = browser.new_context(viewport={"width": 390, "height": 844})
+    context.add_init_script(
+        """
+        (() => {
+          window.__getUserMediaCalls = 0;
+          navigator.mediaDevices = navigator.mediaDevices || {};
+          navigator.mediaDevices.getUserMedia = async () => {
+            window.__getUserMediaCalls += 1;
+            throw new Error("revoked evaluation must not request microphone");
+          };
+        })();
+        """
+    )
+    page: Page = context.new_page()
+    websockets: list[str] = []
+    page.on("websocket", lambda websocket: websockets.append(websocket.url))
+    try:
+        response = page.goto(
+            f"{base_url}/memorials/{slug}",
+            wait_until="domcontentloaded",
+        )
+        assert response is not None and response.ok
+        conversation = page.get_by_role(
+            "button",
+            name="Gespräch beginnen",
+            exact=True,
+        )
+        conversation.wait_for(state="visible", timeout=12000)
+        page.wait_for_function(
+            "() => !document.getElementById('memorial-conversation').disabled",
+            timeout=12000,
+        )
+
+        decision.update(
+            {
+                "public_evaluation": False,
+                "status": "blocked",
+                "receipt_status": "",
+                "access_mode": "",
+                "disclosure_required": False,
+            }
+        )
+        public_memorials._memorial_runtime_readiness_cache_invalidate(slug)
+        conversation.click()
+        page.wait_for_function(
+            """() => document.getElementById("memorial-speech-message")
+              ?.textContent.includes("Sprechen ist derzeit nicht verfügbar")""",
+            timeout=7000,
+        )
+
+        assert page.evaluate("window.__getUserMediaCalls") == 0
+        assert websockets == []
+        assert page.locator("#memorial-speech-audio").get_attribute("src") in {
+            None,
+            "",
+        }
+        assert page.locator("button:visible").count() == 1
+        assert page.locator("input:visible,textarea:visible,select:visible").count() == 0
+        assert conversation.inner_text().strip() == "Gespräch beginnen"
+        assert all(
+            cookie["name"] != "ea_manfred_voice_review"
+            for cookie in context.cookies()
+        )
+    finally:
+        context.close()
+
+
 def test_memorial_fresh_revocation_discards_preloaded_voice_before_playback(
     browser: Browser,
     memorial_minimal_server: dict[str, object],

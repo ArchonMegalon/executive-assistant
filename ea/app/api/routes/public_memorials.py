@@ -2401,6 +2401,22 @@ def _memorial_voice_release_enforced() -> bool:
     return is_prod_mode(get_settings().runtime.mode)
 
 
+def _memorial_voice_access_allowed(decision: dict[str, object]) -> bool:
+    if decision.get("allowed") is True:
+        return True
+    return (
+        decision.get("allowed") is False
+        and decision.get("public_evaluation") is True
+        and decision.get("status") == "public_evaluation"
+        and decision.get("receipt_status")
+        == "public_evaluation_authorized"
+        and decision.get("access_mode")
+        == "owner-authorized-public-evaluation"
+        and decision.get("disclosure_required") is True
+        and str(decision.get("reason") or "") == ""
+    )
+
+
 def _require_voice_consent(
     payload: dict[str, object],
     action: str,
@@ -2415,7 +2431,7 @@ def _require_voice_consent(
     )
     if _memorial_voice_release_enforced() and not operator_preview_allowed:
         decision = _memorial_voice_release_decision(_text(payload.get("slug"), ""))
-        if decision.get("allowed") is not True:
+        if not _memorial_voice_access_allowed(decision):
             raise HTTPException(status_code=409, detail="memorial_voice_release_not_verified")
 
 
@@ -9592,8 +9608,8 @@ def _schedule_missing_memorial_voice_prewarm(
     if (
         _memorial_voice_release_enforced()
         and not operator_preview_allowed
-        and not bool(
-        _memorial_voice_release_decision(safe_slug).get("allowed")
+        and not _memorial_voice_access_allowed(
+            _memorial_voice_release_decision(safe_slug)
         )
     ):
         return False
@@ -9858,7 +9874,11 @@ def _memorial_runtime_readiness(
     safe_slug = _safe_slug(slug)
     release_gate_enforced = _memorial_voice_release_enforced()
     release_decision = _memorial_voice_release_decision(safe_slug)
-    voice_release_allowed = bool(release_decision.get("allowed"))
+    voice_release_allowed = release_decision.get("allowed") is True
+    public_evaluation_allowed = (
+        release_decision.get("public_evaluation") is True
+    )
+    voice_access_allowed = _memorial_voice_access_allowed(release_decision)
     snapshot = _memorial_live_warmup_snapshot(safe_slug)
     payload = _load_memorial(safe_slug)
     voice_config = _load_voice_config(safe_slug)
@@ -9898,7 +9918,7 @@ def _memorial_runtime_readiness(
         degraded_reasons.append("realtime_backend_unavailable")
     if (
         release_gate_enforced
-        and not voice_release_allowed
+        and not voice_access_allowed
         and not operator_preview_allowed
     ):
         degraded_reasons.append("memorial_voice_release_not_verified")
@@ -9910,7 +9930,7 @@ def _memorial_runtime_readiness(
         and (not bool(snapshot.get("voice_required")) or bool(snapshot.get("voice_ready")))
         and (
             not release_gate_enforced
-            or voice_release_allowed
+            or voice_access_allowed
             or operator_preview_allowed
         )
     )
@@ -9923,7 +9943,7 @@ def _memorial_runtime_readiness(
     elif (
         surface_ready
         and release_gate_enforced
-        and not voice_release_allowed
+        and not voice_access_allowed
         and not operator_preview_allowed
     ):
         status = "blocked_release"
@@ -9998,6 +10018,13 @@ def _memorial_runtime_readiness(
         "release": {
             "enforced": release_gate_enforced,
             "allowed": voice_release_allowed,
+            "public_evaluation": public_evaluation_allowed,
+            "access_mode": str(
+                release_decision.get("access_mode") or ""
+            ),
+            "disclosure_required": (
+                release_decision.get("disclosure_required") is True
+            ),
             "status": str(release_decision.get("status") or "blocked"),
             "reason": str(release_decision.get("reason") or ""),
             "receipt_status": str(release_decision.get("receipt_status") or ""),
@@ -10052,7 +10079,9 @@ def _run_memorial_live_warmup(
     if (
         _memorial_voice_release_enforced()
         and not operator_preview_allowed
-        and not bool(_memorial_voice_release_decision(slug).get("allowed"))
+        and not _memorial_voice_access_allowed(
+            _memorial_voice_release_decision(slug)
+        )
     ):
         return
     _require_memorial_voice_provider_authorization(
@@ -10572,7 +10601,9 @@ def _schedule_memorial_live_warmup(
     if (
         _memorial_voice_release_enforced()
         and not operator_preview_allowed
-        and not bool(_memorial_voice_release_decision(safe_slug).get("allowed"))
+        and not _memorial_voice_access_allowed(
+            _memorial_voice_release_decision(safe_slug)
+        )
     ):
         return {
             "status": "blocked_release",
@@ -10781,8 +10812,11 @@ def _recover_stale_memorial_voice_prewarm_for_status(
 def _prime_memorial_live_warmup_on_page_render(slug: str) -> None:
     if not _memorial_page_prewarm_enabled():
         return
-    if _memorial_voice_release_enforced() and not bool(
-        _memorial_voice_release_decision(slug).get("allowed")
+    if (
+        _memorial_voice_release_enforced()
+        and not _memorial_voice_access_allowed(
+            _memorial_voice_release_decision(slug)
+        )
     ):
         return
     try:
@@ -12526,20 +12560,31 @@ def _minimal_public_memorial_html(
     safe_subtitle = html.escape(subtitle)
     voice_release_enforced = _memorial_voice_release_enforced()
     public_voice_release_allowed = True
+    public_voice_evaluation_allowed = False
     if voice_release_enforced:
-        public_voice_release_allowed = bool(
-            _memorial_voice_release_decision(slug).get("allowed")
+        release_decision = _memorial_voice_release_decision(slug)
+        public_voice_release_allowed = (
+            release_decision.get("allowed") is True
+        )
+        public_voice_evaluation_allowed = (
+            release_decision.get("public_evaluation") is True
         )
     operator_preview_allowed = bool(
         operator_preview_allowed
         and slug == "manfred"
         and voice_release_enforced
         and not public_voice_release_allowed
+        and not public_voice_evaluation_allowed
     )
-    voice_access_allowed = public_voice_release_allowed or operator_preview_allowed
+    voice_access_allowed = (
+        public_voice_release_allowed
+        or public_voice_evaluation_allowed
+        or operator_preview_allowed
+    )
     # This compatibility alias controls only this rendered document. Server
     # routes that synthesize speech or accept production conversation audio
-    # independently enforce consent and the voice-release receipt.
+    # independently enforce consent and the current access decision. Public
+    # evaluation does not make the final release receipt successful.
     voice_release_allowed = voice_access_allowed
     voice_release_blocked = voice_release_enforced and not public_voice_release_allowed
     voice_access_blocked = voice_release_enforced and not voice_access_allowed
@@ -12560,6 +12605,13 @@ def _minimal_public_memorial_html(
             "Dieser kurzlebige Zugang dient nur der geprüften Gesprächsabnahme. "
             "Die KI-Rekonstruktion antwortet aus einer quellengebundenen Ich-Perspektive; "
             "sie ist nicht der echte Manfred. Die Stimme ist künstlich erzeugt."
+        )
+    elif public_voice_evaluation_allowed:
+        voice_guidance = (
+            "Öffentliche Testphase: KI-Rekonstruktion in einer aus freigegebenen "
+            "Erinnerungen und Quellen abgeleiteten Ich-Perspektive – nicht der echte "
+            "Manfred. Die künstlich erzeugte Stimme wird noch beurteilt. Mikrofon und "
+            "Audio werden erst nach „Gespräch beginnen“ verarbeitet."
         )
     elif voice_access_blocked:
         voice_guidance = (
@@ -12609,6 +12661,11 @@ def _minimal_public_memorial_html(
     operator_preview_body_attribute = (
         ' data-operator-voice-preview="allowed"'
         if operator_preview_allowed
+        else ""
+    )
+    public_evaluation_attribute = (
+        ' data-evaluation-status="owner-authorized"'
+        if public_voice_evaluation_allowed
         else ""
     )
     if conversation_only:
@@ -14035,7 +14092,7 @@ def _minimal_public_memorial_html(
       </div>
     </main>
     <!-- memorial-public-story:end -->
-    <main class="conversation-dock" aria-label="KI-Gespräch über {safe_person_name}" id="memorial-conversation-region" tabindex="-1" data-voice-release="{'blocked' if voice_release_blocked else 'available'}" data-voice-access="{'operator-preview' if operator_preview_allowed else ('public-release' if public_voice_release_allowed else 'text-only')}">
+    <main class="conversation-dock" aria-label="KI-Gespräch über {safe_person_name}" id="memorial-conversation-region" tabindex="-1" data-voice-release="{'blocked' if voice_release_blocked else 'available'}" data-voice-access="{'operator-preview' if operator_preview_allowed else ('public-evaluation' if public_voice_evaluation_allowed else ('public-release' if public_voice_release_allowed else 'text-only'))}"{public_evaluation_attribute}>
       <div class="wrap">
       <section class="chat quiet-shell">
         <noscript>
@@ -14138,6 +14195,7 @@ def _minimal_public_memorial_html(
     <script>
       const memorialConversationOnly = {_json_for_html_script(conversation_only)};
       const memorialPublicVoiceReleaseAllowed = {_json_for_html_script(public_voice_release_allowed)};
+      const memorialPublicEvaluationAllowed = {_json_for_html_script(public_voice_evaluation_allowed)};
       const memorialOperatorPreviewAllowed = {_json_for_html_script(operator_preview_allowed)};
       const memorialVoiceAccessAllowed = {_json_for_html_script(voice_access_allowed)};
       // Compatibility alias for the existing client guards; this is never a
@@ -15914,6 +15972,7 @@ def _minimal_public_memorial_html(
           const releaseAuthorized = (
             payload.release.enforced !== true
             || payload.release.allowed === true
+            || payload.release.public_evaluation === true
             || payload.release.operator_preview === true
           );
           if (!releaseAuthorized) throw new Error("memorial_voice_release_not_verified");

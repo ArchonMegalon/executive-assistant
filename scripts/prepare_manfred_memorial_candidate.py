@@ -277,6 +277,9 @@ VOICE_IDENTITY_SHA256_SEMANTICS = "sha256_canonical_json_utf8_voice_identity_v1"
 CANDIDATE_RELEASE_AUTHORITY_SCHEMA = "ea.manfred_candidate_release_authority.v2"
 CANDIDATE_RELEASE_AUTHORITY_DIRNAME = "release-authority"
 CANDIDATE_RELEASE_AUTHORITY_CONTAINER_ROOT = Path("/data/release-authority")
+VOICE_ACCESS_MODE_TEXT_ONLY = "text-only"
+VOICE_ACCESS_MODE_PUBLIC_RELEASE = "public-release"
+VOICE_ACCESS_MODE_PUBLIC_EVALUATION = "owner-authorized-public-evaluation"
 CANDIDATE_RELEASE_AUTHORITY_FILENAMES = {
     "deploy_context": "deploy_context.generated.json",
     "voice_release": "manfred_voice_release.generated.json",
@@ -2523,6 +2526,48 @@ def _candidate_release_authority_container_paths(
     }
 
 
+def _candidate_voice_authorization_state(
+    decision: dict[str, object] | None,
+) -> dict[str, object]:
+    if decision is None:
+        return {
+            "voice_release_allowed": False,
+            "public_evaluation_allowed": False,
+            "voice_runtime_enablement_allowed": False,
+            "voice_access_mode": VOICE_ACCESS_MODE_TEXT_ONLY,
+        }
+    if (
+        decision.get("allowed") is True
+        and decision.get("status") == "released"
+        and decision.get("reason") == ""
+    ):
+        return {
+            "voice_release_allowed": True,
+            "public_evaluation_allowed": False,
+            "voice_runtime_enablement_allowed": True,
+            "voice_access_mode": VOICE_ACCESS_MODE_PUBLIC_RELEASE,
+        }
+    if (
+        decision.get("allowed") is False
+        and decision.get("public_evaluation") is True
+        and decision.get("status") == "public_evaluation"
+        and decision.get("reason") == ""
+        and decision.get("receipt_status") == "public_evaluation_authorized"
+        and decision.get("access_mode") == VOICE_ACCESS_MODE_PUBLIC_EVALUATION
+        and decision.get("disclosure_required") is True
+    ):
+        return {
+            "voice_release_allowed": False,
+            "public_evaluation_allowed": True,
+            "voice_runtime_enablement_allowed": True,
+            "voice_access_mode": VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+        }
+    raise ValueError(
+        "manfred_candidate_voice_release_"
+        + str(decision.get("reason") or "invalid")
+    )
+
+
 def _candidate_remote_main_evidence(
     source_root: Path,
     *,
@@ -2657,17 +2702,17 @@ def _materialize_candidate_release_authority(
     )
     if voice_identity != normalized_voice_identity:
         raise ValueError("manfred_candidate_voice_identity_invalid")
-    voice_release_allowed = voice_release_bytes is not None
+    voice_authorization = _candidate_voice_authorization_state(None)
     remote = _candidate_remote_main_evidence(source_root, commit=commit)
     deployment_id = f"{project_name}-{commit[:12]}"
     enabled_modes = ["MEMORIAL", "PROPERTY"]
     compose_files = ["deploy/manfred-memorial/docker-compose.candidate.yml"]
     paths = _candidate_release_authority_paths(
         root,
-        voice_release_included=voice_release_allowed,
+        voice_release_included=voice_release_bytes is not None,
     )
     container_paths = _candidate_release_authority_container_paths(
-        voice_release_included=voice_release_allowed,
+        voice_release_included=voice_release_bytes is not None,
     )
     root.mkdir(parents=True, mode=0o700)
 
@@ -2697,11 +2742,9 @@ def _materialize_candidate_release_authority(
             expected_tts_provider=normalized_voice_identity["tts_provider"],
             expected_tts_model=normalized_voice_identity["tts_model"],
         )
-        if voice_release_decision.get("allowed") is not True:
-            raise ValueError(
-                "manfred_candidate_voice_release_"
-                + str(voice_release_decision.get("reason") or "invalid")
-            )
+        voice_authorization = _candidate_voice_authorization_state(
+            voice_release_decision
+        )
         _write_bytes(paths["voice_release"], voice_release_bytes, mode=0o400)
 
     tracked_modes = _strict_json_object(
@@ -2756,7 +2799,7 @@ def _materialize_candidate_release_authority(
     _write_bytes(paths["deploy_context"], deploy_context_bytes, mode=0o444)
 
     artifact_values = [*public_artifacts]
-    if voice_release_allowed:
+    if voice_authorization["voice_runtime_enablement_allowed"] is True:
         artifact_values.append(
             f"{CANDIDATE_RELEASE_AUTHORITY_DIRNAME}/"
             f"{CANDIDATE_RELEASE_AUTHORITY_FILENAMES['voice_release']}"
@@ -2882,7 +2925,7 @@ def _materialize_candidate_release_authority(
         "runtime_authority_state": "clear",
         "runtime_authority_posture": "authoritative_runtime",
         "promotion_authority": False,
-        "voice_release_allowed": voice_release_allowed,
+        **voice_authorization,
         "candidate_provider_boundary": (
             MANFRED_PROVIDER_FREE_CANDIDATE_BOUNDARY
         ),
@@ -2901,8 +2944,13 @@ def _materialize_candidate_release_authority(
         expected_image_id=image_id,
         expected_project_name=project_name,
         expected_public_origin=public_origin,
-        expected_voice_release_allowed=voice_release_allowed,
+        expected_voice_release_allowed=bool(
+            voice_authorization["voice_release_allowed"]
+        ),
         expected_voice_identity=normalized_voice_identity,
+        expected_public_evaluation_allowed=bool(
+            voice_authorization["public_evaluation_allowed"]
+        ),
     )
 
 
@@ -3073,9 +3121,29 @@ def _validate_candidate_release_authority_bundle(
     expected_public_origin: str,
     expected_voice_release_allowed: bool,
     expected_voice_identity: dict[str, str],
+    expected_public_evaluation_allowed: bool = False,
 ) -> dict[str, object]:
-    if type(expected_voice_release_allowed) is not bool:
+    if (
+        type(expected_voice_release_allowed) is not bool
+        or type(expected_public_evaluation_allowed) is not bool
+        or (
+            expected_voice_release_allowed
+            and expected_public_evaluation_allowed
+        )
+    ):
         raise ValueError("manfred_candidate_voice_release_state_invalid")
+    expected_voice_runtime_enablement_allowed = (
+        expected_voice_release_allowed or expected_public_evaluation_allowed
+    )
+    expected_voice_access_mode = (
+        VOICE_ACCESS_MODE_PUBLIC_RELEASE
+        if expected_voice_release_allowed
+        else (
+            VOICE_ACCESS_MODE_PUBLIC_EVALUATION
+            if expected_public_evaluation_allowed
+            else VOICE_ACCESS_MODE_TEXT_ONLY
+        )
+    )
     normalized_voice_identity = _voice_identity(
         voice_config_sha256=expected_voice_identity.get(
             "voice_config_sha256", ""
@@ -3096,7 +3164,7 @@ def _validate_candidate_release_authority_bundle(
         raise ValueError("manfred_candidate_voice_identity_invalid")
     unresolved_paths = _candidate_release_authority_paths(
         root,
-        voice_release_included=expected_voice_release_allowed,
+        voice_release_included=expected_voice_runtime_enablement_allowed,
     )
     normalized_root, contents_by_filename = (
         _candidate_release_authority_snapshot(
@@ -3108,7 +3176,7 @@ def _validate_candidate_release_authority_bundle(
     )
     paths = _candidate_release_authority_paths(
         normalized_root,
-        voice_release_included=expected_voice_release_allowed,
+        voice_release_included=expected_voice_runtime_enablement_allowed,
     )
     payloads: dict[str, dict[str, object]] = {}
     contents: dict[str, bytes] = {}
@@ -3128,7 +3196,7 @@ def _validate_candidate_release_authority_bundle(
         f"{_validate_project_name(expected_project_name)}-{expected_commit[:12]}"
     )
     container_paths = _candidate_release_authority_container_paths(
-        voice_release_included=expected_voice_release_allowed,
+        voice_release_included=expected_voice_runtime_enablement_allowed,
     )
     document_evidence = {
         name: {
@@ -3140,14 +3208,18 @@ def _validate_candidate_release_authority_bundle(
             "project_modes",
             "release_manifest",
             "release_status",
-            *(("voice_release",) if expected_voice_release_allowed else ()),
+            *(
+                ("voice_release",)
+                if expected_voice_runtime_enablement_allowed
+                else ()
+            ),
         )
     }
     voice_release_decision: dict[str, object] = {
         "allowed": False,
         "reason": "missing",
     }
-    if expected_voice_release_allowed:
+    if expected_voice_runtime_enablement_allowed:
         if not isinstance(voice_release, dict):
             raise ValueError("manfred_candidate_voice_release_invalid")
         voice_release_decision = evaluate_memorial_voice_release_payload(
@@ -3179,8 +3251,18 @@ def _validate_candidate_release_authority_bundle(
         not COMMIT_RE.fullmatch(expected_commit)
         or not IMAGE_ID_RE.fullmatch(expected_image_id)
         or (
-            expected_voice_release_allowed
-            and voice_release_decision.get("allowed") is not True
+            expected_voice_runtime_enablement_allowed
+            and _candidate_voice_authorization_state(voice_release_decision)
+            != {
+                "voice_release_allowed": expected_voice_release_allowed,
+                "public_evaluation_allowed": (
+                    expected_public_evaluation_allowed
+                ),
+                "voice_runtime_enablement_allowed": (
+                    expected_voice_runtime_enablement_allowed
+                ),
+                "voice_access_mode": expected_voice_access_mode,
+            }
         )
         or validate_release_authority(
             release_manifest=manifest,
@@ -3212,7 +3294,7 @@ def _validate_candidate_release_authority_bundle(
         or (
             voice_release_artifact in list(manifest.get("artifact_set") or [])
         )
-        is not expected_voice_release_allowed
+        is not expected_voice_runtime_enablement_allowed
         or deploy_context.get("commit_sha") != expected_commit
         or deploy_context.get("deployment_id") != expected_deployment_id
         or deploy_context.get("public_origin") != expected_public_origin
@@ -3248,6 +3330,11 @@ def _validate_candidate_release_authority_bundle(
         or receipt.get("promotion_authority") is not False
         or receipt.get("voice_release_allowed")
         is not expected_voice_release_allowed
+        or receipt.get("public_evaluation_allowed")
+        is not expected_public_evaluation_allowed
+        or receipt.get("voice_runtime_enablement_allowed")
+        is not expected_voice_runtime_enablement_allowed
+        or receipt.get("voice_access_mode") != expected_voice_access_mode
         or receipt.get("candidate_provider_boundary")
         != MANFRED_PROVIDER_FREE_CANDIDATE_BOUNDARY
         or receipt.get("final_voice_promotion_requires_live_review") is not True
@@ -3279,6 +3366,11 @@ def _validate_candidate_release_authority_bundle(
         "runtime_authority_posture": "authoritative_runtime",
         "promotion_authority": False,
         "voice_release_allowed": expected_voice_release_allowed,
+        "public_evaluation_allowed": expected_public_evaluation_allowed,
+        "voice_runtime_enablement_allowed": (
+            expected_voice_runtime_enablement_allowed
+        ),
+        "voice_access_mode": expected_voice_access_mode,
         "descriptor_stable_read": True,
         "candidate_provider_boundary": MANFRED_PROVIDER_FREE_CANDIDATE_BOUNDARY,
         "final_voice_promotion_requires_live_review": True,
@@ -4245,7 +4337,7 @@ def prepare_candidate(
             )
         ]
         authority_root = staging / CANDIDATE_RELEASE_AUTHORITY_DIRNAME
-        _materialize_candidate_release_authority(
+        staged_release_authority = _materialize_candidate_release_authority(
             root=authority_root,
             source_root=source_root,
             commit=commit,
@@ -4322,8 +4414,13 @@ def prepare_candidate(
             expected_image_id=image_id,
             expected_project_name=project_name,
             expected_public_origin=public_base_url,
-            expected_voice_release_allowed=voice_release_bytes is not None,
+            expected_voice_release_allowed=bool(
+                staged_release_authority["voice_release_allowed"]
+            ),
             expected_voice_identity=voice_identity,
+            expected_public_evaluation_allowed=bool(
+                staged_release_authority["public_evaluation_allowed"]
+            ),
         )
         spatial_receipt_path = receipts_root / f"{release_id}.spatial.json"
         spatial_receipt = {
@@ -4416,8 +4513,27 @@ def prepare_candidate(
             "release_authority": release_authority,
             "release_authority_runtime_clear": True,
             "release_authority_promotion_authority": False,
-            "voice_release_allowed": voice_release_bytes is not None,
+            "voice_release_allowed": release_authority[
+                "voice_release_allowed"
+            ],
+            "public_evaluation_allowed": release_authority[
+                "public_evaluation_allowed"
+            ],
+            "voice_runtime_enablement_allowed": release_authority[
+                "voice_runtime_enablement_allowed"
+            ],
+            "voice_access_mode": release_authority["voice_access_mode"],
             "voice_release_receipt_sha256": (
+                _sha256(voice_release_bytes)
+                if release_authority["voice_release_allowed"] is True
+                else ""
+            ),
+            "public_evaluation_receipt_sha256": (
+                _sha256(voice_release_bytes)
+                if release_authority["public_evaluation_allowed"] is True
+                else ""
+            ),
+            "voice_authorization_receipt_sha256": (
                 _sha256(voice_release_bytes)
                 if voice_release_bytes is not None
                 else ""
@@ -4484,8 +4600,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--voice-release-receipt",
         help=(
-            "Optional mode-0600 final human-reviewed Manfred voice-release "
-            "receipt. Omit for the reviewer-gated, public-text-only phase."
+            "Optional mode-0600 signed Manfred voice authorization: either "
+            "the final human-reviewed release or the owner-authorized public "
+            "evaluation receipt. Omit for the public-text-only phase."
         ),
     )
     parser.add_argument(

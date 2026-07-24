@@ -38,6 +38,9 @@ from scripts.prepare_manfred_memorial_candidate import (  # noqa: E402
     RECEIPT_SCHEMA as PROJECTION_RECEIPT_SCHEMA,
     SPATIAL_PROJECTION_SCHEMA,
     SPATIAL_SLUG_RE,
+    VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+    VOICE_ACCESS_MODE_PUBLIC_RELEASE,
+    VOICE_ACCESS_MODE_TEXT_ONLY,
     _canonical_json_bytes,
     _parse_env,
     _parse_env_bytes,
@@ -67,6 +70,7 @@ from scripts.verify_public_tour_generated_viewer_release import (  # noqa: E402
 )
 from scripts.verify_manfred_memorial_candidate import (  # noqa: E402
     _withdraw_contribution,
+    _voice_browser_expectation,
     audit_browser_surface,
     verify_candidate,
 )
@@ -1390,6 +1394,30 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
             payload.get(name) != value for name, value in voice_identity.items()
         )
         or type(payload.get("voice_release_allowed")) is not bool
+        or type(payload.get("public_evaluation_allowed")) is not bool
+        or type(payload.get("voice_runtime_enablement_allowed")) is not bool
+        or payload.get("voice_access_mode")
+        not in {
+            VOICE_ACCESS_MODE_TEXT_ONLY,
+            VOICE_ACCESS_MODE_PUBLIC_RELEASE,
+            VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+        }
+        or (
+            bool(payload.get("voice_release_allowed")),
+            bool(payload.get("public_evaluation_allowed")),
+            bool(payload.get("voice_runtime_enablement_allowed")),
+            payload.get("voice_access_mode"),
+        )
+        not in {
+            (False, False, False, VOICE_ACCESS_MODE_TEXT_ONLY),
+            (True, False, True, VOICE_ACCESS_MODE_PUBLIC_RELEASE),
+            (
+                False,
+                True,
+                True,
+                VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+            ),
+        }
     ):
         raise RuntimeError("manfred_candidate_projection_receipt_mismatch")
     try:
@@ -1423,6 +1451,9 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
                 payload["voice_release_allowed"]
             ),
             expected_voice_identity=voice_identity,
+            expected_public_evaluation_allowed=bool(
+                payload["public_evaluation_allowed"]
+            ),
         )
     except (OSError, ValueError) as exc:
         raise RuntimeError("manfred_candidate_release_authority_invalid") from exc
@@ -1439,6 +1470,13 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
         "public_origin": public_origin,
         "projection_tree_revalidated": True,
         "voice_release_allowed": bool(payload["voice_release_allowed"]),
+        "public_evaluation_allowed": bool(
+            payload["public_evaluation_allowed"]
+        ),
+        "voice_runtime_enablement_allowed": bool(
+            payload["voice_runtime_enablement_allowed"]
+        ),
+        "voice_access_mode": str(payload["voice_access_mode"]),
         **voice_identity,
         "spatial_handoff": spatial,
         "release_authority": release_authority,
@@ -1453,9 +1491,55 @@ def _candidate_voice_release_expectation(
     if type(expect_signed_voice_release) is not bool:
         raise RuntimeError("manfred_candidate_voice_release_intent_invalid")
     release_allowed = projection.get("voice_release_allowed")
+    public_evaluation_allowed = projection.get(
+        "public_evaluation_allowed"
+    )
+    runtime_enablement_allowed = projection.get(
+        "voice_runtime_enablement_allowed"
+    )
+    voice_access_mode = projection.get("voice_access_mode")
     release_authority = projection.get("release_authority")
-    if type(release_allowed) is not bool or not isinstance(
-        release_authority, dict
+    legacy_state = (
+        type(release_allowed) is bool
+        and public_evaluation_allowed is None
+        and runtime_enablement_allowed is None
+        and voice_access_mode is None
+    )
+    if legacy_state:
+        public_evaluation_allowed = False
+        runtime_enablement_allowed = release_allowed
+        voice_access_mode = (
+            VOICE_ACCESS_MODE_PUBLIC_RELEASE
+            if release_allowed
+            else VOICE_ACCESS_MODE_TEXT_ONLY
+        )
+    if (
+        type(release_allowed) is not bool
+        or type(public_evaluation_allowed) is not bool
+        or type(runtime_enablement_allowed) is not bool
+        or voice_access_mode
+        not in {
+            VOICE_ACCESS_MODE_TEXT_ONLY,
+            VOICE_ACCESS_MODE_PUBLIC_RELEASE,
+            VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+        }
+        or (
+            release_allowed,
+            public_evaluation_allowed,
+            runtime_enablement_allowed,
+            voice_access_mode,
+        )
+        not in {
+            (False, False, False, VOICE_ACCESS_MODE_TEXT_ONLY),
+            (True, False, True, VOICE_ACCESS_MODE_PUBLIC_RELEASE),
+            (
+                False,
+                True,
+                True,
+                VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+            ),
+        }
+        or not isinstance(release_authority, dict)
     ):
         raise RuntimeError("manfred_candidate_voice_release_authority_invalid")
     source_revision = str(projection.get("projection_commit") or "")
@@ -1477,6 +1561,27 @@ def _candidate_voice_release_expectation(
         or release_authority.get("commit_sha") != source_revision
         or release_authority.get("image_id") != image_id
         or release_authority.get("voice_release_allowed") is not release_allowed
+        or release_authority.get(
+            "public_evaluation_allowed",
+            False if legacy_state else None,
+        )
+        is not public_evaluation_allowed
+        or release_authority.get(
+            "voice_runtime_enablement_allowed",
+            release_allowed if legacy_state else None,
+        )
+        is not runtime_enablement_allowed
+        or release_authority.get(
+            "voice_access_mode",
+            (
+                VOICE_ACCESS_MODE_PUBLIC_RELEASE
+                if release_allowed
+                else VOICE_ACCESS_MODE_TEXT_ONLY
+            )
+            if legacy_state
+            else None,
+        )
+        != voice_access_mode
         or type(authority_review_verified) is not bool
         or any(
             release_authority.get(name) != projection.get(name)
@@ -1484,19 +1589,31 @@ def _candidate_voice_release_expectation(
         )
     ):
         raise RuntimeError("manfred_candidate_voice_release_authority_invalid")
-    if release_allowed:
+    if runtime_enablement_allowed:
         if not expect_signed_voice_release:
             raise RuntimeError(
                 "manfred_candidate_signed_voice_release_intent_required"
             )
-        if authority_review_verified is not True:
+        if release_allowed and authority_review_verified is not True:
             raise RuntimeError(
                 "manfred_candidate_signed_voice_release_review_unverified"
             )
-        return {"source_revision": source_revision}
+        if public_evaluation_allowed and authority_review_verified is not False:
+            raise RuntimeError(
+                "manfred_candidate_public_evaluation_review_state_invalid"
+            )
+        return {
+            "source_revision": source_revision,
+            "access_mode": voice_access_mode,
+        }
     if expect_signed_voice_release:
         raise RuntimeError("manfred_candidate_signed_voice_release_required")
-    if authority_review_verified is not False:
+    if (
+        authority_review_verified is not False
+        or release_allowed
+        or public_evaluation_allowed
+        or voice_access_mode != VOICE_ACCESS_MODE_TEXT_ONLY
+    ):
         raise RuntimeError("manfred_candidate_voice_release_authority_invalid")
     return None
 
@@ -4398,18 +4515,20 @@ def _prove_candidate_with_execution_inputs(
                     dict(initial_container_images["gateway"])["container_id"]
                 ),
             )
+            browser_expectation = _voice_browser_expectation(
+                voice_release_expectation
+            )
             browser_surface = audit_browser_surface(
                 base_url,
                 public_origin=env["EA_PUBLIC_APP_BASE_URL"],
-                expected_voice_release=(
-                    "available"
-                    if voice_release_expectation is not None
-                    else "blocked"
+                expected_voice_release=str(
+                    browser_expectation["voice_release"]
                 ),
-                expected_voice_access=(
-                    "public-release"
-                    if voice_release_expectation is not None
-                    else "text-only"
+                expected_voice_access=str(
+                    browser_expectation["voice_access"]
+                ),
+                expected_evaluation_status=str(
+                    browser_expectation["evaluation_status"]
                 ),
                 expected_source_revision=(
                     str(voice_release_expectation["source_revision"])
@@ -4713,7 +4832,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Require the prepared candidate's exact signed, source/image/voice-"
-            "bound release authorization while retaining provider-free proof."
+            "bound normal release or owner-authorized public-evaluation "
+            "authorization while retaining provider-free proof."
         ),
     )
     parser.add_argument("--wait-seconds", type=int, default=240)
