@@ -1203,10 +1203,23 @@ class FakeRunner:
                 )
                 stderr = f"verifier stderr {self.candidate_failure_secret}"
             else:
+                voice_check = "voice_provider_boundary_blocked"
+                if "--expect-signed-voice-release" in argv:
+                    voice_access_mode = argv[
+                        argv.index("--voice-access-mode") + 1
+                    ]
+                    voice_check = (
+                        "voice_release_authorization_verified_provider_not_called"
+                        if voice_access_mode
+                        == deploy.VOICE_ACCESS_MODE_PUBLIC_RELEASE
+                        else (
+                            "voice_public_evaluation_authorization_verified_provider_not_called"
+                        )
+                    )
                 candidate_checks = [
                     "singular_memorial_alias",
                     "source_grounded_first_person_reconstruction_boundary",
-                    "voice_provider_boundary_blocked",
+                    voice_check,
                     "browser_provider_websocket_boundary",
                 ]
                 if self.candidate_archive_gate_check:
@@ -1220,7 +1233,12 @@ class FakeRunner:
                         "page_get_performed": True,
                         "browser_audit": {
                             "status": "pass",
+                            "conversation_action_exercised": (
+                                "--expect-signed-voice-release" not in argv
+                            ),
                             "automatic_provider_requests": 0,
+                            "automatic_readiness_requests": 0,
+                            "automatic_microphone_requests": 0,
                             "automatic_websockets": self.candidate_websockets,
                             "external_requests": 0,
                             "failed_requests": 0,
@@ -2242,6 +2260,10 @@ def _lane(
                 "prepared_image_id": runner.candidate_image,
                 "projection_tree_revalidated": True,
                 "voice_release_allowed": False,
+                "public_evaluation_allowed": False,
+                "voice_runtime_enablement_allowed": False,
+                "voice_access_mode": deploy.VOICE_ACCESS_MODE_TEXT_ONLY,
+                "voice_release_expectation": None,
                 **voice_identity,
                 "release_id": (root / "memorial_data").name,
                 "release_root": str((root / "memorial_data").resolve()),
@@ -2432,7 +2454,13 @@ def _lane(
                 ],
                 "browser_surface": {
                     "status": "pass",
+                    "voice_release": "blocked",
+                    "voice_access": "text-only",
+                    "evaluation_status": "",
+                    "conversation_action_exercised": True,
                     "automatic_provider_requests": 0,
+                    "automatic_readiness_requests": 0,
+                    "automatic_microphone_requests": 0,
                     "automatic_websockets": 0,
                     "external_requests": 0,
                     "failed_requests": 0,
@@ -2454,6 +2482,7 @@ def _lane(
         "EA_MEMORIAL_DATA_HOST_PATH": str((root / "memorial_data").resolve()),
         "EA_MEMORIAL_RUNTIME_HOST_PATH": str(runtime_root),
         "EA_MEMORIAL_PUBLIC_HOST_ALLOWLIST": "memorial.example.org",
+        "HOME": str(root.parent.resolve()),
     }
     if control_tour_slug:
         env["EA_MEMORIAL_CONTROL_TOUR_SLUG"] = control_tour_slug
@@ -2754,6 +2783,29 @@ def test_final_voice_promotion_revalidates_projected_signed_authority(
     receipt_path = Path(lane.candidate_receipt_value)
     payload = json.loads(receipt_path.read_text(encoding="utf-8"))
     payload["voice_release_allowed"] = True
+    payload["public_evaluation_allowed"] = False
+    payload["voice_runtime_enablement_allowed"] = True
+    payload["voice_access_mode"] = deploy.VOICE_ACCESS_MODE_PUBLIC_RELEASE
+    payload["voice_release_expectation"] = {
+        "access_mode": deploy.VOICE_ACCESS_MODE_PUBLIC_RELEASE,
+        "source_revision": "b" * 40,
+    }
+    payload["browser_surface"].update(
+        {
+            "voice_release": "available",
+            "voice_access": "public-release",
+            "evaluation_status": "",
+        }
+    )
+    for smoke_check_field in ("first_smoke_checks", "second_smoke_checks"):
+        payload[smoke_check_field] = [
+            (
+                "voice_release_authorization_verified_provider_not_called"
+                if check == "voice_provider_boundary_blocked"
+                else check
+            )
+            for check in payload[smoke_check_field]
+        ]
     receipt_path.write_text(
         json.dumps(payload, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -6183,7 +6235,17 @@ def test_nonzero_public_candidate_verifier_records_no_fake_local_evidence(
             "candidate_http_status_unexpected:7"
         ),
     ) as raised:
-        lane._verify_candidate_origins("https://memorial.example.org")
+        lane._verify_candidate_origins(
+            "https://memorial.example.org",
+            candidate_promotion_evidence={
+                "source_revision": "b" * 40,
+                "voice_release_allowed": False,
+                "public_evaluation_allowed": False,
+                "voice_runtime_enablement_allowed": False,
+                "voice_access_mode": deploy.VOICE_ACCESS_MODE_TEXT_ONLY,
+            },
+            source_revision="b" * 40,
+        )
 
     receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
     assert "candidate_verifier" not in receipt
@@ -6281,6 +6343,77 @@ def test_candidate_verifier_browser_flag_is_explicit() -> None:
     )
 
     assert args.browser_audit is True
+
+
+@pytest.mark.parametrize(
+    ("voice_state", "expected_mode"),
+    [
+        (
+            {
+                "voice_release_allowed": True,
+                "public_evaluation_allowed": False,
+                "voice_runtime_enablement_allowed": True,
+                "voice_access_mode": deploy.VOICE_ACCESS_MODE_PUBLIC_RELEASE,
+            },
+            deploy.VOICE_ACCESS_MODE_PUBLIC_RELEASE,
+        ),
+        (
+            {
+                "voice_release_allowed": False,
+                "public_evaluation_allowed": True,
+                "voice_runtime_enablement_allowed": True,
+                "voice_access_mode": deploy.VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+            },
+            deploy.VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+        ),
+    ],
+)
+def test_public_candidate_verifier_receives_exact_signed_voice_binding(
+    release_root: Path,
+    voice_state: dict[str, object],
+    expected_mode: str,
+) -> None:
+    runner = FakeRunner(release_root)
+    lane = _lane(release_root, runner)
+    source_revision = "b" * 40
+
+    lane._verify_candidate_origins(
+        "https://memorial.example.org",
+        candidate_promotion_evidence={
+            "source_revision": source_revision,
+            **voice_state,
+        },
+        source_revision=source_revision,
+    )
+
+    candidate_call_index = next(
+        index
+        for index, call in enumerate(runner.calls)
+        if any(
+            item.endswith("verify_manfred_memorial_candidate.py")
+            for item in call
+        )
+    )
+    candidate_call = runner.calls[candidate_call_index]
+    assert "--expect-signed-voice-release" in candidate_call
+    assert candidate_call[
+        candidate_call.index("--voice-access-mode") + 1
+    ] == expected_mode
+    assert candidate_call[
+        candidate_call.index("--expected-source-revision") + 1
+    ] == source_revision
+    assert set(runner.call_envs[candidate_call_index]) == {
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "PATH",
+        "PYTHONDONTWRITEBYTECODE",
+        "TMPDIR",
+        "TZ",
+    }
+    assert runner.call_envs[candidate_call_index]["HOME"] == str(
+        release_root.parent.resolve()
+    )
 
 
 def test_subprocess_failure_never_exposes_output_or_secrets(

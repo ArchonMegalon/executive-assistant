@@ -622,6 +622,7 @@ def test_candidate_browser_audit_binds_runtime_voice_state(
         expected_voice_access: str,
         expected_evaluation_status: str,
         expected_source_revision: str | None,
+        exercise_conversation_action: bool,
     ) -> dict[str, object]:
         browser_calls.append(
             {
@@ -631,6 +632,9 @@ def test_candidate_browser_audit_binds_runtime_voice_state(
                 "voice_access": expected_voice_access,
                 "evaluation_status": expected_evaluation_status,
                 "source_revision": expected_source_revision,
+                "conversation_action_exercised": (
+                    exercise_conversation_action
+                ),
             }
         )
         return {
@@ -639,6 +643,9 @@ def test_candidate_browser_audit_binds_runtime_voice_state(
             "voice_access": expected_voice_access,
             "evaluation_status": expected_evaluation_status,
             "source_revision": expected_source_revision or "",
+            "conversation_action_exercised": (
+                exercise_conversation_action
+            ),
             **{
                 field: 0
                 for field in candidate_verifier.BROWSER_ZERO_COUNT_FIELDS
@@ -674,6 +681,9 @@ def test_candidate_browser_audit_binds_runtime_voice_state(
             "evaluation_status": expected_evaluation_status,
             "source_revision": (
                 COMMIT if voice_release_expectation is not None else None
+            ),
+            "conversation_action_exercised": (
+                voice_release_expectation is None
             ),
         }
     ]

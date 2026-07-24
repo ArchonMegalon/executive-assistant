@@ -1309,7 +1309,10 @@ def audit_browser_surface(
     expected_voice_access: str = "text-only",
     expected_evaluation_status: str = "",
     expected_source_revision: str | None = None,
+    exercise_conversation_action: bool = True,
 ) -> dict[str, object]:
+    if type(exercise_conversation_action) is not bool:
+        raise ValueError("candidate_browser_action_expectation_invalid")
     if expected_voice_release not in VOICE_RELEASE_BROWSER_STATES:
         raise ValueError("candidate_browser_voice_release_expectation_invalid")
     if expected_voice_access not in VOICE_ACCESS_BROWSER_STATES:
@@ -1441,9 +1444,10 @@ def audit_browser_surface(
             ):
                 raise RuntimeError("candidate_browser_source_revision_mismatch")
             page.wait_for_timeout(900)
-            page.evaluate(
-                """() => document.getElementById("memorial-conversation")?.click()"""
-            )
+            if exercise_conversation_action:
+                page.evaluate(
+                    """() => document.getElementById("memorial-conversation")?.click()"""
+                )
             page.wait_for_timeout(150)
 
             provider_work_paths = {
@@ -1848,6 +1852,7 @@ def audit_browser_surface(
         "text_form_visible": accessibility["text_form_visible"],
         "text_input_focused": accessibility["text_input_focused"],
         "separate_retry_visible": accessibility["retry_visible"],
+        "conversation_action_exercised": exercise_conversation_action,
         "automatic_provider_requests": 0,
         "automatic_readiness_requests": 0,
         "automatic_microphone_requests": 0,
@@ -2284,13 +2289,19 @@ def verify_candidate(
                 if voice_release_expectation is not None
                 else None
             ),
+            exercise_conversation_action=(
+                voice_release_expectation is None
+            ),
         )
+        expected_action_exercised = voice_release_expectation is None
         if (
             browser_evidence.get("status") != "pass"
             or browser_evidence.get("voice_release") != expected_voice_release
             or browser_evidence.get("voice_access") != expected_voice_access
             or browser_evidence.get("evaluation_status")
             != expected_evaluation_status
+            or browser_evidence.get("conversation_action_exercised")
+            is not expected_action_exercised
             or (
                 voice_release_expectation is not None
                 and browser_evidence.get("source_revision")

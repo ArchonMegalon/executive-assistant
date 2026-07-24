@@ -669,13 +669,30 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         label: str,
         base_url: str,
         public_origin: str,
+        voice_release_expectation: Mapping[str, object] | None = None,
     ) -> dict[str, Any]:
         expectation = self._release_enabled_candidate_verifier_expectation()
         if expectation is None:
+            if voice_release_expectation is not None:
+                raise DeployError(
+                    "joint_candidate_verifier_voice_expectation_invalid"
+                )
             return super()._verify_candidate_origin(
                 label=label,
                 base_url=base_url,
                 public_origin=public_origin,
+                voice_release_expectation=None,
+            )
+        if voice_release_expectation is not None and (
+            set(voice_release_expectation)
+            != {"access_mode", "source_revision"}
+            or voice_release_expectation.get("access_mode")
+            != expectation["voice_access_mode"]
+            or voice_release_expectation.get("source_revision")
+            != expectation["source_revision"]
+        ):
+            raise DeployError(
+                "joint_candidate_verifier_voice_expectation_invalid"
             )
 
         payload = self._run_json_script(
@@ -693,6 +710,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             "--expected-source-revision",
             str(expectation["source_revision"]),
             origin=label,
+            env=self._candidate_verifier_environment(),
         )
         public_evaluation = (
             expectation["public_evaluation_allowed"] is True
@@ -746,6 +764,8 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             type(browser.get(field)) is int and browser[field] == 0
             for field in (
                 "automatic_provider_requests",
+                "automatic_readiness_requests",
+                "automatic_microphone_requests",
                 "automatic_websockets",
                 "external_requests",
                 "failed_requests",
@@ -761,6 +781,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             or payload.get("page_get_performed") is not True
             or payload.get("voice_release_verification") != expected_verification
             or str(browser.get("status") or "").lower() != "pass"
+            or browser.get("conversation_action_exercised") is not False
             or any(
                 browser.get(name) != value
                 for name, value in expected_browser.items()
@@ -800,7 +821,10 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 "status": "pass",
                 **expected_browser,
                 "source_revision": expectation["source_revision"],
+                "conversation_action_exercised": False,
                 "automatic_provider_requests": 0,
+                "automatic_readiness_requests": 0,
+                "automatic_microphone_requests": 0,
                 "automatic_websockets": 0,
                 "external_requests": 0,
                 "failed_requests": 0,

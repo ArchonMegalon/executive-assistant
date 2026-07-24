@@ -184,6 +184,8 @@ IMAGE_REPOSITORY_PATTERN = re.compile(
 DEFAULT_PUBLIC_HOSTS = ("myexternalbrain.com", "www.myexternalbrain.com")
 BROWSER_ZERO_COUNT_FIELDS = (
     "automatic_provider_requests",
+    "automatic_readiness_requests",
+    "automatic_microphone_requests",
     "automatic_websockets",
     "external_requests",
     "failed_requests",
@@ -564,6 +566,12 @@ RELEASE_EVIDENCE_ENV_ALLOWLIST = frozenset(
         "TZ",
     }
 )
+CANDIDATE_VERIFIER_ENV_PASSTHROUGH_ALLOWLIST = frozenset(
+    {
+        "EA_PLAYWRIGHT_CHROMIUM_EXECUTABLE",
+        "HOME",
+    }
+)
 FIXED_JSON_SCRIPT_LABELS = {
     "scripts/verify_release_authority.py": "release_authority",
     "scripts/verify_memorial_deploy_readiness.py": "memorial_deploy_readiness",
@@ -573,7 +581,9 @@ SAFE_SCRIPT_ORIGIN_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 SAFE_CANDIDATE_ERROR_CODES = frozenset(
     {
         "candidate_browser_accessibility_contract_failed",
+        "candidate_browser_automatic_microphone_detected",
         "candidate_browser_automatic_provider_work_detected",
+        "candidate_browser_automatic_readiness_detected",
         "candidate_browser_automatic_websocket_detected",
         "candidate_browser_desktop_layout_contract_failed",
         "candidate_browser_executable_invalid",
@@ -582,6 +592,7 @@ SAFE_CANDIDATE_ERROR_CODES = frozenset(
         "candidate_browser_page_unavailable",
         "candidate_browser_performance_contract_failed",
         "candidate_browser_provider_boundary_invalid",
+        "candidate_browser_microphone_guard_unavailable",
         "candidate_browser_runtime_error",
         "candidate_browser_runtime_unavailable",
         "candidate_browser_same_origin_http_error",
@@ -590,6 +601,7 @@ SAFE_CANDIDATE_ERROR_CODES = frozenset(
         "candidate_contribution_receipt_missing",
         "candidate_contribution_receipt_permissions_invalid",
         "candidate_contribution_withdrawal_invalid",
+        "candidate_conversation_voice_access_mismatch",
         "candidate_health_timeout",
         "candidate_http_json_invalid",
         "candidate_http_response_too_large",
@@ -5220,6 +5232,64 @@ class MemorialDeployLane:
         environment["PYTHONNOUSERSITE"] = "1"
         return environment
 
+    def _candidate_verifier_environment(self) -> dict[str, str]:
+        passthrough = {
+            key: str(value).strip()
+            for key, value in self.release_env.items()
+            if (
+                key in CANDIDATE_VERIFIER_ENV_PASSTHROUGH_ALLOWLIST
+                and str(value).strip()
+            )
+        }
+        home_value = passthrough.get("HOME", "")
+        home = Path(home_value)
+        try:
+            home_metadata = home.lstat()
+        except OSError as exc:
+            raise DeployError("candidate_verifier_home_invalid") from exc
+        if (
+            not home.is_absolute()
+            or stat.S_ISLNK(home_metadata.st_mode)
+            or not stat.S_ISDIR(home_metadata.st_mode)
+            or home_metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(home_metadata.st_mode) & 0o022
+        ):
+            raise DeployError("candidate_verifier_home_invalid")
+
+        environment = {
+            "HOME": str(home),
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+            "PATH": "/usr/local/bin:/usr/bin:/bin",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "TMPDIR": "/tmp",
+            "TZ": "UTC",
+        }
+        configured_browser = passthrough.get(
+            "EA_PLAYWRIGHT_CHROMIUM_EXECUTABLE", ""
+        )
+        if configured_browser:
+            browser_path = Path(configured_browser).expanduser()
+            try:
+                browser_metadata = browser_path.lstat()
+            except OSError as exc:
+                raise DeployError(
+                    "candidate_verifier_browser_executable_invalid"
+                ) from exc
+            if (
+                not browser_path.is_absolute()
+                or stat.S_ISLNK(browser_metadata.st_mode)
+                or not stat.S_ISREG(browser_metadata.st_mode)
+                or not os.access(browser_path, os.X_OK)
+            ):
+                raise DeployError(
+                    "candidate_verifier_browser_executable_invalid"
+                )
+            environment["EA_PLAYWRIGHT_CHROMIUM_EXECUTABLE"] = str(
+                browser_path
+            )
+        return environment
+
     def _release_evidence_source_seal(self) -> dict[str, str]:
         evidence_env = self._release_evidence_environment()
 
@@ -8944,6 +9014,7 @@ class MemorialDeployLane:
                 browser.get("evaluation_status"),
             )
             != expected_browser_voice_state
+            or browser.get("conversation_action_exercised") is not True
             or not _has_exact_zero_browser_counts(browser)
             or not required_smoke_checks <= first_checks
             or not required_smoke_checks <= second_checks
@@ -9228,7 +9299,10 @@ class MemorialDeployLane:
             },
             "browser": {
                 "status": "pass",
+                "conversation_action_exercised": True,
                 "automatic_provider_requests": 0,
+                "automatic_readiness_requests": 0,
+                "automatic_microphone_requests": 0,
                 "automatic_websockets": 0,
                 "external_requests": 0,
                 "failed_requests": 0,
@@ -10611,10 +10685,14 @@ class MemorialDeployLane:
         )
 
     def _verify_candidate_origin(
-        self, *, label: str, base_url: str, public_origin: str
+        self,
+        *,
+        label: str,
+        base_url: str,
+        public_origin: str,
+        voice_release_expectation: Mapping[str, object] | None,
     ) -> dict[str, Any]:
-        payload = self._run_json_script(
-            "scripts/verify_manfred_memorial_candidate.py",
+        verifier_args = [
             "--base-url",
             base_url,
             "--public-origin",
@@ -10622,15 +10700,56 @@ class MemorialDeployLane:
             "--wait-seconds",
             str(max(1, min(600, int(self.wait_seconds or 1)))),
             "--browser-audit",
-            origin=label,
-        )
+        ]
         required_checks = {
             "archive_publication_gate",
             "singular_memorial_alias",
             "source_grounded_first_person_reconstruction_boundary",
-            "voice_provider_boundary_blocked",
             "browser_provider_websocket_boundary",
         }
+        if voice_release_expectation is None:
+            required_checks.add("voice_provider_boundary_blocked")
+        else:
+            access_mode = str(
+                voice_release_expectation.get("access_mode") or ""
+            )
+            expected_source_revision = str(
+                voice_release_expectation.get("source_revision") or ""
+            )
+            if (
+                access_mode
+                not in {
+                    VOICE_ACCESS_MODE_PUBLIC_RELEASE,
+                    VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+                }
+                or SOURCE_REVISION_PATTERN.fullmatch(expected_source_revision)
+                is None
+            ):
+                raise DeployError(
+                    "candidate_verifier_voice_expectation_invalid"
+                )
+            verifier_args.extend(
+                [
+                    "--expect-signed-voice-release",
+                    "--voice-access-mode",
+                    access_mode,
+                    "--expected-source-revision",
+                    expected_source_revision,
+                ]
+            )
+            required_checks.add(
+                "voice_release_authorization_verified_provider_not_called"
+                if access_mode == VOICE_ACCESS_MODE_PUBLIC_RELEASE
+                else (
+                    "voice_public_evaluation_authorization_verified_provider_not_called"
+                )
+            )
+        payload = self._run_json_script(
+            "scripts/verify_manfred_memorial_candidate.py",
+            *verifier_args,
+            origin=label,
+            env=self._candidate_verifier_environment(),
+        )
         checks = {
             str(item).strip()
             for item in list(payload.get("checks") or [])
@@ -10644,6 +10763,8 @@ class MemorialDeployLane:
             or payload.get("provider_calls_performed") is not False
             or payload.get("page_get_performed") is not True
             or str(browser.get("status") or "").lower() != "pass"
+            or browser.get("conversation_action_exercised")
+            is not (voice_release_expectation is None)
             or not _has_exact_zero_browser_counts(browser)
         ):
             self._record_check(
@@ -10659,7 +10780,12 @@ class MemorialDeployLane:
             "checks": sorted(required_checks),
             "provider_calls_performed": False,
             "browser": {
+                "conversation_action_exercised": (
+                    voice_release_expectation is None
+                ),
                 "automatic_provider_requests": 0,
+                "automatic_readiness_requests": 0,
+                "automatic_microphone_requests": 0,
                 "automatic_websockets": 0,
                 "external_requests": 0,
                 "failed_requests": 0,
@@ -10668,16 +10794,71 @@ class MemorialDeployLane:
             },
         }
 
-    def _verify_candidate_origins(self, public_origin: str) -> None:
+    def _verify_candidate_origins(
+        self,
+        public_origin: str,
+        *,
+        candidate_promotion_evidence: Mapping[str, object],
+        source_revision: str,
+    ) -> None:
         validated_public_origin = _validate_public_origin(
             public_origin,
             allowed_hosts=self.allowed_public_hosts,
         )
+        if (
+            SOURCE_REVISION_PATTERN.fullmatch(source_revision) is None
+            or str(
+                candidate_promotion_evidence.get("source_revision") or ""
+            )
+            != source_revision
+        ):
+            raise DeployError("candidate_verifier_source_revision_invalid")
+        authorization_state = (
+            candidate_promotion_evidence.get("voice_release_allowed"),
+            candidate_promotion_evidence.get("public_evaluation_allowed"),
+            candidate_promotion_evidence.get(
+                "voice_runtime_enablement_allowed"
+            ),
+            candidate_promotion_evidence.get("voice_access_mode"),
+        )
+        voice_release_expectation: dict[str, object] | None
+        if authorization_state == (
+            False,
+            False,
+            False,
+            VOICE_ACCESS_MODE_TEXT_ONLY,
+        ):
+            voice_release_expectation = None
+        elif authorization_state == (
+            True,
+            False,
+            True,
+            VOICE_ACCESS_MODE_PUBLIC_RELEASE,
+        ):
+            voice_release_expectation = {
+                "access_mode": VOICE_ACCESS_MODE_PUBLIC_RELEASE,
+                "source_revision": source_revision,
+            }
+        elif authorization_state == (
+            False,
+            True,
+            True,
+            VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+        ):
+            voice_release_expectation = {
+                "access_mode": VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+                "source_revision": source_revision,
+            }
+        else:
+            raise DeployError(
+                "candidate_verifier_voice_authorization_invalid"
+            )
         evidence = [
             self._verify_candidate_origin(
                 label="public",
                 base_url=validated_public_origin,
                 public_origin=validated_public_origin,
+                voice_release_expectation=voice_release_expectation,
             )
         ]
         self.receipt["candidate_verifier"] = evidence
@@ -11077,7 +11258,13 @@ class MemorialDeployLane:
                 source_revision=str(context["source_revision"]),
                 candidate_promotion_evidence=dict(context["candidate_promotion"]),
             )
-            self._verify_candidate_origins(str(context["public_origin"]))
+            self._verify_candidate_origins(
+                str(context["public_origin"]),
+                candidate_promotion_evidence=dict(
+                    context["candidate_promotion"]
+                ),
+                source_revision=str(context["source_revision"]),
+            )
             self._verify_non_memorial_controls(
                 non_memorial_controls,
                 public_origin=str(context["public_origin"]),

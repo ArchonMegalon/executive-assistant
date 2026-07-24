@@ -230,7 +230,10 @@ def _lane(
     runner = NoCommandRunner()
     lane = joint.JointMemorialIngressDeployLane(
         root=root,
-        env={"EA_DEPLOYMENT_ID": "joint-test-001"},
+        env={
+            "EA_DEPLOYMENT_ID": "joint-test-001",
+            "HOME": str(tmp_path.resolve()),
+        },
         runner=runner,
         receipt_dir=tmp_path / "receipts",
         ingress_receipt_dir=tmp_path / "ingress-receipts",
@@ -325,7 +328,10 @@ def _released_voice_candidate_verifier_payload(
             "voice_access": browser_voice_access,
             "evaluation_status": browser_evaluation_status,
             "source_revision": browser_source_revision or source_revision,
+            "conversation_action_exercised": False,
             "automatic_provider_requests": 0,
+            "automatic_readiness_requests": 0,
+            "automatic_microphone_requests": 0,
             "automatic_websockets": 0,
             "external_requests": 0,
             "failed_requests": 0,
@@ -413,7 +419,10 @@ def _public_evaluation_candidate_verifier_payload(
             "voice_access": "public-evaluation",
             "evaluation_status": "owner-authorized",
             "source_revision": source_revision,
+            "conversation_action_exercised": False,
             "automatic_provider_requests": 0,
+            "automatic_readiness_requests": 0,
+            "automatic_microphone_requests": 0,
             "automatic_websockets": 0,
             "external_requests": 0,
             "failed_requests": 0,
@@ -450,6 +459,7 @@ def test_joint_phase_one_candidate_verifier_keeps_blocked_contract(
         label="public",
         base_url=ORIGIN,
         public_origin=ORIGIN,
+        voice_release_expectation=None,
     )
 
 
@@ -554,6 +564,62 @@ def test_joint_public_evaluation_is_verified_without_public_release_claim(
     assert "--expect-signed-voice-release" in command
     assert "--voice-access-mode" in command
     assert api_deploy.VOICE_ACCESS_MODE_PUBLIC_EVALUATION in command
+
+
+def test_joint_public_evaluation_base_dispatch_uses_passive_browser_audit(
+    tmp_path: Path,
+) -> None:
+    lane, _runner = _lane(
+        tmp_path,
+        require_signed_voice_release=True,
+    )
+    expectation = _public_evaluation_candidate_state(lane)
+    lane._run_json_script = Mock(  # type: ignore[method-assign]
+        return_value=_public_evaluation_candidate_verifier_payload(
+            expectation
+        )
+    )
+
+    lane._verify_candidate_origins(
+        ORIGIN,
+        candidate_promotion_evidence=dict(
+            lane.receipt["candidate_promotion_evidence"]
+        ),
+        source_revision=SOURCE_REVISION,
+    )
+
+    evidence = lane.receipt["candidate_verifier"]
+    assert len(evidence) == 1
+    assert evidence[0]["browser"]["conversation_action_exercised"] is False
+    assert evidence[0]["browser"]["automatic_readiness_requests"] == 0
+    assert evidence[0]["browser"]["automatic_microphone_requests"] == 0
+    command = lane._run_json_script.call_args.args
+    assert command == (
+        "scripts/verify_manfred_memorial_candidate.py",
+        "--base-url",
+        ORIGIN,
+        "--public-origin",
+        ORIGIN,
+        "--wait-seconds",
+        "90",
+        "--browser-audit",
+        "--expect-signed-voice-release",
+        "--voice-access-mode",
+        api_deploy.VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+        "--expected-source-revision",
+        SOURCE_REVISION,
+    )
+    verifier_env = lane._run_json_script.call_args.kwargs["env"]
+    assert set(verifier_env) == {
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "PATH",
+        "PYTHONDONTWRITEBYTECODE",
+        "TMPDIR",
+        "TZ",
+    }
+    assert "EA_DEPLOYMENT_ID" not in verifier_env
 
 
 @pytest.mark.parametrize(

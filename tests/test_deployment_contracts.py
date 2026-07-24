@@ -26,7 +26,19 @@ def _construct_compose_override(
     return loader.construct_scalar(node)
 
 
+def _construct_compose_reset(loader: yaml.SafeLoader, node: yaml.Node) -> object:
+    if isinstance(node, yaml.SequenceNode):
+        loader.construct_sequence(node)
+        return []
+    if isinstance(node, yaml.MappingNode):
+        loader.construct_mapping(node)
+        return {}
+    loader.construct_scalar(node)
+    return None
+
+
 _ComposeLoader.add_constructor("!override", _construct_compose_override)
+_ComposeLoader.add_constructor("!reset", _construct_compose_reset)
 
 
 def _load_yaml(path: Path) -> dict[str, object]:
@@ -52,6 +64,25 @@ def _remote_source_binding(
         "source_remote_ref_commit_sha": commit_sha,
         "source_remote_ref_evidence": "local_remote_tracking_ref",
         "source_commit_reachable_from_remote_ref": True,
+    }
+
+
+def test_compose_loader_supports_override_and_reset_tags() -> None:
+    loaded = yaml.load(
+        """
+override: !override [one]
+reset_sequence: !reset [one]
+reset_mapping: !reset {one: two}
+reset_scalar: !reset retained
+""",
+        Loader=_ComposeLoader,
+    )
+
+    assert loaded == {
+        "override": ["one"],
+        "reset_sequence": [],
+        "reset_mapping": {},
+        "reset_scalar": None,
     }
 
 
@@ -694,6 +725,7 @@ def test_memorial_override_restores_memorial_runtime_contract() -> None:
     environment = [str(item) for item in list(service.get("environment") or [])]
     volumes = [str(item) for item in list(service.get("volumes") or [])]
 
+    assert service.get("group_add") == []
     assert any(item.startswith("EA_ENABLE_PUBLIC_MEMORIALS=") for item in environment)
     assert any(item.startswith("EA_PUBLIC_MEMORIAL_DIR=") for item in environment)
     assert any(
