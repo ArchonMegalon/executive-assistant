@@ -112,6 +112,7 @@ def _require_http_memorial_voice_authorization(
     request: Request,
     action: str,
     operator_preview_session: dict[str, object] | None,
+    allow_provider_free_authorization_probe: bool = False,
 ) -> None:
     operator_preview_allowed = False
     if operator_preview_session is not None:
@@ -133,6 +134,9 @@ def _require_http_memorial_voice_authorization(
         shared._payload_with_slug(slug, memorial),
         action,
         operator_preview_allowed=operator_preview_allowed,
+        allow_provider_free_authorization_probe=(
+            allow_provider_free_authorization_probe
+        ),
     )
 
 
@@ -232,16 +236,26 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
         request=request,
     )
 
-    def _authorize_provider_step(_step: str) -> None:
+    def _authorize_provider_step(
+        _step: str,
+        *,
+        allow_provider_free_authorization_probe: bool = False,
+    ) -> None:
         _require_http_memorial_voice_authorization(
             slug=slug,
             request=request,
             action="synthesize",
             operator_preview_session=operator_preview_session,
+            allow_provider_free_authorization_probe=(
+                allow_provider_free_authorization_probe
+            ),
         )
 
     try:
-        _authorize_provider_step("request")
+        _authorize_provider_step(
+            "request",
+            allow_provider_free_authorization_probe=True,
+        )
     except HTTPException as exc:
         return shared._public_memorial_error_response(exc.status_code, shared._text(exc.detail, "request_failed"))
     try:
@@ -253,6 +267,16 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
     unexpected_fields = set(body.keys()) - shared._PUBLIC_TTS_ALLOWED_BODY_FIELDS
     if unexpected_fields:
         return shared._public_memorial_error_response(400, "unsupported_public_tts_fields")
+    text = shared._normalize_tts_text(body.get("text"))
+    if not text:
+        return shared._public_memorial_error_response(400, "tts_text_missing")
+    try:
+        _authorize_provider_step("validated_request")
+    except HTTPException as exc:
+        return shared._public_memorial_error_response(
+            exc.status_code,
+            shared._text(exc.detail, "request_failed"),
+        )
     try:
         base_config = shared._load_voice_config(slug)
         merged_config = dict(base_config)
@@ -270,9 +294,6 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
         selected_plugin, selected_option = shared._resolve_server_tts_plugin(payload=merged_config, options=tts_options)
         if not bool(selected_option.get("tts_plugin_enabled")):
             return shared._public_memorial_error_response(409, "tts_plugin_not_ready")
-        text = shared._normalize_tts_text(body.get("text"))
-        if not text:
-            return shared._public_memorial_error_response(400, "tts_text_missing")
         force_regenerate = bool(body.get("force_regenerate_audio"))
         direct_contact_opening = shared._is_memorial_direct_contact_opening_text(text)
         tts_plugin_used = selected_plugin

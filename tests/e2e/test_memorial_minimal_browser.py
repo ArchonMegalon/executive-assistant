@@ -761,6 +761,7 @@ def test_memorial_public_evaluation_is_enabled_without_review_cookie_and_stays_m
             "receipt_status": "public_evaluation_authorized",
             "access_mode": "owner-authorized-public-evaluation",
             "disclosure_required": True,
+            "provider_work_allowed": True,
         },
     )
     base_url = str(memorial_minimal_server["base_url"])

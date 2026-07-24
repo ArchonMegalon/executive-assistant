@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -9,9 +10,9 @@ from pathlib import Path
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
-from app.api.routes import public_memorials
+from app.api.routes import public_memorial_turn_support, public_memorials
 from app.services.manfred_voice_signing import (
     IMAGE_ID_SEMANTICS,
     MANFRED_PHASE_1_LIVE_REVIEW_SURFACE,
@@ -994,6 +995,286 @@ def test_production_voice_gate_rejects_before_provider_work(monkeypatch) -> None
     assert exc_info.value.detail == "memorial_voice_release_not_verified"
 
 
+def test_provider_free_candidate_allows_only_the_synthesize_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = public_memorials._payload_with_slug(
+        "manfred",
+        public_memorials._load_memorial("manfred"),
+    )
+    candidate_decision = {
+        "allowed": False,
+        "public_evaluation": True,
+        "status": "public_evaluation",
+        "reason": "",
+        "receipt_status": "public_evaluation_authorized",
+        "access_mode": "owner-authorized-public-evaluation",
+        "disclosure_required": True,
+        "provider_work_allowed": False,
+        "provider_free_candidate": True,
+    }
+    monkeypatch.setattr(
+        public_memorials, "_memorial_voice_release_enforced", lambda: True
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_decision",
+        lambda _slug: dict(candidate_decision),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        public_memorials._require_voice_consent(payload, "synthesize")
+    assert exc_info.value.detail == "memorial_candidate_provider_work_blocked"
+
+    public_memorials._require_voice_consent(
+        payload,
+        "synthesize",
+        allow_provider_free_authorization_probe=True,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        public_memorials._require_voice_consent(
+            payload,
+            "realtime",
+            allow_provider_free_authorization_probe=True,
+        )
+    assert exc_info.value.detail == "memorial_candidate_provider_work_blocked"
+
+    unmarked = dict(candidate_decision)
+    unmarked.pop("provider_work_allowed")
+    assert (
+        public_memorials._memorial_voice_provider_work_allowed(unmarked)
+        is False
+    )
+    released = {
+        "allowed": True,
+        "provider_work_allowed": True,
+    }
+    assert (
+        public_memorials._memorial_voice_provider_work_allowed(released)
+        is True
+    )
+
+
+def _speech_synthesize_request(payload: dict[str, object]) -> Request:
+    body = json.dumps(payload).encode("utf-8")
+    delivered = False
+
+    async def receive() -> dict[str, object]:
+        nonlocal delivered
+        if delivered:
+            return {"type": "http.disconnect"}
+        delivered = True
+        return {
+            "type": "http.request",
+            "body": body,
+            "more_body": False,
+        }
+
+    return Request(
+        {
+            "type": "http",
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "https",
+            "path": "/memorials/manfred/speech-synthesize",
+            "raw_path": b"/memorials/manfred/speech-synthesize",
+            "query_string": b"",
+            "headers": [(b"content-type", b"application/json")],
+            "client": ("127.0.0.1", 1234),
+            "server": ("testserver", 443),
+        },
+        receive,
+    )
+
+
+def test_provider_free_candidate_synth_endpoint_never_resolves_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    authorizations: list[bool] = []
+
+    def authorize(
+        *,
+        slug: str,
+        request: Request,
+        action: str,
+        operator_preview_session: dict[str, object] | None,
+        allow_provider_free_authorization_probe: bool = False,
+    ) -> None:
+        del slug, request, action, operator_preview_session
+        authorizations.append(allow_provider_free_authorization_probe)
+        if not allow_provider_free_authorization_probe:
+            raise HTTPException(
+                status_code=409,
+                detail="memorial_candidate_provider_work_blocked",
+            )
+
+    monkeypatch.setattr(
+        public_memorial_turn_support,
+        "_voice_review_operator_preview_session",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        public_memorial_turn_support,
+        "_require_http_memorial_voice_authorization",
+        authorize,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_voice_config",
+        lambda _slug: pytest.fail(
+            "provider-free candidate resolved the TTS plugin"
+        ),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_render_memorial_tts_audio",
+        lambda **_kwargs: pytest.fail(
+            "provider-free candidate rendered TTS audio"
+        ),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_resolve_server_tts_plugin",
+        lambda **_kwargs: pytest.fail(
+            "provider-free candidate resolved a TTS provider"
+        ),
+    )
+
+    empty_response = asyncio.run(
+        public_memorial_turn_support.public_memorial_speech_synthesize(
+            "manfred",
+            _speech_synthesize_request({}),
+        )
+    )
+    assert empty_response.status_code == 400
+    assert json.loads(empty_response.body)["detail"] == "tts_text_missing"
+    assert authorizations == [True]
+
+    authorizations.clear()
+    nonempty_response = asyncio.run(
+        public_memorial_turn_support.public_memorial_speech_synthesize(
+            "manfred",
+            _speech_synthesize_request({"text": "Hallo."}),
+        )
+    )
+    assert nonempty_response.status_code == 409
+    assert json.loads(nonempty_response.body)["detail"] == (
+        "memorial_candidate_provider_work_blocked"
+    )
+    assert authorizations == [True, False]
+
+
+def test_provider_free_candidate_blocks_stt_conversation_and_realtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate_decision = {
+        "allowed": False,
+        "public_evaluation": True,
+        "status": "public_evaluation",
+        "reason": "",
+        "receipt_status": "public_evaluation_authorized",
+        "access_mode": "owner-authorized-public-evaluation",
+        "disclosure_required": True,
+        "provider_work_allowed": False,
+        "provider_free_candidate": True,
+    }
+    monkeypatch.setattr(
+        public_memorials, "_memorial_voice_release_enforced", lambda: True
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_decision",
+        lambda _slug: dict(candidate_decision),
+    )
+    monkeypatch.setattr(
+        public_memorial_turn_support,
+        "_voice_review_operator_preview_session",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        public_memorial_turn_support,
+        "runtime_from_shared",
+        lambda _shared: object(),
+    )
+    monkeypatch.setattr(
+        public_memorial_turn_support,
+        "transcribe_public_memorial_audio",
+        lambda **_kwargs: pytest.fail(
+            "provider-free candidate invoked STT"
+        ),
+    )
+    monkeypatch.setattr(
+        public_memorial_turn_support,
+        "build_public_memorial_turn",
+        lambda **_kwargs: pytest.fail(
+            "provider-free candidate invoked conversation providers"
+        ),
+    )
+
+    stt_response = asyncio.run(
+        public_memorial_turn_support.public_memorial_speech_transcribe(
+            "manfred",
+            _speech_synthesize_request({}),
+        )
+    )
+    assert stt_response.status_code == 409
+    assert json.loads(stt_response.body)["detail"] == (
+        "memorial_candidate_provider_work_blocked"
+    )
+
+    conversation_response = asyncio.run(
+        public_memorial_turn_support.public_memorial_conversation_turn(
+            "manfred",
+            _speech_synthesize_request({}),
+        )
+    )
+    assert conversation_response.status_code == 409
+    assert json.loads(conversation_response.body)["detail"] == (
+        "memorial_candidate_provider_work_blocked"
+    )
+
+    class CandidateWebSocket:
+        async def accept(self) -> None:
+            pytest.fail("provider-free candidate accepted realtime websocket")
+
+    websocket = CandidateWebSocket()
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_realtime_websocket_transport_allowed",
+        lambda _websocket: True,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_review_websocket_session_payload",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_public_memorial_profile",
+        lambda _slug: pytest.fail(
+            "provider-free candidate loaded realtime provider profile"
+        ),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_gemini_live_available",
+        lambda: pytest.fail(
+            "provider-free candidate resolved realtime provider"
+        ),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(
+            public_memorials.public_memorial_realtime(
+                "manfred",
+                websocket,  # type: ignore[arg-type]
+            )
+        )
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "memorial_candidate_provider_work_blocked"
+
+
 def test_blocked_release_prevents_page_prewarm(monkeypatch) -> None:
     scheduled: list[str] = []
     monkeypatch.setattr(
@@ -1015,6 +1296,65 @@ def test_blocked_release_prevents_page_prewarm(monkeypatch) -> None:
 
     public_memorials._prime_memorial_live_warmup_on_page_render("manfred")
     assert scheduled == []
+
+
+def test_provider_free_candidate_blocks_every_warmup_entrypoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate_decision = {
+        "allowed": False,
+        "public_evaluation": True,
+        "status": "public_evaluation",
+        "reason": "",
+        "receipt_status": "public_evaluation_authorized",
+        "access_mode": "owner-authorized-public-evaluation",
+        "disclosure_required": True,
+        "provider_work_allowed": False,
+    }
+    monkeypatch.setattr(
+        public_memorials, "_memorial_voice_release_enforced", lambda: True
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_decision",
+        lambda _slug: dict(candidate_decision),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_live_warmup_snapshot",
+        lambda _slug: pytest.fail(
+            "provider-free candidate entered warmup runtime"
+        ),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_require_memorial_voice_provider_authorization",
+        lambda **_kwargs: pytest.fail(
+            "provider-free candidate reached warmup provider authorization"
+        ),
+    )
+
+    assert (
+        public_memorials._schedule_missing_memorial_voice_prewarm("manfred")
+        is False
+    )
+    assert public_memorials._schedule_memorial_live_warmup("manfred") == {
+        "status": "blocked_release",
+        "scheduled": False,
+        "ttl_seconds": 0,
+    }
+    assert public_memorials._run_memorial_live_warmup("manfred") is None
+    monkeypatch.setattr(
+        public_memorials, "_memorial_page_prewarm_enabled", lambda: True
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_schedule_memorial_live_warmup",
+        lambda _slug: pytest.fail(
+            "provider-free candidate page scheduled warmup"
+        ),
+    )
+    public_memorials._prime_memorial_live_warmup_on_page_render("manfred")
 
 
 def _set_voice_runtime_bindings(
@@ -1080,6 +1420,16 @@ def _set_voice_runtime_bindings(
     }
     monkeypatch.delenv("EA_MEMORIAL_LIVE_TTS_PLUGIN", raising=False)
     monkeypatch.delenv("EA_MEMORIAL_REALTIME_TTS_PLUGIN", raising=False)
+    for name in (
+        "EA_DEPLOY_COMPOSE_FILES",
+        "EA_DEPLOY_ENABLED_MODES",
+        "EA_DEPLOY_PRIMARY_MODE",
+        "EA_DEPLOYMENT_ID",
+        "EA_MANFRED_COMPOSE_PROJECT",
+        "EA_MANFRED_DEPLOYMENT_ID",
+        "EA_RELEASE_AUTHORITY_STATUS_PATH",
+    ):
+        monkeypatch.delenv(name, raising=False)
     for name, value in values.items():
         monkeypatch.setenv(name, value)
     return {
@@ -1087,6 +1437,188 @@ def _set_voice_runtime_bindings(
         "config_path": str(config_path),
         "manifest_path": str(manifest_path),
     }
+
+
+def _set_provider_free_candidate_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    values: dict[str, str],
+    *,
+    voice_release_payload: dict[str, object],
+) -> tuple[Path, dict[str, object], Path]:
+    project = "ea-manfred-candidate-runtime-test"
+    deployment_id = f"{project}-{SOURCE_REVISION[:12]}"
+    authority_root = tmp_path / "release-authority"
+    authority_root.mkdir(mode=0o700)
+    compose_file = (
+        "deploy/manfred-memorial/docker-compose.candidate.yml"
+    )
+    documents_payloads: dict[str, dict[str, object]] = {
+        "PROJECT_MODES.generated.json": {
+            "project_mode": "MEMORIAL",
+            "enabled_project_modes": ["MEMORIAL", "PROPERTY"],
+        },
+        "deploy_context.generated.json": {
+            "contract_name": "ea.deploy_context.v1",
+            "generated_by": (
+                "scripts/prepare_manfred_memorial_candidate.py"
+            ),
+            "repository": "EA",
+            "branch": "main",
+            "tracking_branch": "origin/main",
+            "commit_sha": SOURCE_REVISION,
+            "deployment_id": deployment_id,
+            "deployment_id_source": "explicit",
+            "release_label": deployment_id,
+            "project_mode": "MEMORIAL",
+            "enabled_project_modes": ["MEMORIAL", "PROPERTY"],
+            "compose_files": [compose_file],
+            "compose_overrides": [],
+            "public_origin": PUBLIC_ORIGIN,
+            "public_origin_source": "EA_PUBLIC_APP_BASE_URL",
+        },
+        "manfred_voice_release.generated.json": voice_release_payload,
+        "release_authority_status.generated.json": {
+            "contract_name": "ea.release_authority_status.v1",
+            "state": "clear",
+            "authority_posture": "authoritative_runtime",
+            "candidate_runtime": True,
+            "promotion_authority": False,
+            "issues": [],
+            "dirty_worktree": False,
+            "source_worktree_dirty": False,
+            "source_commit_reachable_from_remote_ref": True,
+            "commit_sha": SOURCE_REVISION,
+            "deployment_id": deployment_id,
+            "project_mode": "MEMORIAL",
+            "enabled_project_modes": ["MEMORIAL", "PROPERTY"],
+            "compose_files": [compose_file],
+            "compose_overrides": [],
+            "public_origin": PUBLIC_ORIGIN,
+        },
+        "release_manifest.generated.json": {
+            "contract_name": "ea.release_manifest.v1",
+            "commit_sha": SOURCE_REVISION,
+            "deployment_id": deployment_id,
+        },
+    }
+    document_bytes: dict[str, bytes] = {}
+    for filename, payload in documents_payloads.items():
+        content = candidate_prep._receipt_bytes(payload)
+        document_bytes[filename] = content
+        path = authority_root / filename
+        path.write_bytes(content)
+        path.chmod(0o600)
+    status_path = (
+        authority_root / "release_authority_status.generated.json"
+    )
+    voice_release_path = (
+        authority_root / "manfred_voice_release.generated.json"
+    )
+    authority_document_files = {
+        "deploy_context": "deploy_context.generated.json",
+        "project_modes": "PROJECT_MODES.generated.json",
+        "release_manifest": "release_manifest.generated.json",
+        "release_status": "release_authority_status.generated.json",
+        "voice_release": "manfred_voice_release.generated.json",
+    }
+    authority: dict[str, object] = {
+        "schema": "ea.manfred_candidate_release_authority.v2",
+        "status": "pass",
+        "candidate_provider_boundary": "provider_free_public_text_only",
+        "runtime_authority_posture": "authoritative_runtime",
+        "runtime_authority_state": "clear",
+        "promotion_authority": False,
+        "secret_material_recorded": False,
+        "project_mode": "MEMORIAL",
+        "enabled_project_modes": ["MEMORIAL", "PROPERTY"],
+        "deployment_id": deployment_id,
+        "commit_sha": SOURCE_REVISION,
+        "image_revision": SOURCE_REVISION,
+        "source_commit_reachable_from_remote_ref": True,
+        "source_remote_ref": "refs/remotes/origin/main",
+        "source_remote_ref_commit_sha": SOURCE_REVISION,
+        "live_remote_ref": "refs/heads/main",
+        "live_remote_ref_commit_sha": SOURCE_REVISION,
+        "image_id": IMAGE_ID,
+        "image_id_semantics": "docker_image_id_sha256",
+        "voice_config_sha256": values[
+            "EA_MEMORIAL_VOICE_CONFIG_SHA256"
+        ],
+        "voice_manifest_sha256": values[
+            "EA_MEMORIAL_VOICE_MANIFEST_SHA256"
+        ],
+        "voice_reference_aggregate_sha256": values[
+            "EA_MEMORIAL_VOICE_REFERENCE_AGGREGATE_SHA256"
+        ],
+        "provider_voice_id_sha256": values[
+            "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256"
+        ],
+        "tts_provider": MANFRED_TTS_PROVIDER,
+        "tts_model": MANFRED_TTS_MODEL,
+        "voice_identity_sha256": values[
+            "EA_MEMORIAL_VOICE_IDENTITY_SHA256"
+        ],
+        "voice_artifact_digest_semantics": "sha256_exact_file_bytes",
+        "voice_reference_aggregate_sha256_semantics": (
+            "sha256_canonical_json_utf8_sorted_reference_sha256_list_v1"
+        ),
+        "provider_voice_id_sha256_semantics": (
+            "sha256_utf8_provider_voice_id"
+        ),
+        "voice_identity_sha256_semantics": (
+            "sha256_canonical_json_utf8_voice_identity_v1"
+        ),
+        "voice_release_allowed": False,
+        "public_evaluation_allowed": True,
+        "voice_runtime_enablement_allowed": True,
+        "voice_access_mode": "owner-authorized-public-evaluation",
+        "container_paths": {
+            "deploy_context": str(
+                authority_root / "deploy_context.generated.json"
+            ),
+            "project_modes": str(
+                authority_root / "PROJECT_MODES.generated.json"
+            ),
+            "receipt": str(
+                authority_root / "candidate_release_authority.json"
+            ),
+            "release_manifest": str(
+                authority_root / "release_manifest.generated.json"
+            ),
+            "release_status": str(status_path),
+            "voice_release": str(voice_release_path),
+        },
+        "documents": {
+            document_name: {
+                "sha256": hashlib.sha256(
+                    document_bytes[filename]
+                ).hexdigest(),
+                "size_bytes": len(document_bytes[filename]),
+            }
+            for document_name, filename in authority_document_files.items()
+        },
+    }
+    authority_path = (
+        authority_root / "candidate_release_authority.json"
+    )
+    authority_path.write_bytes(candidate_prep._receipt_bytes(authority))
+    authority_path.chmod(0o600)
+    for name, value in {
+        "EA_DEPLOY_COMPOSE_FILES": (
+            "deploy/manfred-memorial/docker-compose.candidate.yml"
+        ),
+        "EA_DEPLOY_ENABLED_MODES": "MEMORIAL,PROPERTY",
+        "EA_DEPLOY_PRIMARY_MODE": "MEMORIAL",
+        "EA_DEPLOYMENT_ID": deployment_id,
+        "EA_MANFRED_COMPOSE_PROJECT": project,
+        "EA_MANFRED_DEPLOYMENT_ID": deployment_id,
+        "EA_RELEASE_AUTHORITY_STATUS_PATH": str(status_path),
+    }.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("UNMIXR_API_KEY", raising=False)
+    monkeypatch.delenv("UNMIXR_VOICE_ID", raising=False)
+    return authority_path, authority, voice_release_path
 
 
 def _rewrite_runtime_voice_manifest(
@@ -1120,6 +1652,30 @@ def _rewrite_runtime_voice_manifest(
             tts_model=MANFRED_TTS_MODEL,
         ),
     )
+
+
+def _runtime_voice_receipt_fields(
+    values: dict[str, str],
+) -> dict[str, object]:
+    return {
+        "voice_config_sha256": values[
+            "EA_MEMORIAL_VOICE_CONFIG_SHA256"
+        ],
+        "voice_manifest_sha256": values[
+            "EA_MEMORIAL_VOICE_MANIFEST_SHA256"
+        ],
+        "voice_reference_aggregate_sha256": values[
+            "EA_MEMORIAL_VOICE_REFERENCE_AGGREGATE_SHA256"
+        ],
+        "provider_voice_id_sha256": values[
+            "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256"
+        ],
+        "tts_provider": MANFRED_TTS_PROVIDER,
+        "tts_model": MANFRED_TTS_MODEL,
+        "voice_identity_sha256": values[
+            "EA_MEMORIAL_VOICE_IDENTITY_SHA256"
+        ],
+    }
 
 
 @pytest.mark.parametrize(
@@ -1225,6 +1781,7 @@ def test_runtime_release_decision_passes_exact_deploy_voice_bindings(
     decision = public_memorials._memorial_voice_release_decision("manfred")
 
     assert decision["allowed"] is True
+    assert decision["provider_work_allowed"] is True
     assert observed == {
         "slug": "manfred",
         "receipt_path": public_memorials._memorial_voice_release_receipt_path(),
@@ -1245,6 +1802,325 @@ def test_runtime_release_decision_passes_exact_deploy_voice_bindings(
         ],
         "expected_tts_provider": MANFRED_TTS_PROVIDER,
         "expected_tts_model": MANFRED_TTS_MODEL,
+    }
+
+
+def test_strict_provider_lane_allows_signed_public_evaluation_provider_work(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _set_voice_runtime_bindings(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        public_memorials,
+        "evaluate_memorial_voice_release",
+        lambda **_kwargs: {
+            "allowed": False,
+            "public_evaluation": True,
+            "status": "public_evaluation",
+            "reason": "",
+            "receipt_status": "public_evaluation_authorized",
+            "access_mode": "owner-authorized-public-evaluation",
+            "disclosure_required": True,
+        },
+    )
+
+    decision = public_memorials._memorial_voice_release_decision("manfred")
+
+    assert decision["public_evaluation"] is True
+    assert decision["provider_work_allowed"] is True
+    assert public_memorials._memorial_voice_provider_work_allowed(decision)
+
+
+def test_runtime_release_decision_accepts_governed_provider_free_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    signing_material: tuple[Ed25519PrivateKey, Path, Path],
+) -> None:
+    private_key, _private_path, public_path = signing_material
+    values = _set_voice_runtime_bindings(monkeypatch, tmp_path)
+    voice_release_payload = _public_evaluation_payload(
+        private_key,
+        overrides=_runtime_voice_receipt_fields(values),
+    )
+    _set_provider_free_candidate_authority(
+        monkeypatch,
+        tmp_path,
+        values,
+        voice_release_payload=voice_release_payload,
+    )
+    observed: dict[str, object] = {}
+
+    def evaluate(**kwargs: object) -> dict[str, object]:
+        observed.update(kwargs)
+        return evaluate_memorial_voice_release_payload(
+            **kwargs,
+            trusted_public_key_path=public_path,
+            now=NOW,
+        )
+
+    monkeypatch.setattr(
+        public_memorials,
+        "evaluate_memorial_voice_release_payload",
+        evaluate,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "evaluate_memorial_voice_release",
+        lambda **_kwargs: pytest.fail(
+            "provider-free candidate reopened the receipt path"
+        ),
+    )
+
+    decision = public_memorials._memorial_voice_release_decision("manfred")
+
+    assert decision["public_evaluation"] is True
+    assert decision["provider_work_allowed"] is False
+    assert decision["provider_free_candidate"] is True
+    assert observed["payload"] == voice_release_payload
+    assert observed["expected_image_id"] == IMAGE_ID
+    assert observed["expected_provider_voice_id_sha256"] == values[
+        "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256"
+    ]
+    assert "UNMIXR_API_KEY" not in os.environ
+    assert "UNMIXR_VOICE_ID" not in os.environ
+
+
+def test_provider_free_candidate_rejects_final_release_without_provider_lane(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    signing_material: tuple[Ed25519PrivateKey, Path, Path],
+) -> None:
+    private_key, _private_path, public_path = signing_material
+    values = _set_voice_runtime_bindings(monkeypatch, tmp_path)
+    final_release_payload = _release_payload(
+        private_key,
+        overrides=_runtime_voice_receipt_fields(values),
+    )
+    _set_provider_free_candidate_authority(
+        monkeypatch,
+        tmp_path,
+        values,
+        voice_release_payload=final_release_payload,
+    )
+
+    def evaluate(**kwargs: object) -> dict[str, object]:
+        return evaluate_memorial_voice_release_payload(
+            **kwargs,
+            trusted_public_key_path=public_path,
+            now=NOW,
+        )
+
+    monkeypatch.setattr(
+        public_memorials,
+        "evaluate_memorial_voice_release_payload",
+        evaluate,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "evaluate_memorial_voice_release",
+        lambda **_kwargs: pytest.fail(
+            "provider-free candidate reopened the final receipt path"
+        ),
+    )
+
+    assert public_memorials._memorial_voice_release_decision("manfred") == {
+        "allowed": False,
+        "status": "blocked",
+        "reason": "candidate_public_evaluation_not_authorized",
+        "receipt_status": "released",
+    }
+
+
+def test_provider_free_candidate_evaluates_the_snapshotted_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    signing_material: tuple[Ed25519PrivateKey, Path, Path],
+) -> None:
+    private_key, _private_path, public_path = signing_material
+    values = _set_voice_runtime_bindings(monkeypatch, tmp_path)
+    public_evaluation_payload = _public_evaluation_payload(
+        private_key,
+        overrides=_runtime_voice_receipt_fields(values),
+    )
+    final_release_payload = _release_payload(
+        private_key,
+        overrides=_runtime_voice_receipt_fields(values),
+    )
+    _authority_path, _authority, voice_release_path = (
+        _set_provider_free_candidate_authority(
+            monkeypatch,
+            tmp_path,
+            values,
+            voice_release_payload=public_evaluation_payload,
+        )
+    )
+    observed: dict[str, object] = {}
+
+    def evaluate(**kwargs: object) -> dict[str, object]:
+        observed.update(kwargs)
+        voice_release_path.write_bytes(
+            candidate_prep._receipt_bytes(final_release_payload)
+        )
+        voice_release_path.chmod(0o600)
+        return evaluate_memorial_voice_release_payload(
+            **kwargs,
+            trusted_public_key_path=public_path,
+            now=NOW,
+        )
+
+    monkeypatch.setattr(
+        public_memorials,
+        "evaluate_memorial_voice_release_payload",
+        evaluate,
+    )
+
+    decision = public_memorials._memorial_voice_release_decision("manfred")
+
+    assert observed["payload"] == public_evaluation_payload
+    assert decision["public_evaluation"] is True
+    assert decision["provider_work_allowed"] is False
+
+
+def test_runtime_release_decision_still_requires_provider_lane_outside_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _set_voice_runtime_bindings(monkeypatch, tmp_path)
+    monkeypatch.delenv("UNMIXR_API_KEY")
+    monkeypatch.delenv("UNMIXR_VOICE_ID")
+    monkeypatch.setattr(
+        public_memorials,
+        "evaluate_memorial_voice_release",
+        lambda **_kwargs: pytest.fail(
+            "provider-free production bindings reached evaluator"
+        ),
+    )
+
+    assert public_memorials._memorial_voice_release_decision("manfred") == {
+        "allowed": False,
+        "status": "blocked",
+        "reason": "release_runtime_voice_identity_missing",
+        "receipt_status": "",
+    }
+
+
+@pytest.mark.parametrize(
+    "drift",
+    [
+        "compose_file",
+        "provider_boundary",
+        "secret_material",
+        "voice_release_digest",
+        "release_status_candidate_runtime",
+        "release_status_promotion",
+        "deploy_context_origin",
+        "deploy_context_compose",
+        "runtime_tuple",
+        "missing_bundle_file",
+        "extra_bundle_file",
+    ],
+)
+def test_provider_free_candidate_binding_fails_closed_on_authority_drift(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    drift: str,
+) -> None:
+    values = _set_voice_runtime_bindings(monkeypatch, tmp_path)
+    authority_path, authority, _voice_release_path = (
+        _set_provider_free_candidate_authority(
+            monkeypatch,
+            tmp_path,
+            values,
+            voice_release_payload={
+                "contract_name": "unit-test-signed-receipt"
+            },
+        )
+    )
+    if drift == "compose_file":
+        monkeypatch.setenv(
+            "EA_DEPLOY_COMPOSE_FILES",
+            "deploy/docker-compose.memorial.yml",
+        )
+    elif drift == "provider_boundary":
+        authority["candidate_provider_boundary"] = "provider_enabled"
+    elif drift == "secret_material":
+        authority["secret_material_recorded"] = True
+    elif drift == "voice_release_digest":
+        documents = dict(authority["documents"])
+        voice_release = dict(documents["voice_release"])
+        voice_release["sha256"] = "0" * 64
+        documents["voice_release"] = voice_release
+        authority["documents"] = documents
+    elif drift in {
+        "release_status_candidate_runtime",
+        "release_status_promotion",
+        "deploy_context_origin",
+        "deploy_context_compose",
+    }:
+        document_name = (
+            "release_status"
+            if drift.startswith("release_status")
+            else "deploy_context"
+        )
+        filename = {
+            "release_status": "release_authority_status.generated.json",
+            "deploy_context": "deploy_context.generated.json",
+        }[document_name]
+        document_path = authority_path.parent / filename
+        document_payload = json.loads(document_path.read_bytes())
+        if drift == "release_status_candidate_runtime":
+            document_payload["candidate_runtime"] = False
+        elif drift == "release_status_promotion":
+            document_payload["promotion_authority"] = True
+        elif drift == "deploy_context_origin":
+            document_payload["public_origin"] = "https://example.test"
+        else:
+            document_payload["compose_files"] = [
+                "deploy/docker-compose.memorial.yml"
+            ]
+        document_content = candidate_prep._receipt_bytes(document_payload)
+        document_path.write_bytes(document_content)
+        document_path.chmod(0o600)
+        documents = dict(authority["documents"])
+        descriptor = dict(documents[document_name])
+        descriptor["sha256"] = hashlib.sha256(
+            document_content
+        ).hexdigest()
+        descriptor["size_bytes"] = len(document_content)
+        documents[document_name] = descriptor
+        authority["documents"] = documents
+    elif drift == "runtime_tuple":
+        authority["public_evaluation_allowed"] = False
+    elif drift == "missing_bundle_file":
+        (
+            authority_path.parent / "PROJECT_MODES.generated.json"
+        ).unlink()
+    else:
+        extra_path = authority_path.parent / "unexpected.json"
+        extra_path.write_text("{}\n", encoding="utf-8")
+        extra_path.chmod(0o600)
+    if drift not in {
+        "compose_file",
+        "missing_bundle_file",
+        "extra_bundle_file",
+    }:
+        authority_path.write_bytes(
+            candidate_prep._receipt_bytes(authority)
+        )
+        authority_path.chmod(0o600)
+    monkeypatch.setattr(
+        public_memorials,
+        "evaluate_memorial_voice_release_payload",
+        lambda **_kwargs: pytest.fail(
+            "drifted candidate authority reached evaluator"
+        ),
+    )
+
+    assert public_memorials._memorial_voice_release_decision("manfred") == {
+        "allowed": False,
+        "status": "blocked",
+        "reason": "release_runtime_voice_identity_missing",
+        "receipt_status": "",
     }
 
 

@@ -94,7 +94,10 @@ from app.services.memorial_video_meeting import (
 from app.services.hedy_meeting_evidence import verify_hedy_webhook_signature
 from app.services.memorial_voice_profile import build_memorial_voice_profile, load_memorial_voice_profile
 from app.services.memorial_stt_error_log import classify_memorial_stt_issue, log_memorial_stt_issue
-from app.services.memorial_release_policy import evaluate_memorial_voice_release
+from app.services.memorial_release_policy import (
+    evaluate_memorial_voice_release,
+    evaluate_memorial_voice_release_payload,
+)
 from app.services.manfred_voice_signing import (
     MANFRED_TTS_MODEL,
     MANFRED_TTS_PROVIDER,
@@ -1990,6 +1993,36 @@ _MANFRED_VOICE_SOURCE_PROVENANCE_RECEIPT_SHA256_SEMANTICS = (
 )
 _MANFRED_PROVIDER_VOICE_ID_PLACEHOLDER = "${UNMIXR_VOICE_ID}"
 _MANFRED_VOICE_ARTIFACT_MAX_BYTES = 8 * 1024 * 1024
+_MANFRED_CANDIDATE_RELEASE_AUTHORITY_FILENAME = (
+    "candidate_release_authority.json"
+)
+_MANFRED_CANDIDATE_RELEASE_AUTHORITY_SCHEMA = (
+    "ea.manfred_candidate_release_authority.v2"
+)
+_MANFRED_CANDIDATE_PROVIDER_BOUNDARY = (
+    "provider_free_public_text_only"
+)
+_MANFRED_CANDIDATE_COMPOSE_FILE = (
+    "deploy/manfred-memorial/docker-compose.candidate.yml"
+)
+_MANFRED_RELEASE_AUTHORITY_MAX_BYTES = 1024 * 1024
+_MANFRED_CANDIDATE_RELEASE_AUTHORITY_FILES = frozenset(
+    {
+        "PROJECT_MODES.generated.json",
+        _MANFRED_CANDIDATE_RELEASE_AUTHORITY_FILENAME,
+        "deploy_context.generated.json",
+        "manfred_voice_release.generated.json",
+        "release_authority_status.generated.json",
+        "release_manifest.generated.json",
+    }
+)
+_MANFRED_CANDIDATE_RELEASE_AUTHORITY_DOCUMENTS = {
+    "deploy_context": "deploy_context.generated.json",
+    "project_modes": "PROJECT_MODES.generated.json",
+    "release_manifest": "release_manifest.generated.json",
+    "release_status": "release_authority_status.generated.json",
+    "voice_release": "manfred_voice_release.generated.json",
+}
 
 
 def _read_mounted_voice_artifact(filename: str) -> bytes:
@@ -2121,6 +2154,158 @@ def _read_mounted_voice_artifact(filename: str) -> bytes:
             os.close(root_fd)
 
 
+def _read_mounted_candidate_release_authority_bundle() -> dict[str, bytes]:
+    status_path_raw = str(
+        os.getenv("EA_RELEASE_AUTHORITY_STATUS_PATH") or ""
+    ).strip()
+    status_path = Path(status_path_raw)
+    if (
+        not status_path_raw
+        or not status_path.is_absolute()
+        or status_path.name != "release_authority_status.generated.json"
+        or str(Path(os.path.abspath(os.fspath(status_path)))) != status_path_raw
+    ):
+        raise ValueError("release_authority_root_invalid")
+    root = status_path.parent
+    try:
+        if root.resolve(strict=True) != root:
+            raise ValueError("release_authority_root_invalid")
+    except OSError as exc:
+        raise ValueError("release_authority_root_invalid") from exc
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise ValueError("release_authority_nofollow_unavailable")
+    directory_flags = (
+        os.O_RDONLY
+        | os.O_CLOEXEC
+        | getattr(os, "O_DIRECTORY", 0)
+        | os.O_NOFOLLOW
+    )
+    artifact_flags = (
+        os.O_RDONLY
+        | os.O_CLOEXEC
+        | getattr(os, "O_NONBLOCK", 0)
+        | os.O_NOFOLLOW
+    )
+    root_fd = -1
+    artifact_fds: list[int] = []
+    try:
+        root_path_metadata = root.lstat()
+        root_fd = os.open(root, directory_flags)
+        root_metadata = os.fstat(root_fd)
+        if (
+            not stat.S_ISDIR(root_metadata.st_mode)
+            or stat.S_ISLNK(root_path_metadata.st_mode)
+            or root_metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(root_metadata.st_mode) & 0o022
+            or (root_metadata.st_dev, root_metadata.st_ino)
+            != (root_path_metadata.st_dev, root_path_metadata.st_ino)
+        ):
+            raise ValueError("release_authority_root_invalid")
+        if set(os.listdir(root_fd)) != set(
+            _MANFRED_CANDIDATE_RELEASE_AUTHORITY_FILES
+        ):
+            raise ValueError("release_authority_bundle_files_invalid")
+        bundle: dict[str, bytes] = {}
+        identities: dict[str, tuple[int, ...]] = {}
+        for filename in sorted(
+            _MANFRED_CANDIDATE_RELEASE_AUTHORITY_FILES
+        ):
+            path_metadata = os.stat(
+                filename,
+                dir_fd=root_fd,
+                follow_symlinks=False,
+            )
+            artifact_fd = os.open(
+                filename,
+                artifact_flags,
+                dir_fd=root_fd,
+            )
+            artifact_fds.append(artifact_fd)
+            metadata = os.fstat(artifact_fd)
+            mode = stat.S_IMODE(metadata.st_mode)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or stat.S_ISLNK(path_metadata.st_mode)
+                or metadata.st_uid != os.geteuid()
+                or metadata.st_nlink != 1
+                or mode not in {0o400, 0o440, 0o444, 0o600, 0o640}
+                or not 0 < metadata.st_size
+                <= _MANFRED_RELEASE_AUTHORITY_MAX_BYTES
+                or (metadata.st_dev, metadata.st_ino)
+                != (path_metadata.st_dev, path_metadata.st_ino)
+            ):
+                raise ValueError("release_authority_artifact_invalid")
+            identity = (
+                metadata.st_dev,
+                metadata.st_ino,
+                metadata.st_mode,
+                metadata.st_uid,
+                metadata.st_gid,
+                metadata.st_nlink,
+                metadata.st_size,
+                metadata.st_mtime_ns,
+                metadata.st_ctime_ns,
+            )
+            content = bytearray()
+            while True:
+                chunk = os.read(artifact_fd, 64 * 1024)
+                if not chunk:
+                    break
+                content.extend(chunk)
+                if len(content) > _MANFRED_RELEASE_AUTHORITY_MAX_BYTES:
+                    raise ValueError("release_authority_artifact_invalid")
+            if len(content) != metadata.st_size:
+                raise ValueError(
+                    "release_authority_artifact_changed_during_read"
+                )
+            identities[filename] = identity
+            bundle[filename] = bytes(content)
+        if (
+            set(os.listdir(root_fd))
+            != set(_MANFRED_CANDIDATE_RELEASE_AUTHORITY_FILES)
+            or os.fstat(root_fd).st_ino != root_metadata.st_ino
+        ):
+            raise ValueError("release_authority_bundle_changed_during_read")
+        for filename, artifact_fd in zip(
+            sorted(_MANFRED_CANDIDATE_RELEASE_AUTHORITY_FILES),
+            artifact_fds,
+            strict=True,
+        ):
+            final = os.fstat(artifact_fd)
+            final_path = os.stat(
+                filename,
+                dir_fd=root_fd,
+                follow_symlinks=False,
+            )
+            final_identity = (
+                final.st_dev,
+                final.st_ino,
+                final.st_mode,
+                final.st_uid,
+                final.st_gid,
+                final.st_nlink,
+                final.st_size,
+                final.st_mtime_ns,
+                final.st_ctime_ns,
+            )
+            if (
+                final_identity != identities[filename]
+                or (final_path.st_dev, final_path.st_ino)
+                != (final.st_dev, final.st_ino)
+            ):
+                raise ValueError(
+                    "release_authority_bundle_changed_during_read"
+                )
+        return bundle
+    except (OSError, UnicodeError) as exc:
+        raise ValueError("release_authority_bundle_unavailable") from exc
+    finally:
+        for artifact_fd in artifact_fds:
+            os.close(artifact_fd)
+        if root_fd >= 0:
+            os.close(root_fd)
+
+
 def _strict_voice_json_object(content: bytes) -> dict[str, object]:
     def object_pairs(
         pairs: list[tuple[str, object]],
@@ -2187,7 +2372,208 @@ def _memorial_tts_lane_matches_release_identity(
     )
 
 
-def _memorial_voice_runtime_bindings() -> tuple[dict[str, str], str]:
+def _provider_free_candidate_voice_release_payload(
+    *,
+    bindings: dict[str, str],
+    voice_values: dict[str, str],
+    voice_identity: str,
+) -> dict[str, object] | None:
+    source_revision = str(os.getenv("EA_SOURCE_REVISION") or "").strip()
+    project = str(
+        os.getenv("EA_MANFRED_COMPOSE_PROJECT") or ""
+    ).strip()
+    deployment_id = str(os.getenv("EA_DEPLOYMENT_ID") or "").strip()
+    expected_deployment_id = f"{project}-{source_revision[:12]}"
+    if (
+        re.fullmatch(r"[0-9a-f]{40}", source_revision) is None
+        or re.fullmatch(
+            r"ea-manfred-candidate-[a-z0-9][a-z0-9-]{0,94}",
+            project,
+        )
+        is None
+        or deployment_id != expected_deployment_id
+        or str(os.getenv("EA_MANFRED_DEPLOYMENT_ID") or "").strip()
+        != expected_deployment_id
+        or str(os.getenv("EA_DEPLOY_COMPOSE_FILES") or "").strip()
+        != _MANFRED_CANDIDATE_COMPOSE_FILE
+        or str(os.getenv("EA_DEPLOY_PRIMARY_MODE") or "").strip()
+        != "MEMORIAL"
+        or str(os.getenv("EA_DEPLOY_ENABLED_MODES") or "").strip()
+        != "MEMORIAL,PROPERTY"
+        or any(
+            os.getenv(name) not in {None, ""}
+            for name in ("UNMIXR_API_KEY", "UNMIXR_VOICE_ID")
+        )
+    ):
+        return None
+    try:
+        bundle = _read_mounted_candidate_release_authority_bundle()
+        decoded = {
+            filename: _strict_voice_json_object(content)
+            for filename, content in bundle.items()
+        }
+    except ValueError:
+        return None
+    authority = decoded[_MANFRED_CANDIDATE_RELEASE_AUTHORITY_FILENAME]
+    release_status = decoded["release_authority_status.generated.json"]
+    deploy_context = decoded["deploy_context.generated.json"]
+    container_paths = authority.get("container_paths")
+    documents = authority.get("documents")
+    root = _memorial_voice_release_receipt_path().parent
+    runtime_state = (
+        authority.get("voice_release_allowed"),
+        authority.get("public_evaluation_allowed"),
+        authority.get("voice_runtime_enablement_allowed"),
+        authority.get("voice_access_mode"),
+    )
+    expected_document_names = set(
+        _MANFRED_CANDIDATE_RELEASE_AUTHORITY_DOCUMENTS
+    )
+    if (
+        not isinstance(documents, dict)
+        or set(documents) != expected_document_names
+    ):
+        return None
+    for document_name, filename in (
+        _MANFRED_CANDIDATE_RELEASE_AUTHORITY_DOCUMENTS.items()
+    ):
+        document = documents.get(document_name)
+        content = bundle[filename]
+        if (
+            not isinstance(document, dict)
+            or set(document) != {"sha256", "size_bytes"}
+            or document.get("sha256")
+            != hashlib.sha256(content).hexdigest()
+            or document.get("size_bytes") != len(content)
+        ):
+            return None
+    expected_container_paths = {
+        "deploy_context": str(root / "deploy_context.generated.json"),
+        "project_modes": str(root / "PROJECT_MODES.generated.json"),
+        "receipt": str(
+            root / _MANFRED_CANDIDATE_RELEASE_AUTHORITY_FILENAME
+        ),
+        "release_manifest": str(root / "release_manifest.generated.json"),
+        "release_status": str(
+            root / "release_authority_status.generated.json"
+        ),
+        "voice_release": str(
+            root / "manfred_voice_release.generated.json"
+        ),
+    }
+    matches = bool(
+        authority.get("schema")
+        == _MANFRED_CANDIDATE_RELEASE_AUTHORITY_SCHEMA
+        and authority.get("status") == "pass"
+        and authority.get("candidate_provider_boundary")
+        == _MANFRED_CANDIDATE_PROVIDER_BOUNDARY
+        and authority.get("runtime_authority_posture")
+        == "authoritative_runtime"
+        and authority.get("runtime_authority_state") == "clear"
+        and authority.get("promotion_authority") is False
+        and authority.get("secret_material_recorded") is False
+        and authority.get("project_mode") == "MEMORIAL"
+        and authority.get("enabled_project_modes")
+        == ["MEMORIAL", "PROPERTY"]
+        and authority.get("deployment_id") == expected_deployment_id
+        and authority.get("commit_sha") == source_revision
+        and authority.get("image_revision") == source_revision
+        and authority.get("source_commit_reachable_from_remote_ref")
+        is True
+        and authority.get("source_remote_ref")
+        == "refs/remotes/origin/main"
+        and authority.get("source_remote_ref_commit_sha")
+        == source_revision
+        and authority.get("live_remote_ref") == "refs/heads/main"
+        and authority.get("live_remote_ref_commit_sha")
+        == source_revision
+        and authority.get("image_id") == bindings["expected_image_id"]
+        and authority.get("image_id_semantics")
+        == "docker_image_id_sha256"
+        and authority.get("voice_config_sha256")
+        == voice_values["voice_config_sha256"]
+        and authority.get("voice_manifest_sha256")
+        == voice_values["voice_manifest_sha256"]
+        and authority.get("voice_reference_aggregate_sha256")
+        == voice_values["voice_reference_aggregate_sha256"]
+        and authority.get("provider_voice_id_sha256")
+        == voice_values["provider_voice_id_sha256"]
+        and authority.get("tts_provider") == voice_values["tts_provider"]
+        and authority.get("tts_model") == voice_values["tts_model"]
+        and authority.get("voice_identity_sha256") == voice_identity
+        and authority.get("voice_artifact_digest_semantics")
+        == VOICE_ARTIFACT_DIGEST_SEMANTICS
+        and authority.get(
+            "voice_reference_aggregate_sha256_semantics"
+        )
+        == VOICE_REFERENCE_AGGREGATE_SHA256_SEMANTICS
+        and authority.get("provider_voice_id_sha256_semantics")
+        == PROVIDER_VOICE_ID_SHA256_SEMANTICS
+        and authority.get("voice_identity_sha256_semantics")
+        == "sha256_canonical_json_utf8_voice_identity_v1"
+        and runtime_state
+        == (
+            False,
+            True,
+            True,
+            "owner-authorized-public-evaluation",
+        )
+        and isinstance(container_paths, dict)
+        and container_paths == expected_container_paths
+        and release_status.get("contract_name")
+        == "ea.release_authority_status.v1"
+        and release_status.get("state") == "clear"
+        and release_status.get("authority_posture")
+        == "authoritative_runtime"
+        and release_status.get("candidate_runtime") is True
+        and release_status.get("promotion_authority") is False
+        and release_status.get("issues") == []
+        and release_status.get("dirty_worktree") is False
+        and release_status.get("source_worktree_dirty") is False
+        and release_status.get("source_commit_reachable_from_remote_ref")
+        is True
+        and release_status.get("commit_sha") == source_revision
+        and release_status.get("deployment_id") == expected_deployment_id
+        and release_status.get("project_mode") == "MEMORIAL"
+        and release_status.get("enabled_project_modes")
+        == ["MEMORIAL", "PROPERTY"]
+        and release_status.get("compose_files")
+        == [_MANFRED_CANDIDATE_COMPOSE_FILE]
+        and release_status.get("compose_overrides") == []
+        and release_status.get("public_origin")
+        == str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip()
+        and deploy_context.get("contract_name") == "ea.deploy_context.v1"
+        and deploy_context.get("generated_by")
+        == "scripts/prepare_manfred_memorial_candidate.py"
+        and deploy_context.get("repository") == "EA"
+        and deploy_context.get("branch") == "main"
+        and deploy_context.get("tracking_branch") == "origin/main"
+        and deploy_context.get("commit_sha") == source_revision
+        and deploy_context.get("deployment_id") == expected_deployment_id
+        and deploy_context.get("deployment_id_source") == "explicit"
+        and deploy_context.get("release_label") == expected_deployment_id
+        and deploy_context.get("project_mode") == "MEMORIAL"
+        and deploy_context.get("enabled_project_modes")
+        == ["MEMORIAL", "PROPERTY"]
+        and deploy_context.get("compose_files")
+        == [_MANFRED_CANDIDATE_COMPOSE_FILE]
+        and deploy_context.get("compose_overrides") == []
+        and deploy_context.get("public_origin")
+        == str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip()
+        and deploy_context.get("public_origin_source")
+        == "EA_PUBLIC_APP_BASE_URL"
+    )
+    if not matches:
+        return None
+    return decoded["manfred_voice_release.generated.json"]
+
+
+def _memorial_voice_structural_bindings() -> tuple[
+    dict[str, str],
+    dict[str, str],
+    dict[str, object],
+    str,
+]:
     bindings = {
         "expected_image_id": str(
             os.getenv("EA_DEPLOY_IMAGE_ID") or ""
@@ -2212,7 +2598,7 @@ def _memorial_voice_runtime_bindings() -> tuple[dict[str, str], str]:
         ).strip(),
     }
     if not valid_image_id(bindings["expected_image_id"]):
-        return {}, "release_runtime_image_id_missing"
+        return {}, {}, {}, "release_runtime_image_id_missing"
     try:
         config_bytes = _read_mounted_voice_artifact("tts_voice.json")
         manifest_bytes = _read_mounted_voice_artifact(
@@ -2221,7 +2607,7 @@ def _memorial_voice_runtime_bindings() -> tuple[dict[str, str], str]:
         config = _strict_voice_json_object(config_bytes)
         manifest = _strict_voice_json_object(manifest_bytes)
     except ValueError:
-        return {}, "release_runtime_voice_identity_missing"
+        return {}, {}, {}, "release_runtime_voice_identity_missing"
     voice_values = {
         "voice_config_sha256": bindings["expected_voice_config_sha256"],
         "voice_manifest_sha256": bindings[
@@ -2253,7 +2639,7 @@ def _memorial_voice_runtime_bindings() -> tuple[dict[str, str], str]:
         or hashlib.sha256(manifest_bytes).hexdigest()
         != voice_values["voice_manifest_sha256"]
     ):
-        return {}, "release_runtime_voice_identity_missing"
+        return {}, {}, {}, "release_runtime_voice_identity_missing"
     base_manifest_fields = {
         "schema",
         "generated_by",
@@ -2288,11 +2674,11 @@ def _memorial_voice_runtime_bindings() -> tuple[dict[str, str], str]:
             base_manifest_fields | provenance_manifest_fields
         )
     else:
-        return {}, "release_runtime_voice_identity_missing"
+        return {}, {}, {}, "release_runtime_voice_identity_missing"
     try:
         empty_reference_aggregate = reference_aggregate_sha256([])
     except ManfredVoiceSignatureError:
-        return {}, "release_runtime_voice_identity_missing"
+        return {}, {}, {}, "release_runtime_voice_identity_missing"
     if (
         set(manifest) != expected_manifest_fields
         or (
@@ -2349,7 +2735,28 @@ def _memorial_voice_runtime_bindings() -> tuple[dict[str, str], str]:
             != _MANFRED_PROVIDER_VOICE_ID_PLACEHOLDER
         )
     ):
-        return {}, "release_runtime_voice_identity_missing"
+        return {}, {}, {}, "release_runtime_voice_identity_missing"
+    try:
+        identity_sha256 = voice_identity_sha256(**voice_values)
+    except ManfredVoiceSignatureError:
+        return {}, {}, {}, "release_runtime_voice_identity_missing"
+    if (
+        str(os.getenv("EA_MEMORIAL_VOICE_IDENTITY_SHA256") or "").strip()
+        != identity_sha256
+    ):
+        return {}, {}, {}, "release_runtime_voice_identity_missing"
+    return bindings, voice_values, config, ""
+
+
+def _memorial_voice_runtime_bindings() -> tuple[dict[str, str], str]:
+    (
+        bindings,
+        voice_values,
+        config,
+        blocked_reason,
+    ) = _memorial_voice_structural_bindings()
+    if blocked_reason:
+        return {}, blocked_reason
     raw_provider_voice_id = os.getenv("UNMIXR_VOICE_ID")
     if (
         not isinstance(raw_provider_voice_id, str)
@@ -2365,36 +2772,92 @@ def _memorial_voice_runtime_bindings() -> tuple[dict[str, str], str]:
         )
     ):
         return {}, "release_runtime_voice_identity_missing"
-    try:
-        identity_sha256 = voice_identity_sha256(**voice_values)
-    except ManfredVoiceSignatureError:
-        return {}, "release_runtime_voice_identity_missing"
-    if (
-        str(os.getenv("EA_MEMORIAL_VOICE_IDENTITY_SHA256") or "").strip()
-        != identity_sha256
-    ):
-        return {}, "release_runtime_voice_identity_missing"
     return bindings, ""
 
 
 def _memorial_voice_release_decision(slug: str) -> dict[str, object]:
     runtime_bindings, blocked_reason = _memorial_voice_runtime_bindings()
-    if blocked_reason:
+    safe_slug = _safe_slug(slug)
+    expected_source_revision = str(
+        os.getenv("EA_SOURCE_REVISION") or ""
+    ).strip()
+    expected_public_origin = str(
+        os.getenv("EA_PUBLIC_APP_BASE_URL") or ""
+    ).strip()
+    if not blocked_reason:
+        decision = evaluate_memorial_voice_release(
+            slug=safe_slug,
+            receipt_path=_memorial_voice_release_receipt_path(),
+            expected_source_revision=expected_source_revision,
+            expected_public_origin=expected_public_origin,
+            **runtime_bindings,
+        )
+        if _memorial_voice_access_allowed(decision):
+            return {**decision, "provider_work_allowed": True}
+        return decision
+    if blocked_reason != "release_runtime_voice_identity_missing":
         return {
             "allowed": False,
             "status": "blocked",
             "reason": blocked_reason,
             "receipt_status": "",
         }
-    return evaluate_memorial_voice_release(
-        slug=_safe_slug(slug),
-        receipt_path=_memorial_voice_release_receipt_path(),
-        expected_source_revision=str(os.getenv("EA_SOURCE_REVISION") or "").strip(),
-        expected_public_origin=str(
-            os.getenv("EA_PUBLIC_APP_BASE_URL") or ""
-        ).strip(),
-        **runtime_bindings,
+    (
+        structural_bindings,
+        voice_values,
+        _config,
+        structural_reason,
+    ) = _memorial_voice_structural_bindings()
+    if structural_reason:
+        return {
+            "allowed": False,
+            "status": "blocked",
+            "reason": structural_reason,
+            "receipt_status": "",
+        }
+    try:
+        identity_sha256 = voice_identity_sha256(**voice_values)
+    except ManfredVoiceSignatureError:
+        return {
+            "allowed": False,
+            "status": "blocked",
+            "reason": "release_runtime_voice_identity_missing",
+            "receipt_status": "",
+        }
+    receipt_payload = _provider_free_candidate_voice_release_payload(
+        bindings=structural_bindings,
+        voice_values=voice_values,
+        voice_identity=identity_sha256,
     )
+    if receipt_payload is None:
+        return {
+            "allowed": False,
+            "status": "blocked",
+            "reason": blocked_reason,
+            "receipt_status": "",
+        }
+    decision = evaluate_memorial_voice_release_payload(
+        slug=safe_slug,
+        payload=receipt_payload,
+        expected_source_revision=expected_source_revision,
+        expected_public_origin=expected_public_origin,
+        **structural_bindings,
+    )
+    if (
+        decision.get("allowed") is not False
+        or not _memorial_voice_access_allowed(decision)
+    ):
+        return {
+            "allowed": False,
+            "status": "blocked",
+            "reason": "candidate_public_evaluation_not_authorized",
+            "receipt_status": str(decision.get("receipt_status") or ""),
+        }
+    return {
+        **decision,
+        "provider_work_allowed": False,
+        "provider_free_candidate": True,
+    }
 
 
 def _memorial_voice_release_enforced() -> bool:
@@ -2417,11 +2880,21 @@ def _memorial_voice_access_allowed(decision: dict[str, object]) -> bool:
     )
 
 
+def _memorial_voice_provider_work_allowed(
+    decision: dict[str, object],
+) -> bool:
+    return (
+        _memorial_voice_access_allowed(decision)
+        and decision.get("provider_work_allowed") is True
+    )
+
+
 def _require_voice_consent(
     payload: dict[str, object],
     action: str,
     *,
     operator_preview_allowed: bool = False,
+    allow_provider_free_authorization_probe: bool = False,
 ) -> None:
     _support_require_voice_consent(
         payload,
@@ -2433,6 +2906,17 @@ def _require_voice_consent(
         decision = _memorial_voice_release_decision(_text(payload.get("slug"), ""))
         if not _memorial_voice_access_allowed(decision):
             raise HTTPException(status_code=409, detail="memorial_voice_release_not_verified")
+        if (
+            not (
+                allow_provider_free_authorization_probe
+                and action == "synthesize"
+            )
+            and not _memorial_voice_provider_work_allowed(decision)
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="memorial_candidate_provider_work_blocked",
+            )
 
 
 def _memorial_voice_review_session_claims_current(
@@ -9608,7 +10092,7 @@ def _schedule_missing_memorial_voice_prewarm(
     if (
         _memorial_voice_release_enforced()
         and not operator_preview_allowed
-        and not _memorial_voice_access_allowed(
+        and not _memorial_voice_provider_work_allowed(
             _memorial_voice_release_decision(safe_slug)
         )
     ):
@@ -10079,7 +10563,7 @@ def _run_memorial_live_warmup(
     if (
         _memorial_voice_release_enforced()
         and not operator_preview_allowed
-        and not _memorial_voice_access_allowed(
+        and not _memorial_voice_provider_work_allowed(
             _memorial_voice_release_decision(slug)
         )
     ):
@@ -10601,7 +11085,7 @@ def _schedule_memorial_live_warmup(
     if (
         _memorial_voice_release_enforced()
         and not operator_preview_allowed
-        and not _memorial_voice_access_allowed(
+        and not _memorial_voice_provider_work_allowed(
             _memorial_voice_release_decision(safe_slug)
         )
     ):
@@ -10814,7 +11298,7 @@ def _prime_memorial_live_warmup_on_page_render(slug: str) -> None:
         return
     if (
         _memorial_voice_release_enforced()
-        and not _memorial_voice_access_allowed(
+        and not _memorial_voice_provider_work_allowed(
             _memorial_voice_release_decision(slug)
         )
     ):
