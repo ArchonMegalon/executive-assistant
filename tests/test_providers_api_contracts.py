@@ -10748,7 +10748,7 @@ def test_public_memorial_chat_excludes_private_context_and_public_diagnosis_leak
     assert "beginConversationRecording" in page.text
     assert "sendConversationTurn" in page.text
     assert "startRealtimeAudioTurn" in page.text
-    assert "turn.sendBlob(blob);" in page.text
+    assert "realtimeTurn.sendBlob(blob);" in page.text
     assert "blob.arrayBuffer().then" in page.text
     assert "ensureRealtimeSocket" in page.text
     assert "user_audio_start" in page.text

@@ -13098,14 +13098,14 @@ def _minimal_public_memorial_html(
         voice_guidance = (
             "Öffentliche Testphase: Diese KI-Rekonstruktion antwortet aus einer "
             "aus freigegebenen Erinnerungen und Quellen abgeleiteten Ich-Perspektive. "
-            "Sie ist nicht Manfred und spricht nicht für ihn. Die künstlich erzeugte "
+            "Sie ist nicht der echte Manfred und spricht nicht für ihn. Die künstlich erzeugte "
             "Stimme wird noch beurteilt. Mikrofon und Audio werden erst nach "
             "„Gespräch beginnen“ verarbeitet."
         )
     elif voice_access_blocked:
         voice_guidance = (
             "Hier antwortet eine KI anhand freigegebener Erinnerungen und Quellen. "
-            "Sie ist nicht Manfred und spricht nicht für ihn. "
+            "Sie ist nicht der echte Manfred und spricht nicht für ihn. "
             + (
                 "Sprechen ist derzeit nicht verfügbar."
                 if conversation_only
@@ -13115,14 +13115,14 @@ def _minimal_public_memorial_html(
     elif conversation_only:
         voice_guidance = (
             "KI-Rekonstruktion in einer aus freigegebenen Erinnerungen und Quellen "
-            "abgeleiteten Ich-Perspektive. Sie ist nicht Manfred und spricht nicht "
+            "abgeleiteten Ich-Perspektive. Sie ist nicht der echte Manfred und spricht nicht "
             "für ihn. Die Stimme ist künstlich erzeugt. Mikrofon und Audio werden erst nach "
             "„Gespräch beginnen“ verarbeitet."
         )
     else:
         voice_guidance = (
             "Hier antwortet eine KI anhand freigegebener Erinnerungen und Quellen. "
-            "Sie ist nicht Manfred und spricht nicht für ihn. Die Stimme ist künstlich erzeugt. "
+            "Sie ist nicht der echte Manfred und spricht nicht für ihn. Die Stimme ist künstlich erzeugt. "
             "Dein Mikrofon wird erst nach deinem Start verwendet; für Spracherkennung und Wiedergabe "
             "wird dein Audio verarbeitet. Du kannst jederzeit schreiben."
         )
@@ -14332,6 +14332,7 @@ def _minimal_public_memorial_html(
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-avatar {{
         width: clamp(64px, 8vw, 76px);
         height: clamp(64px, 8vw, 76px);
+        box-shadow: 0 0 0 1px rgba(43, 41, 37, .12);
       }}
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-copy h1 {{
         max-width: 15ch;
@@ -14359,10 +14360,54 @@ def _minimal_public_memorial_html(
         width: 100%;
         min-width: 0;
       }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-actions {{
+        margin-top: 18px;
+      }}
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta {{
         min-height: 56px;
         border-radius: 16px;
         font-size: 15px;
+        letter-spacing: .01em;
+        transition: background-color .18s ease, border-color .18s ease, color .18s ease;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta::before {{
+        content: "";
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        margin-right: 10px;
+        border-radius: 50%;
+        background: currentColor;
+        opacity: 0;
+        transform: scale(.72);
+        vertical-align: .08em;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta[data-conversation-state="preparing"]::before,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta[data-conversation-state="working"]::before,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta[data-conversation-state="listening"]::before,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta[data-conversation-state="speaking"]::before,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta[data-conversation-state="error"]::before {{
+        opacity: .9;
+        transform: scale(1);
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta[data-conversation-state="listening"]::before {{
+        background: #d9eadc;
+        animation: memorial-conversation-pulse 1.8s ease-in-out infinite;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta[data-conversation-state="preparing"]::before,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta[data-conversation-state="working"]::before {{
+        background: #f1d9ae;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta[data-conversation-state="speaking"]::before {{
+        background: #dce8f1;
+        animation: memorial-conversation-pulse 1.35s ease-in-out infinite;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta[data-conversation-state="error"] {{
+        background: #795050;
+        border-color: rgba(121, 80, 80, .42);
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta[data-conversation-state="error"]::before {{
+        background: #f5dcdc;
       }}
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-guidance {{
         max-width: 48ch;
@@ -14399,12 +14444,45 @@ def _minimal_public_memorial_html(
         font-size: 16px;
       }}
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-status-bar {{
-        margin-top: 22px;
-        padding-top: 20px;
-        border-top: 1px solid var(--line);
+        margin-top: 16px;
+        padding-top: 0;
+        border-top: 0;
       }}
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-note strong {{
         font: 700 14px/1.4 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-status-meta {{
+        gap: 2px;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-wave {{
+        display: none;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-meter {{
+        width: min(100%, 240px);
+        height: 4px;
+        margin: 2px auto 0;
+        background: rgba(43, 41, 37, .09);
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-transcript {{
+        gap: 0;
+        border-top: 1px solid var(--line);
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-turn {{
+        padding: 15px 0;
+        border: 0;
+        border-bottom: 1px solid var(--line);
+        border-radius: 0;
+        background: transparent;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-turn.assistant p {{
+        font-size: 15px;
+        line-height: 1.58;
+      }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .speech-turn p,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .chat-answer,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .chat-status,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] #memorial-speech-detail {{
+        overflow-wrap: anywhere;
       }}
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] #memorial-voice-recovery-note {{
         max-width: 58ch;
@@ -14455,7 +14533,7 @@ def _minimal_public_memorial_html(
           padding: 0 0 calc(24px + env(safe-area-inset-bottom, 0px));
         }}
         .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .conversation-dock > .wrap {{
-          width: min(100vw - 24px, 720px);
+          width: min(100vw - 40px, 720px);
         }}
         .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .chat {{
           padding: 0;
@@ -14475,11 +14553,17 @@ def _minimal_public_memorial_html(
         }}
       }}
       @media (prefers-reduced-motion: reduce) {{
-        *, *::before, *::after {{
-          animation-duration: 0.001ms !important;
-          animation-iteration-count: 1 !important;
-          transition-duration: 0.001ms !important;
+        html {{
+          scroll-behavior: auto !important;
         }}
+        *, *::before, *::after {{
+          animation: none !important;
+          transition: none !important;
+        }}
+      }}
+      @keyframes memorial-conversation-pulse {{
+        0%, 100% {{ opacity: .58; transform: scale(.82); }}
+        50% {{ opacity: 1; transform: scale(1.16); }}
       }}
     </style>
   </head>
@@ -14581,16 +14665,16 @@ def _minimal_public_memorial_html(
       </div>
     </main>
     <!-- memorial-public-story:end -->
-    <main class="conversation-dock" aria-label="KI-Gespräch über {safe_person_name}" id="memorial-conversation-region" tabindex="-1" data-voice-release="{'blocked' if voice_release_blocked else 'available'}" data-voice-access="{'operator-preview' if operator_preview_allowed else ('public-evaluation' if public_voice_evaluation_allowed else ('public-release' if public_voice_release_allowed else 'text-only'))}"{public_evaluation_attribute}>
+    <main class="conversation-dock" aria-label="KI-Gespräch über {safe_person_name}" id="memorial-conversation-region" tabindex="-1" data-conversation-state="ready" aria-busy="false" data-voice-release="{'blocked' if voice_release_blocked else 'available'}" data-voice-access="{'operator-preview' if operator_preview_allowed else ('public-evaluation' if public_voice_evaluation_allowed else ('public-release' if public_voice_release_allowed else 'text-only'))}"{public_evaluation_attribute}>
       <div class="wrap">
       <section class="chat quiet-shell">
         <noscript>
           <p class="hero-guidance" role="status">Für das Sprachgespräch und die schriftliche Alternative muss JavaScript aktiviert sein. Ohne JavaScript wird nichts aufgenommen oder gesendet.</p>
         </noscript>
-        <div class="hero-actions{hero_actions_class}" id="memorial-hero-actions">
-          <button type="button" id="memorial-conversation" class="hero-cta{conversation_button_class}" data-hero-action="conversation" title="{conversation_button_label}" aria-label="{conversation_button_label}" aria-describedby="memorial-conversation-disclosure" aria-controls="memorial-speech-note memorial-speech-transcript-shell" {conversation_button_state}>{conversation_button_label}</button>
-        </div>
         <p class="hero-guidance" id="memorial-conversation-disclosure">{html.escape(voice_guidance)}</p>
+        <div class="hero-actions{hero_actions_class}" id="memorial-hero-actions">
+          <button type="button" id="memorial-conversation" class="hero-cta{conversation_button_class}" data-hero-action="conversation" data-conversation-state="ready" title="{conversation_button_label}" aria-label="{conversation_button_label}" aria-describedby="memorial-conversation-disclosure" aria-controls="memorial-speech-note memorial-speech-transcript-shell" aria-expanded="false" aria-busy="false" {conversation_button_state}>{conversation_button_label}</button>
+        </div>
         <form class="text-turn-form memorial-js-required-form" id="memorial-text-turn-form" method="post" action="/memorials/{html.escape(slug)}/chat" hidden inert aria-hidden="true" aria-disabled="true" data-js-ready="false">
           <label for="memorial-text-turn-input">{text_turn_label}</label>
           <div class="text-turn-controls">
@@ -14776,6 +14860,7 @@ def _minimal_public_memorial_html(
       let memorialLandingReady = !memorialVoiceReleaseAllowed;
       let memorialInteractionStarted = false;
       let memorialConversationRetryAvailable = false;
+      let activeConversationStart = null;
       let conversationSessionActive = false;
       let recordingActive = false;
       let requestInFlight = false;
@@ -14826,6 +14911,12 @@ def _minimal_public_memorial_html(
       const memorialReducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
       let speechMeterLive = false;
       try {{ document.documentElement.setAttribute("lang", browserPreferredLanguage); }} catch (error) {{}}
+
+      function memorialConversationError(message, code = "") {{
+        const error = new Error(String(message || "request_failed"));
+        if (code) error.code = code;
+        return error;
+      }}
 
       function syncConversationDockClearance() {{
         document.documentElement.style.setProperty("--conversation-dock-clearance", "0px");
@@ -16162,13 +16253,25 @@ def _minimal_public_memorial_html(
       }}
 
       function setSpeechStatus(message, state = "idle", detail = "") {{
+        const normalizedState =
+          state === "playing" || state === "speaking"
+            ? "speaking"
+            : (
+              state === "thinking" || state === "transcribing"
+                ? "working"
+                : state
+            );
+        const conversationState =
+          activeConversationStart && normalizedState === "working"
+            ? "preparing"
+            : (normalizedState === "idle" ? "ready" : normalizedState);
         const statusVisible = !memorialConversationOnly || memorialInteractionStarted;
         if (memorialConversationOnly) {{
-          memorialConversationRetryAvailable = state === "error";
+          memorialConversationRetryAvailable = normalizedState === "error";
           suppressMinimalActionControls();
         }} else if (retryButton) {{
-          retryButton.hidden = state !== "error" || !statusVisible;
-          if (state !== "error") {{
+          retryButton.hidden = normalizedState !== "error" || !statusVisible;
+          if (normalizedState !== "error") {{
             delete retryButton.dataset.action;
             retryButton.textContent = "Sprachfunktion erneut versuchen";
           }} else if (!retryButton.dataset.action) {{
@@ -16178,30 +16281,49 @@ def _minimal_public_memorial_html(
         if (speechMessage) speechMessage.textContent = String(message || "").trim() || "Bereit für deine Frage.";
         if (speechNote) {{
           if (statusVisible) revealConversationRegion(speechNote);
-          speechNote.classList.remove("is-pristine", "is-listening", "is-working", "is-error");
-          if (state === "idle") speechNote.classList.add("is-pristine");
-          if (state === "listening") speechNote.classList.add("is-listening");
-          if (state === "working" || state === "playing") speechNote.classList.add("is-working");
-          if (state === "error") speechNote.classList.add("is-error");
+          speechNote.classList.remove(
+            "is-pristine",
+            "is-listening",
+            "is-working",
+            "is-speaking",
+            "is-error",
+          );
+          if (normalizedState === "idle") speechNote.classList.add("is-pristine");
+          if (normalizedState === "listening") speechNote.classList.add("is-listening");
+          if (normalizedState === "working") speechNote.classList.add("is-working");
+          if (normalizedState === "speaking") speechNote.classList.add("is-speaking");
+          if (normalizedState === "error") speechNote.classList.add("is-error");
         }}
         if (speechPhase) speechPhase.textContent = ({{
           idle: "Bereit",
           listening: "Mikrofon aktiv",
           working: "Antwort wird vorbereitet",
-          playing: "Antwort",
+          speaking: "Ich spreche",
           error: "Erneut versuchen"
-        }})[state] || "Bereit";
+        }})[normalizedState] || "Bereit";
         if (speechDetail) speechDetail.textContent = String(detail || "").trim();
-        setSpeechMonitorState(state);
+        setSpeechMonitorState(normalizedState);
         if (!speechMeterLive) {{
           const ambient = {{
             idle: 0.06,
             listening: 0.24,
             working: 0.16,
-            playing: 0.44,
+            speaking: 0.44,
             error: 0.09,
           }};
-          setSpeechMeterLevel(ambient[state] || 0.06, state === "error" ? 0.42 : 0.78);
+          setSpeechMeterLevel(
+            ambient[normalizedState] || 0.06,
+            normalizedState === "error" ? 0.42 : 0.78,
+          );
+        }}
+        const busy = conversationState === "preparing" || conversationState === "working";
+        if (conversationDock) {{
+          conversationDock.dataset.conversationState = conversationState;
+          conversationDock.setAttribute("aria-busy", busy ? "true" : "false");
+        }}
+        if (conversationButton) {{
+          conversationButton.dataset.conversationState = conversationState;
+          conversationButton.setAttribute("aria-busy", busy ? "true" : "false");
         }}
         if (memorialConversationOnly) syncConversationButton();
       }}
@@ -16420,6 +16542,8 @@ def _minimal_public_memorial_html(
 
       function blockMemorialVoiceAuthorization() {{
         clearMemorialVoiceAudioCache();
+        cancelMemorialReadyContinuation();
+        memorialWarmupPendingStartedAt = 0;
         memorialReadySnapshot = null;
         memorialLandingReady = false;
         abortActiveTurn();
@@ -16561,15 +16685,34 @@ def _minimal_public_memorial_html(
           return;
         }}
         if (memorialConversationOnly) {{
+          const readinessPending = Boolean(
+            !memorialLandingReady
+            && !memorialConversationRetryAvailable
+            && memorialWarmupPendingStartedAt,
+          );
+          const preparing = Boolean(activeConversationStart) || readinessPending;
           const active = recordingActive || conversationSessionActive;
-          const label = active ? "Gespräch beenden" : "Gespräch beginnen";
-          const disabled = !active && !memorialLandingReady && !memorialConversationRetryAvailable;
+          const label = preparing
+            ? "Gespräch wird vorbereitet …"
+            : (active ? "Gespräch beenden" : "Gespräch beginnen");
+          const disabled =
+            preparing
+            || (!active && !memorialLandingReady && !memorialConversationRetryAvailable);
           conversationButton.textContent = label;
           conversationButton.setAttribute("aria-label", label);
           conversationButton.setAttribute("title", label);
           conversationButton.disabled = disabled;
           conversationButton.setAttribute("aria-disabled", disabled ? "true" : "false");
           conversationButton.setAttribute("aria-pressed", conversationSessionActive ? "true" : "false");
+          conversationButton.setAttribute(
+            "aria-expanded",
+            memorialInteractionStarted ? "true" : "false",
+          );
+          conversationButton.setAttribute(
+            "aria-busy",
+            preparing || requestInFlight ? "true" : "false",
+          );
+          if (preparing) conversationButton.dataset.conversationState = "preparing";
           conversationButton.classList.toggle("is-readying", disabled);
           if (heroActions) heroActions.classList.toggle("is-readying", disabled);
           suppressMinimalActionControls();
@@ -16611,7 +16754,7 @@ def _minimal_public_memorial_html(
           if (!memorialVoiceReleaseAllowed) {{
             setSpeechStatus("Schreiben ist bereit.", "idle", "Sprechen ist derzeit nicht verfügbar.");
           }} else if (memorialLandingReady) setSpeechStatus("Bereit für deine Frage.", "idle", detail || "");
-          else setSpeechStatus("Gespräch wird vorbereitet …", "working", detail || "");
+          else setSpeechStatus("Gespräch wird vorbereitet …", "preparing", detail || "");
         }}
       }}
 
@@ -16631,6 +16774,11 @@ def _minimal_public_memorial_html(
       let memorialReadySnapshot = null;
       let memorialLastWarmupStatus = null;
       let memorialReadyRefreshTimer = null;
+      let memorialReadyContinuationTimer = null;
+      let memorialWarmupPendingStartedAt = 0;
+      let memorialStaleWarmupRetryIssued = false;
+      const memorialWarmupPollWindowMs = 45000;
+      const memorialWarmupMaxPendingMs = 120000;
 
       async function requestMemorialWarmup(reason = "page_load") {{
         if (!memorialVoiceReleaseAllowed) return null;
@@ -16669,6 +16817,47 @@ def _minimal_public_memorial_html(
         return Math.max(700, Math.min(5000, Math.floor(recheckAfterSeconds * 1000)));
       }}
 
+      function memorialReadinessState(payload) {{
+        if (
+          payload
+          && payload.warm === true
+          && (payload.voice_required === false || payload.voice_ready === true)
+        ) {{
+          return "ready";
+        }}
+        const status = String((payload && payload.status) || "").trim().toLowerCase();
+        if (
+          payload
+          && payload.inflight !== true
+          && (status === "failed" || status === "blocked" || status === "unavailable")
+        ) {{
+          return "terminal";
+        }}
+        return "pending";
+      }}
+
+      function cancelMemorialReadyContinuation() {{
+        if (!memorialReadyContinuationTimer) return;
+        window.clearTimeout(memorialReadyContinuationTimer);
+        memorialReadyContinuationTimer = null;
+      }}
+
+      function scheduleMemorialReadyContinuation() {{
+        if (
+          memorialReadyContinuationTimer
+          || memorialLandingReady
+          || !memorialVoiceReleaseAllowed
+        ) return;
+        memorialReadyContinuationTimer = window.setTimeout(() => {{
+          memorialReadyContinuationTimer = null;
+          if (memorialLandingReady || !memorialVoiceReleaseAllowed) return;
+          void ensureMemorialReady(
+            "voice_prewarm_continuation",
+            {{ requestWarmup: false }},
+          );
+        }}, 900);
+      }}
+
       function scheduleMemorialReadyRefresh(payload) {{
         if (memorialReadyRefreshTimer) {{
           window.clearTimeout(memorialReadyRefreshTimer);
@@ -16679,6 +16868,7 @@ def _minimal_public_memorial_html(
         const refreshMs = Math.max(5000, Math.min(300000, Math.floor(Math.max(5, ttl - 45) * 1000)));
         memorialReadyRefreshTimer = window.setTimeout(() => {{
           memorialReadyRefreshTimer = null;
+          memorialStaleWarmupRetryIssued = false;
           void requestMemorialWarmup("ttl_refresh")
             .then(() => waitForMemorialVoiceReady(30000))
             .then((nextPayload) => {{
@@ -16711,15 +16901,22 @@ def _minimal_public_memorial_html(
       async function waitForMemorialVoiceReady(maxWaitMs = 12000) {{
         if (!memorialVoiceReleaseAllowed) return {{ status: "blocked_release", warm: false, voice_ready: false }};
         const startedAt = Date.now();
+        let lastPayload = null;
         while (Date.now() - startedAt < maxWaitMs) {{
           let payload = null;
           try {{
             payload = await fetchMemorialWarmupStatus();
+            if (payload && typeof payload === "object") lastPayload = payload;
             if (payload && payload.warm && (payload.voice_required === false || payload.voice_ready === true)) {{
               memorialReadySnapshot = payload;
               return payload;
             }}
-            if (payload && payload.voice_prewarm_stale === true) {{
+            if (
+              payload
+              && payload.voice_prewarm_stale === true
+              && !memorialStaleWarmupRetryIssued
+            ) {{
+              memorialStaleWarmupRetryIssued = true;
               await requestMemorialWarmup("voice_stale_retry");
             }}
             const warmupStatus = String((payload && payload.status) || "").trim().toLowerCase();
@@ -16733,23 +16930,43 @@ def _minimal_public_memorial_html(
           }} catch (error) {{}}
           await new Promise((resolve) => window.setTimeout(resolve, memorialWarmupPollDelayMs(payload)));
         }}
-        return null;
+        return lastPayload;
       }}
 
-      async function ensureMemorialReady(reason = "page_load") {{
+      async function ensureMemorialReady(reason = "page_load", options = {{}}) {{
         if (!memorialVoiceReleaseAllowed) {{
           setMemorialLandingReady(true, "Sprechen ist derzeit nicht verfügbar.");
           return {{ status: "blocked_release", warm: false, voice_ready: false }};
         }}
         if (memorialLandingReady && memorialReadySnapshot) return memorialReadySnapshot;
         if (memorialReadyPromise) return memorialReadyPromise;
+        const shouldRequestWarmup = options.requestWarmup !== false;
+        if (shouldRequestWarmup) cancelMemorialReadyContinuation();
+        if (!memorialWarmupPendingStartedAt) {{
+          memorialWarmupPendingStartedAt = Date.now();
+          memorialStaleWarmupRetryIssued = false;
+        }}
         setMemorialLandingReady(false, "Gleich kannst du das Gespräch starten.");
         memorialReadyPromise = (async () => {{
           try {{
-            await requestMemorialWarmup(reason);
-            memorialReadySnapshot = await waitForMemorialVoiceReady(12000);
+            if (shouldRequestWarmup) await requestMemorialWarmup(reason);
+            const pendingElapsedMs = Math.max(
+              0,
+              Date.now() - memorialWarmupPendingStartedAt,
+            );
+            const remainingPendingMs = Math.max(
+              1000,
+              memorialWarmupMaxPendingMs - pendingElapsedMs,
+            );
+            memorialReadySnapshot = await waitForMemorialVoiceReady(
+              Math.min(memorialWarmupPollWindowMs, remainingPendingMs),
+            );
           }} catch (error) {{}}
-          if (memorialReadySnapshot && memorialReadySnapshot.warm && (memorialReadySnapshot.voice_required === false || memorialReadySnapshot.voice_ready === true)) {{
+          const readinessState = memorialReadinessState(memorialReadySnapshot);
+          if (readinessState === "ready") {{
+            memorialWarmupPendingStartedAt = 0;
+            memorialStaleWarmupRetryIssued = false;
+            cancelMemorialReadyContinuation();
             scheduleMemorialReadyRefresh(memorialReadySnapshot);
             try {{
               await ensureContactAcknowledgementAudio();
@@ -16758,7 +16975,19 @@ def _minimal_public_memorial_html(
               contactAcknowledgementReady = false;
               setMemorialLandingReady(true, "Das Gespräch ist bereit.");
             }}
+          }} else if (
+            readinessState === "pending"
+            && Date.now() - memorialWarmupPendingStartedAt < memorialWarmupMaxPendingMs
+          ) {{
+            setMemorialLandingReady(
+              false,
+              "Die Stimme wird noch vorbereitet.",
+            );
+            scheduleMemorialReadyContinuation();
           }} else {{
+            memorialWarmupPendingStartedAt = 0;
+            memorialStaleWarmupRetryIssued = false;
+            cancelMemorialReadyContinuation();
             setMemorialLandingReady(false, "");
             if (!memorialConversationOnly && retryButton) {{
               retryButton.dataset.action = "voice-readiness";
@@ -16783,16 +17012,26 @@ def _minimal_public_memorial_html(
         await ensureMemorialReady("page_load");
       }}
 
-      async function ensureInputStream() {{
+      async function ensureInputStream(generation) {{
         if (!memorialVoiceReleaseAllowed) throw new Error("memorial_voice_release_not_verified");
         const authorization = await requireFreshMemorialVoiceAuthorization();
         if (!authorization) throw new Error("memorial_voice_release_not_verified");
+        if (generation !== activeGeneration || !conversationSessionActive) {{
+          throw memorialConversationError("Das Gespräch wurde beendet.", "turn_superseded");
+        }}
         if (activeStream) return activeStream;
-        activeStream = await navigator.mediaDevices.getUserMedia({{
+        const stream = await navigator.mediaDevices.getUserMedia({{
           audio: {{ echoCancellation: true, noiseSuppression: true, autoGainControl: true }},
           video: false,
         }});
-        return activeStream;
+        if (generation !== activeGeneration || !conversationSessionActive) {{
+          for (const track of stream.getTracks()) {{
+            try {{ track.stop(); }} catch (error) {{}}
+          }}
+          throw memorialConversationError("Das Gespräch wurde beendet.", "turn_superseded");
+        }}
+        activeStream = stream;
+        return stream;
       }}
 
       function pickRecorderMimeType() {{
@@ -16864,9 +17103,12 @@ def _minimal_public_memorial_html(
 
       function abortActiveTurn() {{
         activeGeneration += 1;
+        activeConversationStart = null;
         conversationSessionActive = false;
         recordingActive = false;
         requestInFlight = false;
+        cancelRealtimeAudioTurn(activeRealtimeAudioTurn);
+        activeRealtimeAudioTurn = null;
         if (activeFetchController) {{
           try {{ activeFetchController.abort(); }} catch (error) {{}}
           activeFetchController = null;
@@ -17126,12 +17368,21 @@ def _minimal_public_memorial_html(
         const normalizedText = String(answerText || "").trim();
         const expectedMinMs = Math.max(1400, Math.min(9000, normalizedText.length * 28));
         const tooShortThresholdMs = normalizedText.length >= 36 ? Math.max(900, expectedMinMs * 0.58) : 0;
+        const playbackDeadlineMs = Math.max(
+          12000,
+          Math.min(120000, expectedMinMs * 6 + 5000),
+        );
         await new Promise((resolve, reject) => {{
           let settled = false;
           let metadataDurationMs = 0;
+          const watchdogTimer = window.setTimeout(
+            () => finish(new Error("audio_playback_timeout")),
+            playbackDeadlineMs,
+          );
           const finish = (error = null) => {{
             if (settled) return;
             settled = true;
+            window.clearTimeout(watchdogTimer);
             speechAudio.onloadedmetadata = null;
             speechAudio.onended = null;
             speechAudio.onerror = null;
@@ -17636,93 +17887,143 @@ def _minimal_public_memorial_html(
 
       function beginConversationRecording(generation) {{
         return (async () => {{
-        const stream = await ensureInputStream();
-        const mimeType = pickRecorderMimeType();
-        const recorder = mimeType ? new MediaRecorder(stream, {{ mimeType }}) : new MediaRecorder(stream);
-        activeRealtimeAudioTurn = null;
-        activeRecorder = recorder;
-        activeChunks = [];
-        activeRecordingHadSpeech = false;
-        activeRecordingSpeechGateReady = false;
-        recorder.ondataavailable = (event) => {{
-          if (event.data && event.data.size > 0) {{
-            activeChunks.push(event.data);
+          const stream = await ensureInputStream(generation);
+          if (generation !== activeGeneration || !conversationSessionActive) {{
+            throw memorialConversationError("Das Gespräch wurde beendet.", "turn_superseded");
           }}
-        }};
-        recorder.onerror = () => {{
-          if (generation !== activeGeneration) return;
-          resetCaptureState();
-          conversationSessionActive = false;
-          recordingActive = false;
-          requestInFlight = false;
-          syncConversationButton();
-          setSpeechStatus("Bitte noch einmal sprechen.", "error", "");
-        }};
-        recorder.onstop = () => {{
-          const blob = activeChunks.length ? new Blob(activeChunks, {{ type: recorder.mimeType || "audio/webm" }}) : null;
-          const hadSpeech = activeRecordingHadSpeech;
-          const speechGateReady = activeRecordingSpeechGateReady;
-          const realtimeTurnForStop = activeRealtimeAudioTurn;
-          resetCaptureState();
-          if (generation !== activeGeneration) return;
-          if (!conversationSessionActive) return;
-          if (speechGateReady && !hadSpeech) {{
-            cancelRealtimeAudioTurn(realtimeTurnForStop);
+          const mimeType = pickRecorderMimeType();
+          const recorder = mimeType
+            ? new MediaRecorder(stream, {{ mimeType }})
+            : new MediaRecorder(stream);
+          const captureChunks = [];
+          let captureHadSpeech = false;
+          let captureSpeechGateReady = false;
+          let captureStopTimer = null;
+          let captureLevelTimer = null;
+          let captureAudioContext = null;
+          const captureIsCurrent = () => (
+            generation === activeGeneration
+            && activeRecorder === recorder
+          );
+          const cleanupStaleCapture = () => {{
+            if (captureStopTimer) window.clearTimeout(captureStopTimer);
+            if (captureLevelTimer) window.clearInterval(captureLevelTimer);
+            if (captureAudioContext) {{
+              try {{ captureAudioContext.close(); }} catch (error) {{}}
+            }}
+            for (const track of stream.getTracks()) {{
+              try {{ track.stop(); }} catch (error) {{}}
+            }}
+          }};
+
+          activeRealtimeAudioTurn = null;
+          activeRecorder = recorder;
+          activeChunks = captureChunks;
+          activeRecordingHadSpeech = false;
+          activeRecordingSpeechGateReady = false;
+          recorder.ondataavailable = (event) => {{
+            if (event.data && event.data.size > 0) {{
+              captureChunks.push(event.data);
+            }}
+          }};
+          recorder.onerror = () => {{
+            if (!captureIsCurrent()) {{
+              cleanupStaleCapture();
+              return;
+            }}
+            resetCaptureState();
             conversationSessionActive = false;
             recordingActive = false;
             requestInFlight = false;
             syncConversationButton();
-            setSpeechStatus("Bitte noch einmal sprechen.", "error", "Ich habe kaum Stimme gehört");
-            return;
-          }}
-          void finishConversationTurn(blob, generation, realtimeTurnForStop);
-        }};
-        recorder.start(250);
-        activeRecordStopTimer = window.setTimeout(() => {{
-          if (generation !== activeGeneration) return;
-          stopRecorder();
-        }}, 12000);
-        try {{
-          const AudioCtx = window.AudioContext || window.webkitAudioContext;
-          if (AudioCtx) {{
-            const audioContext = new AudioCtx();
-            const source = audioContext.createMediaStreamSource(stream);
-            const analyser = audioContext.createAnalyser();
-            analyser.fftSize = 2048;
-            source.connect(analyser);
-            const samples = new Float32Array(analyser.fftSize);
-            const startedAt = Date.now();
-            let speechSeen = false;
-            let lastLoudAt = startedAt;
-            const minimumRecordMs = 2600;
-            const silenceAfterSpeechMs = 1200;
-            const speechThreshold = 0.0075;
-            activeRecordingSpeechGateReady = true;
-            activeSpeechMeterContext = audioContext;
-            speechMeterLive = true;
-            activeLevelTimer = window.setInterval(() => {{
-              if (generation !== activeGeneration || !activeRecorder || activeRecorder.state !== "recording") return;
-              analyser.getFloatTimeDomainData(samples);
-              let sum = 0;
-              for (let index = 0; index < samples.length; index += 1) sum += samples[index] * samples[index];
-              const rms = Math.sqrt(sum / samples.length);
-              if (speechMeterLive) {{
-                const normalized = Math.max(0.06, Math.min(1, rms * 34));
-                setSpeechMeterLevel(normalized, rms >= speechThreshold ? 0.96 : 0.68);
-              }}
-              const now = Date.now();
-              if (rms >= speechThreshold) {{
-                speechSeen = true;
-                activeRecordingHadSpeech = true;
-                lastLoudAt = now;
-              }}
-              if (speechSeen && now - startedAt >= minimumRecordMs && now - lastLoudAt >= silenceAfterSpeechMs) {{
-                stopRecorder();
-              }}
-            }}, 120);
-          }}
-        }} catch (error) {{}}
-        return true;
+            setSpeechStatus("Bitte noch einmal sprechen.", "error", "");
+          }};
+          recorder.onstop = () => {{
+            const blob = captureChunks.length
+              ? new Blob(captureChunks, {{ type: recorder.mimeType || "audio/webm" }})
+              : null;
+            if (!captureIsCurrent()) {{
+              cleanupStaleCapture();
+              return;
+            }}
+            const realtimeTurnForStop = activeRealtimeAudioTurn;
+            resetCaptureState();
+            if (generation !== activeGeneration || !conversationSessionActive) return;
+            if (captureSpeechGateReady && !captureHadSpeech) {{
+              cancelRealtimeAudioTurn(realtimeTurnForStop);
+              conversationSessionActive = false;
+              recordingActive = false;
+              requestInFlight = false;
+              syncConversationButton();
+              setSpeechStatus(
+                "Bitte noch einmal sprechen.",
+                "error",
+                "Ich habe kaum Stimme gehört",
+              );
+              return;
+            }}
+            void finishConversationTurn(blob, generation, realtimeTurnForStop);
+          }};
+          recorder.start(250);
+          captureStopTimer = window.setTimeout(() => {{
+            if (!captureIsCurrent()) return;
+            stopRecorder();
+          }}, 12000);
+          activeRecordStopTimer = captureStopTimer;
+          try {{
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (AudioCtx) {{
+              const audioContext = new AudioCtx();
+              captureAudioContext = audioContext;
+              const source = audioContext.createMediaStreamSource(stream);
+              const analyser = audioContext.createAnalyser();
+              analyser.fftSize = 2048;
+              source.connect(analyser);
+              const samples = new Float32Array(analyser.fftSize);
+              const startedAt = Date.now();
+              let speechSeen = false;
+              let lastLoudAt = startedAt;
+              const minimumRecordMs = 2600;
+              const silenceAfterSpeechMs = 1200;
+              const speechThreshold = 0.0075;
+              captureSpeechGateReady = true;
+              activeRecordingSpeechGateReady = true;
+              activeSpeechMeterContext = audioContext;
+              speechMeterLive = true;
+              captureLevelTimer = window.setInterval(() => {{
+                if (!captureIsCurrent() || recorder.state !== "recording") return;
+                analyser.getFloatTimeDomainData(samples);
+                let sum = 0;
+                for (let index = 0; index < samples.length; index += 1) {{
+                  sum += samples[index] * samples[index];
+                }}
+                const rms = Math.sqrt(sum / samples.length);
+                if (speechMeterLive) {{
+                  const normalized = Math.max(0.06, Math.min(1, rms * 34));
+                  setSpeechMeterLevel(
+                    normalized,
+                    rms >= speechThreshold ? 0.96 : 0.68,
+                  );
+                }}
+                const now = Date.now();
+                if (rms >= speechThreshold) {{
+                  speechSeen = true;
+                  captureHadSpeech = true;
+                  activeRecordingHadSpeech = true;
+                  lastLoudAt = now;
+                }}
+                if (
+                  speechSeen
+                  && now - startedAt >= minimumRecordMs
+                  && now - lastLoudAt >= silenceAfterSpeechMs
+                ) {{
+                  stopRecorder();
+                }}
+              }}, 120);
+              activeLevelTimer = captureLevelTimer;
+            }}
+          }} catch (error) {{}}
+          return true;
         }})();
       }}
 
@@ -17732,19 +18033,44 @@ def _minimal_public_memorial_html(
         if (generation !== activeGeneration) throw new Error("turn_superseded");
         const payload = {{ answer: "", audio_base64: "", audio_chunks: [], audio_content_type: "audio/wav", sources: [], llm_model: "" }};
         const pendingSends = [];
+        let cancelResult = () => {{}};
+        let cancelled = false;
+        let providerWorkAdmitted = false;
         const resultPromise = new Promise((resolve, reject) => {{
+          let settled = false;
           const timeoutId = window.setTimeout(() => {{
-            socket.removeEventListener("message", onMessage);
-            reject(new Error("realtime_turn_timeout"));
+            settle(new Error("realtime_turn_timeout"));
           }}, 90000);
-          const finish = () => {{
+          const settle = (error = null) => {{
+            if (settled) return;
+            settled = true;
             window.clearTimeout(timeoutId);
             socket.removeEventListener("message", onMessage);
+            socket.removeEventListener("close", onClose);
+            socket.removeEventListener("error", onError);
+            if (error) reject(error);
+            else resolve(payload);
+          }};
+          const finish = () => {{
             if (!payload.audio_base64 && Array.isArray(payload.audio_chunks) && payload.audio_chunks.length) {{
               payload.audio_base64 = payload.audio_chunks.join("");
             }}
-            resolve(payload);
+            settle();
           }};
+          cancelResult = () => {{
+            settle(memorialConversationError("Das Gespräch wurde beendet.", "turn_cancelled"));
+          }};
+          function onClose(event) {{
+            const closeCode = Number((event && event.code) || 0);
+            settle(new Error(
+              closeCode
+                ? "realtime_socket_closed_" + String(closeCode)
+                : "realtime_socket_closed",
+            ));
+          }}
+          function onError() {{
+            settle(new Error("realtime_socket_error"));
+          }}
           function onMessage(event) {{
             let message = null;
             try {{
@@ -17759,6 +18085,10 @@ def _minimal_public_memorial_html(
             pushMemorialRealtimeFrame(message);
             if (type === "ready") {{
               applyRealtimeReadyMode(message);
+              return;
+            }}
+            if (type === "turn_admitted") {{
+              providerWorkAdmitted = message.provider_work_started === true;
               return;
             }}
             if (type === "phase") {{
@@ -17820,13 +18150,14 @@ def _minimal_public_memorial_html(
               return;
             }}
             if (type === "error" || type === "cancelled") {{
-              window.clearTimeout(timeoutId);
-              socket.removeEventListener("message", onMessage);
-              reject(new Error(String(message.message || type || "realtime_failed")));
+              settle(new Error(String(message.message || type || "realtime_failed")));
             }}
           }}
           socket.addEventListener("message", onMessage);
+          socket.addEventListener("close", onClose);
+          socket.addEventListener("error", onError);
         }});
+        void resultPromise.catch(() => null);
         socket.send(JSON.stringify({{
           type: "user_audio_start",
           turn_id: turnId,
@@ -17837,6 +18168,9 @@ def _minimal_public_memorial_html(
         return {{
           turnId,
           resultPromise,
+          providerWorkAdmitted() {{
+            return providerWorkAdmitted;
+          }},
           sendBlob(blob) {{
             if (!blob || !blob.size) return;
             const sendPromise = blob.arrayBuffer().then((buffer) => {{
@@ -17854,6 +18188,9 @@ def _minimal_public_memorial_html(
             return await resultPromise;
           }},
           cancel() {{
+            if (cancelled) return;
+            cancelled = true;
+            cancelResult();
             try {{
               if (socket.readyState === WebSocket.OPEN) {{
                 socket.send(JSON.stringify({{ type: "cancel_current_turn", turn_id: turnId }}));
@@ -17986,28 +18323,57 @@ def _minimal_public_memorial_html(
       }}
 
       async function sendConversationTurn(blob, generation) {{
+        let realtimeTurn = null;
         try {{
-          const turn = await startRealtimeAudioTurn(blob.type || "application/octet-stream", generation);
-          turn.sendBlob(blob);
-          return await turn.finish();
+          realtimeTurn = await startRealtimeAudioTurn(
+            blob.type || "application/octet-stream",
+            generation,
+          );
+          if (generation !== activeGeneration) {{
+            realtimeTurn.cancel();
+            throw memorialConversationError("Das Gespräch wurde beendet.", "turn_superseded");
+          }}
+          activeRealtimeAudioTurn = realtimeTurn;
+          realtimeTurn.sendBlob(blob);
+          const payload = await realtimeTurn.finish();
+          if (generation !== activeGeneration) {{
+            throw memorialConversationError("Das Gespräch wurde beendet.", "turn_superseded");
+          }}
+          return payload;
         }} catch (error) {{
+          const providerWorkAdmitted = Boolean(
+            realtimeTurn
+            && typeof realtimeTurn.providerWorkAdmitted === "function"
+            && realtimeTurn.providerWorkAdmitted(),
+          );
+          if (realtimeTurn) {{
+            cancelRealtimeAudioTurn(realtimeTurn);
+          }}
+          if (generation !== activeGeneration) throw error;
+          const code = String((error && error.code) || "").trim().toLowerCase();
+          if (code === "turn_cancelled" || code === "turn_superseded") throw error;
+          if (providerWorkAdmitted) throw error;
           return await sendConversationTurnHttp(blob, generation);
+        }} finally {{
+          if (activeRealtimeAudioTurn === realtimeTurn) {{
+            activeRealtimeAudioTurn = null;
+          }}
         }}
       }}
 
       async function ensureLandingReadyForConversation() {{
         if (!memorialLandingReady || !memorialReadySnapshot) {{
           setSpeechStatus("Der Gedenkbegleiter wird noch vorbereitet.", "working", "");
-          await ensureMemorialReady("page_load");
+          await ensureMemorialReady("conversation_start");
         }}
-        if (
-          !memorialReadySnapshot
-          || memorialReadySnapshot.warm !== true
-          || (
-            memorialReadySnapshot.voice_required !== false
-            && memorialReadySnapshot.voice_ready !== true
-          )
-        ) {{
+        const readinessState = memorialReadinessState(memorialReadySnapshot);
+        if (readinessState === "pending") {{
+          throw memorialConversationError(
+            "Die Stimme wird noch vorbereitet.",
+            "memorial_voice_preparing",
+          );
+        }}
+        if (readinessState !== "ready") {{
           throw new Error("memorial_voice_not_ready");
         }}
       }}
@@ -18079,55 +18445,98 @@ def _minimal_public_memorial_html(
           }}
           return;
         }}
-        if (conversationSessionActive || recordingActive || requestInFlight) return;
-        const authorization = await requireFreshMemorialVoiceAuthorization({{ requireReady: false }});
-        if (!authorization) return;
-        try {{
-          await ensureLandingReadyForConversation();
-        }} catch (error) {{
-          revealTextFallback();
-          setSpeechStatus(
-            "Sprechen ist gerade nicht möglich.",
-            "error",
-            memorialConversationOnly
-              ? "Drücke „Gespräch beginnen“, um es erneut zu versuchen."
-              : "Du kannst deine Frage schreiben oder es später erneut versuchen."
-          );
-          syncConversationButton();
-          return;
-        }}
-        stopSpeechPlayback();
-        activeGeneration += 1;
-        const generation = activeGeneration;
-        conversationSessionActive = true;
-        recordingActive = true;
+        if (
+          activeConversationStart
+          || conversationSessionActive
+          || recordingActive
+          || requestInFlight
+        ) return;
+        const startToken = {{}};
+        const startGeneration = activeGeneration;
+        activeConversationStart = startToken;
+        setSpeechStatus(
+          "Gespräch wird vorbereitet.",
+          "preparing",
+          "Das Mikrofon bleibt bis zur Freigabe geschlossen",
+        );
         syncConversationButton();
-        if (completedConversationTurns === 0 && contactAcknowledgementReady) {{
-          const acknowledgementAllowed = await playFastContactAcknowledgement(generation);
-          if (!acknowledgementAllowed) return;
-          if (generation !== activeGeneration || !conversationSessionActive) return;
-        }}
-        setSpeechStatus("Ich höre zu.", "listening", "Sprich einfach los");
-        if (supportsLiveRealtimeSession()) {{
+        try {{
+          const authorization = await requireFreshMemorialVoiceAuthorization({{
+            requireReady: false,
+          }});
+          if (
+            !authorization
+            || activeConversationStart !== startToken
+            || startGeneration !== activeGeneration
+          ) return;
           try {{
-            await startLiveRealtimeSession(generation);
-            activeRecordingPromise = Promise.resolve(true);
-            return;
+            await ensureLandingReadyForConversation();
           }} catch (error) {{
-            cleanupLiveRealtimeSession();
+            const code = String((error && error.code) || "").trim().toLowerCase();
+            if (code === "memorial_voice_preparing") {{
+              setSpeechStatus(
+                "Gespräch wird vorbereitet.",
+                "preparing",
+                "Das Mikrofon bleibt bis zur Freigabe geschlossen",
+              );
+              return;
+            }}
+            revealTextFallback();
+            setSpeechStatus(
+              "Sprechen ist gerade nicht möglich.",
+              "error",
+              memorialConversationOnly
+                ? "Drücke „Gespräch beginnen“, um es erneut zu versuchen."
+                : "Du kannst deine Frage schreiben oder es später erneut versuchen."
+            );
+            return;
+          }}
+          if (
+            activeConversationStart !== startToken
+            || startGeneration !== activeGeneration
+            || conversationSessionActive
+            || recordingActive
+            || requestInFlight
+          ) return;
+          stopSpeechPlayback();
+          activeGeneration += 1;
+          const generation = activeGeneration;
+          conversationSessionActive = true;
+          recordingActive = true;
+          if (activeConversationStart === startToken) activeConversationStart = null;
+          syncConversationButton();
+          if (completedConversationTurns === 0 && contactAcknowledgementReady) {{
+            const acknowledgementAllowed = await playFastContactAcknowledgement(generation);
+            if (!acknowledgementAllowed) return;
+            if (generation !== activeGeneration || !conversationSessionActive) return;
+          }}
+          setSpeechStatus("Ich höre zu.", "listening", "Sprich einfach los");
+          if (supportsLiveRealtimeSession()) {{
+            try {{
+              await startLiveRealtimeSession(generation);
+              activeRecordingPromise = Promise.resolve(true);
+              return;
+            }} catch (error) {{
+              cleanupLiveRealtimeSession();
+              if (generation !== activeGeneration) return;
+              setSpeechStatus("Ich höre zu.", "listening", "Fallback aktiv");
+            }}
+          }}
+          activeRecordingPromise = beginConversationRecording(generation);
+          activeRecordingPromise.catch((error) => {{
             if (generation !== activeGeneration) return;
-            setSpeechStatus("Ich höre zu.", "listening", "Fallback aktiv");
+            conversationSessionActive = false;
+            recordingActive = false;
+            activeRecordingPromise = null;
+            syncConversationButton();
+            setMicrophoneFailureStatus(error);
+          }});
+        }} finally {{
+          if (activeConversationStart === startToken) {{
+            activeConversationStart = null;
+            syncConversationButton();
           }}
         }}
-        activeRecordingPromise = beginConversationRecording(generation);
-        activeRecordingPromise.catch((error) => {{
-          if (generation !== activeGeneration) return;
-          conversationSessionActive = false;
-          recordingActive = false;
-          activeRecordingPromise = null;
-          syncConversationButton();
-          setMicrophoneFailureStatus(error);
-        }});
       }}
 
       async function finishConversationTurn(recordedBlob = null, generationOverride = null, realtimeTurnOverride = null) {{
@@ -18154,8 +18563,11 @@ def _minimal_public_memorial_html(
             await playMemorialAudio(audioBlob, generation, String((payload && payload.answer) || ""));
             completedConversationTurns += 1;
             if (generation !== activeGeneration) return;
-          }} else if (!String((payload && payload.answer) || "").trim()) {{
-            throw new Error("missing_memorial_audio");
+          }} else {{
+            throw memorialConversationError(
+              "Die Stimme ist gerade nicht verfügbar.",
+              "memorial_audio_unavailable",
+            );
           }}
           if (conversationSessionActive) {{
             recordingActive = true;
@@ -18178,7 +18590,21 @@ def _minimal_public_memorial_html(
           if (generation === activeGeneration) {{
             conversationSessionActive = false;
             revealTextFallback();
-            setSpeechStatus("Bitte noch einmal sprechen.", "error", "");
+            const code = String((error && error.code) || "").trim().toLowerCase();
+            const message = String((error && error.message) || "").trim().toLowerCase();
+            const audioFailure =
+              code === "memorial_audio_unavailable"
+              || message.includes("audio_")
+              || message.includes("playback");
+            setSpeechStatus(
+              audioFailure
+                ? "Die Stimme ist gerade nicht verfügbar."
+                : "Bitte noch einmal sprechen.",
+              "error",
+              audioFailure
+                ? "Die Antwort bleibt lesbar. Drücke „Gespräch beginnen“, um weiterzusprechen."
+                : "",
+            );
           }}
         }} finally {{
           if (generation === activeGeneration) {{
@@ -18462,6 +18888,9 @@ def _minimal_public_memorial_html(
       }}
 
       window.addEventListener("beforeunload", () => {{
+        abortActiveTurn();
+      }});
+      window.addEventListener("pagehide", () => {{
         abortActiveTurn();
       }});
 
@@ -25400,6 +25829,17 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
         current_gemini_turn_id = turn_id
         current_gemini_backend = auth_mode
         current_gemini_audio_had_speech = False
+        admitted = await _safe_send_json(
+            {
+                "type": "turn_admitted",
+                "turn_id": turn_id,
+                "provider_work_started": True,
+                "transport": "gemini_live",
+            }
+        )
+        if not admitted:
+            await _close_gemini_live_turn()
+            return False
         current_gemini_receiver_task = asyncio.create_task(_receive_gemini_live(turn_id, upstream))
         await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "listening", "detail": "Gemini Live hört zu"})
         return True
@@ -26068,6 +26508,14 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 await websocket.send_json({"type": "error", "message": "memorial_rate_limited"})
                 continue
             turn_id = _text(payload.get("turn_id")) or current_turn_id or f"turn_{len(turn_tasks) + 1}"
+            await websocket.send_json(
+                {
+                    "type": "turn_admitted",
+                    "turn_id": turn_id,
+                    "provider_work_started": True,
+                    "transport": "ea_memorial_turn",
+                }
+            )
             await websocket.send_json({"type": "phase", "turn_id": turn_id, "phase": "transcribing", "detail": "Audio wird transkribiert"})
             task = asyncio.create_task(_process_turn(turn_id, bytes(current_audio), current_content_type))
             _register_turn_task(turn_id, task)

@@ -185,8 +185,7 @@ class MemorialRuntimeTests(unittest.TestCase):
         self.assertIn('id="memorial-speech-audio" preload="none" aria-hidden="true"', rendered)
         self.assertNotIn(" autoplay", rendered)
         self.assertIn(
-            "KI-Rekonstruktion in einer aus freigegebenen Erinnerungen und Quellen "
-            "abgeleiteten Ich-Perspektive – nicht der echte Manfred.",
+            "Sie ist nicht der echte Manfred und spricht nicht für ihn.",
             rendered,
         )
         self.assertIn("Die Stimme ist künstlich erzeugt.", rendered)

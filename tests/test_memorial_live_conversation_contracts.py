@@ -4409,7 +4409,7 @@ def test_blocked_voice_release_renders_polished_text_only_memorial_guide(
     assert "Schriftliche Frage stellen" not in page
     assert "Zum Gespräch" in page
     assert "Zum quellengebundenen Gedenkbegleiter" not in page
-    assert "ist nicht Manfred und spricht nicht für ihn" in page
+    assert "ist nicht der echte Manfred und spricht nicht für ihn" in page
     assert "Was möchtest du Manfred fragen?" not in page
     assert "KI-gestützten, synthetischen Manfred-Stimme" not in page
     assert "const memorialVoiceReleaseAllowed = false;" in page
@@ -4603,6 +4603,29 @@ def test_memorial_realtime_without_gemini_runs_grounded_unmixr_spoken_turn(
     assert seen["tts_config_voice_id"] == provider_voice_id
     assert "Jugend" in str(seen["tts_text"])
     assert any(
+        message.get("type") == "turn_admitted"
+        and message.get("provider_work_started") is True
+        and message.get("transport") == "ea_memorial_turn"
+        for message in messages
+    )
+    admission_index = next(
+        index
+        for index, message in enumerate(messages)
+        if message.get("type") == "turn_admitted"
+    )
+    transcribing_index = next(
+        index
+        for index, message in enumerate(messages)
+        if message.get("type") == "phase"
+        and message.get("phase") == "transcribing"
+    )
+    transcript_index = next(
+        index
+        for index, message in enumerate(messages)
+        if message.get("type") == "transcript"
+    )
+    assert admission_index < transcribing_index < transcript_index
+    assert any(
         message.get("type") == "transcript"
         and message.get("text")
         == "Was hast du über deine Jugend erzählt?"
@@ -4641,7 +4664,7 @@ def test_memorial_realtime_rechecks_public_release_before_later_turn(
         Path(str(tmp_path / "private")),
         slug,
     )
-    release = {"allowed": True}
+    release = {"allowed": True, "provider_work_allowed": True}
     provider_calls: list[str] = []
     monkeypatch.setattr(
         public_memorials,
@@ -4712,7 +4735,7 @@ def test_memorial_realtime_revocation_during_llm_emits_no_answer_or_audio(
         Path(str(tmp_path / "private")),
         slug,
     )
-    release = {"allowed": True}
+    release = {"allowed": True, "provider_work_allowed": True}
     consent = {"allowed": True}
     llm_started = threading.Event()
     llm_continue = threading.Event()
@@ -6287,6 +6310,7 @@ def test_memorial_readiness_rechecks_release_and_invalidates_cache_after_allowed
         "status": "released",
         "reason": "",
         "receipt_status": "accepted",
+        "provider_work_allowed": True,
     }
     runtime_calls: list[str] = []
     cache_invalidations: list[str] = []
@@ -7466,10 +7490,14 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     )
     conversation_source = source[conversation_start:conversation_end]
     assert conversation_source.index(
-        "await requireFreshMemorialVoiceAuthorization({ requireReady: false })"
+        "await requireFreshMemorialVoiceAuthorization({"
     ) < conversation_source.index(
         "await ensureLandingReadyForConversation()"
     )
+    assert "requireReady: false" in conversation_source
+    assert "const startToken = {};" in conversation_source
+    assert "activeConversationStart !== startToken" in conversation_source
+    assert "startGeneration !== activeGeneration" in conversation_source
     replay_start = source.index(
         'replayAnswerButton.addEventListener("click", async () =>'
     )
@@ -7495,8 +7523,15 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     assert "queueLiveBufferedAudioChunk" in source
     assert "decodeBufferedLiveAudioBlob" in source
     assert "recorder.start(250)" in source
+    assert "const captureChunks = [];" in source
+    assert "const captureIsCurrent = () => (" in source
+    assert "captureChunks.push(event.data);" in source
+    assert "if (!captureIsCurrent())" in source
     assert "activeRealtimeAudioTurn.sendBlob(event.data)" not in source
     assert "blob.arrayBuffer().then" in source
+    assert "activeRealtimeAudioTurn = realtimeTurn;" in source
+    assert "cancelRealtimeAudioTurn(activeRealtimeAudioTurn);" in source
+    assert 'memorialConversationError("Das Gespräch wurde beendet.", "turn_cancelled")' in source
     assert "pcmChunksToWavBlob" in source
     assert "Ich sichere die Antwort lokal." in source
     assert "await finishConversationTurn(fallbackBlob, generation, null);" in source
@@ -7516,8 +7551,19 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     assert 'ensureMemorialReady("page_load")' in source
     assert 'requestMemorialWarmup("conversation_start")' not in source
     assert "ensureMemorialReady(" in source
+    assert "const memorialWarmupPollWindowMs = 45000;" in source
+    assert "const memorialWarmupMaxPendingMs = 120000;" in source
+    assert "function memorialReadinessState(payload)" in source
+    assert "let lastPayload = null;" in source
+    assert "return lastPayload;" in source
+    assert 'readinessState === "pending"' in source
+    assert '{ requestWarmup: false }' in source
+    assert '"memorial_voice_preparing"' in source
     assert "beginConversationRecording" in source
     assert "finishConversationTurn" in source
+    assert '"memorial_audio_unavailable"' in source
+    assert '"audio_playback_timeout"' in source
+    assert 'window.addEventListener("pagehide"' in source
     assert "window.__memorialMinimalBooted" in source
     assert "startConversation();" not in source
     assert "Gespräch beenden" in source
@@ -7821,6 +7867,29 @@ def test_memorial_gemini_live_websocket_streams_pcm_to_upstream(
     assert audio_payloads
     assert audio_payloads[0]["realtimeInput"]["audio"]["mimeType"] == "audio/pcm;rate=16000"
     assert audio_payloads[0]["realtimeInput"]["audio"]["data"] == base64.b64encode(speech_pcm).decode("ascii")
+    assert any(
+        message.get("type") == "turn_admitted"
+        and message.get("provider_work_started") is True
+        and message.get("transport") == "gemini_live"
+        for message in messages
+    )
+    admission_index = next(
+        index
+        for index, message in enumerate(messages)
+        if message.get("type") == "turn_admitted"
+    )
+    listening_index = next(
+        index
+        for index, message in enumerate(messages)
+        if message.get("type") == "phase"
+        and message.get("phase") == "listening"
+    )
+    transcript_index = next(
+        index
+        for index, message in enumerate(messages)
+        if message.get("type") == "transcript"
+    )
+    assert admission_index < listening_index < transcript_index
     assert any(message.get("type") == "transcript" and "Hallo Manfred" in message.get("text", "") for message in messages)
     assert any(message.get("type") == "audio_chunk" and message.get("content_type") == "audio/pcm;rate=24000" for message in messages)
     assert any(message.get("type") == "turn_complete" for message in messages)
@@ -8422,16 +8491,25 @@ def test_memorial_gemini_live_fails_soft_to_audio_buffer_after_oauth_scope_error
                 "personal_memory_enabled": True,
             }
         )
-        phase = websocket.receive_json()
-        fallback_phase = websocket.receive_json()
+        messages = [websocket.receive_json() for _ in range(3)]
 
-    assert phase["phase"] == "listening"
-    assert fallback_phase == {
-        "type": "phase",
-        "turn_id": "turn_scope_open",
-        "phase": "listening",
-        "detail": "Audio wird empfangen",
-    }
+    assert any(
+        message.get("type") == "turn_admitted"
+        and message.get("provider_work_started") is True
+        and message.get("transport") == "gemini_live"
+        for message in messages
+    )
+    listening_phases = [
+        message
+        for message in messages
+        if message.get("type") == "phase"
+        and message.get("phase") == "listening"
+    ]
+    assert len(listening_phases) == 2
+    assert any(
+        message.get("detail") == "Audio wird empfangen"
+        for message in listening_phases
+    )
 
 
 def test_memorial_gemini_live_uses_mounted_oauth_credentials(
@@ -8607,7 +8685,7 @@ def test_memorial_gemini_live_websocket_streams_vertex_pcm_schema(
         websocket.send_bytes(speech_pcm)
         websocket.send_json({"type": "user_audio_end", "turn_id": "turn_vertex"})
         messages = []
-        for _ in range(8):
+        for _ in range(12):
             message = websocket.receive_json()
             messages.append(message)
             if message.get("type") == "turn_complete":

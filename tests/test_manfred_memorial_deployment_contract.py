@@ -2368,10 +2368,11 @@ def test_manfred_public_page_uses_scoped_talk_only_minimal_theme() -> None:
     )
     assert (
         'id="memorial-conversation" class="hero-cta is-readying" '
-        'data-hero-action="conversation" title="Gespräch beginnen" '
-        'aria-label="Gespräch beginnen"'
+        'data-hero-action="conversation" data-conversation-state="ready" '
+        'title="Gespräch beginnen" aria-label="Gespräch beginnen"'
         in conversation_only_html
     )
+    assert 'aria-expanded="false" aria-busy="false"' in conversation_only_html
     assert (
         'id="memorial-text-turn-form" method="post" '
         'action="/memorials/manfred/chat" hidden inert aria-hidden="true"'
