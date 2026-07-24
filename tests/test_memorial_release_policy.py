@@ -17,6 +17,7 @@ from app.services.manfred_voice_signing import (
     MANFRED_PHASE_1_LIVE_REVIEW_SURFACE,
     MANFRED_TTS_MODEL,
     MANFRED_TTS_PROVIDER,
+    MANFRED_VOICE_TRUSTED_PUBLIC_KEYS_B64,
     PROVIDER_VOICE_ID_SHA256_SEMANTICS,
     SIGNATURE_ALGORITHM,
     SIGNATURE_SCOPE,
@@ -24,6 +25,7 @@ from app.services.manfred_voice_signing import (
     VOICE_IDENTITY_SHA256_SEMANTICS,
     VOICE_REFERENCE_AGGREGATE_SHA256_SEMANTICS,
     sign_receipt,
+    trusted_public_keys,
     voice_identity_sha256,
 )
 from app.services.memorial_release_policy import (
@@ -42,6 +44,9 @@ VOICE_MANIFEST_SHA256 = "d" * 64
 VOICE_REFERENCE_AGGREGATE_SHA256 = "e" * 64
 PROVIDER_VOICE_ID_SHA256 = "f" * 64
 NOW = datetime(2026, 7, 23, 12, 0, tzinfo=timezone.utc).timestamp()
+ROTATED_RELEASE_KEY_ID = (
+    "sha256:9457961ff2e19c65d4de45e2163bb4cfd2bbd15c92ed772460d54194f895e8e5"
+)
 
 
 @pytest.fixture
@@ -67,6 +72,11 @@ def signing_material(
     )
     public_path.chmod(0o600)
     return private_key, private_path, public_path
+
+
+def test_rotated_voice_release_public_key_is_in_the_embedded_trust_set() -> None:
+    assert ROTATED_RELEASE_KEY_ID in MANFRED_VOICE_TRUSTED_PUBLIC_KEYS_B64
+    assert ROTATED_RELEASE_KEY_ID in trusted_public_keys()
 
 
 def _voice_fields() -> dict[str, object]:

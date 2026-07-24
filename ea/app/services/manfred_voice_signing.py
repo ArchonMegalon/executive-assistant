@@ -41,6 +41,9 @@ MANFRED_VOICE_TRUSTED_PUBLIC_KEYS_B64 = {
     "sha256:5cf6ca3e2d24a5b906eeef66f693fe1ac52dcb32f21487a9a1c8a23758d5d709": (
         "4Q8oSrmUMGv7jcU5RlxJDfVpG1ggLWFKZwToxmKSizA="
     ),
+    "sha256:9457961ff2e19c65d4de45e2163bb4cfd2bbd15c92ed772460d54194f895e8e5": (
+        "0or1tcWB4vU4XGQaN9RS42NDhI9cXjxNcYDVXa+m76s="
+    ),
 }
 
 
