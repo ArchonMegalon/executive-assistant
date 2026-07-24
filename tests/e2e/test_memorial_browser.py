@@ -5,6 +5,7 @@ import json
 import socket
 import threading
 import time
+import urllib.parse
 import urllib.request
 import wave
 from collections.abc import Iterator
@@ -667,8 +668,15 @@ def test_memorial_private_review_cookie_reaches_readiness_from_same_origin_brows
         same_origin = page.evaluate(
             """async (currentSlug) => {
               const response = await fetch(`/memorials/${currentSlug}/readiness`, {
+                method: "GET",
                 credentials: "same-origin",
-                headers: {"Accept": "application/json"},
+                mode: "same-origin",
+                cache: "no-store",
+                redirect: "error",
+                headers: {
+                  "Accept": "application/json",
+                  "Cache-Control": "no-store",
+                },
               });
               return {status: response.status, payload: await response.json()};
             }""",
@@ -681,7 +689,10 @@ def test_memorial_private_review_cookie_reaches_readiness_from_same_origin_brows
             readiness_request_headers.get("sec-fetch-site")
             == "same-origin"
         )
-        assert readiness_request_headers.get("sec-fetch-mode") == "cors"
+        assert (
+            readiness_request_headers.get("sec-fetch-mode")
+            == "same-origin"
+        )
         assert readiness_request_headers.get("sec-fetch-dest") == "empty"
 
         cross_site = context.request.get(
@@ -689,7 +700,7 @@ def test_memorial_private_review_cookie_reaches_readiness_from_same_origin_brows
             headers={
                 "Accept": "application/json",
                 "Sec-Fetch-Site": "cross-site",
-                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Mode": "same-origin",
                 "Sec-Fetch-Dest": "empty",
             },
         )
@@ -697,6 +708,87 @@ def test_memorial_private_review_cookie_reaches_readiness_from_same_origin_brows
         assert (
             cross_site.json()["detail"]
             == "memorial_voice_review_origin_rejected"
+        )
+    finally:
+        context.close()
+
+
+def test_memorial_private_review_navigation_is_document_initiated_same_origin(
+    browser: Browser,
+    memorial_browser_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_url = str(memorial_browser_server["base_url"])
+    slug = str(memorial_browser_server["slug"])
+    configured_origin = base_url.replace("http://", "https://", 1)
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", configured_origin)
+    prime_url = (
+        f"{base_url}/admin/memorials/manfred/voice-review"
+    )
+    memorial_url = f"{base_url}/memorials/{slug}"
+    parsed_base = urllib.parse.urlsplit(base_url)
+    request_headers: dict[str, dict[str, str]] = {}
+
+    context = browser.new_context(
+        extra_http_headers={"X-Forwarded-Proto": "https"},
+    )
+    page = context.new_page()
+
+    def _capture_navigation(request) -> None:
+        if request.is_navigation_request() and request.url in {
+            prime_url,
+            memorial_url,
+        }:
+            request_headers[request.url] = request.all_headers()
+
+    page.on("request", _capture_navigation)
+    try:
+        prime_response = page.goto(
+            prime_url,
+            wait_until="domcontentloaded",
+            timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS,
+        )
+        assert prime_response is not None and prime_response.ok
+        context.add_cookies(
+            [
+                {
+                    "name": "ea_manfred_voice_review",
+                    "value": "browser-review-session-token",
+                    "domain": str(parsed_base.hostname or ""),
+                    "path": f"/memorials/{slug}",
+                    "secure": False,
+                    "httpOnly": True,
+                    "sameSite": "Strict",
+                }
+            ]
+        )
+        with page.expect_navigation(
+            wait_until="domcontentloaded",
+            timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS,
+        ) as navigation:
+            page.evaluate(
+                "(targetUrl) => window.location.replace(targetUrl)",
+                memorial_url,
+            )
+        memorial_response = navigation.value
+        assert memorial_response is not None and memorial_response.ok
+
+        prime_headers = request_headers[prime_url]
+        assert prime_headers.get("sec-fetch-site") == "none"
+        assert prime_headers.get("sec-fetch-mode") == "navigate"
+        assert prime_headers.get("sec-fetch-dest") == "document"
+        assert "ea_manfred_voice_review" not in prime_headers.get(
+            "cookie",
+            "",
+        )
+
+        memorial_headers = request_headers[memorial_url]
+        assert memorial_headers.get("sec-fetch-site") == "same-origin"
+        assert memorial_headers.get("sec-fetch-mode") == "navigate"
+        assert memorial_headers.get("sec-fetch-dest") == "document"
+        assert "ea_manfred_voice_review=" in memorial_headers.get(
+            "cookie",
+            "",
         )
     finally:
         context.close()

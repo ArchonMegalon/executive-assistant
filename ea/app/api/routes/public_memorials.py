@@ -861,7 +861,7 @@ def _memorial_voice_review_originless_browser_get_allowed(
 
     mode = fetch_mode.lower()
     destination = fetch_destination.lower()
-    if mode == "cors" and destination == "empty":
+    if mode in {"cors", "same-origin"} and destination == "empty":
         return True
     return (
         allow_navigation

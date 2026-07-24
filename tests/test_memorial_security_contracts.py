@@ -154,26 +154,29 @@ def test_private_review_cookie_accepts_originless_same_origin_browser_get(
         "https://memorial.example",
     )
     _patch_memorial_review_session_parser(monkeypatch)
-    browser_headers = [
-        ("host", "memorial.example"),
-        ("x-forwarded-proto", "https"),
-        (
-            "cookie",
-            "ea_manfred_voice_review=review-session-token",
-        ),
-        ("sec-fetch-site", "same-origin"),
-        ("sec-fetch-mode", "cors"),
-        ("sec-fetch-dest", "empty"),
-    ]
+    for fetch_mode in ("same-origin", "cors"):
+        browser_headers = [
+            ("host", "memorial.example"),
+            ("x-forwarded-proto", "https"),
+            (
+                "cookie",
+                "ea_manfred_voice_review=review-session-token",
+            ),
+            ("sec-fetch-site", "same-origin"),
+            ("sec-fetch-mode", fetch_mode),
+            ("sec-fetch-dest", "empty"),
+        ]
 
-    payload = public_memorials._memorial_voice_review_http_session_payload(
-        _memorial_review_request(browser_headers),
-        slug="manfred",
-        required_scope="readiness",
-    )
+        payload = (
+            public_memorials._memorial_voice_review_http_session_payload(
+                _memorial_review_request(browser_headers),
+                slug="manfred",
+                required_scope="readiness",
+            )
+        )
 
-    assert payload is not None
-    assert payload["kind"] == "session"
+        assert payload is not None
+        assert payload["kind"] == "session"
 
     exact_origin_payload = (
         public_memorials._memorial_voice_review_http_session_payload(
@@ -357,7 +360,7 @@ def test_private_review_readiness_route_accepts_browser_fetch_metadata_only_for_
     headers = {
         "x-forwarded-proto": "https",
         "sec-fetch-site": "same-origin",
-        "sec-fetch-mode": "cors",
+        "sec-fetch-mode": "same-origin",
         "sec-fetch-dest": "empty",
     }
 

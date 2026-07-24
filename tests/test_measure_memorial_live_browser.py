@@ -436,6 +436,7 @@ def test_private_review_session_lifetime_budget_has_an_exact_boundary() -> None:
             + module.PROMPT_AUDIO_PREPARATION_BUDGET_SECONDS
             + module.BROWSER_LAUNCH_TIMEOUT_BUDGET_SECONDS
             + module.BROWSER_SETUP_OVERHEAD_SECONDS
+            + module.PRIVATE_REVIEW_ORIGIN_PRIME_TIMEOUT_SECONDS
             + module.BROWSER_PAGE_LOAD_TIMEOUT_SECONDS
             + module.BROWSER_NETWORK_IDLE_TIMEOUT_SECONDS
             + module.BROWSER_WARMUP_STATUS_TIMEOUT_SECONDS
@@ -1104,6 +1105,97 @@ def test_short_playwright_tmpdir_avoids_long_inherited_path_and_restores_it(
     assert module.os.environ["TMPDIR"] == inherited
 
 
+def test_private_review_browser_primes_origin_before_cookie_injection() -> None:
+    module = _load_module()
+    review_session = _private_review_session(
+        module,
+        revision="a" * 40,
+        token="private-review-session-token",
+    )
+    events: list[tuple[str, object]] = []
+
+    class FakeResponse:
+        ok = True
+
+    class FakePage:
+        url = ""
+
+        def goto(self, url: str, **kwargs):
+            events.append(("goto", {"url": url, **kwargs}))
+            self.url = url
+            return FakeResponse()
+
+    class FakeContext:
+        def add_cookies(self, cookies):
+            events.append(("cookies", cookies))
+
+    page = FakePage()
+    context = FakeContext()
+
+    assert (
+        module._prime_private_review_browser_origin(
+            page,
+            context,
+            base_url="https://myexternalbrain.com",
+            review_session=review_session,
+        )
+        is True
+    )
+    assert events[0] == (
+        "goto",
+        {
+            "url": (
+                "https://myexternalbrain.com"
+                "/admin/memorials/manfred/voice-review"
+            ),
+            "wait_until": "domcontentloaded",
+            "timeout": int(
+                module.PRIVATE_REVIEW_ORIGIN_PRIME_TIMEOUT_SECONDS
+                * 1000.0
+            ),
+        },
+    )
+    assert "private-review-session-token" not in str(events[0][1])
+    assert events[1][0] == "cookies"
+    assert events[1][1] == [review_session.playwright_cookie()]
+
+
+def test_private_review_browser_rejects_changed_prime_path_before_cookie() -> None:
+    module = _load_module()
+    review_session = _private_review_session(
+        module,
+        revision="a" * 40,
+        token="private-review-session-token",
+    )
+    cookies: list[dict[str, object]] = []
+
+    class FakeResponse:
+        ok = True
+
+    class FakePage:
+        url = "https://myexternalbrain.com/unexpected"
+
+        def goto(self, _url: str, **_kwargs):
+            return FakeResponse()
+
+    class FakeContext:
+        def add_cookies(self, values):
+            cookies.extend(values)
+
+    with pytest.raises(
+        SystemExit,
+        match="private_review_origin_prime_mismatch",
+    ):
+        module._prime_private_review_browser_origin(
+            FakePage(),
+            FakeContext(),
+            base_url="https://myexternalbrain.com",
+            review_session=review_session,
+        )
+
+    assert cookies == []
+
+
 def test_preferred_answer_preview_prefers_final_payload_answer_over_streamed_draft() -> None:
     module = _load_module()
 
@@ -1231,12 +1323,31 @@ def test_private_review_measure_never_clicks_after_forbidden_browser_warmup(
         ok = True
         headers: dict[str, str] = {}
 
-    class FakePage:
-        url = "https://myexternalbrain.com/memorials/manfred"
+    class FakeNavigation:
+        value = FakeResponse()
 
-        def goto(self, *_args, **_kwargs):
+        def __enter__(self):
+            events.append("navigation_enter")
+            return self
+
+        def __exit__(self, *_args):
+            events.append("navigation_exit")
+
+    class FakePage:
+        url = ""
+
+        def goto(self, url: str, **_kwargs):
             events.append("page_goto")
+            self.url = url
             return FakeResponse()
+
+        def expect_navigation(self, **_kwargs):
+            events.append("expect_navigation")
+            return FakeNavigation()
+
+        def evaluate(self, _script: str, url: str):
+            events.append("location_replace")
+            self.url = url
 
         def wait_for_load_state(self, *_args, **_kwargs):
             events.append("network_idle")
@@ -1340,7 +1451,7 @@ def test_private_review_measure_never_clicks_after_forbidden_browser_warmup(
     assert "browser_close" in events
 
 
-def test_private_review_cookie_is_injected_before_page_navigation(
+def test_private_review_cookie_is_injected_after_same_origin_priming_navigation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module = _load_module()
@@ -1353,11 +1464,38 @@ def test_private_review_cookie_is_injected_before_page_navigation(
     cookies: list[dict[str, object]] = []
     direct_headers: list[dict[str, str] | None] = []
     launch_kwargs: dict[str, object] = {}
+    goto_urls: list[str] = []
     valid_wav = module._pure_python_prompt_wav_bytes("Hallo Manfred")
 
+    class FakeResponse:
+        ok = True
+
+    class FakeNavigation:
+        value = FakeResponse()
+
+        def __enter__(self):
+            events.append("navigation_enter")
+            return self
+
+        def __exit__(self, *_args):
+            events.append("navigation_exit")
+
     class FakePage:
-        def goto(self, *_args, **_kwargs):
+        url = ""
+
+        def goto(self, url: str, **_kwargs):
             events.append("page_goto")
+            goto_urls.append(url)
+            self.url = url
+            return FakeResponse()
+
+        def expect_navigation(self, **_kwargs):
+            events.append("expect_navigation")
+            return FakeNavigation()
+
+        def evaluate(self, _script: str, url: str):
+            events.append("location_replace")
+            goto_urls.append(url)
             raise RuntimeError("stop_after_navigation")
 
     class FakeContext:
@@ -1465,8 +1603,24 @@ def test_private_review_cookie_is_injected_before_page_navigation(
         review_session.request_headers(),
     ]
     assert cookies == [review_session.playwright_cookie()]
-    assert events.index("add_cookies") < events.index("new_page")
-    assert events.index("add_cookies") < events.index("page_goto")
+    assert goto_urls == [
+        (
+            "https://myexternalbrain.com"
+            "/admin/memorials/manfred/voice-review"
+        ),
+        "https://myexternalbrain.com/memorials/manfred",
+    ]
+    first_goto_index = events.index("page_goto")
+    cookie_index = events.index("add_cookies")
+    expect_navigation_index = events.index("expect_navigation")
+    location_replace_index = events.index("location_replace")
+    assert events.index("new_page") < first_goto_index
+    assert (
+        first_goto_index
+        < cookie_index
+        < expect_navigation_index
+        < location_replace_index
+    )
     capture_args = [
         value
         for value in launch_kwargs["args"]

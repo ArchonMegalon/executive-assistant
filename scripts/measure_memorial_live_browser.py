@@ -90,6 +90,9 @@ BROWSER_LAUNCH_TIMEOUT_BUDGET_SECONDS = (
 )
 BROWSER_SETUP_OVERHEAD_SECONDS = 30.0
 BROWSER_PAGE_LOAD_TIMEOUT_SECONDS = 45.0
+PRIVATE_REVIEW_ORIGIN_PRIME_TIMEOUT_SECONDS = (
+    BROWSER_PAGE_LOAD_TIMEOUT_SECONDS
+)
 BROWSER_NETWORK_IDLE_TIMEOUT_SECONDS = 5.0
 BROWSER_WARMUP_STATUS_TIMEOUT_SECONDS = 15.0
 BROWSER_CTA_READY_TIMEOUT_SECONDS = 30.0
@@ -108,6 +111,7 @@ PRIVATE_REVIEW_REQUIRED_REMAINING_LIFETIME_SECONDS = float(
         + PROMPT_AUDIO_PREPARATION_BUDGET_SECONDS
         + BROWSER_LAUNCH_TIMEOUT_BUDGET_SECONDS
         + BROWSER_SETUP_OVERHEAD_SECONDS
+        + PRIVATE_REVIEW_ORIGIN_PRIME_TIMEOUT_SECONDS
         + BROWSER_PAGE_LOAD_TIMEOUT_SECONDS
         + BROWSER_NETWORK_IDLE_TIMEOUT_SECONDS
         + BROWSER_WARMUP_STATUS_TIMEOUT_SECONDS
@@ -1201,6 +1205,67 @@ def _short_playwright_tmpdir():  # type: ignore[no-untyped-def]
                 os.environ["TMPDIR"] = previous_tmpdir
 
 
+def _prime_private_review_browser_origin(
+    page,  # type: ignore[no-untyped-def]
+    context,  # type: ignore[no-untyped-def]
+    *,
+    base_url: str,
+    review_session: ReviewSessionClientAuth,
+) -> bool:
+    """Establish a same-origin navigation before attaching the review cookie."""
+
+    expected_origin = normalized_https_origin(base_url)
+    if expected_origin != review_session.origin:
+        raise SystemExit("private_review_page_origin_mismatch")
+    expected_path = "/admin/memorials/manfred/voice-review"
+    prime_url = f"{expected_origin}{expected_path}"
+    response = page.goto(
+        prime_url,
+        wait_until="domcontentloaded",
+        timeout=int(
+            PRIVATE_REVIEW_ORIGIN_PRIME_TIMEOUT_SECONDS * 1000.0
+        ),
+    )
+    if response is None or not response.ok:
+        raise SystemExit("private_review_origin_prime_failed")
+    parsed_page = urllib.parse.urlsplit(str(page.url or ""))
+    final_page_origin = urllib.parse.urlunsplit(
+        (
+            parsed_page.scheme,
+            parsed_page.netloc,
+            "/",
+            "",
+            "",
+        )
+    )
+    if (
+        normalized_https_origin(final_page_origin)
+        != review_session.origin
+        or parsed_page.path != expected_path
+        or parsed_page.query
+        or parsed_page.fragment
+    ):
+        raise SystemExit("private_review_origin_prime_mismatch")
+    context.add_cookies([review_session.playwright_cookie()])
+    return True
+
+
+def _navigate_private_review_memorial(
+    page,  # type: ignore[no-untyped-def]
+    *,
+    page_url: str,
+):
+    with page.expect_navigation(
+        wait_until="domcontentloaded",
+        timeout=int(BROWSER_PAGE_LOAD_TIMEOUT_SECONDS * 1000.0),
+    ) as navigation:
+        page.evaluate(
+            "(targetUrl) => window.location.replace(targetUrl)",
+            page_url,
+        )
+    return navigation.value
+
+
 def _measure(
     base_url: str,
     slug: str,
@@ -1281,8 +1346,6 @@ def _measure(
                 ],
             )
             context = browser.new_context(viewport={"width": 1440, "height": 1100})
-            if review_session is not None:
-                context.add_cookies([review_session.playwright_cookie()])
             context.grant_permissions(["microphone"], origin=base_url.rstrip("/"))
             context.add_init_script(_browser_audio_gate_init_script())
             if stub_transcribe:
@@ -1293,11 +1356,30 @@ def _measure(
                     lambda route: route.fulfill(status=200, content_type="application/json", body=stub_body),
                 )
             page = context.new_page()
+            private_review_origin_primed = False
             try:
-                response = page.goto(
-                    page_url,
-                    wait_until="domcontentloaded",
-                    timeout=int(BROWSER_PAGE_LOAD_TIMEOUT_SECONDS * 1000.0),
+                if review_session is not None:
+                    private_review_origin_primed = (
+                        _prime_private_review_browser_origin(
+                            page,
+                            context,
+                            base_url=base_url,
+                            review_session=review_session,
+                        )
+                    )
+                response = (
+                    _navigate_private_review_memorial(
+                        page,
+                        page_url=page_url,
+                    )
+                    if review_session is not None
+                    else page.goto(
+                        page_url,
+                        wait_until="domcontentloaded",
+                        timeout=int(
+                            BROWSER_PAGE_LOAD_TIMEOUT_SECONDS * 1000.0
+                        ),
+                    )
                 )
                 if response is None or not response.ok:
                     raise SystemExit("page_load_failed")
@@ -1670,6 +1752,9 @@ def _measure(
                     "browser_launch_recovered": bool(browser_launch_attempts > 1),
                     "browser_launch_errors": list(browser_launch_errors),
                     "chromium_executable_source": chromium_executable_source,
+                    "private_review_origin_primed": bool(
+                        private_review_origin_primed
+                    ),
                     "page_load_ms": round(load_ms, 1),
                     "cta_ready_ms": round(cta_ready_ms, 1),
                     "first_answer_ms": round(first_answer_ms, 1),
