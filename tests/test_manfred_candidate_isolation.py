@@ -708,6 +708,122 @@ def test_signed_voice_boundary_rejects_unvalidated_expectation_before_http() -> 
     assert called is False
 
 
+def _runner_voice_release_projection(
+    *,
+    release_allowed: bool,
+    review_verified: bool,
+) -> dict[str, object]:
+    voice_identity = prepare._voice_identity(
+        voice_config_sha256="4" * 64,
+        voice_manifest_sha256="5" * 64,
+        voice_reference_aggregate_sha256="6" * 64,
+        provider_voice_id_sha256="3" * 64,
+        tts_provider=prepare.MANFRED_TTS_PROVIDER,
+        tts_model=prepare.MANFRED_TTS_MODEL,
+    )
+    return {
+        "projection_commit": COMMIT,
+        "prepared_image_id": IMAGE_ID,
+        "voice_release_allowed": release_allowed,
+        **voice_identity,
+        "release_authority": {
+            "schema": prepare.CANDIDATE_RELEASE_AUTHORITY_SCHEMA,
+            "status": "pass",
+            "commit_sha": COMMIT,
+            "image_id": IMAGE_ID,
+            "voice_release_allowed": release_allowed,
+            "phase_1_live_review_verified": review_verified,
+            **voice_identity,
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("release_allowed", "expect_signed", "expected"),
+    [
+        (False, False, None),
+        (True, True, {"source_revision": COMMIT}),
+    ],
+)
+def test_runner_derives_voice_expectation_from_exact_release_authority(
+    release_allowed: bool,
+    expect_signed: bool,
+    expected: dict[str, object] | None,
+) -> None:
+    projection = _runner_voice_release_projection(
+        release_allowed=release_allowed,
+        review_verified=release_allowed,
+    )
+
+    assert (
+        runner._candidate_voice_release_expectation(
+            projection,
+            expect_signed_voice_release=expect_signed,
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("release_allowed", "expect_signed", "error"),
+    [
+        (
+            False,
+            True,
+            "manfred_candidate_signed_voice_release_required",
+        ),
+        (
+            True,
+            False,
+            "manfred_candidate_signed_voice_release_intent_required",
+        ),
+    ],
+)
+def test_runner_voice_expectation_requires_exact_operator_intent(
+    release_allowed: bool,
+    expect_signed: bool,
+    error: str,
+) -> None:
+    projection = _runner_voice_release_projection(
+        release_allowed=release_allowed,
+        review_verified=release_allowed,
+    )
+
+    with pytest.raises(RuntimeError, match=error):
+        runner._candidate_voice_release_expectation(
+            projection,
+            expect_signed_voice_release=expect_signed,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("commit_sha", "d" * 40),
+        ("image_id", "sha256:" + "e" * 64),
+        ("voice_identity_sha256", "f" * 64),
+        ("phase_1_live_review_verified", False),
+    ],
+)
+def test_runner_signed_voice_expectation_rejects_authority_drift(
+    field: str,
+    value: object,
+) -> None:
+    projection = _runner_voice_release_projection(
+        release_allowed=True,
+        review_verified=True,
+    )
+    authority = dict(projection["release_authority"])
+    authority[field] = value
+    projection["release_authority"] = authority
+
+    with pytest.raises(RuntimeError, match="voice_release_(authority|review)"):
+        runner._candidate_voice_release_expectation(
+            projection,
+            expect_signed_voice_release=True,
+        )
+
+
 def _candidate_env(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     env_file = (tmp_path / "candidate.env").resolve()
     release_root = (tmp_path / "releases" / "release-a").resolve()
@@ -976,6 +1092,31 @@ def _patch_prestart(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> Non
             "voice_identity_sha256": env[
                 "EA_MEMORIAL_VOICE_IDENTITY_SHA256"
             ],
+            "release_authority": {
+                "schema": prepare.CANDIDATE_RELEASE_AUTHORITY_SCHEMA,
+                "status": "pass",
+                "commit_sha": COMMIT,
+                "image_id": IMAGE_ID,
+                "voice_release_allowed": False,
+                "phase_1_live_review_verified": False,
+                "voice_config_sha256": env[
+                    "EA_MEMORIAL_VOICE_CONFIG_SHA256"
+                ],
+                "voice_manifest_sha256": env[
+                    "EA_MEMORIAL_VOICE_MANIFEST_SHA256"
+                ],
+                "voice_reference_aggregate_sha256": env[
+                    "EA_MEMORIAL_VOICE_REFERENCE_AGGREGATE_SHA256"
+                ],
+                "provider_voice_id_sha256": env[
+                    "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256"
+                ],
+                "tts_provider": env["EA_MEMORIAL_TTS_PROVIDER"],
+                "tts_model": env["EA_MEMORIAL_TTS_MODEL"],
+                "voice_identity_sha256": env[
+                    "EA_MEMORIAL_VOICE_IDENTITY_SHA256"
+                ],
+            },
         },
     )
     monkeypatch.setattr(
@@ -3584,6 +3725,34 @@ def test_main_spatial_browser_receipt_option_is_backward_compatible(
     assert captured["spatial_browser_receipt_path"] == (
         spatial_output if include_spatial_output else None
     )
+    assert captured["expect_signed_voice_release"] is False
+
+
+def test_main_forwards_signed_voice_release_intent(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def prove(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"schema": runner.RECEIPT_SCHEMA, "status": "pass"}
+
+    monkeypatch.setattr(runner, "prove_candidate", prove)
+
+    assert (
+        runner.main(
+            [
+                "--env-file",
+                str(tmp_path / "candidate.env"),
+                "--receipt",
+                str(tmp_path / "runtime.json"),
+                "--expect-signed-voice-release",
+            ]
+        )
+        == 0
+    )
+    assert captured["expect_signed_voice_release"] is True
 
 
 def test_existing_release_is_rehashed_and_mode_bound_before_reuse(

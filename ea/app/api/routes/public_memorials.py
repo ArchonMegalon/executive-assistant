@@ -791,6 +791,85 @@ def _apply_memorial_transport_security(response: Response, request: Request) -> 
     return response
 
 
+def _memorial_voice_review_http_transport_allowed(request: Request) -> bool:
+    if (
+        not _request_matches_configured_memorial_host(request)
+        or not _request_uses_https(request)
+    ):
+        return False
+
+    scheme_header_names = ("x-forwarded-proto", "cf-visitor", "forwarded")
+    scheme_headers_present = any(
+        request.headers.getlist(name) for name in scheme_header_names
+    )
+    if (
+        scheme_headers_present
+        and _forwarded_transport_scheme(request) != "https"
+    ):
+        return False
+
+    forwarded_host_present, forwarded_host = _single_memorial_request_header(
+        request,
+        "x-forwarded-host",
+    )
+    if (
+        forwarded_host_present
+        and not _memorial_authority_matches_configured(forwarded_host)
+    ):
+        return False
+
+    forwarded_present, forwarded_values = _forwarded_header_parameters(request)
+    if forwarded_present and forwarded_values is None:
+        return False
+    if (
+        forwarded_values
+        and forwarded_values.get("host")
+        and not _memorial_authority_matches_configured(
+            forwarded_values["host"]
+        )
+    ):
+        return False
+    return True
+
+
+def _memorial_voice_review_originless_browser_get_allowed(
+    request: Request,
+    *,
+    allow_navigation: bool,
+) -> bool:
+    if str(request.method or "").strip().upper() != "GET":
+        return False
+
+    site_present, fetch_site = _single_memorial_request_header(
+        request,
+        "sec-fetch-site",
+    )
+    mode_present, fetch_mode = _single_memorial_request_header(
+        request,
+        "sec-fetch-mode",
+    )
+    destination_present, fetch_destination = (
+        _single_memorial_request_header(
+            request,
+            "sec-fetch-dest",
+        )
+    )
+    if not (site_present and mode_present and destination_present):
+        return False
+    if fetch_site.lower() != "same-origin":
+        return False
+
+    mode = fetch_mode.lower()
+    destination = fetch_destination.lower()
+    if mode == "cors" and destination == "empty":
+        return True
+    return (
+        allow_navigation
+        and mode == "navigate"
+        and destination == "document"
+    )
+
+
 @lru_cache(maxsize=1)
 def _memorial_voice_review_signing_secret() -> str:
     return resolve_signing_secret(
@@ -1269,8 +1348,7 @@ def _memorial_voice_review_http_session_payload(
 ) -> dict[str, object] | None:
     if (
         _safe_slug(slug) != _MEMORIAL_VOICE_REVIEW_SLUG
-        or not _request_matches_configured_memorial_host(request)
-        or not _request_uses_https(request)
+        or not _memorial_voice_review_http_transport_allowed(request)
     ):
         return None
     token = _cookie_value_from_header(
@@ -1288,7 +1366,13 @@ def _memorial_voice_review_http_session_payload(
         configured is not None
         and (
             request_origin == configured[1]
-            or (allow_originless_navigation and not origin_present)
+            or (
+                not origin_present
+                and _memorial_voice_review_originless_browser_get_allowed(
+                    request,
+                    allow_navigation=allow_originless_navigation,
+                )
+            )
         )
     ):
         raise HTTPException(

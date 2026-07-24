@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip("fastapi")
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
@@ -82,6 +82,300 @@ def _video_meeting_callback_headers(body: bytes, *, secret: str) -> dict[str, st
         "x-tavus-timestamp": timestamp,
         "x-tavus-signature": hedy_webhook_signature(body, secret, timestamp=timestamp),
     }
+
+
+def _memorial_review_request(
+    headers: list[tuple[str, str]],
+    *,
+    method: str = "GET",
+    scheme: str = "http",
+) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": method,
+            "scheme": scheme,
+            "path": "/memorials/manfred/readiness",
+            "raw_path": b"/memorials/manfred/readiness",
+            "query_string": b"",
+            "headers": [
+                (name.lower().encode("ascii"), value.encode("ascii"))
+                for name, value in headers
+            ],
+            "client": ("127.0.0.1", 50000),
+            "server": ("memorial.example", 443),
+        }
+    )
+
+
+def _patch_memorial_review_session_parser(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    token: str = "review-session-token",
+) -> None:
+    from app.api.routes import public_memorials
+
+    def _session_payload(
+        candidate: object,
+        *,
+        expected_kind: str,
+        required_scope: str,
+        now: int | None = None,
+    ) -> dict[str, object] | None:
+        del now
+        if (
+            candidate != token
+            or expected_kind != "session"
+            or required_scope != "readiness"
+        ):
+            return None
+        return {
+            "kind": "session",
+            "expires_at": 2_000_000_000,
+            "scopes": ["readiness"],
+        }
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_review_token_payload",
+        _session_payload,
+    )
+
+
+def test_private_review_cookie_accepts_originless_same_origin_browser_get(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setenv(
+        "EA_PUBLIC_APP_BASE_URL",
+        "https://memorial.example",
+    )
+    _patch_memorial_review_session_parser(monkeypatch)
+    browser_headers = [
+        ("host", "memorial.example"),
+        ("x-forwarded-proto", "https"),
+        (
+            "cookie",
+            "ea_manfred_voice_review=review-session-token",
+        ),
+        ("sec-fetch-site", "same-origin"),
+        ("sec-fetch-mode", "cors"),
+        ("sec-fetch-dest", "empty"),
+    ]
+
+    payload = public_memorials._memorial_voice_review_http_session_payload(
+        _memorial_review_request(browser_headers),
+        slug="manfred",
+        required_scope="readiness",
+    )
+
+    assert payload is not None
+    assert payload["kind"] == "session"
+
+    exact_origin_payload = (
+        public_memorials._memorial_voice_review_http_session_payload(
+            _memorial_review_request(
+                [
+                    ("host", "memorial.example"),
+                    ("x-forwarded-proto", "https"),
+                    (
+                        "cookie",
+                        "ea_manfred_voice_review=review-session-token",
+                    ),
+                    ("origin", "https://memorial.example"),
+                ]
+            ),
+            slug="manfred",
+            required_scope="readiness",
+        )
+    )
+    assert exact_origin_payload is not None
+
+
+def test_private_review_originless_browser_get_fails_closed_on_ambiguous_security_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setenv(
+        "EA_PUBLIC_APP_BASE_URL",
+        "https://memorial.example",
+    )
+    _patch_memorial_review_session_parser(monkeypatch)
+    cookie = (
+        "cookie",
+        "ea_manfred_voice_review=review-session-token",
+    )
+    browser_fetch = [
+        ("sec-fetch-site", "same-origin"),
+        ("sec-fetch-mode", "cors"),
+        ("sec-fetch-dest", "empty"),
+    ]
+
+    rejected_origin_headers = (
+        [
+            ("host", "memorial.example"),
+            ("x-forwarded-proto", "https"),
+            cookie,
+        ],
+        [
+            ("host", "memorial.example"),
+            ("x-forwarded-proto", "https"),
+            cookie,
+            ("sec-fetch-site", "cross-site"),
+            ("sec-fetch-mode", "cors"),
+            ("sec-fetch-dest", "empty"),
+        ],
+        [
+            ("host", "memorial.example"),
+            ("x-forwarded-proto", "https"),
+            cookie,
+            ("sec-fetch-site", "same-origin"),
+            ("sec-fetch-site", "cross-site"),
+            ("sec-fetch-mode", "cors"),
+            ("sec-fetch-dest", "empty"),
+        ],
+        [
+            ("host", "memorial.example"),
+            ("x-forwarded-proto", "https"),
+            cookie,
+            ("origin", "https://memorial.example"),
+            ("origin", "https://attacker.example"),
+            *browser_fetch,
+        ],
+    )
+    for headers in rejected_origin_headers:
+        with pytest.raises(
+            HTTPException,
+            match="memorial_voice_review_origin_rejected",
+        ) as caught:
+            public_memorials._memorial_voice_review_http_session_payload(
+                _memorial_review_request(headers),
+                slug="manfred",
+                required_scope="readiness",
+            )
+        assert caught.value.status_code == 403
+
+    rejected_transport_headers = (
+        [
+            ("host", "attacker.example"),
+            ("x-forwarded-proto", "https"),
+            cookie,
+            *browser_fetch,
+        ],
+        [
+            ("host", "memorial.example"),
+            ("x-forwarded-proto", "http"),
+            cookie,
+            *browser_fetch,
+        ],
+        [
+            ("host", "memorial.example"),
+            ("x-forwarded-proto", "https"),
+            ("x-forwarded-proto", "http"),
+            cookie,
+            *browser_fetch,
+        ],
+        [
+            ("host", "memorial.example"),
+            ("host", "attacker.example"),
+            ("x-forwarded-proto", "https"),
+            cookie,
+            *browser_fetch,
+        ],
+        [
+            ("host", "memorial.example"),
+            ("x-forwarded-proto", "https"),
+            ("x-forwarded-host", "attacker.example"),
+            cookie,
+            *browser_fetch,
+        ],
+    )
+    for headers in rejected_transport_headers:
+        assert (
+            public_memorials._memorial_voice_review_http_session_payload(
+                _memorial_review_request(headers),
+                slug="manfred",
+                required_scope="readiness",
+            )
+            is None
+        )
+
+
+def test_private_review_readiness_route_accepts_browser_fetch_metadata_only_for_same_origin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv(
+        "EA_PUBLIC_APP_BASE_URL",
+        "https://memorial.example",
+    )
+    _patch_memorial_review_session_parser(monkeypatch)
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_memorial",
+        lambda slug: {"slug": slug},
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_require_voice_consent",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_runtime_readiness_cache_invalidate",
+        lambda slug: None,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_runtime_readiness",
+        lambda slug, **kwargs: {
+            "slug": slug,
+            "ready": True,
+            "operator_preview": bool(
+                kwargs.get("operator_preview_allowed")
+            ),
+        },
+    )
+    app = FastAPI()
+    app.include_router(public_memorials.router)
+    client = TestClient(
+        app,
+        base_url="https://memorial.example",
+        client=("testclient", 50000),
+    )
+    client.cookies.set(
+        "ea_manfred_voice_review",
+        "review-session-token",
+        path="/memorials/manfred",
+    )
+    headers = {
+        "x-forwarded-proto": "https",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+    }
+
+    accepted = client.get(
+        "/memorials/manfred/readiness",
+        headers=headers,
+    )
+    rejected = client.get(
+        "/memorials/manfred/readiness",
+        headers={**headers, "sec-fetch-site": "cross-site"},
+    )
+
+    assert accepted.status_code == 200
+    assert accepted.json()["operator_preview"] is True
+    assert rejected.status_code == 403
+    assert _error_code(rejected) == (
+        "memorial_voice_review_origin_rejected"
+    )
 
 
 def test_candidate_conversation_surface_rejects_encoded_forbidden_links() -> None:

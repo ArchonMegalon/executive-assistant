@@ -29,6 +29,7 @@ if str(ROOT) not in sys.path:
 
 from scripts.prepare_manfred_memorial_candidate import (  # noqa: E402
     CANDIDATE_RELEASE_AUTHORITY_DIRNAME,
+    CANDIDATE_RELEASE_AUTHORITY_SCHEMA,
     IMAGE_ID_RE,
     MANFRED_TTS_MODEL,
     MANFRED_TTS_PROVIDER,
@@ -156,6 +157,15 @@ RECEIPT_PARENT_INVALID = "manfred_candidate_receipt_parent_invalid"
 RECEIPT_OUTPUT_EXISTS = "manfred_candidate_receipt_output_exists"
 RECEIPT_ARTIFACT_INVALID = "manfred_candidate_receipt_artifact_invalid"
 RECEIPT_WRITE_FAILED = "manfred_candidate_receipt_write_failed"
+VOICE_RELEASE_IDENTITY_FIELDS = (
+    "provider_voice_id_sha256",
+    "tts_model",
+    "tts_provider",
+    "voice_config_sha256",
+    "voice_identity_sha256",
+    "voice_manifest_sha256",
+    "voice_reference_aggregate_sha256",
+)
 
 
 class GovernedSignalInterrupt(BaseException):
@@ -1433,6 +1443,62 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
         "spatial_handoff": spatial,
         "release_authority": release_authority,
     }
+
+
+def _candidate_voice_release_expectation(
+    projection: dict[str, object],
+    *,
+    expect_signed_voice_release: bool,
+) -> dict[str, object] | None:
+    if type(expect_signed_voice_release) is not bool:
+        raise RuntimeError("manfred_candidate_voice_release_intent_invalid")
+    release_allowed = projection.get("voice_release_allowed")
+    release_authority = projection.get("release_authority")
+    if type(release_allowed) is not bool or not isinstance(
+        release_authority, dict
+    ):
+        raise RuntimeError("manfred_candidate_voice_release_authority_invalid")
+    source_revision = str(projection.get("projection_commit") or "")
+    image_id = str(projection.get("prepared_image_id") or "")
+    authority_review_verified = release_authority.get(
+        "phase_1_live_review_verified"
+    )
+    if (
+        len(source_revision) != 40
+        or source_revision != source_revision.lower()
+        or any(
+            character not in "0123456789abcdef"
+            for character in source_revision
+        )
+        or not IMAGE_ID_RE.fullmatch(image_id)
+        or release_authority.get("schema")
+        != CANDIDATE_RELEASE_AUTHORITY_SCHEMA
+        or release_authority.get("status") != "pass"
+        or release_authority.get("commit_sha") != source_revision
+        or release_authority.get("image_id") != image_id
+        or release_authority.get("voice_release_allowed") is not release_allowed
+        or type(authority_review_verified) is not bool
+        or any(
+            release_authority.get(name) != projection.get(name)
+            for name in VOICE_RELEASE_IDENTITY_FIELDS
+        )
+    ):
+        raise RuntimeError("manfred_candidate_voice_release_authority_invalid")
+    if release_allowed:
+        if not expect_signed_voice_release:
+            raise RuntimeError(
+                "manfred_candidate_signed_voice_release_intent_required"
+            )
+        if authority_review_verified is not True:
+            raise RuntimeError(
+                "manfred_candidate_signed_voice_release_review_unverified"
+            )
+        return {"source_revision": source_revision}
+    if expect_signed_voice_release:
+        raise RuntimeError("manfred_candidate_signed_voice_release_required")
+    if authority_review_verified is not False:
+        raise RuntimeError("manfred_candidate_voice_release_authority_invalid")
+    return None
 
 
 def _inspect_image(identifier: str) -> dict[str, object]:
@@ -3845,12 +3911,15 @@ def _assert_recovered_candidate_runtime(
     compose_attestation: dict[str, object],
     execution_inputs_evidence: dict[str, object],
     execution_environment_sha256: str,
+    voice_release_expectation: dict[str, object] | None = None,
 ) -> None:
     if any(receipt.get(name) != value for name, value in projection.items()):
         raise RuntimeError("manfred_candidate_recovered_projection_identity_invalid")
     if (
         receipt.get("compose_attestation") != compose_attestation
         or receipt.get("execution_inputs") != execution_inputs_evidence
+        or receipt.get("voice_release_expectation")
+        != voice_release_expectation
     ):
         raise RuntimeError("manfred_candidate_recovered_execution_identity_invalid")
     runtime_projection = _candidate_runtime_projection_evidence(
@@ -3919,6 +3988,7 @@ def _prove_candidate_with_execution_inputs(
     projection: dict[str, object],
     compose_attestation: dict[str, object],
     execution_inputs: _SealedExecutionInputs,
+    voice_release_expectation: dict[str, object] | None,
     spatial_browser_receipt_path: Path | None = None,
 ) -> dict[str, object]:
     env_file = execution_inputs.environment_path
@@ -4062,6 +4132,7 @@ def _prove_candidate_with_execution_inputs(
                     execution_environment_sha256=str(
                         execution_inputs.evidence["environment_sha256"]
                     ),
+                    voice_release_expectation=voice_release_expectation,
                 )
                 _assert_live_recovery_unchanged(
                     before=live_before,
@@ -4233,6 +4304,7 @@ def _prove_candidate_with_execution_inputs(
                     submit_receipt=contribution_receipt,
                     withdraw_receipt=None,
                     transport_request=transport_request,
+                    voice_release_expectation=voice_release_expectation,
                 )
             finally:
                 contribution_artifact = _receipt_artifact_if_present(
@@ -4272,6 +4344,7 @@ def _prove_candidate_with_execution_inputs(
                 submit_receipt=None,
                 withdraw_receipt=contribution_receipt,
                 transport_request=transport_request,
+                voice_release_expectation=voice_release_expectation,
             )
             api_after_restart = (
                 _run(
@@ -4325,7 +4398,25 @@ def _prove_candidate_with_execution_inputs(
                     dict(initial_container_images["gateway"])["container_id"]
                 ),
             )
-            browser_surface = audit_browser_surface(base_url)
+            browser_surface = audit_browser_surface(
+                base_url,
+                public_origin=env["EA_PUBLIC_APP_BASE_URL"],
+                expected_voice_release=(
+                    "available"
+                    if voice_release_expectation is not None
+                    else "blocked"
+                ),
+                expected_voice_access=(
+                    "public-release"
+                    if voice_release_expectation is not None
+                    else "text-only"
+                ),
+                expected_source_revision=(
+                    str(voice_release_expectation["source_revision"])
+                    if voice_release_expectation is not None
+                    else None
+                ),
+            )
             _assert_logs_clean(compose, compose_environment)
             candidate_openapi_retirement = _assert_candidate_openapi_retired(base_url)
             candidate_openapi_contract, candidate_openapi = (
@@ -4402,6 +4493,7 @@ def _prove_candidate_with_execution_inputs(
                 "gateway_has_runtime_secrets": False,
                 "provider_credentials_present": False,
                 "provider_calls_performed": False,
+                "voice_release_expectation": voice_release_expectation,
                 "redis_ping": "PONG",
                 "contribution_modes": contribution_modes,
                 "spatial_handoff_runtime": spatial_handoff,
@@ -4561,6 +4653,7 @@ def prove_candidate(
     receipt_path: Path,
     wait_seconds: int,
     spatial_browser_receipt_path: Path | None = None,
+    expect_signed_voice_release: bool = False,
 ) -> dict[str, object]:
     canonical_env_file = Path(
         os.path.abspath(os.fspath(env_file.expanduser()))
@@ -4580,6 +4673,10 @@ def prove_candidate(
         expected_commit=env["EA_MANFRED_COMMIT"],
     )
     projection = _projection_evidence(env)
+    voice_release_expectation = _candidate_voice_release_expectation(
+        projection,
+        expect_signed_voice_release=expect_signed_voice_release,
+    )
     with _sealed_candidate_execution_inputs(
         compose_bytes=compose_bytes,
         environment_bytes=environment_bytes,
@@ -4594,6 +4691,7 @@ def prove_candidate(
             projection=projection,
             compose_attestation=compose_attestation,
             execution_inputs=execution_inputs,
+            voice_release_expectation=voice_release_expectation,
             spatial_browser_receipt_path=spatial_browser_receipt_path,
         )
 
@@ -4610,6 +4708,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--receipt", required=True)
     parser.add_argument("--spatial-browser-receipt")
+    parser.add_argument(
+        "--expect-signed-voice-release",
+        action="store_true",
+        help=(
+            "Require the prepared candidate's exact signed, source/image/voice-"
+            "bound release authorization while retaining provider-free proof."
+        ),
+    )
     parser.add_argument("--wait-seconds", type=int, default=240)
     return parser
 
@@ -4645,6 +4751,9 @@ def main(argv: list[str] | None = None) -> int:
                 compose_file=Path(args.compose_file),
                 receipt_path=Path(args.receipt).expanduser().resolve(),
                 wait_seconds=max(60, min(600, int(args.wait_seconds))),
+                expect_signed_voice_release=bool(
+                    args.expect_signed_voice_release
+                ),
                 spatial_browser_receipt_path=(
                     Path(args.spatial_browser_receipt).expanduser()
                     if args.spatial_browser_receipt

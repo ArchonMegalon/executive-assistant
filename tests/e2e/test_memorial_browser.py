@@ -578,6 +578,130 @@ def _assert_minimal_memorial_single_button(page: Page, label: str) -> None:
     assert page.locator("#memorial-contribution-management").count() == 0
 
 
+def test_memorial_private_review_cookie_reaches_readiness_from_same_origin_browser_get_only(
+    browser: Browser,
+    memorial_browser_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    base_url = str(memorial_browser_server["base_url"])
+    slug = str(memorial_browser_server["slug"])
+    configured_origin = base_url.replace("http://", "https://", 1)
+    review_token = "browser-review-session-token"
+    monkeypatch.setenv(
+        "EA_PUBLIC_APP_BASE_URL",
+        configured_origin,
+    )
+
+    def _session_payload(
+        candidate: object,
+        *,
+        expected_kind: str,
+        required_scope: str,
+        now: int | None = None,
+    ) -> dict[str, object] | None:
+        del now
+        if (
+            candidate != review_token
+            or expected_kind != "session"
+            or required_scope != "readiness"
+        ):
+            return None
+        return {
+            "kind": "session",
+            "expires_at": 2_000_000_000,
+            "scopes": ["readiness"],
+        }
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_review_token_payload",
+        _session_payload,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_require_voice_consent",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_runtime_readiness",
+        lambda requested_slug, **kwargs: {
+            "slug": requested_slug,
+            "ready": True,
+            "operator_preview": bool(
+                kwargs.get("operator_preview_allowed")
+            ),
+        },
+    )
+
+    context = browser.new_context(
+        extra_http_headers={"X-Forwarded-Proto": "https"},
+    )
+    page = context.new_page()
+    readiness_request_headers: dict[str, str] = {}
+
+    def _capture_readiness_request(request) -> None:
+        if request.url.endswith(f"/memorials/{slug}/readiness"):
+            readiness_request_headers.update(request.all_headers())
+
+    page.on("request", _capture_readiness_request)
+    try:
+        response = page.goto(
+            f"{base_url}/memorials/{slug}",
+            wait_until="domcontentloaded",
+            timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS,
+        )
+        assert response is not None and response.ok
+        context.add_cookies(
+            [
+                {
+                    "name": "ea_manfred_voice_review",
+                    "value": review_token,
+                    "url": f"{base_url}/memorials/{slug}",
+                }
+            ]
+        )
+
+        same_origin = page.evaluate(
+            """async (currentSlug) => {
+              const response = await fetch(`/memorials/${currentSlug}/readiness`, {
+                credentials: "same-origin",
+                headers: {"Accept": "application/json"},
+              });
+              return {status: response.status, payload: await response.json()};
+            }""",
+            slug,
+        )
+        assert same_origin["status"] == 200
+        assert same_origin["payload"]["operator_preview"] is True
+        assert "origin" not in readiness_request_headers
+        assert (
+            readiness_request_headers.get("sec-fetch-site")
+            == "same-origin"
+        )
+        assert readiness_request_headers.get("sec-fetch-mode") == "cors"
+        assert readiness_request_headers.get("sec-fetch-dest") == "empty"
+
+        cross_site = context.request.get(
+            f"{base_url}/memorials/{slug}/readiness",
+            headers={
+                "Accept": "application/json",
+                "Sec-Fetch-Site": "cross-site",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Dest": "empty",
+            },
+        )
+        assert cross_site.status == 403
+        assert (
+            cross_site.json()["detail"]
+            == "memorial_voice_review_origin_rejected"
+        )
+    finally:
+        context.close()
+
+
 def test_memorial_public_page_is_conversation_only_accessible_and_private_by_default(
     browser: Browser,
     memorial_browser_server: dict[str, object],
