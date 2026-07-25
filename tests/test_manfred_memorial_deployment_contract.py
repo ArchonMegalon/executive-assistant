@@ -175,6 +175,15 @@ def test_production_memorial_compose_is_image_pure_and_numeric_nonroot() -> None
         assert raw.count(f"${{{required_binding}:-}}") == 1
 
 
+def test_candidate_promotion_contract_accepts_only_nonsecret_stt_selectors() -> None:
+    assert memorial_deploy.CANDIDATE_STT_EXECUTION_ENV_KEYS == frozenset(
+        {
+            "EA_MEMORIAL_BLIPAI_STT_TIMEOUT_SECONDS",
+            "EA_MEMORIAL_STT_PRIMARY_PROVIDER",
+        }
+    )
+
+
 def test_hosted_clone_manifest_is_deterministic_private_and_reference_free() -> None:
     config_bytes = _hosted_clone_config_bytes()
     first_bytes, first_identity = candidate_prep._hosted_clone_voice_binding(

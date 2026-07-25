@@ -212,6 +212,12 @@ PAGE_PREWARM_REQUEST_COUNT_BOUNDS = {
     "/memorials/manfred/warmup": (1, 2),
     "/memorials/manfred/warmup-status": (1, 64),
 }
+CANDIDATE_STT_EXECUTION_ENV_KEYS = frozenset(
+    {
+        "EA_MEMORIAL_BLIPAI_STT_TIMEOUT_SECONDS",
+        "EA_MEMORIAL_STT_PRIMARY_PROVIDER",
+    }
+)
 MIN_PASSIVE_BROWSER_QUIET_WINDOW_MS = 2_000
 UPSTREAM_EXECUTION_NOT_OBSERVED = "not_observed"
 UPSTREAM_EXECUTION_NOT_REQUESTED = "not_requested"
@@ -8357,6 +8363,7 @@ class MemorialDeployLane:
                 "EA_MANFRED_SPATIAL_RELEASE_ROOT",
                 "EA_MANFRED_SPATIAL_SHA256",
                 "EA_MANFRED_SPATIAL_SLUG",
+                *CANDIDATE_STT_EXECUTION_ENV_KEYS,
                 "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256",
                 "EA_MEMORIAL_TTS_MODEL",
                 "EA_MEMORIAL_TTS_PROVIDER",
