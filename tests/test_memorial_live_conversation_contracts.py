@@ -2023,7 +2023,7 @@ def test_memorial_chat_live_openings_route_to_model_without_memory_fallback(
     assert "gesendet:" not in body["answer"].lower()
     assert seen_messages
     evidence_block = seen_messages[-1][1]["content"]
-    assert "Antwortmodus: gegenwaertige Live-Interaktion." in evidence_block
+    assert "Antwortmodus: gegenwärtige Live-Interaktion." in evidence_block
     assert "Erinnerungsgedaechtnis:" not in evidence_block
     assert "Eigene archivierte Erinnerungen" not in evidence_block
 
@@ -7729,7 +7729,7 @@ def test_memorial_gemini_live_uses_websocket_pcm_not_webrtc_sdp(
     assert setup["setup"]["responseModalities"] == ["AUDIO"]
     assert setup["setup"]["inputAudioTranscription"] == {}
     assert "Vermeide 'Jo'" in setup["setup"]["systemInstruction"]["parts"][0]["text"]
-    assert "wiederhole nicht staendig denselben Satz" in setup["setup"]["systemInstruction"]["parts"][0]["text"]
+    assert "wiederhole nicht ständig denselben Satz" in setup["setup"]["systemInstruction"]["parts"][0]["text"]
     assert "test-gemini-key" not in json.dumps(setup)
 
 
@@ -7746,8 +7746,40 @@ def test_memorial_gemini_live_setup_is_pinned_to_german(
     assert public_memorials._normalize_browser_language("de_AT") == "de-AT"
     assert public_memorials._normalize_browser_language("<script>") == "de-AT"
     assert "Antworte immer auf Deutsch (de-AT)" in instruction
+    assert "bloß, Wohlgefühl, für und geklärt" in instruction
+    assert "Mit bloßem Wohlgefühl oder Harmonie" not in instruction
+    assert "Wohlgefuehl" not in instruction
     assert "browser language" not in instruction
     assert "Antworte auf Deutsch" not in instruction
+
+
+def test_memorial_chat_prompt_requires_correct_german_orthography(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    messages = public_memorials._build_memorial_chat_messages(
+        {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []},
+        {},
+        "Was war dir wichtig?",
+        slug=slug,
+    )
+    instruction = messages[0]["content"]
+
+    assert "deutscher Standardorthografie mit ä, ö, ü und ß" in instruction
+    assert "bloß, Wohlgefühl, für und geklärt" in instruction
+    assert "Mit bloßem Wohlgefühl oder Harmonie" not in instruction
+    assert "Wohlgefuehl" not in instruction
+    for ascii_form in (
+        "Praezisierung",
+        "noetig",
+        "Persoenliches Gespraechsgedaechtnis",
+        "frueherer Gespraeche",
+        "EVIDENCE-Bloecken",
+    ):
+        assert ascii_form not in instruction
 
 
 def test_memorial_spoken_tts_text_normalizes_common_german_ascii_spellings(
@@ -7758,10 +7790,26 @@ def test_memorial_spoken_tts_text_normalizes_common_german_ascii_spellings(
     from app.api.routes import public_memorials
 
     spoken = public_memorials._normalize_memorial_spoken_tts_text(
-        "Ich hoere dir zu und erzaehl dir etwas ueber das Gespraech fuer de-AT."
+        "Ich hoere dir zu und erzaehl dir etwas ueber das Gespraech fuer de-AT. "
+        "Mit blossem Wohlgefuehl oder Harmonie war fuer mich noch nichts geklaert."
     )
 
-    assert spoken == "Ich höre dir zu und erzähl dir etwas über das Gespräch für Deutsch."
+    assert spoken == (
+        "Ich höre dir zu und erzähl dir etwas über das Gespräch für Deutsch. "
+        "Mit bloßem Wohlgefühl oder Harmonie war für mich noch nichts geklärt."
+    )
+
+
+def test_memorial_spoken_tts_text_preserves_bloss_as_a_proper_name() -> None:
+    from app.api.routes import public_memorials
+
+    spoken = public_memorials._normalize_memorial_spoken_tts_text(
+        "Herr Bloss blieb bei einem blossen Gefuehl und nannte es blosses Wohlgefuehl."
+    )
+
+    assert spoken == (
+        "Herr Bloss blieb bei einem bloßen Gefühl und nannte es bloßes Wohlgefühl."
+    )
 
 
 def test_memorial_unmixr_defaults_to_natural_minimal_postprocess(
