@@ -185,6 +185,7 @@ def _load_voice_config(
         "tts_plugin_voice_id": unmixr_memorial_voice_id(),
         "tts_base_voice_variant": "high",
         "tts_postprocess_profile": "",
+        "unmixr_pronunciation_dict": {},
         "consent_basis": "generic_or_owner_consented_voice",
         "notes": "Voice-Plugins fuer die Memorial-Interaktion.",
         "synthetic_voice_clone_of_memorial_person": False,
@@ -244,6 +245,11 @@ def _load_voice_config(
                     "tts_postprocess_profile": text(
                         payload.get("tts_postprocess_profile"), ""
                     ),
+                    "unmixr_pronunciation_dict": dict(
+                        payload.get("unmixr_pronunciation_dict") or {}
+                    )
+                    if isinstance(payload.get("unmixr_pronunciation_dict"), dict)
+                    else {},
                     "consent_basis": text(
                         payload.get("consent_basis"),
                         str(default_config["consent_basis"]),
@@ -374,6 +380,7 @@ def _normalize_voice_config_payload(
         "tts_plugin_voice_id": unmixr_memorial_voice_id(),
         "tts_base_voice_variant": "high",
         "tts_postprocess_profile": "",
+        "unmixr_pronunciation_dict": {},
         "consent_basis": "generic_or_owner_consented_voice",
         "notes": "Voice-Plugins fuer die Memorial-Interaktion.",
     }
@@ -432,6 +439,11 @@ def _normalize_voice_config_payload(
             else None,
             "",
         ),
+        "unmixr_pronunciation_dict": dict(
+            payload.get("unmixr_pronunciation_dict") or {}
+        )
+        if isinstance(payload.get("unmixr_pronunciation_dict"), dict)
+        else {},
         "consent_basis": text(
             payload.get("consent_basis") if isinstance(payload, dict) else None,
             str(default_config["consent_basis"]),

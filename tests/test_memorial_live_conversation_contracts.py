@@ -6699,6 +6699,58 @@ def test_memorial_unmixr_raw_preserve_profile_is_available() -> None:
     assert filters == ""
 
 
+def test_manfred_voice_config_softens_timbre_and_guides_ordne_pronunciation() -> None:
+    payload = json.loads(
+        (
+            ROOT
+            / "memorial_data"
+            / "private_memorial_profiles"
+            / "manfred"
+            / "tts_voice.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert payload["lang"] == "de-AT"
+    assert payload["tts_postprocess_profile"] == "unmixr_natural_soft"
+    assert payload["unmixr_pronunciation_dict"] == {
+        "ordne": "ord-ne",
+        "Ordne": "Ord-ne",
+    }
+
+
+def test_memorial_voice_loader_preserves_unmixr_quality_controls(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        tmp_path / "private",
+        slug,
+        {
+            "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "voice-1",
+            "tts_postprocess_profile": "unmixr_natural_soft",
+            "unmixr_speaking_rate": "medium",
+            "unmixr_speaking_pitch": "medium",
+            "unmixr_speaking_volume": "medium",
+            "unmixr_pronunciation_dict": {
+                "ordne": "ord-ne",
+                "Ordne": "Ord-ne",
+            },
+        },
+    )
+
+    loaded = public_memorials._load_voice_config(slug)
+
+    assert loaded["tts_postprocess_profile"] == "unmixr_natural_soft"
+    assert loaded["unmixr_pronunciation_dict"] == {
+        "ordne": "ord-ne",
+        "Ordne": "Ord-ne",
+    }
+
+
 def test_memorial_speech_transcribe_route_logs_timing_metadata(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -7458,6 +7510,85 @@ def test_memorial_contact_tts_cache_rejects_pre_locale_policy_key(
     ]
     assert any(
         item.get("provider_language_policy") == "unmixr_locale_preserving_v1"
+        for item in cache_metadata
+    )
+
+
+def test_memorial_unmixr_renderer_applies_pronunciation_and_soft_timbre_policy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    _patch_memorial_runtime_roots(tmp_path)
+    synth_calls: list[dict[str, object]] = []
+    filter_calls: list[str] = []
+    audio = _generated_wav_bytes(textish_seed="ich ordne das")
+
+    monkeypatch.setattr(
+        public_memorials,
+        "unmixr_synthesize_request",
+        lambda **kwargs: synth_calls.append(dict(kwargs)) or (audio, "audio/wav"),
+    )
+
+    def _capture_postprocess(
+        *,
+        payload: bytes,
+        content_type: str,
+        silence_ms: int,
+        tail_silence_ms: int,
+        extra_filters: str,
+    ) -> tuple[bytes, str]:
+        filter_calls.append(extra_filters)
+        return payload, content_type
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        _capture_postprocess,
+    )
+    base_config = {
+        "tts_plugin_voice_id": "voice-1",
+        "lang": "de-AT",
+        "tts_postprocess_profile": "unmixr_natural_soft",
+        "unmixr_pronunciation_dict": {
+            "ordne": "ord-ne",
+            "Ordne": "Ord-ne",
+        },
+    }
+
+    rendered, content_type = public_memorials._render_memorial_tts_audio(
+        slug="manfred",
+        text="Ich ordne das ruhig.",
+        merged_config=dict(base_config),
+        base_config=base_config,
+        selected_plugin=public_memorials.UNMIXR_TTS_PLUGIN_ID,
+        selected_option={
+            "tts_plugin_enabled": True,
+            "tts_plugin_voice_id": "voice-1",
+        },
+        lead_in_ms=0,
+        tail_silence_ms=0,
+    )
+
+    assert rendered == audio
+    assert content_type == "audio/wav"
+    assert len(synth_calls) == 1
+    assert synth_calls[0]["pronunciation_dict"] == {
+        "ordne": "ord-ne",
+        "Ordne": "Ord-ne",
+    }
+    assert filter_calls
+    assert "equalizer=f=2600:t=q:w=1.0:g=-0.8" in filter_calls[0]
+    assert "lowpass=f=7000" in filter_calls[0]
+    cache_metadata = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in public_memorials._memorial_tts_render_cache_root().glob("*.json")
+    ]
+    assert any(
+        item.get("provider_pronunciation_policy") == "unmixr_config_v1"
+        and item.get("pronunciation_dict")
+        == {"ordne": "ord-ne", "Ordne": "Ord-ne"}
         for item in cache_metadata
     )
 

@@ -377,6 +377,43 @@ def test_hosted_clone_config_rejects_secret_or_raw_provider_id_fields(
         )
 
 
+@pytest.mark.parametrize(
+    "pronunciation_dict",
+    [
+        {},
+        {"": "ord-ne"},
+        {"ordne": " "},
+        {"x" * 65: "ord-ne"},
+        {"ordne": "x" * 129},
+        {"ordne": "ord\nne"},
+    ],
+    ids=(
+        "empty",
+        "empty-term",
+        "blank-pronunciation",
+        "term-too-long",
+        "pronunciation-too-long",
+        "control-character",
+    ),
+)
+def test_hosted_clone_config_rejects_invalid_pronunciation_dictionary(
+    pronunciation_dict: dict[str, str],
+) -> None:
+    payload = json.loads(_hosted_clone_config_bytes())
+    payload["unmixr_pronunciation_dict"] = pronunciation_dict
+
+    with pytest.raises(
+        ValueError,
+        match="manfred_candidate_voice_config_fields_invalid",
+    ):
+        candidate_prep._hosted_clone_voice_binding(
+            voice_config_bytes=candidate_prep._receipt_bytes(payload),
+            provider_voice_id_sha256=PROVIDER_VOICE_ID_SHA256,
+            tts_provider=candidate_prep.MANFRED_TTS_PROVIDER,
+            tts_model=candidate_prep.MANFRED_TTS_MODEL,
+        )
+
+
 def test_candidate_release_authority_snapshot_rejects_path_replacement(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -963,6 +1000,81 @@ def test_candidate_page_prewarm_guards_all_same_origin_application_transports() 
     assert candidate_verify._http_origin(
         "ws://127.0.0.1:8090/realtime"
     ) == candidate_verify._http_origin("http://127.0.0.1:8090/")
+
+
+def test_candidate_browser_reports_dedicated_readiness_error_before_generic() -> None:
+    error = candidate_verify._unexpected_browser_application_request_error(
+        [
+            {
+                "method": "POST",
+                "path": "/memorials/manfred/readiness",
+                "query": "",
+                "fragment": "",
+                "resource_type": "fetch",
+                "url": "https://memorial.example.test/memorials/manfred/readiness",
+                "post_data": "{}",
+            }
+        ]
+    )
+
+    assert error == "candidate_browser_automatic_readiness_detected"
+
+
+def test_candidate_browser_reports_bounded_unexpected_request_evidence() -> None:
+    error = candidate_verify._unexpected_browser_application_request_error(
+        [
+            {
+                "method": "POST",
+                "path": "/cdn-cgi/" + ("private-token" * 20),
+                "query": "secret=must-not-appear",
+                "fragment": "also-private",
+                "resource_type": "ping",
+                "url": "https://memorial.example.test/private",
+                "post_data": "must-not-appear",
+            }
+        ]
+    )
+
+    assert error == (
+        "candidate_browser_unexpected_same_origin_application_request:"
+        "POST:/cdn-cgi/__redacted__:ping:query:fragment"
+    )
+    assert "secret" not in error
+    assert "must-not-appear" not in error
+
+
+def test_deploy_failure_receipt_preserves_safe_browser_request_evidence() -> None:
+    stdout = json.dumps(
+        {
+            "schema": candidate_verify.RECEIPT_SCHEMA,
+            "status": "fail",
+            "error": (
+                "candidate_browser_unexpected_same_origin_application_request:"
+                "POST:/cdn-cgi/rum:ping:noquery:nofragment"
+            ),
+        }
+    )
+    completed = subprocess.CompletedProcess(
+        args=["python", "scripts/verify_manfred_memorial_candidate.py"],
+        returncode=1,
+        stdout=stdout,
+        stderr="",
+    )
+
+    evidence = memorial_deploy._fixed_json_script_failure_evidence(
+        script="scripts/verify_manfred_memorial_candidate.py",
+        origin="public",
+        completed=completed,
+    )
+
+    assert evidence["error_code"] == (
+        "candidate_browser_unexpected_same_origin_application_request"
+    )
+    assert evidence["request_method"] == "POST"
+    assert evidence["request_path"] == "/cdn-cgi/rum"
+    assert evidence["request_resource_type"] == "ping"
+    assert evidence["request_has_query"] is False
+    assert evidence["request_has_fragment"] is False
 
 
 def test_candidate_page_prewarm_audio_contract_is_exact_wave() -> None:

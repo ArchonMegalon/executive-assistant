@@ -627,6 +627,7 @@ SAFE_CANDIDATE_ERROR_CODES = frozenset(
         "candidate_browser_runtime_error",
         "candidate_browser_runtime_unavailable",
         "candidate_browser_same_origin_http_error",
+        "candidate_browser_unexpected_same_origin_application_request",
         "candidate_contribution_mode_conflict",
         "candidate_contribution_receipt_invalid",
         "candidate_contribution_receipt_missing",
@@ -649,6 +650,12 @@ SAFE_CANDIDATE_ERROR_CODES = frozenset(
 SAFE_CANDIDATE_HTTP_STATUS_PATHS = frozenset({"/memorials/manfred"})
 SAFE_CANDIDATE_HTTP_STATUS_ERROR_PATTERN = re.compile(
     r"^candidate_http_status_unexpected:([^:\x00-\x20\x7f]{1,160}):([1-5][0-9]{2})$"
+)
+SAFE_CANDIDATE_BROWSER_REQUEST_ERROR_PATTERN = re.compile(
+    r"^candidate_browser_unexpected_same_origin_application_request:"
+    r"([A-Z]{1,16}):"
+    r"(/[A-Za-z0-9._~!$&'()*+,;=@%/-]{0,120}):"
+    r"([a-z]{1,24}):(query|noquery):(fragment|nofragment)$"
 )
 CONTAINER_PROJECTION_DIGEST_SCRIPT = r"""
 import hashlib
@@ -2023,6 +2030,7 @@ def _fixed_json_script_failure_evidence(
     )
     error_code = "fixed_json_script_failed"
     safe_http_status_evidence: dict[str, object] = {}
+    safe_browser_request_evidence: dict[str, object] = {}
     if stdout_within_parse_limit:
         try:
             payload = json.loads(raw_stdout)
@@ -2047,6 +2055,27 @@ def _fixed_json_script_failure_evidence(
                     "error_path": status_match.group(1),
                     "http_status": int(status_match.group(2)),
                 }
+            browser_request_match = (
+                SAFE_CANDIDATE_BROWSER_REQUEST_ERROR_PATTERN.fullmatch(
+                    raw_candidate_error
+                )
+                if type(raw_candidate_error) is str
+                else None
+            )
+            if (
+                error_code
+                == "candidate_browser_unexpected_same_origin_application_request"
+                and browser_request_match is not None
+            ):
+                safe_browser_request_evidence = {
+                    "request_method": browser_request_match.group(1),
+                    "request_path": browser_request_match.group(2),
+                    "request_resource_type": browser_request_match.group(3),
+                    "request_has_query": browser_request_match.group(4) == "query",
+                    "request_has_fragment": (
+                        browser_request_match.group(5) == "fragment"
+                    ),
+                }
 
     return_code = int(completed.returncode)
     return {
@@ -2061,6 +2090,7 @@ def _fixed_json_script_failure_evidence(
         ),
         "stdout_size_capped": not stdout_within_parse_limit,
         **safe_http_status_evidence,
+        **safe_browser_request_evidence,
     }
 
 

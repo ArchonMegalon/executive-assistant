@@ -431,10 +431,17 @@ def _install_fake_audio_runtime(
     context,
     *,
     playback_delay_ms: int = 1750,
+    initial_playback_delay_ms: int | None = None,
     recorder_event_delay_ms: int = 0,
     blob_array_buffer_delay_ms: int = 0,
 ) -> None:
     assert playback_delay_ms > 0
+    resolved_initial_playback_delay_ms = (
+        playback_delay_ms
+        if initial_playback_delay_ms is None
+        else initial_playback_delay_ms
+    )
+    assert resolved_initial_playback_delay_ms > 0
     assert recorder_event_delay_ms >= 0
     assert blob_array_buffer_delay_ms >= 0
     context.add_init_script(
@@ -538,16 +545,23 @@ def _install_fake_audio_runtime(
           };
           HTMLMediaElement.prototype.play = function play() {
             window.__memorialAudioPlayCalls += 1;
+            const playbackDelayMs = window.__memorialAudioPlayCalls === 1
+              ? __INITIAL_PLAYBACK_DELAY_MS__
+              : __PLAYBACK_DELAY_MS__;
             return new Promise((resolve) => {
               window.setTimeout(() => {
                 window.__memorialAudioEndedEvents += 1;
                 this.dispatchEvent(new Event("ended"));
                 resolve();
-              }, __PLAYBACK_DELAY_MS__);
+              }, playbackDelayMs);
             });
           };
         })();
         """.replace("__PLAYBACK_DELAY_MS__", str(playback_delay_ms))
+        .replace(
+            "__INITIAL_PLAYBACK_DELAY_MS__",
+            str(resolved_initial_playback_delay_ms),
+        )
         .replace("__RECORDER_EVENT_DELAY_MS__", str(recorder_event_delay_ms))
         .replace("__BLOB_ARRAY_BUFFER_DELAY_MS__", str(blob_array_buffer_delay_ms))
     )
@@ -2570,11 +2584,15 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
             timeout=7000,
         )
         page.wait_for_function(
-            "() => Number(window.__memorialAudioPlayCalls || 0) >= 1",
+            "() => Number(window.__memorialAudioPlayCalls || 0) >= 2",
             timeout=7000,
         )
         page.wait_for_function(
-            "() => Number(window.__memorialAudioEndedEvents || 0) >= 1",
+            """() => (
+              Number(window.__memorialAudioEndedEvents || 0) >= 2
+              && document.getElementById("memorial-conversation-region")
+                ?.dataset.conversationState === "listening"
+            )""",
             timeout=7000,
         )
         states = page.evaluate(
@@ -3250,7 +3268,11 @@ def test_memorial_active_tts_can_be_interrupted_without_claiming_physical_audibi
     base_url = str(memorial_minimal_server["base_url"])
     slug = str(memorial_minimal_server["slug"])
     context = browser.new_context(viewport={"width": 430, "height": 932})
-    _install_fake_audio_runtime(context, playback_delay_ms=30000)
+    _install_fake_audio_runtime(
+        context,
+        initial_playback_delay_ms=25,
+        playback_delay_ms=30000,
+    )
     page: Page = context.new_page()
     try:
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
@@ -3259,18 +3281,37 @@ def test_memorial_active_tts_can_be_interrupted_without_claiming_physical_audibi
         start.wait_for(state="visible", timeout=12000)
         start.click()
         page.wait_for_function(
-            "() => Number(window.__memorialAudioPlayCalls || 0) >= 1",
+            """() => (
+              Number(window.__memorialAudioPlayCalls || 0) >= 2
+              && Number(window.__memorialMediaTrackStopCalls || 0) >= 1
+            )""",
             timeout=12000,
         )
-        assert page.evaluate("window.__memorialAudioEndedEvents") == 0
+        counters_before_interrupt = page.evaluate(
+            """() => ({
+              ended: Number(window.__memorialAudioEndedEvents || 0),
+              paused: Number(window.__memorialAudioPauseCalls || 0),
+              stopped: Number(window.__memorialMediaTrackStopCalls || 0),
+              microphone: Number(window.__getUserMediaCalls || 0),
+            })"""
+        )
+        assert counters_before_interrupt["ended"] == 1
+        assert counters_before_interrupt["stopped"] >= 1
+        assert counters_before_interrupt["microphone"] >= 1
 
         page.locator("#memorial-conversation").click()
         page.get_by_role("button", name="Gespräch beginnen", exact=True).wait_for(
             state="visible",
             timeout=7000,
         )
-        assert page.evaluate("window.__memorialAudioPauseCalls") >= 1
-        assert page.evaluate("window.__memorialAudioEndedEvents") == 0
+        assert (
+            page.evaluate("window.__memorialAudioPauseCalls")
+            > counters_before_interrupt["paused"]
+        )
+        assert (
+            page.evaluate("window.__memorialAudioEndedEvents")
+            == counters_before_interrupt["ended"]
+        )
         assert page.evaluate("window.__memorialMediaTrackStopCalls") >= 1
         assistant_turns = page.locator(
             "#memorial-speech-transcript > .speech-turn.assistant"

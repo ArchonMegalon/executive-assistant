@@ -59,6 +59,7 @@ from app.services.memorial_openvoice import (
     unmixr_delete_clone_profile_request,
     unmixr_memorial_voice_id,
     unmixr_plugin_option,
+    unmixr_pronunciation_dict,
     unmixr_synthesize_request,
     unmixr_voice_profile_id,
     voicewave_memorial_voice_label,
@@ -9680,6 +9681,11 @@ def _render_memorial_tts_audio(
         selected_option=selected_option,
         voice_ref=voice_ref,
     )
+    pronunciation_dict: dict[str, str] = {}
+    if selected_plugin == UNMIXR_TTS_PLUGIN_ID:
+        pronunciation_dict = unmixr_pronunciation_dict(
+            merged_config.get("unmixr_pronunciation_dict", {})
+        )
     extra_filters = _speech_postprocess_filters_for_config(selected_plugin, merged_config)
     cache_payload = {
         "slug": slug,
@@ -9694,6 +9700,7 @@ def _render_memorial_tts_audio(
         "lead_in_ms": int(max(0, lead_in_ms)),
         "tail_silence_ms": int(max(0, tail_silence_ms)),
         "extra_filters": extra_filters,
+        "pronunciation_dict": pronunciation_dict,
         "spoken_text_normalizer": "memorial_de_at_v2",
         "postprocess_impl": (
             f"{getattr(_pad_speech_audio_lead_in, '__module__', '')}:"
@@ -9702,6 +9709,7 @@ def _render_memorial_tts_audio(
     }
     if selected_plugin == UNMIXR_TTS_PLUGIN_ID:
         cache_payload["provider_language_policy"] = "unmixr_locale_preserving_v1"
+        cache_payload["provider_pronunciation_policy"] = "unmixr_config_v1"
     cache_audio_path, cache_meta_path = _memorial_tts_render_cache_paths(cache_payload=cache_payload)
     direct_contact_phrase = _is_memorial_direct_contact_opening_text(normalized_text)
     contact_phrase_validation: dict[str, object] = {}
@@ -9731,6 +9739,11 @@ def _render_memorial_tts_audio(
         if selected_plugin == UNMIXR_TTS_PLUGIN_ID:
             if not voice_ref:
                 raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+            pronunciation_options = (
+                {"pronunciation_dict": pronunciation_dict}
+                if pronunciation_dict
+                else {}
+            )
             synthesized_audio, synthesized_content_type = unmixr_synthesize_request(
                 text=normalized_text,
                 voice_id=voice_ref,
@@ -9738,6 +9751,7 @@ def _render_memorial_tts_audio(
                 speaking_rate=_text(merged_config.get("unmixr_speaking_rate"), ""),
                 speaking_pitch=_text(merged_config.get("unmixr_speaking_pitch"), ""),
                 speaking_volume=_text(merged_config.get("unmixr_speaking_volume"), ""),
+                **pronunciation_options,
             )
         elif selected_plugin == VOICEWAVE_TTS_PLUGIN_ID:
             if not voice_ref:
@@ -18683,6 +18697,10 @@ def _minimal_public_memorial_html(
         ) return;
         const startToken = {{}};
         const startGeneration = activeGeneration;
+        const restoreConversationButtonFocus = (
+          conversationButton
+          && document.activeElement === conversationButton
+        );
         activeConversationStart = startToken;
         setSpeechStatus(
           "Gespräch wird vorbereitet.",
@@ -18765,6 +18783,18 @@ def _minimal_public_memorial_html(
           if (activeConversationStart === startToken) {{
             activeConversationStart = null;
             syncConversationButton();
+          }}
+          if (
+            restoreConversationButtonFocus
+            && conversationButton
+            && !conversationButton.disabled
+            && (
+              !document.activeElement
+              || document.activeElement === document.body
+              || document.activeElement === conversationButton
+            )
+          ) {{
+            conversationButton.focus({{ preventScroll: true }});
           }}
         }}
       }}

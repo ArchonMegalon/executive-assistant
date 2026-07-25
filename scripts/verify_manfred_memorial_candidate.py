@@ -463,6 +463,60 @@ def _valid_page_prewarm_request_counts(
     )
 
 
+def _sanitized_browser_request_path(value: object) -> str:
+    raw_path = str(value or "")
+    if not raw_path.startswith("/"):
+        return "/__invalid__"
+    segments = []
+    for segment in raw_path.split("/"):
+        cleaned = re.sub(r"[^A-Za-z0-9._~!$&'()*+,;=@%-]", "_", segment)
+        segments.append(cleaned[:48] if len(cleaned) <= 48 else "__redacted__")
+    normalized = "/".join(segments)[:120]
+    return normalized or "/"
+
+
+def _browser_request_evidence(record: Mapping[str, object]) -> str:
+    method = str(record.get("method") or "").upper()
+    if not re.fullmatch(r"[A-Z]{1,16}", method):
+        method = "UNKNOWN"
+    resource_type = str(record.get("resource_type") or "").lower()
+    if not re.fullmatch(r"[a-z]{1,24}", resource_type):
+        resource_type = "unknown"
+    return ":".join(
+        (
+            method,
+            _sanitized_browser_request_path(record.get("path")),
+            resource_type,
+            "query" if str(record.get("query") or "") else "noquery",
+            "fragment" if str(record.get("fragment") or "") else "nofragment",
+        )
+    )
+
+
+def _unexpected_browser_application_request_error(
+    records: list[dict[str, str]],
+) -> str:
+    if any(
+        record.get("path") == "/memorials/manfred/readiness"
+        for record in records
+    ):
+        return "candidate_browser_automatic_readiness_detected"
+    if not records:
+        return ""
+    evidence_record = sorted(
+        records,
+        key=lambda item: (
+            item.get("path", ""),
+            item.get("method", ""),
+            item.get("resource_type", ""),
+        ),
+    )[0]
+    return (
+        "candidate_browser_unexpected_same_origin_application_request:"
+        + _browser_request_evidence(evidence_record)
+    )
+
+
 def _request(
     base_url: str,
     path: str,
@@ -1628,10 +1682,13 @@ def audit_browser_surface(
                 for record in requested_records
                 if record["path"] == "/memorials/manfred/readiness"
             )
-            if unexpected_same_origin_application_requests:
-                raise RuntimeError(
-                    "candidate_browser_unexpected_same_origin_application_request"
+            unexpected_request_error = (
+                _unexpected_browser_application_request_error(
+                    unexpected_application_records
                 )
+            )
+            if unexpected_request_error:
+                raise RuntimeError(unexpected_request_error)
             if expect_page_prewarm:
                 required_paths = set(PAGE_PREWARM_REQUIRED_PATHS)
                 if set(preparation_request_paths) != required_paths:
@@ -1742,10 +1799,6 @@ def audit_browser_surface(
             automatic_microphone_requests = int(
                 microphone_guard.get("calls") or 0
             )
-            if automatic_readiness_requests:
-                raise RuntimeError(
-                    "candidate_browser_automatic_readiness_detected"
-                )
             if automatic_microphone_requests:
                 raise RuntimeError(
                     "candidate_browser_automatic_microphone_detected"
