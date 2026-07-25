@@ -6328,17 +6328,12 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 source_revision=str(context["source_revision"]),
                 candidate_promotion_evidence=dict(context["candidate_promotion"]),
             )
-            public_candidate = self._verify_candidate_origin(
-                label="public",
-                base_url=str(context["public_origin"]),
-                public_origin=str(context["public_origin"]),
-            )
-            self.receipt["candidate_verifier"] = [public_candidate]
-            self._record_check("candidate_verifier_origin", "pass", origin="public")
-            self._record_check(
-                "public_candidate_verifier",
-                "pass",
-                local_transport_proof="canonical_https_redirects",
+            self._verify_candidate_origins(
+                str(context["public_origin"]),
+                candidate_promotion_evidence=dict(
+                    context["candidate_promotion"]
+                ),
+                source_revision=str(context["source_revision"]),
             )
             public_edge = ingress._verify_public_origin()
             self.receipt["joint_public_edge"] = {

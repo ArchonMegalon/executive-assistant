@@ -2095,11 +2095,11 @@ def _install_success_path(
         }
     )
     lane._verify_non_memorial_controls = Mock()
+    lane._verify_candidate_origins = Mock()
     lane._verify_candidate_origin = Mock(
-        side_effect=lambda **kwargs: {
-            "origin": kwargs["label"],
-            "status": "pass",
-        }
+        side_effect=AssertionError(
+            "joint deploy bypassed candidate-origin dispatcher"
+        )
     )
     ingress_lane._validate_api_runtime_posture = Mock()  # type: ignore[method-assign]
     lane._recreate_cloudflared = Mock(  # type: ignore[method-assign]
@@ -2456,11 +2456,12 @@ def test_happy_path_orders_api_local_proof_before_ingress_and_public_proof(
         "http://127.0.0.1:8090",
         ORIGIN,
     )
-    lane._verify_candidate_origin.assert_called_once_with(
-        label="public",
-        base_url=ORIGIN,
-        public_origin=ORIGIN,
+    lane._verify_candidate_origins.assert_called_once_with(
+        ORIGIN,
+        candidate_promotion_evidence=dict(context_value["candidate_promotion"]),
+        source_revision=SOURCE_REVISION,
     )
+    lane._verify_candidate_origin.assert_not_called()
     lane._verify_deployed_surface.assert_called_once()
     assert receipt["joint_atomicity"] == materializer.JOINT_ATOMICITY
     assert receipt["spatial_materializer_handoff"]["candidate_browser_receipt"] == {
