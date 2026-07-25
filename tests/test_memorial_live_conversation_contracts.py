@@ -10765,3 +10765,19 @@ def test_memorial_empty_transcript_reports_only_content_free_provider_shape(
     assert private_text not in json.dumps(result, sort_keys=True)
     assert "alternate provider output" not in json.dumps(result, sort_keys=True)
     assert observed_languages == ["en"]
+
+
+def test_memorial_live_audio_context_cleanup_is_idempotent() -> None:
+    source = PUBLIC_MEMORIALS_SOURCE.read_text(encoding="utf-8")
+    minimal_surface = source[source.rfind("let activeAudioContext = null;") :]
+
+    assert 'if (!context || context.state === "closed") return;' in minimal_surface
+    assert 'typeof closeResult.catch === "function"' in minimal_surface
+    assert "closeResult.catch(() => {{}});" in minimal_surface
+    assert minimal_surface.count("closeAudioContextSafely(") == 5
+    for unsafe_close in (
+        "activeAudioContext.close();",
+        "activeBargeInAudioContext.close();",
+        "liveAudioContext.close();",
+    ):
+        assert unsafe_close not in minimal_surface

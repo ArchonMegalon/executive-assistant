@@ -23422,6 +23422,15 @@ def _memorial_html(
           if (onDone) onDone();
         }}
       }}
+      function closeAudioContextSafely(context) {{
+        if (!context || context.state === "closed") return;
+        try {{
+          const closeResult = context.close();
+          if (closeResult && typeof closeResult.catch === "function") {{
+            closeResult.catch(() => {{}});
+          }}
+        }} catch (error) {{}}
+      }}
       function releaseConversationAudio() {{
         if (activeSilenceTimer) clearTimeout(activeSilenceTimer);
         if (activeMaxTimer) clearTimeout(activeMaxTimer);
@@ -23434,7 +23443,7 @@ def _memorial_html(
         speechMeterLive = false;
         setSpeechMeterLevel(speechState === "speaking" ? 0.38 : (speechState === "listening" ? 0.22 : 0.06));
         if (activeAudioContext) {{
-          try {{ activeAudioContext.close(); }} catch (error) {{}}
+          closeAudioContextSafely(activeAudioContext);
           activeAudioContext = null;
         }}
         if (activeStream) {{
@@ -23452,7 +23461,7 @@ def _memorial_html(
           activeBargeInLevelMonitor = null;
         }}
         if (activeBargeInAudioContext) {{
-          try {{ activeBargeInAudioContext.close(); }} catch (error) {{}}
+          closeAudioContextSafely(activeBargeInAudioContext);
           activeBargeInAudioContext = null;
         }}
         if (activeBargeInStream) {{
@@ -23475,7 +23484,7 @@ def _memorial_html(
           liveAudioSource = null;
         }}
         if (liveAudioContext) {{
-          try {{ liveAudioContext.close(); }} catch (error) {{}}
+          closeAudioContextSafely(liveAudioContext);
           liveAudioContext = null;
         }}
         if (liveInputStream) {{
@@ -23923,7 +23932,7 @@ def _memorial_html(
             speechMeterLive = false;
             setSpeechMeterLevel(0.14);
             if (activeAudioContext) {{
-              try {{ activeAudioContext.close(); }} catch (error) {{}}
+              closeAudioContextSafely(activeAudioContext);
               activeAudioContext = null;
             }}
             stream.getTracks().forEach((track) => track.stop());
