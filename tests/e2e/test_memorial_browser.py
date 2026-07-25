@@ -833,6 +833,18 @@ def test_memorial_public_page_is_conversation_only_accessible_and_private_by_def
             assert page.locator("main#memorial-conversation-region").evaluate(
                 "element => getComputedStyle(element).position"
             ) not in {"fixed", "sticky"}
+            button_box = conversation_button.bounding_box()
+            assert button_box is not None
+            assert float(button_box["height"]) >= 56
+            assert float(button_box["width"]) <= min(440, viewport["width"] - 40) + 1
+            assert abs(
+                float(button_box["x"])
+                + (float(button_box["width"]) / 2)
+                - (viewport["width"] / 2)
+            ) <= 1
+            assert page.evaluate(
+                "() => document.documentElement.scrollWidth === document.documentElement.clientWidth"
+            )
         page.set_viewport_size({"width": 1440, "height": 1100})
         conversation_main = page.locator("main#memorial-conversation-region")
         assert conversation_main.get_attribute("tabindex") == "-1"

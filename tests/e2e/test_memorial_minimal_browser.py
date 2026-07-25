@@ -1072,8 +1072,14 @@ def test_memorial_transient_voice_warmup_stays_preparing_until_ready(
         assert websocket_urls == []
         assert page.locator("#memorial-conversation").is_disabled()
         assert page.locator("#memorial-conversation").inner_text().strip() == (
-            "Gespräch wird vorbereitet …"
+            "Gespräch beginnen"
         )
+        assert page.locator("#memorial-conversation").get_attribute(
+            "aria-label"
+        ) == "Gespräch beginnen"
+        assert page.locator("#memorial-conversation").get_attribute(
+            "title"
+        ) == "Gespräch beginnen"
 
         page.evaluate("window.__advanceMemorialClock(46_000)")
         page.wait_for_timeout(2600)
@@ -1089,7 +1095,7 @@ def test_memorial_transient_voice_warmup_stays_preparing_until_ready(
             "aria-busy"
         ) == "true"
         assert page.locator("#memorial-conversation").inner_text().strip() == (
-            "Gespräch wird vorbereitet …"
+            "Gespräch beginnen"
         )
         assert page.locator("#memorial-conversation-region").get_attribute(
             "data-conversation-state"
@@ -1280,10 +1286,10 @@ def test_memorial_public_evaluation_is_enabled_without_review_cookie_and_stays_m
             "memorial-conversation-disclosure"
         )
         assert page.locator("#memorial-conversation-disclosure").inner_text() == (
-            "Öffentliche Testphase: Diese KI-Rekonstruktion antwortet aus einer "
-            "aus freigegebenen Erinnerungen und Quellen abgeleiteten Ich-Perspektive. "
-            "Sie ist nicht Manfred und spricht nicht für ihn. Die künstlich erzeugte "
-            "Stimme wird noch beurteilt. Mikrofon und Audio werden erst nach "
+            "Öffentliche Testphase. Diese KI-Rekonstruktion antwortet in einer aus "
+            "freigegebenen Erinnerungen und Quellen abgeleiteten Ich-Perspektive. "
+            "Sie ist nicht Manfred und spricht nicht für ihn. Die Stimme ist künstlich "
+            "erzeugt. Sie wird noch beurteilt. Mikrofon und Audio werden erst nach "
             "„Gespräch beginnen“ verarbeitet."
         )
         assert all(

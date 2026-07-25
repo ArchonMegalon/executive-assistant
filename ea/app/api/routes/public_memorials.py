@@ -13259,10 +13259,10 @@ def _minimal_public_memorial_html(
         )
     elif public_voice_evaluation_allowed:
         voice_guidance = (
-            "Öffentliche Testphase: Diese KI-Rekonstruktion antwortet aus einer "
-            "aus freigegebenen Erinnerungen und Quellen abgeleiteten Ich-Perspektive. "
-            "Sie ist nicht Manfred und spricht nicht für ihn. Die künstlich erzeugte "
-            "Stimme wird noch beurteilt. Mikrofon und Audio werden erst nach "
+            "Öffentliche Testphase. Diese KI-Rekonstruktion antwortet in einer aus "
+            "freigegebenen Erinnerungen und Quellen abgeleiteten Ich-Perspektive. "
+            "Sie ist nicht Manfred und spricht nicht für ihn. Die Stimme ist künstlich "
+            "erzeugt. Sie wird noch beurteilt. Mikrofon und Audio werden erst nach "
             "„Gespräch beginnen“ verarbeitet."
         )
     elif voice_access_blocked:
@@ -14487,7 +14487,7 @@ def _minimal_public_memorial_html(
       }}
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] header {{
         min-height: auto;
-        padding: clamp(42px, 6vw, 64px) 0 clamp(28px, 4vw, 40px);
+        padding: clamp(68px, 9vh, 104px) 0 clamp(28px, 4vw, 40px);
       }}
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-shell {{
         width: min(100%, 620px);
@@ -14518,13 +14518,13 @@ def _minimal_public_memorial_html(
         background: transparent;
         box-shadow: none;
       }}
-      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-actions,
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-actions {{
+        width: min(100%, 440px);
+        margin: 18px auto 0;
+      }}
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta {{
         width: 100%;
         min-width: 0;
-      }}
-      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-actions {{
-        margin-top: 18px;
       }}
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta {{
         min-height: 56px;
@@ -16916,9 +16916,7 @@ def _minimal_public_memorial_html(
           );
           const preparing = Boolean(activeConversationStart) || readinessPending;
           const active = recordingActive || conversationSessionActive;
-          const label = preparing
-            ? "Gespräch wird vorbereitet …"
-            : (active ? "Gespräch beenden" : "Gespräch beginnen");
+          const label = active ? "Gespräch beenden" : "Gespräch beginnen";
           const disabled =
             preparing
             || (!active && !memorialLandingReady && !memorialConversationRetryAvailable);
