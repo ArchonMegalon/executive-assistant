@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from scripts import build_manfred_memorial_image as image_builder
+from scripts import manfred_candidate_registry as candidate_registry
 from scripts import prepare_manfred_memorial_candidate as prepare
 from scripts import run_manfred_memorial_candidate as runner
 from scripts import verify_manfred_memorial_candidate as candidate_verifier
@@ -1142,6 +1143,10 @@ def test_candidate_env_writer_emits_only_nonsecret_blipai_primary_settings(
         "EA_MEMORIAL_BLIPAI_STT_REFRESH_TOKEN",
         "EA_MEMORIAL_BLIPAI_STT_URL",
     }.intersection(values)
+
+
+def test_candidate_runner_and_registry_share_exact_environment_key_contract() -> None:
+    assert runner.ALLOWED_ENV_KEYS == candidate_registry.CANDIDATE_ENV_KEYS
 
 
 def _compose_payloads(env_file: Path, env: dict[str, str]) -> tuple[dict, dict]:
