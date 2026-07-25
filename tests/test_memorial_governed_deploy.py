@@ -2554,6 +2554,16 @@ def _lane(
                     "voice_access": "text-only",
                     "evaluation_status": "",
                     "conversation_action_exercised": True,
+                    "passive_quiet_window_ms": 0,
+                    "page_prewarm_expected": False,
+                    "automatic_preparation_request_paths": [],
+                    "automatic_preparation_request_counts": {
+                        path: 0 for path in PAGE_PREWARM_PATHS
+                    },
+                    "automatic_preparation_requests": 0,
+                    "same_origin_application_requests_performed": False,
+                    "same_origin_application_request_count": 0,
+                    "same_origin_application_request_paths": [],
                     "automatic_provider_requests": 0,
                     "automatic_readiness_requests": 0,
                     "automatic_microphone_requests": 0,
@@ -2674,6 +2684,69 @@ def _lane(
     )
     lane.joint_recovery_journal_path = recovery_root / "joint-active-recovery.json"
     return lane
+
+
+def _configure_signed_candidate_receipt(
+    payload: dict[str, object],
+    *,
+    access_mode: str,
+) -> None:
+    if access_mode == deploy.VOICE_ACCESS_MODE_PUBLIC_RELEASE:
+        voice_release_allowed = True
+        public_evaluation_allowed = False
+        browser_voice_state = ("available", "public-release", "")
+        voice_check = "voice_release_authorization_verified_provider_not_called"
+    elif access_mode == deploy.VOICE_ACCESS_MODE_PUBLIC_EVALUATION:
+        voice_release_allowed = False
+        public_evaluation_allowed = True
+        browser_voice_state = (
+            "blocked",
+            "public-evaluation",
+            "owner-authorized",
+        )
+        voice_check = (
+            "voice_public_evaluation_authorization_verified_provider_not_called"
+        )
+    else:  # pragma: no cover - test helper invariant
+        raise AssertionError("unsupported signed candidate access mode")
+    source_revision = str(payload["projection_commit"])
+    payload.update(
+        {
+            "voice_release_allowed": voice_release_allowed,
+            "public_evaluation_allowed": public_evaluation_allowed,
+            "voice_runtime_enablement_allowed": True,
+            "voice_access_mode": access_mode,
+            "voice_release_expectation": {
+                "access_mode": access_mode,
+                "source_revision": source_revision,
+            },
+        }
+    )
+    browser = payload["browser_surface"]
+    assert isinstance(browser, dict)
+    browser.update(
+        {
+            "voice_release": browser_voice_state[0],
+            "voice_access": browser_voice_state[1],
+            "evaluation_status": browser_voice_state[2],
+            "conversation_action_exercised": False,
+            "passive_quiet_window_ms": 2200,
+        }
+    )
+    for smoke_check_field in ("first_smoke_checks", "second_smoke_checks"):
+        smoke_checks = payload[smoke_check_field]
+        assert isinstance(smoke_checks, list)
+        payload[smoke_check_field] = [
+            (
+                "signed_release_passive_no_direct_chat"
+                if check
+                == "source_grounded_first_person_reconstruction_boundary"
+                else voice_check
+                if check == "voice_provider_boundary_blocked"
+                else check
+            )
+            for check in smoke_checks
+        ]
 
 
 @pytest.mark.parametrize(
@@ -2831,6 +2904,28 @@ def test_candidate_projection_is_rehashed_before_promotion(
     )
     assert evidence["projection"]["tree_revalidated"] is True
     assert evidence["projection"]["file_count"] == len(SPATIAL_TEST_FILES)
+    assert evidence["browser"] == {
+        "status": "pass",
+        "conversation_action_exercised": True,
+        "passive_quiet_window_ms": 0,
+        "page_prewarm_expected": False,
+        "automatic_preparation_request_paths": [],
+        "automatic_preparation_request_counts": {
+            path: 0 for path in PAGE_PREWARM_PATHS
+        },
+        "automatic_preparation_requests": 0,
+        "same_origin_application_requests_performed": False,
+        "same_origin_application_request_count": 0,
+        "same_origin_application_request_paths": [],
+        "automatic_provider_requests": 0,
+        "automatic_readiness_requests": 0,
+        "automatic_microphone_requests": 0,
+        "automatic_websockets": 0,
+        "external_requests": 0,
+        "failed_requests": 0,
+        "page_errors": 0,
+        "http_errors": 0,
+    }
     assert lane.release_env["EA_DEPLOY_IMAGE_ID"] == runner.candidate_image
     assert lane.release_env["EA_MEMORIAL_VOICE_CONFIG_SHA256"] == "4" * 64
     assert lane.release_env["EA_MEMORIAL_VOICE_MANIFEST_SHA256"] == "5" * 64
@@ -2871,6 +2966,145 @@ def test_candidate_projection_is_rehashed_before_promotion(
     assert runner.calls == []
 
 
+def test_public_evaluation_candidate_promotion_is_passive_and_provider_free(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    lane = _lane(release_root, runner)
+    receipt_path = Path(lane.candidate_receipt_value)
+    payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    _configure_signed_candidate_receipt(
+        payload,
+        access_mode=deploy.VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+    )
+    receipt_path.write_text(
+        json.dumps(payload, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    receipt_path.chmod(0o600)
+    monkeypatch.setattr(
+        deploy,
+        "_validate_candidate_release_authority_bundle",
+        lambda *_args, **_kwargs: {"status": "pass"},
+    )
+
+    evidence = lane._validate_candidate_promotion_receipt(
+        candidate={
+            "reference": runner.candidate_reference,
+            "image_id": runner.candidate_image,
+        },
+        source_revision="b" * 40,
+    )
+
+    assert evidence["voice_access_mode"] == (
+        deploy.VOICE_ACCESS_MODE_PUBLIC_EVALUATION
+    )
+    assert evidence["voice_public_evaluation_authority_revalidated"] is True
+    assert evidence["browser"]["conversation_action_exercised"] is False
+    assert evidence["browser"]["passive_quiet_window_ms"] == 2200
+    assert evidence["browser"]["page_prewarm_expected"] is False
+    assert evidence["browser"]["automatic_preparation_request_paths"] == []
+    assert evidence["browser"]["automatic_preparation_requests"] == 0
+    assert evidence["browser"]["automatic_preparation_request_counts"] == {
+        path: 0 for path in PAGE_PREWARM_PATHS
+    }
+    assert (
+        evidence["browser"]["same_origin_application_requests_performed"]
+        is False
+    )
+    assert evidence["browser"]["same_origin_application_request_count"] == 0
+    assert evidence["browser"]["same_origin_application_request_paths"] == []
+    assert runner.calls == []
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "conversation_action",
+        "short_passive_quiet_window",
+        "page_prewarm_expected",
+        "preparation_paths",
+        "preparation_counts",
+        "preparation_total",
+        "same_origin_performed",
+        "same_origin_count",
+        "same_origin_paths",
+        "source_grounded_smoke",
+    ],
+)
+def test_public_evaluation_candidate_promotion_rejects_candidate_prewarm(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    runner = FakeRunner(release_root)
+    lane = _lane(release_root, runner)
+    receipt_path = Path(lane.candidate_receipt_value)
+    payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    _configure_signed_candidate_receipt(
+        payload,
+        access_mode=deploy.VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+    )
+    browser = payload["browser_surface"]
+    assert isinstance(browser, dict)
+    if mutation == "conversation_action":
+        browser["conversation_action_exercised"] = True
+    elif mutation == "short_passive_quiet_window":
+        browser["passive_quiet_window_ms"] = 1999
+    elif mutation == "page_prewarm_expected":
+        browser["page_prewarm_expected"] = True
+    elif mutation == "preparation_paths":
+        browser["automatic_preparation_request_paths"] = [
+            PAGE_PREWARM_PATHS[0]
+        ]
+    elif mutation == "preparation_counts":
+        browser["automatic_preparation_request_counts"][
+            PAGE_PREWARM_PATHS[0]
+        ] = 1
+    elif mutation == "preparation_total":
+        browser["automatic_preparation_requests"] = 1
+    elif mutation == "same_origin_performed":
+        browser["same_origin_application_requests_performed"] = True
+    elif mutation == "same_origin_count":
+        browser["same_origin_application_request_count"] = 1
+    elif mutation == "same_origin_paths":
+        browser["same_origin_application_request_paths"] = [
+            PAGE_PREWARM_PATHS[0]
+        ]
+    else:
+        first_smoke_checks = payload["first_smoke_checks"]
+        assert isinstance(first_smoke_checks, list)
+        first_smoke_checks.remove("signed_release_passive_no_direct_chat")
+        first_smoke_checks.append(
+            "source_grounded_first_person_reconstruction_boundary"
+        )
+    receipt_path.write_text(
+        json.dumps(payload, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    receipt_path.chmod(0o600)
+    monkeypatch.setattr(
+        deploy,
+        "_validate_candidate_release_authority_bundle",
+        lambda *_args, **_kwargs: {"status": "pass"},
+    )
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="memorial_candidate_receipt_contract_invalid",
+    ):
+        lane._validate_candidate_promotion_receipt(
+            candidate={
+                "reference": runner.candidate_reference,
+                "image_id": runner.candidate_image,
+            },
+            source_revision="b" * 40,
+        )
+
+    assert runner.calls == []
+
+
 def test_final_voice_promotion_revalidates_projected_signed_authority(
     release_root: Path,
 ) -> None:
@@ -2878,30 +3112,10 @@ def test_final_voice_promotion_revalidates_projected_signed_authority(
     lane = _lane(release_root, runner)
     receipt_path = Path(lane.candidate_receipt_value)
     payload = json.loads(receipt_path.read_text(encoding="utf-8"))
-    payload["voice_release_allowed"] = True
-    payload["public_evaluation_allowed"] = False
-    payload["voice_runtime_enablement_allowed"] = True
-    payload["voice_access_mode"] = deploy.VOICE_ACCESS_MODE_PUBLIC_RELEASE
-    payload["voice_release_expectation"] = {
-        "access_mode": deploy.VOICE_ACCESS_MODE_PUBLIC_RELEASE,
-        "source_revision": "b" * 40,
-    }
-    payload["browser_surface"].update(
-        {
-            "voice_release": "available",
-            "voice_access": "public-release",
-            "evaluation_status": "",
-        }
+    _configure_signed_candidate_receipt(
+        payload,
+        access_mode=deploy.VOICE_ACCESS_MODE_PUBLIC_RELEASE,
     )
-    for smoke_check_field in ("first_smoke_checks", "second_smoke_checks"):
-        payload[smoke_check_field] = [
-            (
-                "voice_release_authorization_verified_provider_not_called"
-                if check == "voice_provider_boundary_blocked"
-                else check
-            )
-            for check in payload[smoke_check_field]
-        ]
     receipt_path.write_text(
         json.dumps(payload, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -4432,6 +4646,30 @@ def test_candidate_promotion_receipt_is_explicit_private_and_non_symlink(
         ),
         ("browser_surface.http_errors", 1),
         ("browser_surface.failed_requests", None),
+        ("browser_surface.conversation_action_exercised", False),
+        ("browser_surface.passive_quiet_window_ms", 2200),
+        ("browser_surface.page_prewarm_expected", True),
+        (
+            "browser_surface.automatic_preparation_request_paths",
+            list(PAGE_PREWARM_PATHS),
+        ),
+        (
+            "browser_surface.automatic_preparation_request_counts",
+            {
+                path: (1 if index == 0 else 0)
+                for index, path in enumerate(PAGE_PREWARM_PATHS)
+            },
+        ),
+        ("browser_surface.automatic_preparation_requests", 1),
+        (
+            "browser_surface.same_origin_application_requests_performed",
+            True,
+        ),
+        ("browser_surface.same_origin_application_request_count", 1),
+        (
+            "browser_surface.same_origin_application_request_paths",
+            [PAGE_PREWARM_PATHS[0]],
+        ),
     ],
 )
 def test_candidate_promotion_receipt_contract_mismatch_fails_before_mutation(
@@ -6768,6 +7006,7 @@ def test_public_candidate_verifier_receives_exact_signed_voice_binding(
     )
     candidate_call = runner.calls[candidate_call_index]
     assert "--expect-signed-voice-release" in candidate_call
+    assert "--expect-page-prewarm" in candidate_call
     assert candidate_call[
         candidate_call.index("--voice-access-mode") + 1
     ] == expected_mode

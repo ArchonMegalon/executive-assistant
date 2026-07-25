@@ -8233,11 +8233,17 @@ class MemorialDeployLane:
                 else ("blocked", "text-only", "")
             )
         )
+        signed_candidate_browser = voice_runtime_enablement_allowed is True
+        expected_browser_conversation_action = not signed_candidate_browser
         required_smoke_checks = {
             "archive_publication_gate",
             "singular_memorial_alias",
-            "source_grounded_first_person_reconstruction_boundary",
         }
+        required_smoke_checks.add(
+            "signed_release_passive_no_direct_chat"
+            if signed_candidate_browser
+            else "source_grounded_first_person_reconstruction_boundary"
+        )
         required_smoke_checks.add(
             "voice_release_authorization_verified_provider_not_called"
             if voice_release_allowed is True
@@ -8257,6 +8263,12 @@ class MemorialDeployLane:
             for item in list(payload.get("second_smoke_checks") or [])
             if str(item).strip()
         }
+        browser_preparation_counts = browser.get(
+            "automatic_preparation_request_counts"
+        )
+        browser_passive_quiet_window_ms = browser.get(
+            "passive_quiet_window_ms"
+        )
 
         image_reference = str(candidate.get("reference") or "")
         image_id = str(candidate.get("image_id") or "")
@@ -9073,7 +9085,32 @@ class MemorialDeployLane:
                 browser.get("evaluation_status"),
             )
             != expected_browser_voice_state
-            or browser.get("conversation_action_exercised") is not True
+            or browser.get("conversation_action_exercised")
+            is not expected_browser_conversation_action
+            or type(browser_passive_quiet_window_ms) is not int
+            or (
+                signed_candidate_browser
+                and browser_passive_quiet_window_ms
+                < MIN_PASSIVE_BROWSER_QUIET_WINDOW_MS
+            )
+            or (
+                not signed_candidate_browser
+                and browser_passive_quiet_window_ms != 0
+            )
+            or browser.get("page_prewarm_expected") is not False
+            or browser.get("automatic_preparation_request_paths") != []
+            or not _valid_page_prewarm_request_counts(
+                browser_preparation_counts,
+                expected=False,
+            )
+            or type(browser.get("automatic_preparation_requests")) is not int
+            or browser.get("automatic_preparation_requests") != 0
+            or browser.get("same_origin_application_requests_performed")
+            is not False
+            or type(browser.get("same_origin_application_request_count"))
+            is not int
+            or browser.get("same_origin_application_request_count") != 0
+            or browser.get("same_origin_application_request_paths") != []
             or not _has_exact_zero_browser_counts(browser)
             or not required_smoke_checks <= first_checks
             or not required_smoke_checks <= second_checks
@@ -9358,7 +9395,22 @@ class MemorialDeployLane:
             },
             "browser": {
                 "status": "pass",
-                "conversation_action_exercised": True,
+                "conversation_action_exercised": (
+                    expected_browser_conversation_action
+                ),
+                "passive_quiet_window_ms": int(
+                    browser_passive_quiet_window_ms
+                ),
+                "page_prewarm_expected": False,
+                "automatic_preparation_request_paths": [],
+                "automatic_preparation_request_counts": {
+                    path: int(browser_preparation_counts[path])
+                    for path in PAGE_PREWARM_REQUIRED_PATHS
+                },
+                "automatic_preparation_requests": 0,
+                "same_origin_application_requests_performed": False,
+                "same_origin_application_request_count": 0,
+                "same_origin_application_request_paths": [],
                 "automatic_provider_requests": 0,
                 "automatic_readiness_requests": 0,
                 "automatic_microphone_requests": 0,

@@ -3982,7 +3982,7 @@ def test_main_forwards_signed_voice_release_intent(
     assert captured["expect_signed_voice_release"] is True
 
 
-def test_signed_runner_smokes_and_standalone_audit_require_page_prewarm(
+def test_signed_runner_smokes_and_standalone_audit_stay_provider_free(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -4039,12 +4039,12 @@ def test_signed_runner_smokes_and_standalone_audit_require_page_prewarm(
             raise RuntimeError(
                 "candidate_signed_voice_release_requires_browser_audit"
             )
-        if kwargs.get("expect_page_prewarm") is not True:
+        if kwargs.get("expect_page_prewarm") is not False:
             raise RuntimeError(
-                "candidate_page_prewarm_requires_browser_signed_voice_release"
+                "candidate_provider_free_browser_must_not_prewarm"
             )
         return {
-            "checks": ["browser_page_preparation_same_origin_requests"],
+            "checks": ["signed_release_passive_no_direct_chat"],
             "contribution": {
                 "survived_candidate_restart": (
                     kwargs.get("withdraw_receipt") is not None
@@ -4124,7 +4124,7 @@ def test_signed_runner_smokes_and_standalone_audit_require_page_prewarm(
     assert len(smoke_calls) == 2
     for smoke_call in smoke_calls:
         assert smoke_call["browser_audit"] is True
-        assert smoke_call["expect_page_prewarm"] is True
+        assert smoke_call["expect_page_prewarm"] is False
         assert smoke_call["voice_release_expectation"] == {
             "source_revision": COMMIT,
             "access_mode": prepare.VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
@@ -4137,7 +4137,7 @@ def test_signed_runner_smokes_and_standalone_audit_require_page_prewarm(
             "expected_evaluation_status": "owner-authorized",
             "expected_source_revision": COMMIT,
             "exercise_conversation_action": False,
-            "expect_page_prewarm": True,
+            "expect_page_prewarm": False,
         }
     ]
 
@@ -4469,6 +4469,9 @@ def test_first_smoke_restart_failure_withdraws_before_candidate_teardown(
     def verify_candidate(**kwargs: object) -> dict[str, object]:
         submitted = kwargs.get("submit_receipt")
         assert submitted == contribution_receipt
+        assert kwargs["browser_audit"] is False
+        assert kwargs["expect_page_prewarm"] is False
+        assert kwargs["voice_release_expectation"] is None
         contribution_receipt.write_text('{"manage_token":"private"}\n', encoding="utf-8")
         contribution_receipt.chmod(0o600)
         events.append("first-smoke")
