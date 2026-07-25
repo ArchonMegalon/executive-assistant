@@ -4021,9 +4021,11 @@ def _write_env(
         "DATABASE_URL": f"postgresql://ea:{postgres_password}@postgres:5432/ea",
         "EA_API_TOKEN": api_token,
         "EA_DEPLOY_IMAGE_ID": image_id,
+        "EA_MEMORIAL_BLIPAI_STT_TIMEOUT_SECONDS": "8",
         "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256": normalized_voice_identity[
             "provider_voice_id_sha256"
         ],
+        "EA_MEMORIAL_STT_PRIMARY_PROVIDER": "blipai",
         "EA_MEMORIAL_TTS_MODEL": normalized_voice_identity["tts_model"],
         "EA_MEMORIAL_TTS_PROVIDER": normalized_voice_identity["tts_provider"],
         "EA_MEMORIAL_VOICE_CONFIG_SHA256": normalized_voice_identity[

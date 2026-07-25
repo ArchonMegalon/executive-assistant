@@ -227,6 +227,7 @@ _MEMORIAL_REALTIME_TTS_LEAD_IN_MS = 640
 _MEMORIAL_REALTIME_TTS_TAIL_SILENCE_MS = 760
 _MEMORIAL_REALTIME_STREAM_YIELD_SECONDS = 0.015
 _MEMORIAL_SHADOW_STT_ALLOWED_PROVIDERS = {"blipai"}
+_MEMORIAL_STT_PRIMARY_PROVIDERS = {"blipai", "cartesia"}
 _BLIPAI_DEFAULT_STT_URL = "https://mantra-backend-app.azurewebsites.net/api/blipai/stt/transcribe"
 _CARTESIA_STT_URL = "https://api.cartesia.ai/stt"
 _CARTESIA_VERSION = "2026-03-01"
@@ -9035,6 +9036,58 @@ def _memorial_transcript_is_confident_early_accept(
     return score >= 78
 
 
+def _memorial_primary_stt_provider() -> str:
+    provider = (
+        _text(os.getenv("EA_MEMORIAL_STT_PRIMARY_PROVIDER"), "blipai")
+        .strip()
+        .lower()
+    )
+    if provider not in _MEMORIAL_STT_PRIMARY_PROVIDERS:
+        return "blipai"
+    return provider
+
+
+def _memorial_blipai_primary_stt_candidate(
+    result: dict[str, object],
+    *,
+    audio_payload: bytes,
+    content_type: str,
+) -> str:
+    if (
+        not bool(result.get("enabled"))
+        or _text(result.get("mode")).strip().lower() != "primary"
+        or _text(result.get("provider")).strip().lower() != "blipai"
+        or _text(result.get("status")).strip().lower() != "ok"
+        or not bool(result.get("may_override_primary"))
+    ):
+        return ""
+    text = _repair_memorial_transcript_text(result.get("transcript_text"))
+    if not text or _is_known_bad_memorial_subtitle_transcript(text):
+        return ""
+    tokens = set(re.findall(r"[a-z0-9äöüß]+", text.lower()))
+    if not tokens or _looks_like_memorial_reply_text(text):
+        return ""
+    generic_english_fragments = {
+        "bye",
+        "goodbye",
+        "hello",
+        "hi",
+        "i",
+        "thanks",
+        "thank",
+        "you",
+    }
+    if tokens and tokens.issubset(generic_english_fragments):
+        return ""
+    if _memorial_transcript_is_low_confidence_generic_for_audio(
+        text,
+        audio_payload=audio_payload,
+        content_type=content_type,
+    ):
+        return ""
+    return text
+
+
 def _memorial_fast_shadow_stt_has_clear_user_intent(transcript_text: str) -> bool:
     text = _repair_memorial_transcript_text(transcript_text)
     if not text:
@@ -11671,20 +11724,61 @@ def _memorial_transcribe_audio_blob(
         return known_audio
     normalized_content_type = str(content_type or "application/octet-stream").split(";", 1)[0].strip().lower()
     extension = mimetypes.guess_extension(normalized_content_type) or ".webm"
-    fast_shadow_stt = _memorial_shadow_stt_result(
-        user_audio_payload=payload,
-        content_type=normalized_content_type or content_type,
-        primary_transcript="",
-        primary_transcriber="",
-    )
-    fast_shadow_text = _repair_memorial_transcript_text(fast_shadow_stt.get("transcript_text"))
-    if _memorial_shadow_stt_is_fast_primary_candidate(fast_shadow_text):
+    converted_wav_payload = b""
+    if normalized_content_type in {"audio/wav", "audio/wave", "audio/x-wav"}:
+        audio_gate_payload = payload
+    else:
+        try:
+            converted_wav_payload = _convert_audio_to_wav(
+                payload=payload,
+                extension=extension,
+            )
+        except Exception as exc:
+            return {
+                "transcription_status": "no_speech",
+                "transcript_text": "",
+                "transcriber": "ffmpeg",
+                "retryable": True,
+                "detail": str(exc)[:180],
+            }
+        audio_gate_payload = converted_wav_payload
+    if not _wav_payload_has_speech_energy(audio_gate_payload):
         return {
-            "transcription_status": "transcribed",
-            "transcript_text": fast_shadow_text,
-            "transcriber": f"shadow:{_text(fast_shadow_stt.get('provider'), 'unknown')}",
-            "shadow_stt": fast_shadow_stt,
-            "primary_transcript_text": fast_shadow_text,
+            "transcription_status": "no_speech",
+            "transcript_text": "",
+            "transcriber": "local_audio_gate",
+            "retryable": True,
+            "detail": "audio_silence",
+        }
+    primary_stt_provider = _memorial_primary_stt_provider()
+    blipai_is_primary = primary_stt_provider == "blipai"
+    if blipai_is_primary:
+        blipai_stt = _memorial_shadow_stt_result(
+            user_audio_payload=payload,
+            content_type=normalized_content_type or content_type,
+            primary_transcript="",
+            primary_transcriber="",
+            primary_attempt=True,
+        )
+        blipai_text = _memorial_blipai_primary_stt_candidate(
+            blipai_stt,
+            audio_payload=payload,
+            content_type=normalized_content_type or content_type,
+        )
+        if blipai_text:
+            return {
+                "transcription_status": "transcribed",
+                "transcript_text": blipai_text,
+                "transcriber": "blipai/stt",
+                "shadow_stt": blipai_stt,
+                "primary_transcript_text": blipai_text,
+            }
+    else:
+        blipai_stt = {
+            "enabled": False,
+            "mode": "primary",
+            "provider": "blipai",
+            "reason": "not_configured_as_primary",
         }
     try:
         from app.product import service as product_service
@@ -11695,35 +11789,11 @@ def _memorial_transcribe_audio_blob(
             raise HTTPException(status_code=503, detail="speech_transcriber_unavailable")
         upload_variants: list[tuple[bytes, str, str, str]] = []
         if normalized_content_type in _ONEMIN_SPEECH_AUDIO_TYPES:
-            if normalized_content_type in {"audio/wav", "audio/wave", "audio/x-wav"} and not _wav_payload_has_speech_energy(payload):
-                return {
-                    "transcription_status": "no_speech",
-                    "transcript_text": "",
-                    "transcriber": "local_audio_gate",
-                    "retryable": True,
-                    "detail": "audio_silence",
-                }
             upload_variants.append((payload, normalized_content_type, extension, "original"))
         else:
-            try:
-                converted_payload = _convert_audio_to_wav(payload=payload, extension=extension)
-            except Exception as exc:
-                return {
-                    "transcription_status": "no_speech",
-                    "transcript_text": "",
-                    "transcriber": "ffmpeg",
-                    "retryable": True,
-                    "detail": str(exc)[:180],
-                }
-            if not _wav_payload_has_speech_energy(converted_payload):
-                return {
-                    "transcription_status": "no_speech",
-                    "transcript_text": "",
-                    "transcriber": "local_audio_gate",
-                    "retryable": True,
-                    "detail": "audio_silence",
-                }
-            upload_variants.append((converted_payload, "audio/wav", ".wav", "converted_wav"))
+            upload_variants.append(
+                (converted_wav_payload, "audio/wav", ".wav", "converted_wav")
+            )
         try:
             enhanced_payload = _convert_audio_to_wav(payload=payload, extension=extension, enhance_for_speech=True)
         except Exception:
@@ -11747,16 +11817,22 @@ def _memorial_transcribe_audio_blob(
                         raise RuntimeError(f"cartesia_transcript_empty:{variant_label}")
                     if _is_known_bad_memorial_subtitle_transcript(text):
                         raise RuntimeError(f"cartesia_known_bad_transcript:{variant_label}")
+                    if _looks_like_memorial_reply_text(text):
+                        raise RuntimeError(f"cartesia_reply_echo_transcript:{variant_label}")
                     transcriber = "cartesia/ink-whisper"
                     if variant_label != "original":
                         transcriber = f"{transcriber}+{variant_label}"
-                    shadow_stt = _memorial_shadow_stt_result(
-                        user_audio_payload=variant_payload,
-                        content_type=variant_content_type,
-                        primary_transcript=text,
-                        primary_transcriber=transcriber,
-                    )
-                    correction = dict(shadow_stt.get("correction") or {})
+                    if blipai_is_primary:
+                        shadow_stt = dict(blipai_stt)
+                        correction: dict[str, object] = {}
+                    else:
+                        shadow_stt = _memorial_shadow_stt_result(
+                            user_audio_payload=variant_payload,
+                            content_type=variant_content_type,
+                            primary_transcript=text,
+                            primary_transcriber=transcriber,
+                        )
+                        correction = dict(shadow_stt.get("correction") or {})
                     effective_text = text
                     if bool(correction.get("should_correct")):
                         corrected_text = _repair_memorial_transcript_text(_text(correction.get("corrected_transcript")))
@@ -11877,17 +11953,23 @@ def _memorial_transcribe_audio_blob(
                         )
                     if _is_known_bad_memorial_subtitle_transcript(text):
                         raise RuntimeError(f"speech_known_bad_transcript:{variant_label}")
+                    if _looks_like_memorial_reply_text(text):
+                        raise RuntimeError(f"speech_reply_echo_transcript:{variant_label}")
                     _memorial_clear_stt_key_cooldown("onemin", api_key)
                     transcriber = "1min.ai/whisper-1"
                     if variant_label != "original":
                         transcriber = f"{transcriber}+{variant_label}"
-                    shadow_stt = _memorial_shadow_stt_result(
-                        user_audio_payload=variant_payload,
-                        content_type=variant_content_type,
-                        primary_transcript=text,
-                        primary_transcriber=transcriber,
-                    )
-                    correction = dict(shadow_stt.get("correction") or {})
+                    if blipai_is_primary:
+                        shadow_stt = dict(blipai_stt)
+                        correction = {}
+                    else:
+                        shadow_stt = _memorial_shadow_stt_result(
+                            user_audio_payload=variant_payload,
+                            content_type=variant_content_type,
+                            primary_transcript=text,
+                            primary_transcriber=transcriber,
+                        )
+                        correction = dict(shadow_stt.get("correction") or {})
                     effective_text = text
                     if bool(correction.get("should_correct")):
                         corrected_text = _repair_memorial_transcript_text(_text(correction.get("corrected_transcript")))
@@ -11970,12 +12052,13 @@ def _memorial_transcribe_audio_blob(
                 "shadow_stt": dict(best_candidate.get("shadow_stt") or {}),
                 "primary_transcript_text": _repair_memorial_transcript_text(best_candidate.get("primary_transcript_text")),
             }
-        degraded_shadow_candidate = _memorial_degraded_shadow_stt_candidate(
-            fast_shadow_stt=fast_shadow_stt,
-            transcript_candidates=transcript_candidates,
-        )
-        if degraded_shadow_candidate:
-            return degraded_shadow_candidate
+        if not blipai_is_primary:
+            degraded_shadow_candidate = _memorial_degraded_shadow_stt_candidate(
+                fast_shadow_stt=blipai_stt,
+                transcript_candidates=transcript_candidates,
+            )
+            if degraded_shadow_candidate:
+                return degraded_shadow_candidate
         detail = str(last_error or "speech_transcription_failed")[:180]
         return {
             "transcription_status": "no_speech",
@@ -11996,79 +12079,151 @@ def _memorial_shadow_stt_result(
     content_type: str,
     primary_transcript: str,
     primary_transcriber: str,
+    primary_attempt: bool = False,
 ) -> dict[str, object]:
-    provider = _text(os.getenv("EA_MEMORIAL_SHADOW_STT_PROVIDER"), "blipai").strip().lower()
+    mode = "primary" if primary_attempt else "shadow_only"
+    request_mode = "primary_user_question_stt" if primary_attempt else "shadow_only_user_question_stt"
+    may_override_primary = bool(primary_attempt)
+    provider = (
+        "blipai"
+        if primary_attempt
+        else _text(
+            os.getenv("EA_MEMORIAL_SHADOW_STT_PROVIDER"),
+            "blipai",
+        )
+        .strip()
+        .lower()
+    )
     if provider not in _MEMORIAL_SHADOW_STT_ALLOWED_PROVIDERS:
-        return {"enabled": False, "mode": "shadow_only", "provider": provider, "reason": "provider_not_allowed"}
+        return {"enabled": False, "mode": mode, "provider": provider, "reason": "provider_not_allowed"}
     cooldown_until = float(_MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS.get(provider) or 0.0)
     now = time.time()
     if cooldown_until > now:
         return {
             "enabled": False,
-            "mode": "shadow_only",
+            "mode": mode,
             "provider": provider,
             "reason": "provider_cooldown_active",
             "cooldown_seconds_remaining": round(cooldown_until - now, 3),
         }
     api_key = _memorial_shadow_stt_api_key(provider=provider)
-    url = _text(os.getenv("EA_MEMORIAL_SHADOW_STT_URL")).strip()
+    url = _text(
+        os.getenv("EA_MEMORIAL_BLIPAI_STT_URL")
+        or os.getenv("EA_MEMORIAL_SHADOW_STT_URL")
+    ).strip()
     if provider == "blipai" and not url and api_key:
         url = _BLIPAI_DEFAULT_STT_URL
     if not url:
-        return {"enabled": False, "mode": "shadow_only", "provider": provider, "reason": "url_missing"}
-    max_bytes = max(1, int(float(os.getenv("EA_MEMORIAL_SHADOW_STT_MAX_BYTES") or "6000000")))
+        return {"enabled": False, "mode": mode, "provider": provider, "reason": "url_missing"}
+    max_bytes_value = (
+        os.getenv("EA_MEMORIAL_BLIPAI_STT_MAX_BYTES")
+        or os.getenv("EA_MEMORIAL_SHADOW_STT_MAX_BYTES")
+        or "6000000"
+    )
+    try:
+        max_bytes = max(1, int(float(max_bytes_value)))
+    except ValueError:
+        max_bytes = 6000000
     if len(user_audio_payload or b"") > max_bytes:
-        return {"enabled": False, "mode": "shadow_only", "provider": provider, "reason": "audio_too_large"}
-    timeout = max(0.25, min(5.0, float(os.getenv("EA_MEMORIAL_SHADOW_STT_TIMEOUT_SECONDS") or "1.6")))
+        return {"enabled": False, "mode": mode, "provider": provider, "reason": "audio_too_large"}
+    if primary_attempt:
+        timeout_value = (
+            os.getenv("EA_MEMORIAL_BLIPAI_STT_TIMEOUT_SECONDS")
+            or os.getenv("EA_MEMORIAL_SHADOW_STT_TIMEOUT_SECONDS")
+            or "8"
+        )
+        timeout_ceiling = 15.0
+    else:
+        timeout_value = os.getenv("EA_MEMORIAL_SHADOW_STT_TIMEOUT_SECONDS") or "1.6"
+        timeout_ceiling = 5.0
+    try:
+        timeout = max(0.25, min(timeout_ceiling, float(timeout_value)))
+    except ValueError:
+        timeout = 8.0 if primary_attempt else 1.6
+
     def _headers(token: str) -> dict[str, str]:
-        result = {"User-Agent": "EA-Memorial-Shadow-STT/1.0"}
+        user_agent = "EA-Memorial-STT/1.0" if primary_attempt else "EA-Memorial-Shadow-STT/1.0"
+        result = {"User-Agent": user_agent}
         if token:
             result["Authorization"] = f"Bearer {token}"
         return result
+
     request_payload = {
         "provider": provider,
-        "mode": "shadow_only_user_question_stt",
+        "mode": request_mode,
         "content_type": _text(content_type, "application/octet-stream"),
         "audio_base64": base64.b64encode(user_audio_payload or b"").decode("ascii"),
         "primary_transcript": _text(primary_transcript),
         "primary_transcriber": _text(primary_transcriber),
-        "may_override_primary": False,
+        "may_override_primary": may_override_primary,
         "include_memorial_answer": False,
         "include_private_memory": False,
     }
+
     def _post_shadow_request(token: str):
         headers = _headers(token)
         if provider == "blipai" and url == _BLIPAI_DEFAULT_STT_URL:
+            normalized_upload_type = (
+                _text(content_type, "audio/wav").split(";", 1)[0].strip().lower()
+            )
+            upload_extension = {
+                "audio/flac": ".flac",
+                "audio/m4a": ".m4a",
+                "audio/mp4": ".mp4",
+                "audio/mpeg": ".mp3",
+                "audio/ogg": ".ogg",
+                "audio/wav": ".wav",
+                "audio/wave": ".wav",
+                "audio/webm": ".webm",
+                "audio/x-m4a": ".m4a",
+                "audio/x-wav": ".wav",
+            }.get(normalized_upload_type)
+            if not upload_extension:
+                upload_extension = mimetypes.guess_extension(normalized_upload_type) or ".audio"
+            filename_prefix = "memorial-stt" if primary_attempt else "shadow-stt"
+            filename = f"{filename_prefix}{upload_extension}"
             files = {
                 "audio": (
-                    "shadow-stt.wav",
+                    filename,
                     user_audio_payload or b"",
-                    _text(content_type, "audio/wav") or "audio/wav",
+                    normalized_upload_type or "audio/wav",
                 )
             }
             return requests.post(url, headers=headers, files=files, timeout=timeout)
         headers["Content-Type"] = "application/json"
         return requests.post(url, headers=headers, json=request_payload, timeout=timeout)
+
     try:
         response = _post_shadow_request(api_key)
         if provider == "blipai" and response.status_code in {401, 403}:
-            refreshed_api_key = _refresh_blipai_shadow_stt_access_token()
+            refreshed_api_key = _refresh_blipai_shadow_stt_access_token(
+                rejected_access_token=api_key,
+            )
             if refreshed_api_key:
                 response = _post_shadow_request(refreshed_api_key)
         if response.status_code >= 400:
             if response.status_code in {401, 403, 429}:
+                cooldown_value = (
+                    os.getenv("EA_MEMORIAL_BLIPAI_STT_ERROR_COOLDOWN_SECONDS")
+                    or os.getenv("EA_MEMORIAL_SHADOW_STT_ERROR_COOLDOWN_SECONDS")
+                    or "300"
+                )
+                try:
+                    configured_cooldown = float(cooldown_value)
+                except ValueError:
+                    configured_cooldown = 300.0
                 cooldown_seconds = max(
                     15.0,
-                    min(1800.0, float(os.getenv("EA_MEMORIAL_SHADOW_STT_ERROR_COOLDOWN_SECONDS") or "300")),
+                    min(1800.0, configured_cooldown),
                 )
                 _MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS[provider] = time.time() + cooldown_seconds
             return {
                 "enabled": True,
-                "mode": "shadow_only",
+                "mode": mode,
                 "provider": provider,
                 "status": "error",
                 "reason": f"http_{response.status_code}",
-                "may_override_primary": False,
+                "may_override_primary": may_override_primary,
             }
         _MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS.pop(provider, None)
         try:
@@ -12080,26 +12235,30 @@ def _memorial_shadow_stt_result(
         )
         return {
             "enabled": True,
-            "mode": "shadow_only",
+            "mode": mode,
             "provider": provider,
             "status": "ok" if shadow_text else "empty",
             "transcript_text": shadow_text,
             "primary_transcript": _text(primary_transcript),
             "primary_transcriber": _text(primary_transcriber),
-            "may_override_primary": False,
-            "correction": _memorial_shadow_stt_correction_decision(
-                primary_transcript=primary_transcript,
-                shadow_transcript=shadow_text,
+            "may_override_primary": may_override_primary,
+            "correction": (
+                {"should_correct": False, "reason": "primary_mode"}
+                if primary_attempt
+                else _memorial_shadow_stt_correction_decision(
+                    primary_transcript=primary_transcript,
+                    shadow_transcript=shadow_text,
+                )
             ),
         }
     except Exception as exc:
         return {
             "enabled": True,
-            "mode": "shadow_only",
+            "mode": mode,
             "provider": provider,
             "status": "error",
             "reason": str(exc)[:120],
-            "may_override_primary": False,
+            "may_override_primary": may_override_primary,
         }
 
 
@@ -12253,7 +12412,10 @@ def _memorial_should_cooldown_cartesia(error_text: str) -> bool:
 
 
 def _memorial_shadow_stt_api_key(*, provider: str) -> str:
-    api_key = _text(os.getenv("EA_MEMORIAL_SHADOW_STT_API_KEY")).strip()
+    api_key = _text(
+        os.getenv("EA_MEMORIAL_BLIPAI_STT_API_KEY")
+        or os.getenv("EA_MEMORIAL_SHADOW_STT_API_KEY")
+    ).strip()
     if provider == "blipai" and not api_key:
         with _MEMORIAL_BLIPAI_TOKEN_LOCK:
             if not _MEMORIAL_BLIPAI_TOKEN_STATE:
@@ -12299,12 +12461,16 @@ def _save_memorial_blipai_token_state(access_token: str, refresh_token: str) -> 
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+        path.chmod(0o600)
     except Exception:
         return
 
 
-def _refresh_blipai_shadow_stt_access_token() -> str:
-    refresh_token = _text(os.getenv("EA_MEMORIAL_SHADOW_STT_REFRESH_TOKEN")).strip()
+def _refresh_blipai_shadow_stt_access_token(*, rejected_access_token: str = "") -> str:
+    refresh_token = _text(
+        os.getenv("EA_MEMORIAL_BLIPAI_STT_REFRESH_TOKEN")
+        or os.getenv("EA_MEMORIAL_SHADOW_STT_REFRESH_TOKEN")
+    ).strip()
     if not refresh_token:
         with _MEMORIAL_BLIPAI_TOKEN_LOCK:
             if not _MEMORIAL_BLIPAI_TOKEN_STATE:
@@ -12317,12 +12483,12 @@ def _refresh_blipai_shadow_stt_access_token() -> str:
     with _MEMORIAL_BLIPAI_TOKEN_LOCK:
         if _text(_MEMORIAL_BLIPAI_TOKEN_STATE.get("refresh_token")).strip() == refresh_token:
             cached = _text(_MEMORIAL_BLIPAI_TOKEN_STATE.get("access_token")).strip()
-            if cached:
+            if cached and cached != _text(rejected_access_token).strip():
                 return cached
         headers = {
             "apikey": _BLIPAI_SUPABASE_ANON_KEY,
             "Content-Type": "application/json",
-            "User-Agent": "EA-Memorial-Shadow-STT/1.0",
+            "User-Agent": "EA-Memorial-STT/1.0",
         }
         response = requests.post(
             f"{_BLIPAI_SUPABASE_URL}/auth/v1/token?grant_type=refresh_token",

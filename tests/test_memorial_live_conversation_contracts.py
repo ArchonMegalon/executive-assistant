@@ -392,6 +392,34 @@ def test_memorial_speech_transcribe_rejects_silent_wav_before_provider_upload(
     assert result["detail"] == "audio_silence"
 
 
+def test_memorial_speech_transcribe_rejects_silent_webm_before_blipai(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_convert_audio_to_wav",
+        lambda **kwargs: _silent_wav_bytes(),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("silent browser audio must not reach Blip")
+        ),
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=b"silent-webm-capture",
+        content_type="audio/webm",
+    )
+
+    assert result["transcription_status"] == "no_speech"
+    assert result["transcriber"] == "local_audio_gate"
+    assert result["detail"] == "audio_silence"
+
+
 def test_memorial_shadow_stt_defaults_to_blipai_without_external_send_when_url_missing(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -462,6 +490,92 @@ def test_memorial_shadow_stt_blipai_receives_only_user_question_audio(
     assert "private_memory" not in payload
 
 
+def test_memorial_blipai_primary_stt_receives_only_user_question_audio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    seen: dict[str, object] = {}
+    public_memorials._MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS.clear()
+
+    class _Response:
+        status_code = 200
+
+        def json(self) -> dict[str, object]:
+            return {"transcript_text": "Hallo"}
+
+    def _fake_post(url, *, headers, json, timeout):
+        seen["url"] = url
+        seen["headers"] = headers
+        seen["json"] = json
+        seen["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setenv("EA_MEMORIAL_SHADOW_STT_URL", "https://blipai.example/stt")
+    monkeypatch.setenv("EA_MEMORIAL_SHADOW_STT_API_KEY", "unit-key")
+    monkeypatch.setattr(public_memorials.requests, "post", _fake_post)
+
+    result = public_memorials._memorial_shadow_stt_result(
+        user_audio_payload=_generated_wav_bytes(textish_seed="Hallo"),
+        content_type="audio/wav",
+        primary_transcript="",
+        primary_transcriber="",
+        primary_attempt=True,
+    )
+
+    assert result["enabled"] is True
+    assert result["mode"] == "primary"
+    assert result["provider"] == "blipai"
+    assert result["status"] == "ok"
+    assert result["may_override_primary"] is True
+    payload = seen["json"]
+    assert payload["mode"] == "primary_user_question_stt"
+    assert payload["primary_transcript"] == ""
+    assert payload["primary_transcriber"] == ""
+    assert payload["may_override_primary"] is True
+    assert payload["include_memorial_answer"] is False
+    assert payload["include_private_memory"] is False
+    assert "audio_base64" in payload
+    assert "answer" not in payload
+    assert "private_memory" not in payload
+
+
+def test_memorial_blipai_primary_ignores_legacy_shadow_provider_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    public_memorials._MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS.clear()
+
+    class _Response:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return {"transcript_text": "Hallo Manfred"}
+
+    monkeypatch.setenv("EA_MEMORIAL_SHADOW_STT_PROVIDER", "unsupported-shadow")
+    monkeypatch.setenv("EA_MEMORIAL_SHADOW_STT_URL", "https://blipai.example/stt")
+    monkeypatch.setenv("EA_MEMORIAL_SHADOW_STT_API_KEY", "unit-key")
+    monkeypatch.setattr(
+        public_memorials.requests,
+        "post",
+        lambda *args, **kwargs: _Response(),
+    )
+
+    result = public_memorials._memorial_shadow_stt_result(
+        user_audio_payload=_generated_wav_bytes(textish_seed="Hallo Manfred"),
+        content_type="audio/wav",
+        primary_transcript="",
+        primary_transcriber="",
+        primary_attempt=True,
+    )
+
+    assert result["provider"] == "blipai"
+    assert result["mode"] == "primary"
+    assert result["status"] == "ok"
+
+
 def test_memorial_shadow_stt_blipai_defaults_to_official_multipart_api(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -512,6 +626,60 @@ def test_memorial_shadow_stt_blipai_defaults_to_official_multipart_api(
     assert payload == b"wav-bytes"
     assert content_type == "audio/wav"
     assert seen["headers"]["Authorization"] == "Bearer blip-unit-token"
+
+
+def test_memorial_blipai_primary_preserves_webm_multipart_filename(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    seen: dict[str, object] = {}
+    public_memorials._MEMORIAL_BLIPAI_TOKEN_STATE.clear()
+    public_memorials._MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS.clear()
+
+    class _Response:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return {"text": "Hallo Manfred"}
+
+    def _fake_post(url, *, headers, files=None, json=None, timeout):
+        seen["url"] = url
+        seen["headers"] = headers
+        seen["files"] = files
+        seen["json"] = json
+        seen["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setenv(
+        "EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH",
+        str(tmp_path / "missing-blipai-token.json"),
+    )
+    monkeypatch.delenv("EA_MEMORIAL_BLIPAI_STT_URL", raising=False)
+    monkeypatch.delenv("EA_MEMORIAL_SHADOW_STT_URL", raising=False)
+    monkeypatch.delenv("EA_MEMORIAL_BLIPAI_STT_API_KEY", raising=False)
+    monkeypatch.delenv("EA_MEMORIAL_SHADOW_STT_API_KEY", raising=False)
+    monkeypatch.setenv("BLIPAI_APP_API_TOKEN", "blip-unit-token")
+    monkeypatch.setattr(public_memorials.requests, "post", _fake_post)
+
+    result = public_memorials._memorial_shadow_stt_result(
+        user_audio_payload=b"webm-bytes",
+        content_type="audio/webm; codecs=opus",
+        primary_transcript="",
+        primary_transcriber="",
+        primary_attempt=True,
+    )
+
+    assert result["mode"] == "primary"
+    assert result["status"] == "ok"
+    assert seen["url"] == public_memorials._BLIPAI_DEFAULT_STT_URL
+    assert seen["json"] is None
+    filename, payload, content_type = seen["files"]["audio"]
+    assert filename == "memorial-stt.webm"
+    assert payload == b"webm-bytes"
+    assert content_type == "audio/webm"
 
 
 def test_memorial_shadow_stt_sets_provider_cooldown_after_auth_error(
@@ -995,6 +1163,7 @@ def test_memorial_transcribe_applies_shadow_stt_correction_to_effective_transcri
     from app.product import service as product_service
 
     _clear_cartesia_env(monkeypatch)
+    monkeypatch.setenv("EA_MEMORIAL_STT_PRIMARY_PROVIDER", "cartesia")
     monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
     monkeypatch.setattr(
         product_service,
@@ -1030,7 +1199,6 @@ def test_memorial_transcribe_applies_shadow_stt_correction_to_effective_transcri
             },
         },
     )
-    monkeypatch.setattr(public_memorials, "_memorial_shadow_stt_is_fast_primary_candidate", lambda text: False)
 
     result = public_memorials._memorial_transcribe_audio_blob(
         payload=_generated_wav_bytes(textish_seed="Hallo Manfred, kannst du jetzt mit mir sprechen?"),
@@ -1041,35 +1209,74 @@ def test_memorial_transcribe_applies_shadow_stt_correction_to_effective_transcri
     assert result["primary_transcript_text"] == "Hallo Manfred, kannst du jetzt mit mir brechen?"
 
 
-def test_memorial_transcribe_uses_fast_shadow_stt_candidate_before_slow_primary(
+def test_memorial_transcribe_uses_blipai_primary_before_fallbacks_for_brief_speech(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.api.routes import public_memorials
     from app.product import service as product_service
 
+    calls: list[dict[str, object]] = []
+
+    def _blipai_primary(**kwargs):
+        calls.append(dict(kwargs))
+        return {
+            "enabled": True,
+            "mode": "primary",
+            "provider": "blipai",
+            "status": "ok",
+            "transcript_text": "Hallo",
+            "may_override_primary": True,
+        }
+
     monkeypatch.setattr(
         public_memorials,
         "_memorial_shadow_stt_result",
-        lambda **kwargs: {
-            "enabled": True,
-            "provider": "blipai",
-            "status": "ok",
-            "transcript_text": "Wie ist das Wetter heute in Wien?",
-        },
+        _blipai_primary,
     )
     monkeypatch.setattr(
         product_service,
         "_pocket_onemin_api_keys",
-        lambda: (_ for _ in ()).throw(AssertionError("slow primary should not run")),
+        lambda: (_ for _ in ()).throw(AssertionError("fallback STT should not run")),
     )
 
     result = public_memorials._memorial_transcribe_audio_blob(
-        payload=_generated_wav_bytes(textish_seed="Wie ist das Wetter heute in Wien?"),
+        payload=_generated_wav_bytes(textish_seed="Hallo"),
         content_type="audio/wav",
     )
 
-    assert result["transcript_text"] == "Wie ist das Wetter heute in Wien?"
-    assert result["transcriber"] == "shadow:blipai"
+    assert result["transcript_text"] == "Hallo"
+    assert result["transcriber"] == "blipai/stt"
+    assert len(calls) == 1
+    assert calls[0]["primary_attempt"] is True
+
+
+@pytest.mark.parametrize(
+    "transcript",
+    (
+        "...",
+        "Ich höre dich.",
+        "Was weiß ich nun?",
+    ),
+)
+def test_memorial_blipai_primary_rejects_punctuation_and_reply_echoes(
+    transcript: str,
+) -> None:
+    from app.api.routes import public_memorials
+
+    result = public_memorials._memorial_blipai_primary_stt_candidate(
+        {
+            "enabled": True,
+            "mode": "primary",
+            "provider": "blipai",
+            "status": "ok",
+            "transcript_text": transcript,
+            "may_override_primary": True,
+        },
+        audio_payload=_generated_wav_bytes(textish_seed=transcript),
+        content_type="audio/wav",
+    )
+
+    assert result == ""
 
 
 def test_memorial_transcribe_prefers_cartesia_stt_before_onemin(
@@ -1078,22 +1285,34 @@ def test_memorial_transcribe_prefers_cartesia_stt_before_onemin(
     from app.api.routes import public_memorials
     from app.product import service as product_service
 
+    provider_calls: list[str] = []
     monkeypatch.setenv("CARTESIA_API_KEY", "cartesia-test-key")
-    monkeypatch.setattr(
-        public_memorials,
-        "_memorial_shadow_stt_result",
-        lambda **kwargs: {
+
+    def _blipai_unavailable(**kwargs):
+        provider_calls.append("blipai")
+        return {
             "enabled": False,
+            "mode": "primary",
             "provider": "blipai",
             "status": "skipped",
             "transcript_text": "",
             "correction": {"should_correct": False},
-        },
+        }
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        _blipai_unavailable,
     )
+
+    def _cartesia_success(**kwargs):
+        provider_calls.append("cartesia")
+        return {"text": "Würdest du dich gegen Covid impfen lassen?"}
+
     monkeypatch.setattr(
         public_memorials,
         "_cartesia_transcribe_audio",
-        lambda **kwargs: {"text": "Würdest du dich gegen Covid impfen lassen?"},
+        _cartesia_success,
     )
     monkeypatch.setattr(
         product_service,
@@ -1108,6 +1327,7 @@ def test_memorial_transcribe_prefers_cartesia_stt_before_onemin(
 
     assert result["transcript_text"] == "Würdest du dich gegen Covid impfen lassen?"
     assert result["transcriber"] == "cartesia/ink-whisper+enhanced_wav"
+    assert provider_calls == ["blipai", "cartesia"]
 
 
 def test_memorial_transcribe_rejects_cartesia_generic_tiny_transcript_for_long_audio(
@@ -1261,7 +1481,7 @@ def test_memorial_transcribe_uses_cartesia_from_private_json_before_onemin(
     assert result["transcriber"] == "cartesia/ink-whisper+enhanced_wav"
 
 
-def test_memorial_transcribe_ignores_fast_shadow_stt_junk_and_falls_back_to_primary(
+def test_memorial_transcribe_ignores_blipai_primary_junk_and_falls_back(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.api.routes import public_memorials
@@ -1272,9 +1492,11 @@ def test_memorial_transcribe_ignores_fast_shadow_stt_junk_and_falls_back_to_prim
         "_memorial_shadow_stt_result",
         lambda **kwargs: {
             "enabled": True,
+            "mode": "primary",
             "provider": "blipai",
             "status": "ok",
             "transcript_text": "you",
+            "may_override_primary": True,
         },
     )
     monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
@@ -1308,25 +1530,42 @@ def test_memorial_transcribe_falls_back_to_onemin_when_cartesia_fails(
     from app.api.routes import public_memorials
     from app.product import service as product_service
 
+    provider_calls: list[str] = []
     monkeypatch.setenv("CARTESIA_API_KEY", "cartesia-test-key")
-    monkeypatch.setattr(
-        public_memorials,
-        "_memorial_shadow_stt_result",
-        lambda **kwargs: {
+
+    def _blipai_unavailable(**kwargs):
+        provider_calls.append("blipai")
+        return {
             "enabled": False,
+            "mode": "primary",
             "provider": "blipai",
             "status": "skipped",
             "transcript_text": "",
             "correction": {"should_correct": False},
-        },
+        }
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        _blipai_unavailable,
     )
+
+    def _cartesia_failure(**kwargs):
+        provider_calls.append("cartesia")
+        raise RuntimeError("cartesia_transcribe_http_401:unauthorized")
+
     monkeypatch.setattr(
         public_memorials,
         "_cartesia_transcribe_audio",
-        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("cartesia_transcribe_http_401:unauthorized")),
+        _cartesia_failure,
     )
     monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
-    monkeypatch.setattr(product_service, "_onemin_asset_upload", lambda **kwargs: {"asset": {"key": "audio"}, "fileContent": {"path": "audio-path"}})
+
+    def _onemin_upload(**kwargs):
+        provider_calls.append("1min.ai")
+        return {"asset": {"key": "audio"}, "fileContent": {"path": "audio-path"}}
+
+    monkeypatch.setattr(product_service, "_onemin_asset_upload", _onemin_upload)
     monkeypatch.setattr(
         product_service,
         "_onemin_speech_to_text",
@@ -1348,6 +1587,12 @@ def test_memorial_transcribe_falls_back_to_onemin_when_cartesia_fails(
 
     assert result["transcript_text"] == "Wie ist das Wetter heute in Wien?"
     assert result["transcriber"] == "1min.ai/whisper-1+enhanced_wav"
+    unique_provider_calls = [
+        provider
+        for index, provider in enumerate(provider_calls)
+        if index == 0 or provider != provider_calls[index - 1]
+    ]
+    assert unique_provider_calls == ["blipai", "cartesia", "1min.ai"]
 
 
 def test_memorial_transcribe_sets_cartesia_cooldown_after_auth_error(
@@ -1632,7 +1877,7 @@ def test_memorial_transcribe_stops_onemin_pool_when_live_timeout_budget_is_exhau
     public_memorials._MEMORIAL_STT_KEY_COOLDOWNS.clear()
 
 
-def test_memorial_transcribe_uses_shadow_intent_when_primary_stt_returns_no_speech(
+def test_memorial_transcribe_uses_blipai_primary_intent_before_fallback_stt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.api.routes import public_memorials
@@ -1643,19 +1888,18 @@ def test_memorial_transcribe_uses_shadow_intent_when_primary_stt_returns_no_spee
         "_memorial_shadow_stt_result",
         lambda **kwargs: {
             "enabled": True,
+            "mode": "primary",
             "provider": "blipai",
             "status": "ok",
             "transcript_text": "Würdest du dich heute gegen Covid impfen lassen?",
+            "may_override_primary": True,
             "correction": {"should_correct": False},
         },
     )
-    monkeypatch.setattr(public_memorials, "_memorial_shadow_stt_is_fast_primary_candidate", lambda text: False)
-    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
-    monkeypatch.setattr(product_service, "_onemin_asset_upload", lambda **kwargs: {"asset": {"key": "audio"}, "fileContent": {"path": "audio-path"}})
     monkeypatch.setattr(
         product_service,
-        "_onemin_speech_to_text",
-        lambda **kwargs: {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": ""}}}},
+        "_pocket_onemin_api_keys",
+        lambda: (_ for _ in ()).throw(AssertionError("fallback STT should not run")),
     )
     monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
 
@@ -1666,8 +1910,7 @@ def test_memorial_transcribe_uses_shadow_intent_when_primary_stt_returns_no_spee
 
     assert result["transcription_status"] == "transcribed"
     assert result["transcript_text"] == "Würdest du dich heute gegen Covid impfen lassen?"
-    assert result["transcriber"] == "shadow:blipai:degraded_accept"
-    assert result["detail"] == "primary_stt_empty_using_shadow_intent_fallback"
+    assert result["transcriber"] == "blipai/stt"
 
 
 def test_memorial_transcribe_uses_known_prompt_fingerprint_before_shadow_or_primary(
@@ -7102,6 +7345,140 @@ def test_memorial_speech_transcribe_logs_stt_failures_to_private_bundle(
     assert metadata["needs_fix"] is True
     assert metadata["stored_wav"] is True
     assert (bundles[0] / "input.wav").read_bytes() == input_audio
+
+
+def test_memorial_speech_transcribe_route_uses_blipai_primary_for_webm(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        public_memorials,
+        "_convert_audio_to_wav",
+        lambda **kwargs: _captured_contact_opening_wav_bytes(),
+    )
+
+    def _blipai_primary(**kwargs):
+        calls.append(dict(kwargs))
+        return {
+            "enabled": True,
+            "mode": "primary",
+            "provider": "blipai",
+            "status": "ok",
+            "transcript_text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+            "may_override_primary": True,
+        }
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        _blipai_primary,
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_onemin_api_keys",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("fallback STT should not run")
+        ),
+    )
+
+    client = _client(principal_id="exec-memorial-speech-transcribe-blipai-webm")
+    response = client.post(
+        f"/memorials/{slug}/speech-transcribe",
+        content=b"browser-webm-with-opus",
+        headers={"content-type": "audio/webm; codecs=opus"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["transcript_original_text"] == "Hallo Manfred, kannst du jetzt mit mir sprechen?"
+    assert body["transcript_text"] == "Hallo Manfred, kannst du jetzt mit mir sprechen?"
+    assert body["transcriber"] == "blipai/stt"
+    assert len(calls) == 1
+    assert calls[0]["content_type"] == "audio/webm"
+    assert calls[0]["primary_attempt"] is True
+
+
+def test_memorial_speech_transcribe_route_rejects_tts_echo_across_all_stt_fallbacks(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    provider_calls: list[str] = []
+    monkeypatch.setenv("CARTESIA_API_KEY", "cartesia-test-key")
+    monkeypatch.setattr(
+        public_memorials,
+        "_convert_audio_to_wav",
+        lambda **kwargs: _captured_contact_opening_wav_bytes(),
+    )
+
+    def _blipai_echo(**kwargs):
+        provider_calls.append("blipai")
+        return {
+            "enabled": True,
+            "mode": "primary",
+            "provider": "blipai",
+            "status": "ok",
+            "transcript_text": "Ich höre dich.",
+            "may_override_primary": True,
+        }
+
+    def _cartesia_echo(**kwargs):
+        provider_calls.append("cartesia")
+        return {"text": "Ich höre dich."}
+
+    def _onemin_upload(**kwargs):
+        provider_calls.append("1min.ai")
+        return {
+            "asset": {"key": "echo-audio"},
+            "fileContent": {"path": "echo-audio-path"},
+        }
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        _blipai_echo,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_cartesia_transcribe_audio",
+        _cartesia_echo,
+    )
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+    monkeypatch.setattr(product_service, "_onemin_asset_upload", _onemin_upload)
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_speech_to_text",
+        lambda **kwargs: {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {
+                    "responseObject": {"text": "Ich höre dich."},
+                },
+            },
+        },
+    )
+
+    client = _client(principal_id="exec-memorial-speech-transcribe-echo-rejection")
+    response = client.post(
+        f"/memorials/{slug}/speech-transcribe",
+        content=b"browser-webm-with-tts-echo",
+        headers={"content-type": "audio/webm; codecs=opus"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["transcription_status"] == "no_speech"
+    assert body["transcript_text"] == ""
+    unique_provider_calls = list(dict.fromkeys(provider_calls))
+    assert unique_provider_calls == ["blipai", "cartesia", "1min.ai"]
 
 
 def test_memorial_speech_transcribe_route_accepts_hostile_captured_contact_clip(

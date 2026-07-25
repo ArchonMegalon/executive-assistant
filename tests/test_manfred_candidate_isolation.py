@@ -1068,9 +1068,11 @@ def _candidate_env(tmp_path: Path) -> tuple[Path, dict[str, str]]:
         "EA_MANFRED_SPATIAL_RELEASE_ROOT": str(spatial_root),
         "EA_MANFRED_SPATIAL_SHA256": prepare._sha256(b"[]"),
         "EA_MANFRED_SPATIAL_SLUG": "",
+        "EA_MEMORIAL_BLIPAI_STT_TIMEOUT_SECONDS": "8",
         "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256": voice_identity[
             "provider_voice_id_sha256"
         ],
+        "EA_MEMORIAL_STT_PRIMARY_PROVIDER": "blipai",
         "EA_MEMORIAL_TTS_MODEL": voice_identity["tts_model"],
         "EA_MEMORIAL_TTS_PROVIDER": voice_identity["tts_provider"],
         "EA_MEMORIAL_VOICE_CONFIG_SHA256": voice_identity[
@@ -1098,6 +1100,48 @@ def _candidate_env(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     )
     env_file.chmod(0o600)
     return env_file, values
+
+
+def test_candidate_env_writer_emits_only_nonsecret_blipai_primary_settings(
+    tmp_path: Path,
+) -> None:
+    env_file = (tmp_path / "candidate.env").resolve()
+    release_root = (tmp_path / "release").resolve()
+    runtime_root = (tmp_path / "runtime").resolve()
+    release_root.mkdir()
+    runtime_root.mkdir()
+    voice_identity = prepare._voice_identity(
+        voice_config_sha256="4" * 64,
+        voice_manifest_sha256="5" * 64,
+        voice_reference_aggregate_sha256="6" * 64,
+        provider_voice_id_sha256="3" * 64,
+        tts_provider=prepare.MANFRED_TTS_PROVIDER,
+        tts_model=prepare.MANFRED_TTS_MODEL,
+    )
+
+    prepare._write_env(
+        path=env_file,
+        image=f"ea-runtime:manfred-{COMMIT}",
+        image_id=IMAGE_ID,
+        release_root=release_root,
+        runtime_root=runtime_root,
+        public_base_url="https://myexternalbrain.com",
+        host_port=18091,
+        project_name=PROJECT,
+        commit=COMMIT,
+        voice_identity=voice_identity,
+    )
+
+    values = prepare._parse_env(env_file)
+    assert values["EA_MEMORIAL_STT_PRIMARY_PROVIDER"] == "blipai"
+    assert values["EA_MEMORIAL_BLIPAI_STT_TIMEOUT_SECONDS"] == "8"
+    assert not {
+        "BLIPAI_APP_API_TOKEN",
+        "BLIPAI_APP_REFRESH_TOKEN",
+        "EA_MEMORIAL_BLIPAI_STT_API_KEY",
+        "EA_MEMORIAL_BLIPAI_STT_REFRESH_TOKEN",
+        "EA_MEMORIAL_BLIPAI_STT_URL",
+    }.intersection(values)
 
 
 def _compose_payloads(env_file: Path, env: dict[str, str]) -> tuple[dict, dict]:
@@ -1842,6 +1886,29 @@ def test_hostile_ambient_compose_values_are_replaced(
         PROJECT, env_file, tmp_path / "compose.yml", "config"
     )
     assert command[command.index("--project-name") + 1] == PROJECT
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("EA_MEMORIAL_STT_PRIMARY_PROVIDER", "cartesia"),
+        ("EA_MEMORIAL_BLIPAI_STT_TIMEOUT_SECONDS", "30"),
+    ],
+)
+def test_candidate_requires_valid_blipai_primary_stt_environment(
+    tmp_path: Path,
+    name: str,
+    value: str,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    env[name] = value
+    env_file.write_text(
+        "".join(f"{key}={item}\n" for key, item in sorted(env.items())),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="manfred_candidate_blipai_stt_env_invalid"):
+        runner._assert_env_allowlist(env_file)
 
 
 def test_compose_contract_binds_project_env_file_and_mount_roots(

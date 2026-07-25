@@ -105,6 +105,8 @@ ALLOWED_ENV_KEYS = {
     "EA_MANFRED_SPATIAL_SHA256",
     "EA_MANFRED_SPATIAL_SLUG",
     "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256",
+    "EA_MEMORIAL_BLIPAI_STT_TIMEOUT_SECONDS",
+    "EA_MEMORIAL_STT_PRIMARY_PROVIDER",
     "EA_MEMORIAL_TTS_MODEL",
     "EA_MEMORIAL_TTS_PROVIDER",
     "EA_MEMORIAL_VOICE_CONFIG_SHA256",
@@ -3043,6 +3045,14 @@ def _assert_env_allowlist(
     for name in ("EA_API_TOKEN", "EA_SIGNING_SECRET", "EA_MANFRED_POSTGRES_PASSWORD"):
         if len(env.get(name, "")) < 40:
             raise RuntimeError("manfred_candidate_env_secret_invalid")
+    if env.get("EA_MEMORIAL_STT_PRIMARY_PROVIDER") != "blipai":
+        raise RuntimeError("manfred_candidate_blipai_stt_env_invalid")
+    try:
+        blipai_timeout = float(env["EA_MEMORIAL_BLIPAI_STT_TIMEOUT_SECONDS"])
+    except ValueError as exc:
+        raise RuntimeError("manfred_candidate_blipai_stt_env_invalid") from exc
+    if not 1.0 <= blipai_timeout <= 15.0:
+        raise RuntimeError("manfred_candidate_blipai_stt_env_invalid")
     try:
         _validate_project_name(env["EA_MANFRED_COMPOSE_PROJECT"])
     except ValueError as exc:
