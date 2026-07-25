@@ -307,6 +307,8 @@ class _PublicPageContractParser(HTMLParser):
     def handle_data(self, data: str) -> None:
         if not str(data or "").strip():
             return
+        if self._stack and self._stack[-1][1]:
+            return
         for _tag, _hidden, record_index in self._stack:
             if record_index is not None:
                 self.elements[record_index].text_parts.append(data)
@@ -361,7 +363,13 @@ def _conversation_only_public_page_contract(
         disclosure is not None
         and not disclosure.hidden
         and "ki-rekonstruktion" in disclosure_text_lower
-        and "nicht der echte manfred" in disclosure_text_lower
+        and any(
+            wording in disclosure_text_lower
+            for wording in (
+                "nicht manfred und spricht nicht für ihn",
+                "nicht der echte manfred und spricht nicht für ihn",
+            )
+        )
         and "stimme" in disclosure_text_lower
         and "künstlich" in disclosure_text_lower
         and "mikrofon" in disclosure_text_lower

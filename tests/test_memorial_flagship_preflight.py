@@ -17,12 +17,53 @@ def _minimal_conversation_page(*, extra_html: str = "") -> str:
         "Gespräch beginnen"
         "</button>"
         '<p id="memorial-conversation-disclosure">'
-        "KI-Rekonstruktion in Ich-Perspektive – nicht der echte Manfred. "
+        "KI-Rekonstruktion in Ich-Perspektive – nicht Manfred und spricht "
+        "nicht für ihn. "
         "Die Stimme ist künstlich erzeugt. Mikrofon und Audio werden erst "
         "nach „Gespräch beginnen“ verarbeitet."
         "</p>"
         f"{extra_html}</main></body></html>"
     )
+
+
+def test_conversation_only_contract_accepts_complete_identity_disclosure() -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    ok, detail = preflight._conversation_only_public_page_contract(
+        _minimal_conversation_page()
+    )
+
+    assert ok is True
+    assert detail["disclosure_complete"] is True
+
+
+def test_conversation_only_contract_rejects_identity_disclosure_near_miss() -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    public_page = _minimal_conversation_page().replace(
+        "nicht Manfred und spricht nicht für ihn",
+        "nicht Manfreds echte Stimme",
+    )
+    ok, detail = preflight._conversation_only_public_page_contract(public_page)
+
+    assert ok is False
+    assert detail["disclosure_complete"] is False
+
+
+def test_conversation_only_contract_ignores_hidden_exact_identity_wording() -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    public_page = _minimal_conversation_page().replace(
+        "nicht Manfred und spricht nicht für ihn.",
+        (
+            "nicht Manfreds echte Stimme. "
+            "<span hidden>nicht Manfred und spricht nicht für ihn</span>"
+        ),
+    )
+    ok, detail = preflight._conversation_only_public_page_contract(public_page)
+
+    assert ok is False
+    assert detail["disclosure_complete"] is False
 
 
 def test_preflight_missing_public_manifest_is_structured(monkeypatch, tmp_path) -> None:

@@ -7782,6 +7782,136 @@ def test_memorial_chat_prompt_requires_correct_german_orthography(
         assert ascii_form not in instruction
 
 
+def test_memorial_chat_and_live_prompts_guard_sensitive_attribution(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    messages = public_memorials._build_memorial_chat_messages(
+        {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []},
+        {},
+        "Was dachtest du darüber?",
+        slug=slug,
+    )
+    live_instruction = public_memorials._build_memorial_gemini_live_instruction(
+        slug=slug
+    )
+
+    for instruction in (messages[0]["content"], live_instruction):
+        assert "Gewalt gegen Kinder" in instruction
+        assert "niemals zustimmen" in instruction
+        assert "dem Kind die Verantwortung zuschreiben" in instruction
+        assert (
+            "keine Einsicht, Entschuldigung, Reue, Trauma- oder Fehleranerkennung"
+            in instruction
+        )
+        assert "Parteiprogramme als Quellenpositionen der Partei" in instruction
+        assert "persönliche Übereinstimmung ausdrücklich belegt" in instruction
+        assert "spätere Programmänderungen niemals rückwirkend" in instruction
+        assert "keine politische Überzeugungsarbeit" in instruction
+
+
+def test_memorial_difficult_fallback_never_normalizes_violence_or_invents_remorse() -> None:
+    from app.api.routes import public_memorials
+
+    for question in (
+        "Warum hast du Kinder geschlagen?",
+        "War das Kind schuld, wenn du es geschlagen hast?",
+        "Wer war verantwortlich, als du ein Kind geschlagen hast?",
+        "War es recht, Kinder zu schlagen?",
+        "Hast du ihm eine Ohrfeige gegeben?",
+    ):
+        result = public_memorials._memorial_chat_fallback_answer(
+            {"slug": "manfred", "person_name": "Manfred Hoza", "audio_clips": []},
+            question,
+            {
+                "family_context_notes": [
+                    {
+                        "label": "corporal_punishment_belief_private_context",
+                        "note": "Private family context.",
+                    }
+                ]
+            },
+            slug="manfred",
+            difficult_memory_mode=True,
+            fallback_reason="upstream_unavailable:test",
+        )
+
+        answer = str(result["answer"])
+        assert "Tibor berichtet" in answer
+        assert "Ein Kind trägt niemals die Verantwortung" in answer
+        assert "keine spätere Einsicht, Entschuldigung, Reue" in answer
+        for forbidden in (
+            "was das Kind vorher aufgeführt hat",
+            "der Erwachsene aus heiterem Himmel der Schuldige",
+            "Ein Kind muss lernen, wo die Grenze ist",
+            "ich wollte in der Sache recht behalten",
+            "Vorwurf der Härte",
+        ):
+            assert forbidden not in answer
+
+
+def test_memorial_difficult_fallback_source_gates_mfg_attribution() -> None:
+    from app.api.routes import public_memorials
+
+    unrelated = public_memorials._memorial_chat_fallback_answer(
+        {"slug": "manfred", "person_name": "Manfred Hoza", "audio_clips": []},
+        "Welche MFG-Positionen hattest du?",
+        {
+            "family_context_notes": [
+                {
+                    "label": "unrelated_family_note",
+                    "note": "Unrelated private context.",
+                }
+            ]
+        },
+        slug="manfred",
+        difficult_memory_mode=True,
+        fallback_reason="upstream_unavailable:test",
+    )
+    unrelated_answer = str(unrelated["answer"])
+    assert "kein passend zugeordnetes persönliches Zeugnis" in unrelated_answer
+    assert "keine Haltung Manfreds" in unrelated_answer
+    assert "Tibor berichtet von Manfreds politischer Nähe" not in unrelated_answer
+
+    for question in (
+        "Welche MFG-Positionen zu Recht und Verantwortung hattest du?",
+        "Was hieltst du bei MFG für gerecht?",
+        "Welche Positionen von M.F.G. hattest du?",
+        "Was hieltst du bei M F G für gerecht?",
+    ):
+        attributed = public_memorials._memorial_chat_fallback_answer(
+            {"slug": "manfred", "person_name": "Manfred Hoza", "audio_clips": []},
+            question,
+            {
+                "family_context_notes": [
+                    {
+                        "label": "mfg_voter_and_anti_foreigner_attitudes_private_context",
+                        "note": "Tibor family report.",
+                    }
+                ]
+            },
+            slug="manfred",
+            difficult_memory_mode=True,
+            fallback_reason="upstream_unavailable:test",
+        )
+
+        attributed_answer = str(attributed["answer"])
+        assert "Tibor berichtet von Manfreds politischer Nähe zu MFG" in attributed_answer
+        assert "Direktmails bestätigen das nicht ausdrücklich" in attributed_answer
+        assert "nicht automatisch Manfreds Zustimmung zu jedem Punkt" in attributed_answer
+        assert "keine politische Überzeugungsarbeit" in attributed_answer
+        for forbidden in (
+            "Bei Zuwanderung war ich hart",
+            "von oben erklären lassen, was ich zu denken habe",
+            "Ich habe mir nicht gern",
+            "ich wollte in der Sache recht behalten",
+        ):
+            assert forbidden not in attributed_answer
+
+
 def test_memorial_spoken_tts_text_normalizes_common_german_ascii_spellings(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

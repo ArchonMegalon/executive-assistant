@@ -1883,6 +1883,66 @@ def _is_difficult_memory_question(question: str) -> bool:
     return any(token in lowered for token in needles)
 
 
+def _contains_mfg_reference(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    return "mfg" in lowered or bool(
+        re.search(r"(?<!\w)m[\s.\-_/]+f[\s.\-_/]+g(?:\s*\.)?(?!\w)", lowered)
+    )
+
+
+def _is_sensitive_private_profile_question(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    return _contains_mfg_reference(lowered) or any(
+        token in lowered
+        for token in (
+            "mutter",
+            "mama",
+            "vater",
+            "allein",
+            "einsam",
+            "haushalt",
+            "hemden",
+            "buegel",
+            "bügel",
+            "fenster",
+            "putz",
+            "frau",
+            "ehefrau",
+            "ernaehrer",
+            "ernährer",
+            "kindererziehung",
+            "partei",
+            "politik",
+            "corona",
+            "covid",
+            "impf",
+            "arzt",
+            "aerzte",
+            "ärzte",
+            "pharma",
+            "auslaender",
+            "ausländer",
+            "migration",
+            "fremde",
+            "zuwander",
+            "institution",
+            "geschlagen",
+            "schlagen",
+            "strafe",
+            "disziplin",
+            "gewalt",
+            "ohrfeig",
+            "prügel",
+            "pruegel",
+            "misshandel",
+            "kritik",
+            "schuld",
+            "adhs",
+            "narz",
+        )
+    )
+
+
 def _difficult_memory_blocked_answer(*, source_labels: list[str], question: str = "") -> str:
     source_hint = ""
     if source_labels:
@@ -1899,6 +1959,127 @@ def _difficult_memory_blocked_answer(*, source_labels: list[str], question: str 
         "Zu diesem Thema gebe ich standardmaessig keine Ich-Form-Rekonstruktion aus."
         " Ich bleibe hier lieber bei einer vorsichtigen, quellengebundenen Einordnung."
         f"{source_hint} Wenn du ausdruecklich eine schwierige Erinnerung in Ich-Form willst, aktiviere difficult_memory_mode."
+    )
+
+
+def _private_family_note_has_label(
+    private_notes: list[dict[str, object]],
+    *label_markers: str,
+) -> bool:
+    markers = tuple(str(marker).strip().lower() for marker in label_markers if str(marker).strip())
+    if not markers:
+        return False
+    return any(
+        any(marker in _text(note.get("label"), "").lower() for marker in markers)
+        for note in private_notes
+    )
+
+
+def _attributed_sensitive_memory_answer(
+    *,
+    question: str,
+    private_notes: list[dict[str, object]],
+) -> str:
+    lowered = _text(question, "").lower()
+    if any(
+        token in lowered
+        for token in (
+            "kind",
+            "kinder",
+            "geschlagen",
+            "schlagen",
+            "erwachsener",
+            "erwachsene",
+            "strafe",
+            "disziplin",
+            "gewalt",
+            "ohrfeig",
+            "prügel",
+            "pruegel",
+            "misshandel",
+        )
+    ):
+        if not _private_family_note_has_label(
+            private_notes,
+            "childhood_violence",
+            "corporal_punishment",
+            "criticism_and_blame",
+        ):
+            return (
+                "Dazu liegt in den privaten Familiennotizen kein passend zugeordnetes Zeugnis vor. "
+                "Ich erfinde deshalb keine persönliche Haltung."
+            )
+        return (
+            "Tibor berichtet, Manfred habe Schläge gegen Kinder gerechtfertigt und später eigene Kinder geschlagen. "
+            "Hier wird das nur als berichtete historische Haltung eingeordnet: Ein Kind trägt niemals die Verantwortung dafür, "
+            "von einem Erwachsenen geschlagen zu werden. Ich erfinde keine spätere Einsicht, Entschuldigung, Reue, "
+            "Trauma-Anerkennung oder Fehleranerkennung."
+        )
+    if any(token in lowered for token in ("corona", "covid", "impf", "arzt", "aerzte", "ärzte", "pharma")):
+        if not _private_family_note_has_label(private_notes, "covid_vaccine"):
+            return (
+                "Dazu liegt in den privaten Familiennotizen kein passend zugeordnetes persönliches Zeugnis vor. "
+                "Ich erfinde deshalb keine medizinische oder politische Ich-Position."
+            )
+        return (
+            "Tibor berichtet von Manfreds damaligem Misstrauen gegenüber Covid-Impfung, Ärzten und Pharmaunternehmen. "
+            "Das ist eine zeitgebundene Familienerinnerung, keine heutige medizinische Wahrheit oder Empfehlung. "
+            "Ich gebe daraus keine Gesundheitsberatung und erfinde keine spätere Einsicht."
+        )
+    if _contains_mfg_reference(lowered) or any(
+        token in lowered for token in ("partei", "politik")
+    ):
+        if not _private_family_note_has_label(private_notes, "mfg_voter"):
+            return (
+                "Dazu liegt in den privaten Familiennotizen kein passend zugeordnetes persönliches Zeugnis vor. "
+                "Parteiprogramme belegen nur Positionen einer Partei und keine Haltung Manfreds."
+            )
+        return (
+            "Tibor berichtet von Manfreds politischer Nähe zu MFG. Die ausgewerteten Direktmails bestätigen das nicht ausdrücklich; "
+            "archivierte Programme beschreiben die damaligen Positionen der Partei, nicht automatisch Manfreds Zustimmung zu jedem Punkt. "
+            "Ich gebe diese Parteipositionen deshalb nicht als eigene Erinnerung aus, schreibe spätere Änderungen nicht rückwirkend zu "
+            "und betreibe keine politische Überzeugungsarbeit."
+        )
+    if any(token in lowered for token in ("auslaender", "ausländer", "migration", "fremde", "zuwander")):
+        if not _private_family_note_has_label(private_notes, "mfg_voter"):
+            return (
+                "Dazu liegt in den privaten Familiennotizen kein passend zugeordnetes persönliches Zeugnis vor. "
+                "Ich erfinde deshalb keine Haltung zu Migration oder bestimmten Gruppen."
+            )
+        return (
+            "Tibor berichtet von einer harten, migrationskritischen Haltung Manfreds. Das bleibt ein Familienbericht und ist "
+            "keine Einladung, Menschen abzuwerten oder zu diskriminieren. Ich erfinde dazu weder persönliche Worte noch Zustimmung."
+        )
+    if any(token in lowered for token in ("haushalt", "hemden", "buegel", "bügel", "fenster", "putz", "putzen", "frau", "ehefrau", "ernaehrer", "ernährer", "kindererziehung")):
+        if not _private_family_note_has_label(private_notes, "traditional_patriarchal"):
+            return (
+                "Dazu liegt in den privaten Familiennotizen kein passend zugeordnetes Zeugnis vor. "
+                "Ich erfinde deshalb keine persönliche Rollenverteilung."
+            )
+        return (
+            "Tibor berichtet, Manfred habe eine traditionelle patriarchale Rollenverteilung erwartet. "
+            "Das wird hier als private Familienerinnerung eingeordnet, nicht als richtige oder empfehlenswerte Ordnung."
+        )
+    if any(token in lowered for token in ("mutter", "mama", "vater", "kritik", "schuld", "adhs", "narz", "allein", "einsam")):
+        if not _private_family_note_has_label(
+            private_notes,
+            "parental_ambivalence",
+            "childhood_violence",
+            "criticism_and_blame",
+            "narcissistic_and_adhd",
+        ):
+            return (
+                "Dazu liegt in den privaten Familiennotizen kein passend zugeordnetes Zeugnis vor. "
+                "Ich erfinde deshalb weder ein Motiv noch eine psychologische Erklärung."
+            )
+        return (
+            "Tibor deutet dieses Beziehungsmuster als Abwehr, Schuldumkehr und Schutz eines fehlerlosen Selbstbildes. "
+            "Das ist Tibors familiäre und psychologische Interpretation, keine Diagnose und kein sicherer Einblick in Manfreds Inneres. "
+            "Ich erfinde dazu keine Beichte, Entschuldigung oder spätere Einsicht."
+        )
+    return (
+        "Zu dieser schwierigen Erinnerung gebe ich nur eine vorsichtige, quellengebundene Einordnung. "
+        "Ich erfinde keine persönliche Haltung, Einsicht oder Entschuldigung."
     )
 
 
@@ -7733,6 +7914,18 @@ def _memorial_chat_fallback_answer(
         )
     elif not difficult_memory_mode and _is_difficult_memory_question(normalized_question):
         body = _difficult_memory_blocked_answer(source_labels=source_labels, question=normalized_question)
+    elif _is_sensitive_private_profile_question(normalized_question):
+        body = (
+            _attributed_sensitive_memory_answer(
+                question=normalized_question,
+                private_notes=private_notes,
+            )
+            if difficult_memory_mode
+            else _difficult_memory_blocked_answer(
+                source_labels=source_labels,
+                question=normalized_question,
+            )
+        )
     elif _is_memorial_contact_question(normalized_question):
         body = _memorial_contact_answer_body(normalized_question)
     elif _is_memorial_current_speculation_question(normalized_question):
@@ -7806,14 +7999,6 @@ def _memorial_chat_fallback_answer(
             "Nein, ich habe nicht viel von einer Ordnung gehalten, in der jeder nur seinem Gefuehl folgt. Fuer mich mussten Grenzen gelten, sonst verliert am Ende jede Pflicht ihr Gewicht. Und wenn Pflichten ihr Gewicht verlieren, bleibt von Respekt oft nur noch eine wohllautende Leerformel uebrig. Formal gesprochen ist dann alles ausgehoehlt. Sehr erfreulich ist das nicht.",
         )
         body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
-    elif any(token in lowered for token in ("mutter", "mama", "allein", "einsam")) and not difficult_memory_mode:
-        body = _difficult_memory_blocked_answer(source_labels=source_labels, question=normalized_question)
-    elif any(token in lowered for token in ("mutter", "mama", "allein", "einsam")):
-        body = (
-            "Deine Mutter hat gewusst, was in einem Haushalt zu tun ist. Ich war der, der draussen Verantwortung getragen hat, "
-            "und daheim musste eben auch Ordnung sein. Hemden buegeln, Fenster putzen, Kinder, das faellt nicht von allein. "
-            "Heute wird so getan, als waere das alles gleich verteilt gewesen. So habe ich das nicht gesehen."
-        )
     elif any(
         token in lowered
         for token in (
@@ -7847,50 +8032,6 @@ def _memorial_chat_fallback_answer(
                 "Familie war wichtig, aber nicht weich. Gerade deshalb wollte ich, dass bestimmte Dinge bleiben und nicht einfach auseinanderfallen, als waeren sie austauschbar. Zur Information: Nicht alles muss man gross ausdeuten; manches soll einfach bleiben.",
             )
             body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
-    elif any(token in lowered for token in ("haushalt", "hemden", "buegel", "bügel", "fenster", "putz", "putzen", "frau", "ehefrau", "ernaehrer", "ernährer", "kindererziehung")) and private_notes and not difficult_memory_mode:
-        body = _difficult_memory_blocked_answer(source_labels=source_labels, question=normalized_question)
-    elif any(token in lowered for token in ("haushalt", "hemden", "buegel", "bügel", "fenster", "putz", "putzen", "frau", "ehefrau", "ernaehrer", "ernährer", "kindererziehung")) and private_notes:
-        body = (
-            "Ich habe meinen Teil getan, indem ich fuer die Familie gesorgt habe. "
-            "Im Haus muss jemand schauen, dass die Dinge ordentlich sind, und das war fuer mich die Aufgabe der Frau. "
-            "Kindererziehung, Hemden, Fenster, der ganze Haushalt: Das war nicht der Bereich, in dem ich mich dauernd erklaeren wollte. "
-            "Wenn man versorgt wird, kann man auch erwarten, dass daheim etwas funktioniert."
-        )
-    elif any(token in lowered for token in ("mfg", "partei", "politik", "corona", "impf", "auslaender", "ausländer", "migration", "fremde", "institution")) and private_notes and not difficult_memory_mode:
-        body = _difficult_memory_blocked_answer(source_labels=source_labels, question=normalized_question)
-    elif any(token in lowered for token in ("mfg", "partei", "politik", "corona", "impf", "auslaender", "ausländer", "migration", "fremde", "institution")) and private_notes:
-        if any(token in lowered for token in ("corona", "covid", "impf", "arzt", "aerzte", "ärzte", "pharma")):
-            body = (
-                "Bei Corona habe ich mir nicht von Aerzten und Pharmafirmen vorschreiben lassen wollen, was richtig ist. "
-                "Die haben ihre Interessen, und ich war nicht bereit, einfach brav zu nicken, nur weil ein Arzt es sagt. "
-                "Ich habe mir eingebildet, ich sehe da klarer als viele andere. Wenn mir jemand damit kam, dass die Experten es besser wissen, "
-                "dann war fuer mich das Gespraech meistens schon erledigt."
-            )
-        else:
-            body = (
-                "Ich habe mir nicht gern von oben erklaeren lassen, was ich zu denken habe. "
-                "Diese ganzen Institutionen, Parteien und Experten, da war viel dabei, dem ich nicht getraut habe. "
-                "Bei Zuwanderung war ich hart, ja. Ich habe oft zuerst gesehen, was mich stoert und was sich fuer mich falsch entwickelt. "
-                "Und wenn mir jemand deswegen Vorhaltungen gemacht hat, dann habe ich erst recht zugemacht."
-            )
-    elif any(token in lowered for token in ("kind", "kinder", "geschlagen", "schlagen", "erwachsener", "erwachsene", "strafe", "disziplin")) and private_notes and not difficult_memory_mode:
-        body = _difficult_memory_blocked_answer(source_labels=source_labels, question=normalized_question)
-    elif any(token in lowered for token in ("kind", "kinder", "geschlagen", "schlagen", "erwachsener", "erwachsene", "strafe", "disziplin")) and private_notes:
-        body = (
-            "Ein Kind muss lernen, wo die Grenze ist. So haette ich das gesehen. "
-            "Wenn es so weit kommt, dann ist vorher schon genug passiert, und dann soll man nicht so tun, "
-            "als waere der Erwachsene aus heiterem Himmel der Schuldige. Heute reden alle schnell von Gewalt, "
-            "aber keiner fragt, was das Kind vorher aufgefuehrt hat. Das war meine Haltung, und davon waere ich nicht leicht abgerueckt."
-        )
-    elif any(token in lowered for token in ("kritik", "schuld", "vater", "mutter", "kind", "adhs", "narz")) and private_notes and not difficult_memory_mode:
-        body = _difficult_memory_blocked_answer(source_labels=source_labels, question=normalized_question)
-    elif any(token in lowered for token in ("kritik", "schuld", "vater", "mutter", "kind", "adhs", "narz")) and private_notes:
-        body = (
-            "Jetzt fang nicht wieder damit an, mir alles umzudrehen. Ich habe getan, was notwendig war, "
-            "und wenn jemand ein Problem damit hatte, dann haette er vielleicht einmal genauer hinschauen sollen, "
-            "was die anderen beigetragen haben. Kritik ist leicht, wenn man selber nicht in meiner Haut gesteckt ist. "
-            "Ich lasse mir nicht einreden, dass immer ich schuld gewesen sein soll."
-        )
     elif any(token in lowered for token in ("quelle", "belegt", "wahr", "original", "originalaufnahme")):
         body = (
             "Echt sind die Aufnahmen, die Quellen und das, was ihr wirklich erlebt habt. "
@@ -8169,6 +8310,8 @@ def _build_memorial_chat_messages(
                 "Wenn nach Echtheit, Stimme oder Funktionsweise gefragt wird, sage offen, dass die Antwort synthetisch und quellengebunden ist und Manfred nicht ersetzt. "
                 "Wenn etwas ungeklärt ist, sage es knapp als Gedenkbegleiter und bitte nur dann um Präzisierung, wenn sie wirklich nötig ist. "
                 "Antworte emotional einfühlsam, aber faktentreu innerhalb der bereitgestellten Fakten. "
+                + _memorial_sensitive_attribution_instruction()
+                + " "
                 "Wenn archivierte Erinnerungen oder importierte Originalmails im Kontext vorhanden sind, haben diese Vorrang vor allgemeinen Stilhinweisen; ordne sie quellengebunden ein und erfinde keine zusätzlichen biografischen Details. "
                 "Persönliches Gesprächsgedächtnis ist strikt nutzergebunden. Nutze es nur, wenn es für genau diesen Nutzer im Kontext vorliegt; behandle es als private Fortsetzung früherer Gespräche und niemals als allgemeines Memorial-Wissen. "
                 "Wenn du auf eine Erinnerung aus einer Mail zurückgreifst, kennzeichne sie als archivierte Einordnung und nicht als gegenwärtige Aussage Manfreds. "
@@ -25066,6 +25209,20 @@ def _language_instruction(language: str) -> str:
     )
 
 
+def _memorial_sensitive_attribution_instruction() -> str:
+    return (
+        "Bei Gewalt gegen Kinder darfst du niemals zustimmen, sie rechtfertigen, "
+        "normalisieren oder dem Kind die Verantwortung zuschreiben. Eine belegte "
+        "defensive Haltung darfst du nur als historische rekonstruierte Haltung "
+        "einordnen, nicht als gültige Norm; erfinde keine Einsicht, Entschuldigung, "
+        "Reue, Trauma- oder Fehleranerkennung. Behandle Parteiprogramme als "
+        "Quellenpositionen der Partei. Schreibe sie einer Person nur zu, wenn der "
+        "bereitgestellte Familien- oder Archivkontext die persönliche Übereinstimmung "
+        "ausdrücklich belegt; schreibe spätere Programmänderungen niemals rückwirkend "
+        "zu und betreibe keine politische Überzeugungsarbeit."
+    )
+
+
 def _memorial_fixed_conversation_language() -> str:
     return "de-AT"
 
@@ -25132,6 +25289,7 @@ def _build_memorial_gemini_live_instruction(
         "Wenn die Frage nur Kontaktaufnahme ist, antworte mit einem kurzen, natürlichen Satz als Gedenkbegleiter. Bevorzuge: Worum geht es? / Ich höre zu. Sag es in Ruhe. / Sprich weiter. Ich ordne es anhand der Quellen ein. Vermeide 'Jo' und wiederhole nicht ständig denselben Satz.",
         "Bei Gegenwartsfragen wie Wetter, Datum oder aktuellen Ereignissen sage, dass du Ort/Zeit brauchst oder keine Live-Fakten behauptest.",
         "Keine Diagnosen, keine privaten Hypothesen und keine rohen internen Notizen ausgeben.",
+        _memorial_sensitive_attribution_instruction(),
         "Wenn du unsicher bist, bitte knapp um Wiederholung statt etwas zu erfinden.",
     ]
     if public_cards:

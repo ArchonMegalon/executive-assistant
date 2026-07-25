@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import shutil
 import stat
 from pathlib import Path
@@ -29,7 +30,7 @@ _PUBLIC_MANIFEST = (
 )
 _PRIVATE_ROOT = _ROOT / "memorial_data" / "private_memorial_profiles"
 _LOCAL_CONTEXT_DIGEST = (
-    "ba2194ce345f05cc81268ad96954e9d1c55e76b7058636a1cf092ff98d18d1de"
+    "4218fbcea29ef2bdf8b8336c785371de5bfd4229282558c6a95888c1b99c6b04"
 )
 
 
@@ -149,11 +150,54 @@ def test_local_manfred_context_exact_audit_skips_when_not_provisioned() -> None:
             "external_sources",
             "chat_models",
         )
-    ] == [1, 9, 6, 38, 31, 12, 3]
+    ] == [1, 13, 6, 44, 34, 14, 3]
     assert all(
         internal_payload[field] == overrides[field] for field in PRIVATE_OVERRIDE_FIELDS
     )
 
+    new_private_titles = {
+        "Politische Nähe zu MFG – quellengetrennt eingeordnet",
+        "Fürsorge durch praktische Hilfe – mit Spannung im Vater-Sohn-Kontakt",
+    }
+    new_private_traits = {
+        "MFG-Nähe nur als Familienbericht, historisches Programm nur als Parteikontext",
+        "Zwei schriftliche Register: knapp familiär und dossierartig argumentierend",
+        "Sachliche Information als Form praktischer familiärer Nähe",
+    }
+    assert {
+        str(item.get("title") or "")
+        for item in overrides["memory_cards"]
+        if isinstance(item, dict) and item.get("visibility") == "private"
+    }.issuperset(new_private_titles)
+    assert {
+        str(item.get("trait") or "")
+        for item in overrides["source_grounded_profile"]
+        if isinstance(item, dict) and item.get("visibility") == "private"
+    }.issuperset(new_private_traits)
+
+    public_projection = public_memorials._public_memorial_payload(internal_payload)
+    public_document = json.dumps(public_projection, ensure_ascii=False)
+    assert all(title not in public_document for title in new_private_titles)
+    assert all(trait not in public_document for trait in new_private_traits)
+    assert all(
+        marker not in public_document
+        for marker in (
+            "mail.google.com/mail/#all/",
+            "deref-gmx.net/mail/client/",
+            "raw_body",
+            "source_message_id",
+            "thread_id",
+            "attachment_id",
+            "private_mail",
+            "2020-02-29",
+            "2026-02-14",
+        )
+    )
+    assert re.search(
+        r"(?i)(?:[a-z0-9.!#$%&'*+/=?^_`{|}~-]+)@"
+        r"(?:[a-z0-9-]+\.)+[a-z]{2,}",
+        public_document,
+    ) is None
 
 def test_manfred_public_projection_matches_with_or_without_private_provisioning() -> (
     None

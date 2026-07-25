@@ -382,7 +382,7 @@ def test_memorial_flagship_http_surface_is_conversation_only_and_private_by_defa
     assert "Stimmvergleich und Feedback" not in body
     assert 'aria-describedby="memorial-conversation-disclosure"' in body
     assert "KI-Rekonstruktion" in body
-    assert "nicht der echte Manfred" in body
+    assert "nicht Manfred und spricht nicht für ihn" in body
     assert "Die Stimme ist künstlich erzeugt." in body
     assert public_payload["audio_clips"] == []
     assert len(public_payload["memory_cards"]) == 6

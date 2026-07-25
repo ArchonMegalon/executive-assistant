@@ -96,6 +96,7 @@ class MemorialRuntimeTests(unittest.TestCase):
             patch.object(public_memorials, "_memorial_video_call_avatar", return_value={}),
             patch.object(public_memorials, "_memorial_video_call_avatar_fallback_html", return_value=""),
             patch.object(public_memorials, "_asset_file", return_value=Path("/tmp/gerechtigkeit.mp3")),
+            patch.object(public_memorials, "_memorial_page_prewarm_enabled", return_value=True),
         ):
             rendered = public_memorials._public_memorial_page_html(
                 payload,
@@ -185,7 +186,7 @@ class MemorialRuntimeTests(unittest.TestCase):
         self.assertIn('id="memorial-speech-audio" preload="none" aria-hidden="true"', rendered)
         self.assertNotIn(" autoplay", rendered)
         self.assertIn(
-            "Sie ist nicht der echte Manfred und spricht nicht für ihn.",
+            "Sie ist nicht Manfred und spricht nicht für ihn.",
             rendered,
         )
         self.assertIn("Die Stimme ist künstlich erzeugt.", rendered)
@@ -194,7 +195,7 @@ class MemorialRuntimeTests(unittest.TestCase):
             rendered,
         )
         self.assertIn('title="Gespräch beginnen" aria-label="Gespräch beginnen"', rendered)
-        self.assertIn("const memorialPagePrewarmEnabled = false;", rendered)
+        self.assertIn("const memorialPagePrewarmEnabled = true;", rendered)
         self.assertIn(
             "if (!memorialConversationOnly) activateProtectedForm(textTurnForm);",
             rendered,
