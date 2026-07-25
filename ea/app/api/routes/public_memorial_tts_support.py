@@ -178,6 +178,7 @@ def _load_voice_config(
         "voice_profile_id": "default-browser-synthetic",
         "voice_label": "Austauschbare synthetische Stimme",
         "lang": "de-AT",
+        "provider_language": "",
         "rate": 0.92,
         "pitch": 0.92,
         "volume": 1.0,
@@ -185,7 +186,11 @@ def _load_voice_config(
         "tts_plugin_voice_id": unmixr_memorial_voice_id(),
         "tts_base_voice_variant": "high",
         "tts_postprocess_profile": "",
+        "unmixr_speaking_rate": "",
+        "unmixr_speaking_pitch": "",
+        "unmixr_speaking_volume": "",
         "unmixr_pronunciation_dict": {},
+        "tts_backup_candidates": {},
         "consent_basis": "generic_or_owner_consented_voice",
         "notes": "Voice-Plugins fuer die Memorial-Interaktion.",
         "synthetic_voice_clone_of_memorial_person": False,
@@ -223,6 +228,10 @@ def _load_voice_config(
                         payload.get("voice_label"), str(default_config["voice_label"])
                     ),
                     "lang": text(payload.get("lang"), str(default_config["lang"])),
+                    "provider_language": text(
+                        payload.get("provider_language"),
+                        str(default_config["provider_language"]),
+                    )[:16],
                     "rate": float_between(
                         payload.get("rate"), fallback=0.92, minimum=0.45, maximum=1.5
                     ),
@@ -245,10 +254,24 @@ def _load_voice_config(
                     "tts_postprocess_profile": text(
                         payload.get("tts_postprocess_profile"), ""
                     ),
+                    "unmixr_speaking_rate": text(
+                        payload.get("unmixr_speaking_rate"), ""
+                    )[:32],
+                    "unmixr_speaking_pitch": text(
+                        payload.get("unmixr_speaking_pitch"), ""
+                    )[:32],
+                    "unmixr_speaking_volume": text(
+                        payload.get("unmixr_speaking_volume"), ""
+                    )[:32],
                     "unmixr_pronunciation_dict": dict(
                         payload.get("unmixr_pronunciation_dict") or {}
                     )
                     if isinstance(payload.get("unmixr_pronunciation_dict"), dict)
+                    else {},
+                    "tts_backup_candidates": dict(
+                        payload.get("tts_backup_candidates") or {}
+                    )
+                    if isinstance(payload.get("tts_backup_candidates"), dict)
                     else {},
                     "consent_basis": text(
                         payload.get("consent_basis"),
@@ -372,6 +395,7 @@ def _normalize_voice_config_payload(
         "voice_profile_id": "default-browser-synthetic",
         "voice_label": "Austauschbare synthetische Stimme",
         "lang": "de-AT",
+        "provider_language": "",
         "rate": 0.92,
         "pitch": 0.92,
         "volume": 1.0,
@@ -380,7 +404,11 @@ def _normalize_voice_config_payload(
         "tts_plugin_voice_id": unmixr_memorial_voice_id(),
         "tts_base_voice_variant": "high",
         "tts_postprocess_profile": "",
+        "unmixr_speaking_rate": "",
+        "unmixr_speaking_pitch": "",
+        "unmixr_speaking_volume": "",
         "unmixr_pronunciation_dict": {},
+        "tts_backup_candidates": {},
         "consent_basis": "generic_or_owner_consented_voice",
         "notes": "Voice-Plugins fuer die Memorial-Interaktion.",
     }
@@ -405,6 +433,10 @@ def _normalize_voice_config_payload(
             str(default_config["lang"]),
         )[:16]
         or "de-AT",
+        "provider_language": text(
+            payload.get("provider_language") if isinstance(payload, dict) else None,
+            str(default_config["provider_language"]),
+        )[:16],
         "rate": float_between(
             payload.get("rate") if isinstance(payload, dict) else None,
             fallback=0.92,
@@ -439,10 +471,33 @@ def _normalize_voice_config_payload(
             else None,
             "",
         ),
+        "unmixr_speaking_rate": text(
+            payload.get("unmixr_speaking_rate")
+            if isinstance(payload, dict)
+            else None,
+            "",
+        )[:32],
+        "unmixr_speaking_pitch": text(
+            payload.get("unmixr_speaking_pitch")
+            if isinstance(payload, dict)
+            else None,
+            "",
+        )[:32],
+        "unmixr_speaking_volume": text(
+            payload.get("unmixr_speaking_volume")
+            if isinstance(payload, dict)
+            else None,
+            "",
+        )[:32],
         "unmixr_pronunciation_dict": dict(
             payload.get("unmixr_pronunciation_dict") or {}
         )
         if isinstance(payload.get("unmixr_pronunciation_dict"), dict)
+        else {},
+        "tts_backup_candidates": dict(
+            payload.get("tts_backup_candidates") or {}
+        )
+        if isinstance(payload.get("tts_backup_candidates"), dict)
         else {},
         "consent_basis": text(
             payload.get("consent_basis") if isinstance(payload, dict) else None,
@@ -492,12 +547,19 @@ def _save_voice_config_payload(
         "voice_profile_id": existing_config.get("voice_profile_id"),
         "voice_label": existing_config.get("voice_label"),
         "lang": existing_config.get("lang"),
+        "provider_language": existing_config.get("provider_language"),
         "rate": existing_config.get("rate"),
         "pitch": existing_config.get("pitch"),
         "volume": existing_config.get("volume"),
         "voice_name_hints": list(existing_config.get("voice_name_hints") or []),
         "tts_base_voice_variant": existing_config.get("tts_base_voice_variant"),
         "tts_postprocess_profile": existing_config.get("tts_postprocess_profile"),
+        "unmixr_speaking_rate": existing_config.get("unmixr_speaking_rate"),
+        "unmixr_speaking_pitch": existing_config.get("unmixr_speaking_pitch"),
+        "unmixr_speaking_volume": existing_config.get("unmixr_speaking_volume"),
+        "tts_backup_candidates": dict(
+            existing_config.get("tts_backup_candidates") or {}
+        ),
         "consent_basis": existing_config.get("consent_basis"),
         "notes": existing_config.get("notes"),
         "synthetic_voice_clone_of_memorial_person": existing_config.get(
@@ -511,6 +573,9 @@ def _save_voice_config_payload(
     # ordinary edit may neither forge nor clear it; only the governed clone
     # lane can activate it after the provider has returned a real clone ID.
     mutable_payload.pop("synthetic_voice_clone_of_memorial_person", None)
+    # Backup candidates are provider-operational evidence, not a public
+    # configuration control.
+    mutable_payload.pop("tts_backup_candidates", None)
     merged_payload.update(mutable_payload)
     merged_payload["synthetic_voice_clone_of_memorial_person"] = bool(
         existing_trusted_clone or trusted_clone_activation
@@ -521,6 +586,21 @@ def _save_voice_config_payload(
         stored["tts_postprocess_profile"] = text(
             normalized_config.get("tts_postprocess_profile"), ""
         )
+    if text(normalized_config.get("provider_language"), ""):
+        stored["provider_language"] = text(
+            normalized_config.get("provider_language"), ""
+        )[:16]
+    for field in (
+        "unmixr_speaking_rate",
+        "unmixr_speaking_pitch",
+        "unmixr_speaking_volume",
+    ):
+        value = text(normalized_config.get(field), "")[:32]
+        if value:
+            stored[field] = value
+    stored["tts_backup_candidates"] = dict(
+        normalized_config.get("tts_backup_candidates") or {}
+    )
     options = tts_plugin_options(
         payload=stored,
         voice_profile_ready=bool(

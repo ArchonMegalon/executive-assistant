@@ -9686,6 +9686,10 @@ def _render_memorial_tts_audio(
         pronunciation_dict = unmixr_pronunciation_dict(
             merged_config.get("unmixr_pronunciation_dict", {})
         )
+    provider_language = _text(
+        merged_config.get("provider_language"),
+        _text(merged_config.get("lang"), "de"),
+    )
     extra_filters = _speech_postprocess_filters_for_config(selected_plugin, merged_config)
     cache_payload = {
         "slug": slug,
@@ -9700,7 +9704,6 @@ def _render_memorial_tts_audio(
         "lead_in_ms": int(max(0, lead_in_ms)),
         "tail_silence_ms": int(max(0, tail_silence_ms)),
         "extra_filters": extra_filters,
-        "pronunciation_dict": pronunciation_dict,
         "spoken_text_normalizer": "memorial_de_at_v2",
         "postprocess_impl": (
             f"{getattr(_pad_speech_audio_lead_in, '__module__', '')}:"
@@ -9708,8 +9711,11 @@ def _render_memorial_tts_audio(
         ),
     }
     if selected_plugin == UNMIXR_TTS_PLUGIN_ID:
-        cache_payload["provider_language_policy"] = "unmixr_locale_preserving_v1"
-        cache_payload["provider_pronunciation_policy"] = "unmixr_config_v1"
+        cache_payload["provider_language"] = provider_language
+        cache_payload["provider_language_policy"] = "unmixr_configurable_locale_v2"
+        if pronunciation_dict:
+            cache_payload["pronunciation_dict"] = pronunciation_dict
+            cache_payload["provider_pronunciation_policy"] = "unmixr_config_v1"
     cache_audio_path, cache_meta_path = _memorial_tts_render_cache_paths(cache_payload=cache_payload)
     direct_contact_phrase = _is_memorial_direct_contact_opening_text(normalized_text)
     contact_phrase_validation: dict[str, object] = {}
@@ -9747,7 +9753,7 @@ def _render_memorial_tts_audio(
             synthesized_audio, synthesized_content_type = unmixr_synthesize_request(
                 text=normalized_text,
                 voice_id=voice_ref,
-                lang=_text(merged_config.get("lang"), "de"),
+                lang=provider_language,
                 speaking_rate=_text(merged_config.get("unmixr_speaking_rate"), ""),
                 speaking_pitch=_text(merged_config.get("unmixr_speaking_pitch"), ""),
                 speaking_volume=_text(merged_config.get("unmixr_speaking_volume"), ""),
@@ -9941,12 +9947,11 @@ def _speech_postprocess_filters_for_config(tts_plugin: str, payload: dict[str, o
         if profile in {"unmixr_natural_soft", "natural_soft"}:
             return ",".join(
                 [
-                    "highpass=f=45",
-                    "equalizer=f=170:t=q:w=1.0:g=0.8",
-                    "equalizer=f=480:t=q:w=0.9:g=0.4",
-                    "equalizer=f=2600:t=q:w=1.0:g=-0.8",
-                    "lowpass=f=7000",
-                    "alimiter=limit=0.94",
+                    "highpass=f=38",
+                    "equalizer=f=180:t=q:w=0.9:g=0.35",
+                    "equalizer=f=2800:t=q:w=1.0:g=-0.35",
+                    "lowpass=f=7800",
+                    "alimiter=limit=0.97",
                 ]
             )
         if profile in {"unmixr_realtime_clear", "realtime_clear", "live_clear"}:
@@ -13219,6 +13224,9 @@ def _minimal_public_memorial_html(
     person_first_name = person_name.strip().split(maxsplit=1)[0] if person_name.strip() else "Person"
     safe_person_first_name = html.escape(person_first_name)
     safe_subtitle = html.escape(subtitle)
+    hero_subtitle_html = (
+        "" if conversation_only else f'<p class="hero-subtitle">{safe_subtitle}</p>'
+    )
     voice_release_enforced = _memorial_voice_release_enforced()
     public_voice_release_allowed = True
     public_voice_evaluation_allowed = False
@@ -13256,9 +13264,20 @@ def _minimal_public_memorial_html(
     hero_actions_class = "" if voice_access_blocked else " is-readying"
     conversation_button_class = "" if voice_access_blocked else " is-readying"
     conversation_button_label = (
-        "Gespräch beginnen"
+        (
+            "Gespräch beginnen"
+            if voice_access_blocked
+            else "Gespräch wird vorbereitet …"
+        )
         if conversation_only
         else ("Frage schreiben" if voice_access_blocked else "Gespräch starten")
+    )
+    initial_conversation_preparing = conversation_only and not voice_access_blocked
+    initial_conversation_state = (
+        "preparing" if initial_conversation_preparing else "ready"
+    )
+    initial_conversation_busy = (
+        "true" if initial_conversation_preparing else "false"
     )
     text_turn_label = "Frage schreiben" if voice_access_blocked else "Oder schreiben"
     # The server-rendered control always fails closed. JavaScript enables it only
@@ -13273,11 +13292,10 @@ def _minimal_public_memorial_html(
         )
     elif public_voice_evaluation_allowed:
         voice_guidance = (
-            "Öffentliche Testphase. Diese KI-Rekonstruktion antwortet in einer aus "
-            "freigegebenen Erinnerungen und Quellen abgeleiteten Ich-Perspektive. "
-            "Sie ist nicht Manfred und spricht nicht für ihn. Die Stimme ist künstlich "
-            "erzeugt. Sie wird noch beurteilt. Mikrofon und Audio werden erst nach "
-            "„Gespräch beginnen“ verarbeitet."
+            "Öffentliche Testphase. Diese KI-Rekonstruktion antwortet auf Grundlage "
+            "freigegebener Erinnerungen und Quellen in der Ich-Perspektive. Sie ist "
+            "nicht Manfred und spricht nicht für ihn. Die künstliche Stimme wird noch "
+            "beurteilt. Mikrofon und Audio werden erst nach „Gespräch beginnen“ verarbeitet."
         )
     elif voice_access_blocked:
         voice_guidance = (
@@ -14543,7 +14561,8 @@ def _minimal_public_memorial_html(
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta {{
         min-height: 56px;
         border-radius: 16px;
-        font-size: 15px;
+        font-size: 16px;
+        line-height: 1.2;
         letter-spacing: .01em;
         transition: background-color .18s ease, border-color .18s ease, color .18s ease;
       }}
@@ -14755,7 +14774,7 @@ def _minimal_public_memorial_html(
           <img class="hero-avatar" src="{memorial_avatar_url}" alt="{safe_person_name}">
           <div class="hero-copy">
             <h1>{page_title}</h1>
-            <p class="hero-subtitle">{safe_subtitle}</p>
+            {hero_subtitle_html}
             <!-- memorial-public-navigation:start -->
             <nav class="hero-nav" aria-label="Bereiche der Erinnerungsseite">
               <a class="hero-story-link" href="#memorial-story">Erinnerungen ansehen</a>
@@ -14842,7 +14861,7 @@ def _minimal_public_memorial_html(
       </div>
     </main>
     <!-- memorial-public-story:end -->
-    <main class="conversation-dock" aria-label="KI-Gespräch über {safe_person_name}" id="memorial-conversation-region" tabindex="-1" data-conversation-state="ready" aria-busy="false" data-voice-release="{'blocked' if voice_release_blocked else 'available'}" data-voice-access="{'operator-preview' if operator_preview_allowed else ('public-evaluation' if public_voice_evaluation_allowed else ('public-release' if public_voice_release_allowed else 'text-only'))}"{public_evaluation_attribute}>
+    <main class="conversation-dock" aria-label="KI-Gespräch über {safe_person_name}" id="memorial-conversation-region" tabindex="-1" data-conversation-state="{initial_conversation_state}" aria-busy="{initial_conversation_busy}" data-voice-release="{'blocked' if voice_release_blocked else 'available'}" data-voice-access="{'operator-preview' if operator_preview_allowed else ('public-evaluation' if public_voice_evaluation_allowed else ('public-release' if public_voice_release_allowed else 'text-only'))}"{public_evaluation_attribute}>
       <div class="wrap">
       <section class="chat quiet-shell">
         <noscript>
@@ -14850,7 +14869,7 @@ def _minimal_public_memorial_html(
         </noscript>
         <p class="hero-guidance" id="memorial-conversation-disclosure">{html.escape(voice_guidance)}</p>
         <div class="hero-actions{hero_actions_class}" id="memorial-hero-actions">
-          <button type="button" id="memorial-conversation" class="hero-cta{conversation_button_class}" data-hero-action="conversation" data-conversation-state="ready" title="{conversation_button_label}" aria-label="{conversation_button_label}" aria-describedby="memorial-conversation-disclosure" aria-controls="memorial-speech-note memorial-speech-transcript-shell" aria-expanded="false" aria-busy="false" {conversation_button_state}>{conversation_button_label}</button>
+          <button type="button" id="memorial-conversation" class="hero-cta{conversation_button_class}" data-hero-action="conversation" data-conversation-state="{initial_conversation_state}" title="{conversation_button_label}" aria-label="{conversation_button_label}" aria-describedby="memorial-conversation-disclosure" aria-controls="memorial-speech-note memorial-speech-transcript-shell" aria-expanded="false" aria-busy="{initial_conversation_busy}" {conversation_button_state}>{conversation_button_label}</button>
         </div>
         <form class="text-turn-form memorial-js-required-form" id="memorial-text-turn-form" method="post" action="/memorials/{html.escape(slug)}/chat" hidden inert aria-hidden="true" aria-disabled="true" data-js-ready="false">
           <label for="memorial-text-turn-input">{text_turn_label}</label>
@@ -16925,12 +16944,13 @@ def _minimal_public_memorial_html(
         if (memorialConversationOnly) {{
           const readinessPending = Boolean(
             !memorialLandingReady
-            && !memorialConversationRetryAvailable
-            && memorialWarmupPendingStartedAt,
+            && !memorialConversationRetryAvailable,
           );
           const preparing = Boolean(activeConversationStart) || readinessPending;
           const active = recordingActive || conversationSessionActive;
-          const label = active ? "Gespräch beenden" : "Gespräch beginnen";
+          const label = active
+            ? "Gespräch beenden"
+            : (preparing ? "Gespräch wird vorbereitet …" : "Gespräch beginnen");
           const disabled =
             preparing
             || (!active && !memorialLandingReady && !memorialConversationRetryAvailable);

@@ -3485,6 +3485,7 @@ def test_memorial_voice_config_forces_german_over_browser_or_provider_locale(
             "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
             "tts_plugin_voice_id": "manfred-unmixr-test",
             "lang": "en-US",
+            "provider_language": "de-DE",
             "voice_consent": {
                 "status": "approved",
                 "scope": ["synthesize", "conversation_turn", "realtime"],
@@ -3522,8 +3523,9 @@ def test_memorial_voice_config_forces_german_over_browser_or_provider_locale(
     response = client.post(f"/memorials/{slug}/speech-synthesize", json={"text": "Ich antworte ruhig und deutsch."})
 
     assert config["lang"] == "en-US"
+    assert config["provider_language"] == "de-DE"
     assert response.status_code == 200
-    assert seen["lang"] == "de-AT"
+    assert seen["lang"] == "de-DE"
     assert seen["speaking_rate"] == "0.90"
     assert "atempo=0.92" in str(pad_seen["extra_filters"])
 
@@ -4254,7 +4256,10 @@ def test_memorial_speech_synthesize_reuses_final_render_cache(
     assert len(cache_metadata_paths) == 1
     cache_metadata = json.loads(cache_metadata_paths[0].read_text(encoding="utf-8"))
     assert cache_metadata["lang"] == "de-AT"
-    assert cache_metadata["provider_language_policy"] == "unmixr_locale_preserving_v1"
+    assert (
+        cache_metadata["provider_language_policy"]
+        == "unmixr_configurable_locale_v2"
+    )
 
 
 def test_memorial_chat_strips_llm_meta_self_reference_from_answer(
@@ -6649,9 +6654,15 @@ def test_memorial_unmixr_soft_postprocess_profile_is_available() -> None:
         {"tts_postprocess_profile": "unmixr_natural_soft"},
     )
 
-    assert "highpass=f=45" in filters
-    assert "lowpass=f=7000" in filters
-    assert "alimiter=limit=0.94" in filters
+    assert filters == ",".join(
+        [
+            "highpass=f=38",
+            "equalizer=f=180:t=q:w=0.9:g=0.35",
+            "equalizer=f=2800:t=q:w=1.0:g=-0.35",
+            "lowpass=f=7800",
+            "alimiter=limit=0.97",
+        ]
+    )
     assert "acompressor" not in filters
     assert "afftdn" not in filters
 
@@ -6699,7 +6710,7 @@ def test_memorial_unmixr_raw_preserve_profile_is_available() -> None:
     assert filters == ""
 
 
-def test_manfred_voice_config_softens_timbre_and_guides_ordne_pronunciation() -> None:
+def test_manfred_voice_config_softens_timbre_with_explicit_german_provider_locale() -> None:
     payload = json.loads(
         (
             ROOT
@@ -6711,11 +6722,9 @@ def test_manfred_voice_config_softens_timbre_and_guides_ordne_pronunciation() ->
     )
 
     assert payload["lang"] == "de-AT"
+    assert payload["provider_language"] == "de-DE"
     assert payload["tts_postprocess_profile"] == "unmixr_natural_soft"
-    assert payload["unmixr_pronunciation_dict"] == {
-        "ordne": "ord-ne",
-        "Ordne": "Ord-ne",
-    }
+    assert "unmixr_pronunciation_dict" not in payload
 
 
 def test_memorial_voice_loader_preserves_unmixr_quality_controls(
@@ -6732,6 +6741,7 @@ def test_memorial_voice_loader_preserves_unmixr_quality_controls(
             "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
             "tts_plugin_voice_id": "voice-1",
             "tts_postprocess_profile": "unmixr_natural_soft",
+            "provider_language": "de-DE",
             "unmixr_speaking_rate": "medium",
             "unmixr_speaking_pitch": "medium",
             "unmixr_speaking_volume": "medium",
@@ -6739,15 +6749,84 @@ def test_memorial_voice_loader_preserves_unmixr_quality_controls(
                 "ordne": "ord-ne",
                 "Ordne": "Ord-ne",
             },
+            "tts_backup_candidates": {
+                "voicewave": {
+                    "provider": "voicewave",
+                    "status": "blocked",
+                }
+            },
         },
     )
 
     loaded = public_memorials._load_voice_config(slug)
 
     assert loaded["tts_postprocess_profile"] == "unmixr_natural_soft"
+    assert loaded["provider_language"] == "de-DE"
     assert loaded["unmixr_pronunciation_dict"] == {
         "ordne": "ord-ne",
         "Ordne": "Ord-ne",
+    }
+    assert loaded["unmixr_speaking_rate"] == "medium"
+    assert loaded["unmixr_speaking_pitch"] == "medium"
+    assert loaded["unmixr_speaking_volume"] == "medium"
+    assert loaded["tts_backup_candidates"] == {
+        "voicewave": {
+            "provider": "voicewave",
+            "status": "blocked",
+        }
+    }
+
+
+def test_memorial_trusted_clone_partial_save_preserves_provider_quality_controls(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        tmp_path / "private",
+        slug,
+        {
+            "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "voice-1",
+            "voice_label": "Manfred",
+            "provider_language": "de-DE",
+            "unmixr_speaking_rate": "medium",
+            "unmixr_speaking_pitch": "medium",
+            "unmixr_speaking_volume": "medium",
+            "tts_backup_candidates": {
+                "voicewave": {
+                    "provider": "voicewave",
+                    "status": "blocked",
+                }
+            },
+        },
+    )
+    voice_path = tmp_path / "private" / slug / "tts_voice.json"
+
+    public_memorials._save_voice_config_payload(
+        slug=slug,
+        payload={
+            "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "voice-cloned",
+        },
+        trusted_clone_activation=True,
+    )
+
+    stored = json.loads(voice_path.read_text(encoding="utf-8"))
+    assert stored["voice_label"] == "Manfred"
+    assert stored["tts_plugin_voice_id"] == "voice-cloned"
+    assert stored["synthetic_voice_clone_of_memorial_person"] is True
+    assert stored["provider_language"] == "de-DE"
+    assert stored["unmixr_speaking_rate"] == "medium"
+    assert stored["unmixr_speaking_pitch"] == "medium"
+    assert stored["unmixr_speaking_volume"] == "medium"
+    assert stored["tts_backup_candidates"] == {
+        "voicewave": {
+            "provider": "voicewave",
+            "status": "blocked",
+        }
     }
 
 
@@ -7509,12 +7588,13 @@ def test_memorial_contact_tts_cache_rejects_pre_locale_policy_key(
         for path in public_memorials._memorial_tts_render_cache_root().glob("*.json")
     ]
     assert any(
-        item.get("provider_language_policy") == "unmixr_locale_preserving_v1"
+        item.get("provider_language_policy") == "unmixr_configurable_locale_v2"
+        and item.get("provider_language") == "de-AT"
         for item in cache_metadata
     )
 
 
-def test_memorial_unmixr_renderer_applies_pronunciation_and_soft_timbre_policy(
+def test_memorial_unmixr_renderer_applies_provider_locale_and_soft_timbre_policy(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -7550,11 +7630,11 @@ def test_memorial_unmixr_renderer_applies_pronunciation_and_soft_timbre_policy(
     base_config = {
         "tts_plugin_voice_id": "voice-1",
         "lang": "de-AT",
+        "provider_language": "de-DE",
         "tts_postprocess_profile": "unmixr_natural_soft",
-        "unmixr_pronunciation_dict": {
-            "ordne": "ord-ne",
-            "Ordne": "Ord-ne",
-        },
+        "unmixr_speaking_rate": "medium",
+        "unmixr_speaking_pitch": "medium",
+        "unmixr_speaking_volume": "medium",
     }
 
     rendered, content_type = public_memorials._render_memorial_tts_audio(
@@ -7574,21 +7654,31 @@ def test_memorial_unmixr_renderer_applies_pronunciation_and_soft_timbre_policy(
     assert rendered == audio
     assert content_type == "audio/wav"
     assert len(synth_calls) == 1
-    assert synth_calls[0]["pronunciation_dict"] == {
-        "ordne": "ord-ne",
-        "Ordne": "Ord-ne",
-    }
+    assert synth_calls[0]["lang"] == "de-DE"
+    assert synth_calls[0]["speaking_rate"] == "medium"
+    assert synth_calls[0]["speaking_pitch"] == "medium"
+    assert synth_calls[0]["speaking_volume"] == "medium"
+    assert "pronunciation_dict" not in synth_calls[0]
     assert filter_calls
-    assert "equalizer=f=2600:t=q:w=1.0:g=-0.8" in filter_calls[0]
-    assert "lowpass=f=7000" in filter_calls[0]
+    assert filter_calls[0] == ",".join(
+        [
+            "highpass=f=38",
+            "equalizer=f=180:t=q:w=0.9:g=0.35",
+            "equalizer=f=2800:t=q:w=1.0:g=-0.35",
+            "lowpass=f=7800",
+            "alimiter=limit=0.97",
+        ]
+    )
     cache_metadata = [
         json.loads(path.read_text(encoding="utf-8"))
         for path in public_memorials._memorial_tts_render_cache_root().glob("*.json")
     ]
     assert any(
-        item.get("provider_pronunciation_policy") == "unmixr_config_v1"
-        and item.get("pronunciation_dict")
-        == {"ordne": "ord-ne", "Ordne": "Ord-ne"}
+        item.get("lang") == "de-AT"
+        and item.get("provider_language") == "de-DE"
+        and item.get("provider_language_policy") == "unmixr_configurable_locale_v2"
+        and "pronunciation_dict" not in item
+        and "provider_pronunciation_policy" not in item
         for item in cache_metadata
     )
 

@@ -960,6 +960,12 @@ class _ConversationOnlyDocumentParser(HTMLParser):
         self.voice_access = ""
         self.evaluation_status = ""
         self.operator_preview = ""
+        self.conversation_region_aria_busy = ""
+        self.conversation_region_state = ""
+        self.conversation_button_disabled = False
+        self.conversation_button_aria_disabled = ""
+        self.conversation_button_aria_busy = ""
+        self.conversation_button_state = ""
         self.initial_visible_button_ids: list[str] = []
         self.forbidden_dom_semantics: set[str] = set()
         self._id_text: dict[str, list[str]] = {}
@@ -1232,6 +1238,23 @@ class _ConversationOnlyDocumentParser(HTMLParser):
             self.evaluation_status = attributes.get(
                 "data-evaluation-status", ""
             )
+            self.conversation_region_aria_busy = attributes.get(
+                "aria-busy", ""
+            )
+            self.conversation_region_state = attributes.get(
+                "data-conversation-state", ""
+            )
+        if tag == "button" and element_id == "memorial-conversation":
+            self.conversation_button_disabled = "disabled" in attributes
+            self.conversation_button_aria_disabled = attributes.get(
+                "aria-disabled", ""
+            )
+            self.conversation_button_aria_busy = attributes.get(
+                "aria-busy", ""
+            )
+            self.conversation_button_state = attributes.get(
+                "data-conversation-state", ""
+            )
         if tag == "details" and "conversation-settings" in classes:
             self.conversation_settings_count += 1
         if (
@@ -1334,7 +1357,17 @@ def verify_conversation_only_page_html(page_body: bytes) -> dict[str, object]:
     conversation_button_label = " ".join(
         " ".join(parser._id_text.get("memorial-conversation", ())).split()
     )
-    expected_conversation_button_label = "Gespräch beginnen"
+    expected_conversation_button_label = (
+        "Gespräch beginnen"
+        if parser.voice_access == "text-only"
+        else "Gespräch wird vorbereitet …"
+    )
+    expected_conversation_state = (
+        "ready" if parser.voice_access == "text-only" else "preparing"
+    )
+    expected_conversation_busy = (
+        "false" if parser.voice_access == "text-only" else "true"
+    )
     contract = {
         "status": "pass",
         "public_surface": parser.public_surface,
@@ -1364,6 +1397,14 @@ def verify_conversation_only_page_html(page_body: bytes) -> dict[str, object]:
         "operator_preview": parser.operator_preview,
         "initial_visible_button_ids": parser.initial_visible_button_ids,
         "conversation_button_label": conversation_button_label,
+        "conversation_button_disabled": parser.conversation_button_disabled,
+        "conversation_button_aria_disabled": (
+            parser.conversation_button_aria_disabled
+        ),
+        "conversation_button_aria_busy": parser.conversation_button_aria_busy,
+        "conversation_button_state": parser.conversation_button_state,
+        "conversation_region_aria_busy": parser.conversation_region_aria_busy,
+        "conversation_region_state": parser.conversation_region_state,
         "missing_required_ids": missing_ids,
         "duplicate_ids": duplicate_ids,
         "present_forbidden_ids": present_forbidden_ids,
@@ -1390,6 +1431,12 @@ def verify_conversation_only_page_html(page_body: bytes) -> dict[str, object]:
         or parser.operator_preview
         or parser.initial_visible_button_ids != ["memorial-conversation"]
         or conversation_button_label != expected_conversation_button_label
+        or not parser.conversation_button_disabled
+        or parser.conversation_button_aria_disabled != "true"
+        or parser.conversation_button_aria_busy != expected_conversation_busy
+        or parser.conversation_button_state != expected_conversation_state
+        or parser.conversation_region_aria_busy != expected_conversation_busy
+        or parser.conversation_region_state != expected_conversation_state
         or (
             parser.voice_release,
             parser.voice_access,

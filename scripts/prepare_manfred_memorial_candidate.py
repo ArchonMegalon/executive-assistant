@@ -195,6 +195,7 @@ HOSTED_CLONE_VOICE_CONFIG_FIELDS = frozenset(
         "lang",
         "notes",
         "pitch",
+        "provider_language",
         "rate",
         "synthetic_voice_clone_of_memorial_person",
         "tts_backup_candidates",
@@ -203,7 +204,6 @@ HOSTED_CLONE_VOICE_CONFIG_FIELDS = frozenset(
         "tts_plugin",
         "tts_plugin_voice_id",
         "tts_postprocess_profile",
-        "unmixr_pronunciation_dict",
         "unmixr_speaking_pitch",
         "unmixr_speaking_rate",
         "unmixr_speaking_volume",
@@ -516,9 +516,10 @@ def _validate_hosted_clone_config_schema(
     _assert_hosted_clone_config_has_no_secret_id_fields(voice_config)
     consent = voice_config.get("voice_consent")
     backups = voice_config.get("tts_backup_candidates")
-    pronunciation_dict = voice_config.get("unmixr_pronunciation_dict")
     if (
         set(voice_config) != HOSTED_CLONE_VOICE_CONFIG_FIELDS
+        or voice_config.get("lang") != "de-AT"
+        or voice_config.get("provider_language") != "de-DE"
         or type(consent) is not dict
         or set(consent) != HOSTED_CLONE_VOICE_CONSENT_FIELDS
         or type(backups) is not dict
@@ -538,21 +539,6 @@ def _validate_hosted_clone_config_schema(
         or any(
             type(value) is not str or not value.strip()
             for value in consent.get("scope", [])
-        )
-        or type(pronunciation_dict) is not dict
-        or not 1 <= len(pronunciation_dict) <= 32
-        or any(
-            type(term) is not str
-            or type(pronunciation) is not str
-            or term != term.strip()
-            or pronunciation != pronunciation.strip()
-            or not term
-            or not pronunciation
-            or len(term) > 64
-            or len(pronunciation) > 128
-            or any(ord(character) < 0x20 for character in term)
-            or any(ord(character) < 0x20 for character in pronunciation)
-            for term, pronunciation in pronunciation_dict.items()
         )
     ):
         raise ValueError("manfred_candidate_voice_config_fields_invalid")

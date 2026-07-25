@@ -380,6 +380,7 @@ def test_hosted_clone_config_rejects_secret_or_raw_provider_id_fields(
 @pytest.mark.parametrize(
     "pronunciation_dict",
     [
+        {"ordne": "ord-ne"},
         {},
         {"": "ord-ne"},
         {"ordne": " "},
@@ -388,6 +389,7 @@ def test_hosted_clone_config_rejects_secret_or_raw_provider_id_fields(
         {"ordne": "ord\nne"},
     ],
     ids=(
+        "ordne-override-forbidden",
         "empty",
         "empty-term",
         "blank-pronunciation",
@@ -396,11 +398,39 @@ def test_hosted_clone_config_rejects_secret_or_raw_provider_id_fields(
         "control-character",
     ),
 )
-def test_hosted_clone_config_rejects_invalid_pronunciation_dictionary(
+def test_hosted_clone_config_rejects_pronunciation_dictionary(
     pronunciation_dict: dict[str, str],
 ) -> None:
     payload = json.loads(_hosted_clone_config_bytes())
     payload["unmixr_pronunciation_dict"] = pronunciation_dict
+
+    with pytest.raises(
+        ValueError,
+        match="manfred_candidate_voice_config_fields_invalid",
+    ):
+        candidate_prep._hosted_clone_voice_binding(
+            voice_config_bytes=candidate_prep._receipt_bytes(payload),
+            provider_voice_id_sha256=PROVIDER_VOICE_ID_SHA256,
+            tts_provider=candidate_prep.MANFRED_TTS_PROVIDER,
+            tts_model=candidate_prep.MANFRED_TTS_MODEL,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("provider_language", "de-AT"),
+        ("provider_language", "en-US"),
+        ("lang", "de-DE"),
+        ("lang", "en-US"),
+    ],
+)
+def test_hosted_clone_config_binds_conversation_and_provider_locales(
+    field: str,
+    value: str,
+) -> None:
+    payload = json.loads(_hosted_clone_config_bytes())
+    payload[field] = value
 
     with pytest.raises(
         ValueError,
@@ -2576,11 +2606,12 @@ def test_manfred_public_page_uses_scoped_talk_only_minimal_theme() -> None:
     )
     assert (
         'id="memorial-conversation" class="hero-cta is-readying" '
-        'data-hero-action="conversation" data-conversation-state="ready" '
-        'title="Gespräch beginnen" aria-label="Gespräch beginnen"'
+        'data-hero-action="conversation" data-conversation-state="preparing" '
+        'title="Gespräch wird vorbereitet …" '
+        'aria-label="Gespräch wird vorbereitet …"'
         in conversation_only_html
     )
-    assert 'aria-expanded="false" aria-busy="false"' in conversation_only_html
+    assert 'aria-expanded="false" aria-busy="true"' in conversation_only_html
     assert (
         'id="memorial-text-turn-form" method="post" '
         'action="/memorials/manfred/chat" hidden inert aria-hidden="true"'
@@ -2634,7 +2665,13 @@ def test_manfred_public_page_uses_scoped_talk_only_minimal_theme() -> None:
         "evaluation_status": "",
         "operator_preview": "",
         "initial_visible_button_ids": ["memorial-conversation"],
-        "conversation_button_label": "Gespräch beginnen",
+        "conversation_button_label": "Gespräch wird vorbereitet …",
+        "conversation_button_disabled": True,
+        "conversation_button_aria_disabled": "true",
+        "conversation_button_aria_busy": "true",
+        "conversation_button_state": "preparing",
+        "conversation_region_aria_busy": "true",
+        "conversation_region_state": "preparing",
         "missing_required_ids": [],
         "duplicate_ids": [],
         "present_forbidden_ids": [],
@@ -2710,6 +2747,72 @@ def test_candidate_conversation_surface_rejects_disguised_or_duplicate_dom() -> 
         )["status"]
         == "pass"
     )
+
+
+def test_candidate_conversation_surface_rejects_unattested_preparation_state() -> None:
+    from app.api.routes import public_memorials
+
+    page_html = public_memorials._minimal_public_memorial_html(
+        slug="manfred",
+        person_name="Manfred Hoza",
+        page_title="Erinnerungen an Manfred Hoza",
+        subtitle="Ein ruhiger Ort für ein Gespräch über Manfred.",
+        memorial_avatar_url="/memorials/manfred/icon-180.png",
+        pwa_short_name="Manfred",
+        clickrank_html="",
+        story_html="",
+        conversation_only=True,
+    )
+    mutations = (
+        (
+            'aria-expanded="false" aria-busy="true" '
+            'aria-disabled="true" disabled',
+            'aria-expanded="false" aria-busy="true" '
+            'aria-disabled="true"',
+        ),
+        (
+            'aria-expanded="false" aria-busy="true" '
+            'aria-disabled="true" disabled',
+            'aria-expanded="false" aria-busy="true" '
+            'aria-disabled="false" disabled',
+        ),
+        (
+            'aria-expanded="false" aria-busy="true" '
+            'aria-disabled="true" disabled',
+            'aria-expanded="false" aria-busy="false" '
+            'aria-disabled="true" disabled',
+        ),
+        (
+            'id="memorial-conversation" class="hero-cta is-readying" '
+            'data-hero-action="conversation" '
+            'data-conversation-state="preparing"',
+            'id="memorial-conversation" class="hero-cta is-readying" '
+            'data-hero-action="conversation" '
+            'data-conversation-state="ready"',
+        ),
+        (
+            'id="memorial-conversation-region" tabindex="-1" '
+            'data-conversation-state="preparing" aria-busy="true"',
+            'id="memorial-conversation-region" tabindex="-1" '
+            'data-conversation-state="preparing" aria-busy="false"',
+        ),
+        (
+            'id="memorial-conversation-region" tabindex="-1" '
+            'data-conversation-state="preparing" aria-busy="true"',
+            'id="memorial-conversation-region" tabindex="-1" '
+            'data-conversation-state="ready" aria-busy="true"',
+        ),
+    )
+    for original, replacement in mutations:
+        assert page_html.count(original) == 1
+        mutated_html = page_html.replace(original, replacement, 1)
+        with pytest.raises(
+            RuntimeError,
+            match="candidate_conversation_surface_invalid",
+        ):
+            candidate_verify.verify_conversation_only_page_html(
+                mutated_html.encode("utf-8")
+            )
 
 
 def test_candidate_conversation_surface_rejects_generic_visible_features() -> None:
