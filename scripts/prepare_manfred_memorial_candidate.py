@@ -204,6 +204,7 @@ HOSTED_CLONE_VOICE_CONFIG_FIELDS = frozenset(
         "tts_plugin",
         "tts_plugin_voice_id",
         "tts_postprocess_profile",
+        "unmixr_pronunciation_dict",
         "unmixr_speaking_pitch",
         "unmixr_speaking_rate",
         "unmixr_speaking_volume",
@@ -233,6 +234,10 @@ HOSTED_CLONE_BACKUP_CANDIDATE_FIELDS = frozenset(
         "voice_label",
     }
 )
+HOSTED_CLONE_PRONUNCIATION_DICT = {
+    "Ordne": "Ord-ne",
+    "ordne": "ord-ne",
+}
 HOSTED_CLONE_PLACEHOLDER_ID_PATHS = frozenset(
     {
         ("tts_plugin_voice_id",),
@@ -516,6 +521,7 @@ def _validate_hosted_clone_config_schema(
     _assert_hosted_clone_config_has_no_secret_id_fields(voice_config)
     consent = voice_config.get("voice_consent")
     backups = voice_config.get("tts_backup_candidates")
+    pronunciation_dict = voice_config.get("unmixr_pronunciation_dict")
     if (
         set(voice_config) != HOSTED_CLONE_VOICE_CONFIG_FIELDS
         or voice_config.get("lang") != "de-AT"
@@ -530,6 +536,8 @@ def _validate_hosted_clone_config_schema(
             or set(candidate) != HOSTED_CLONE_BACKUP_CANDIDATE_FIELDS
             for provider, candidate in backups.items()
         )
+        or type(pronunciation_dict) is not dict
+        or pronunciation_dict != HOSTED_CLONE_PRONUNCIATION_DICT
         or type(voice_config.get("voice_name_hints")) is not list
         or any(
             type(value) is not str or not value.strip()

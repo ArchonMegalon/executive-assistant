@@ -6955,7 +6955,7 @@ def test_memorial_unmixr_raw_preserve_profile_is_available() -> None:
     assert filters == ""
 
 
-def test_manfred_voice_config_preserves_raw_timbre_with_austrian_provider_locale() -> None:
+def test_manfred_voice_config_warms_timbre_and_guides_austrian_pronunciation() -> None:
     payload = json.loads(
         (
             ROOT
@@ -6970,8 +6970,12 @@ def test_manfred_voice_config_preserves_raw_timbre_with_austrian_provider_locale
     assert payload["provider_language"] == "de-AT"
     assert payload["unmixr_speaking_rate"] == "0.90"
     assert payload["unmixr_speaking_pitch"] == "medium"
-    assert payload["tts_postprocess_profile"] == "unmixr_raw_preserve"
-    assert "unmixr_pronunciation_dict" not in payload
+    assert payload["unmixr_speaking_volume"] == "medium"
+    assert payload["tts_postprocess_profile"] == "unmixr_natural_soft"
+    assert payload["unmixr_pronunciation_dict"] == {
+        "ordne": "ord-ne",
+        "Ordne": "Ord-ne",
+    }
 
 
 def test_memorial_voice_loader_preserves_unmixr_quality_controls(

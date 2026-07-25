@@ -380,6 +380,7 @@ def test_hosted_clone_config_rejects_secret_or_raw_provider_id_fields(
 @pytest.mark.parametrize(
     "pronunciation_dict",
     [
+        [],
         {"ordne": "ord-ne"},
         {},
         {"": "ord-ne"},
@@ -389,7 +390,8 @@ def test_hosted_clone_config_rejects_secret_or_raw_provider_id_fields(
         {"ordne": "ord\nne"},
     ],
     ids=(
-        "ordne-override-forbidden",
+        "not-an-object",
+        "incomplete-ordne-pair",
         "empty",
         "empty-term",
         "blank-pronunciation",
@@ -398,8 +400,8 @@ def test_hosted_clone_config_rejects_secret_or_raw_provider_id_fields(
         "control-character",
     ),
 )
-def test_hosted_clone_config_rejects_pronunciation_dictionary(
-    pronunciation_dict: dict[str, str],
+def test_hosted_clone_config_rejects_unapproved_pronunciation_dictionary(
+    pronunciation_dict: object,
 ) -> None:
     payload = json.loads(_hosted_clone_config_bytes())
     payload["unmixr_pronunciation_dict"] = pronunciation_dict
