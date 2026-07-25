@@ -16628,13 +16628,21 @@ def _minimal_public_memorial_html(
         speechMeterFill.style.opacity = String(Math.max(0.2, Math.min(1, Number(opacity) || 0.78)));
       }}
 
+      function closeAudioContextSafely(context) {{
+        if (!context || context.state === "closed") return;
+        try {{
+          const closeResult = context.close();
+          if (closeResult && typeof closeResult.catch === "function") {{
+            closeResult.catch(() => {{}});
+          }}
+        }} catch (error) {{}}
+      }}
+
       function stopSpeechMeter() {{
         if (activeSpeechMeterContext) {{
           const context = activeSpeechMeterContext;
           activeSpeechMeterContext = null;
-          try {{
-            context.close();
-          }} catch (error) {{}}
+          closeAudioContextSafely(context);
         }}
         speechMeterLive = false;
         setSpeechMeterLevel(0.06, 0.7);
@@ -17825,7 +17833,7 @@ def _minimal_public_memorial_html(
           liveDataChannel = null;
         }}
         if (livePeerConnection) {{
-          try {{ livePeerConnection.close(); }} catch (error) {{}}
+          closeAudioContextSafely(livePeerConnection);
           livePeerConnection = null;
         }}
         if (liveInputStream) {{
@@ -18295,7 +18303,7 @@ def _minimal_public_memorial_html(
             if (captureStopTimer) window.clearTimeout(captureStopTimer);
             if (captureLevelTimer) window.clearInterval(captureLevelTimer);
             if (captureAudioContext) {{
-              try {{ captureAudioContext.close(); }} catch (error) {{}}
+              closeAudioContextSafely(captureAudioContext);
             }}
             for (const track of stream.getTracks()) {{
               try {{ track.stop(); }} catch (error) {{}}

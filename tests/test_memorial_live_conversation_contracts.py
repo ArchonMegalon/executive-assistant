@@ -10769,15 +10769,17 @@ def test_memorial_empty_transcript_reports_only_content_free_provider_shape(
 
 def test_memorial_live_audio_context_cleanup_is_idempotent() -> None:
     source = PUBLIC_MEMORIALS_SOURCE.read_text(encoding="utf-8")
-    minimal_surface = source[source.rfind("let activeAudioContext = null;") :]
 
-    assert 'if (!context || context.state === "closed") return;' in minimal_surface
-    assert 'typeof closeResult.catch === "function"' in minimal_surface
-    assert "closeResult.catch(() => {{}});" in minimal_surface
-    assert minimal_surface.count("closeAudioContextSafely(") == 5
+    assert source.count('if (!context || context.state === "closed") return;') == 2
+    assert source.count('typeof closeResult.catch === "function"') == 2
+    assert source.count("closeResult.catch(() => {{}});") == 2
+    assert source.count("closeAudioContextSafely(") == 9
+    assert source.count("context.close();") == 2
     for unsafe_close in (
-        "activeAudioContext.close();",
-        "activeBargeInAudioContext.close();",
-        "liveAudioContext.close();",
+        "try {{ livePeerConnection.close(); }}",
+        "try {{ captureAudioContext.close(); }}",
+        "try {{ activeAudioContext.close(); }}",
+        "try {{ activeBargeInAudioContext.close(); }}",
+        "try {{ liveAudioContext.close(); }}",
     ):
-        assert unsafe_close not in minimal_surface
+        assert unsafe_close not in source
