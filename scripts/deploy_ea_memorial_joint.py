@@ -38,9 +38,16 @@ from typing import Any, Callable, Iterator, Mapping, Sequence
 try:
     from scripts.deploy_ea_memorial import (
         API_SERVICE,
+        LEGACY_MISLEADING_PROVIDER_FIELDS,
         MAX_HTTP_BODY_BYTES,
         MAX_RECEIPT_CONTENT_TYPE_CHARS,
+        MIN_PASSIVE_BROWSER_QUIET_WINDOW_MS,
+        PAGE_PREWARM_REQUIRED_PATHS,
         PROJECT_NAME,
+        SOURCE_REVISION_PATTERN,
+        UPSTREAM_EXECUTION_NOT_OBSERVED,
+        UPSTREAM_EXECUTION_NOT_REQUESTED,
+        UPSTREAM_PROVIDER_OBSERVATION_SCOPE,
         DeployError,
         HttpResponse,
         MemorialDeployLane,
@@ -51,9 +58,11 @@ try:
         _NoRedirectHandler,
         _default_http_get,
         _default_http_no_redirect,
+        _has_exact_zero_candidate_verifier_browser_counts,
         _safe_rollback_tag,
         _safe_tagged_image_reference,
         _utc_now,
+        _valid_page_prewarm_request_counts,
         _validate_public_origin,
     )
     from scripts.reconcile_ea_public_ingress import (
@@ -76,9 +85,16 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - direct script execution
     from deploy_ea_memorial import (  # type: ignore[no-redef]
         API_SERVICE,
+        LEGACY_MISLEADING_PROVIDER_FIELDS,
         MAX_HTTP_BODY_BYTES,
         MAX_RECEIPT_CONTENT_TYPE_CHARS,
+        MIN_PASSIVE_BROWSER_QUIET_WINDOW_MS,
+        PAGE_PREWARM_REQUIRED_PATHS,
         PROJECT_NAME,
+        SOURCE_REVISION_PATTERN,
+        UPSTREAM_EXECUTION_NOT_OBSERVED,
+        UPSTREAM_EXECUTION_NOT_REQUESTED,
+        UPSTREAM_PROVIDER_OBSERVATION_SCOPE,
         DeployError,
         HttpResponse,
         MemorialDeployLane,
@@ -89,9 +105,11 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
         _NoRedirectHandler,
         _default_http_get,
         _default_http_no_redirect,
+        _has_exact_zero_candidate_verifier_browser_counts,
         _safe_rollback_tag,
         _safe_tagged_image_reference,
         _utc_now,
+        _valid_page_prewarm_request_counts,
         _validate_public_origin,
     )
     from reconcile_ea_public_ingress import (  # type: ignore[no-redef]
@@ -670,6 +688,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         base_url: str,
         public_origin: str,
         voice_release_expectation: Mapping[str, object] | None = None,
+        expect_page_prewarm: bool = False,
     ) -> dict[str, Any]:
         expectation = self._release_enabled_candidate_verifier_expectation()
         if expectation is None:
@@ -677,12 +696,15 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 raise DeployError(
                     "joint_candidate_verifier_voice_expectation_invalid"
                 )
-            return super()._verify_candidate_origin(
-                label=label,
-                base_url=base_url,
-                public_origin=public_origin,
-                voice_release_expectation=None,
-            )
+            parent_kwargs: dict[str, Any] = {
+                "label": label,
+                "base_url": base_url,
+                "public_origin": public_origin,
+                "voice_release_expectation": None,
+            }
+            if expect_page_prewarm:
+                parent_kwargs["expect_page_prewarm"] = True
+            return super()._verify_candidate_origin(**parent_kwargs)
         if voice_release_expectation is not None and (
             set(voice_release_expectation)
             != {"access_mode", "source_revision"}
@@ -695,8 +717,11 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 "joint_candidate_verifier_voice_expectation_invalid"
             )
 
-        payload = self._run_json_script(
-            "scripts/verify_manfred_memorial_candidate.py",
+        effective_voice_expectation = {
+            "access_mode": str(expectation["voice_access_mode"]),
+            "source_revision": str(expectation["source_revision"]),
+        }
+        verifier_args = [
             "--base-url",
             base_url,
             "--public-origin",
@@ -704,34 +729,27 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             "--wait-seconds",
             str(max(1, min(600, int(self.wait_seconds or 1)))),
             "--browser-audit",
-            "--expect-signed-voice-release",
-            "--voice-access-mode",
-            str(expectation["voice_access_mode"]),
-            "--expected-source-revision",
-            str(expectation["source_revision"]),
+        ]
+        if expect_page_prewarm:
+            verifier_args.append("--expect-page-prewarm")
+        verifier_args.extend(
+            [
+                "--expect-signed-voice-release",
+                "--voice-access-mode",
+                effective_voice_expectation["access_mode"],
+                "--expected-source-revision",
+                effective_voice_expectation["source_revision"],
+            ]
+        )
+        payload = self._run_json_script(
+            "scripts/verify_manfred_memorial_candidate.py",
+            *verifier_args,
             origin=label,
             env=self._candidate_verifier_environment(),
         )
         public_evaluation = (
             expectation["public_evaluation_allowed"] is True
         )
-        required_checks = {
-            "archive_publication_gate",
-            "singular_memorial_alias",
-            "source_grounded_first_person_reconstruction_boundary",
-            (
-                "voice_public_evaluation_authorization_verified_provider_not_called"
-                if public_evaluation
-                else "voice_release_authorization_verified_provider_not_called"
-            ),
-            "browser_provider_websocket_boundary",
-        }
-        checks = {
-            str(item).strip()
-            for item in list(payload.get("checks") or [])
-            if str(item).strip()
-        }
-        browser = dict(payload.get("browser_audit") or {})
         expected_browser = (
             {
                 "voice_release": "blocked",
@@ -745,49 +763,136 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 "evaluation_status": "",
             }
         )
-        expected_verification = {
-            "mode": (
-                "public_evaluation_authorization_verified"
+        required_checks = {
+            "archive_publication_gate",
+            "singular_memorial_alias",
+            "signed_release_passive_no_direct_chat",
+            "browser_same_origin_application_boundary",
+            (
+                "voice_public_evaluation_authorization_verified_provider_not_called"
                 if public_evaluation
-                else "signed_voice_release_authorized"
+                else "voice_release_authorization_verified_provider_not_called"
             ),
-            "status_code": 400,
-            "detail": "tts_text_missing",
-            "authorization_proof": (
-                "authorization_precedes_empty_text_validation_without_provider_call"
-            ),
-            "provider_calls_performed": False,
-            "access_mode": expectation["voice_access_mode"],
-            "source_revision": expectation["source_revision"],
         }
-        browser_zero = all(
-            type(browser.get(field)) is int and browser[field] == 0
-            for field in (
-                "automatic_provider_requests",
-                "automatic_readiness_requests",
-                "automatic_microphone_requests",
-                "automatic_websockets",
-                "external_requests",
-                "failed_requests",
-                "page_errors",
-                "http_errors",
+        if expect_page_prewarm:
+            required_checks.add(
+                "browser_page_preparation_same_origin_requests"
             )
+        checks = {
+            str(item).strip()
+            for item in list(payload.get("checks") or [])
+            if str(item).strip()
+        }
+        browser = dict(payload.get("browser_audit") or {})
+        voice_release_verification = dict(
+            payload.get("voice_release_verification") or {}
+        )
+        expected_preparation_paths = (
+            list(PAGE_PREWARM_REQUIRED_PATHS)
+            if expect_page_prewarm
+            else []
+        )
+        preparation_count_evidence = browser.get(
+            "automatic_preparation_request_counts"
+        )
+        preparation_counts_valid = _valid_page_prewarm_request_counts(
+            preparation_count_evidence,
+            expected=expect_page_prewarm,
+        )
+        preparation_request_total = (
+            sum(
+                int(preparation_count_evidence[path])
+                for path in PAGE_PREWARM_REQUIRED_PATHS
+            )
+            if preparation_counts_valid
+            and isinstance(preparation_count_evidence, Mapping)
+            else -1
+        )
+        passive_quiet_window_ms = browser.get(
+            "passive_quiet_window_ms"
+        )
+        expected_verification_mode = (
+            "public_evaluation_authorization_verified"
+            if public_evaluation
+            else "signed_voice_release_authorized"
         )
         if (
-            str(payload.get("schema") or "") != "ea.manfred_memorial_candidate_smoke.v1"
+            str(payload.get("schema") or "")
+            != "ea.manfred_memorial_candidate_smoke.v2"
             or str(payload.get("status") or "").lower() != "pass"
             or not required_checks <= checks
-            or payload.get("provider_calls_performed") is not False
+            or any(
+                field in payload
+                for field in LEGACY_MISLEADING_PROVIDER_FIELDS
+            )
+            or "automatic_provider_requests" in browser
+            or payload.get(
+                "same_origin_application_requests_performed"
+            )
+            is not True
+            or payload.get(
+                "direct_chat_same_origin_requests_performed"
+            )
+            is not False
+            or payload.get("direct_chat_same_origin_request_count") != 0
+            or payload.get(
+                "page_preparation_same_origin_requests_performed"
+            )
+            is not expect_page_prewarm
+            or payload.get("upstream_provider_execution")
+            != UPSTREAM_EXECUTION_NOT_OBSERVED
+            or payload.get(
+                "conversation_upstream_provider_execution"
+            )
+            != UPSTREAM_EXECUTION_NOT_REQUESTED
+            or payload.get("upstream_provider_observation_scope")
+            != UPSTREAM_PROVIDER_OBSERVATION_SCOPE
+            or voice_release_verification.get("mode")
+            != expected_verification_mode
+            or voice_release_verification.get(
+                "upstream_provider_execution"
+            )
+            != UPSTREAM_EXECUTION_NOT_REQUESTED
+            or not str(
+                voice_release_verification.get(
+                    "upstream_provider_execution_basis"
+                )
+                or ""
+            ).strip()
+            or "provider_calls_performed"
+            in voice_release_verification
             or payload.get("page_get_performed") is not True
-            or payload.get("voice_release_verification") != expected_verification
             or str(browser.get("status") or "").lower() != "pass"
             or browser.get("conversation_action_exercised") is not False
+            or type(passive_quiet_window_ms) is not int
+            or passive_quiet_window_ms
+            < MIN_PASSIVE_BROWSER_QUIET_WINDOW_MS
+            or browser.get("page_prewarm_expected")
+            is not expect_page_prewarm
+            or browser.get("automatic_preparation_request_paths")
+            != expected_preparation_paths
+            or not preparation_counts_valid
+            or type(browser.get("automatic_preparation_requests"))
+            is not int
+            or browser.get("automatic_preparation_requests")
+            != preparation_request_total
+            or browser.get(
+                "same_origin_application_requests_performed"
+            )
+            is not expect_page_prewarm
+            or browser.get("same_origin_application_request_count")
+            != preparation_request_total
+            or browser.get("same_origin_application_request_paths")
+            != expected_preparation_paths
             or any(
                 browser.get(name) != value
                 for name, value in expected_browser.items()
             )
-            or browser.get("source_revision") != expectation["source_revision"]
-            or not browser_zero
+            or browser.get("source_revision")
+            != expectation["source_revision"]
+            or not _has_exact_zero_candidate_verifier_browser_counts(
+                browser
+            )
         ):
             self._record_check(
                 "candidate_verifier_origin",
@@ -804,17 +909,30 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             "origin": label,
             "status": "pass",
             "checks": sorted(required_checks),
-            "provider_calls_performed": False,
-            "voice_authorization_verification": expected_verification,
-            "voice_authorization_candidate_binding": {
-                **expectation,
-                "binding_proof": (
-                    "validated_candidate_promotion_evidence_plus_"
-                    + (
-                        "signed_public_evaluation_authorization"
-                        if public_evaluation
-                        else "signed_runtime_release_authorization"
-                    )
+            "same_origin_application_requests_performed": True,
+            "direct_chat_same_origin_requests_performed": False,
+            "direct_chat_same_origin_request_count": 0,
+            "page_preparation_same_origin_requests_performed": (
+                expect_page_prewarm
+            ),
+            "upstream_provider_execution": (
+                UPSTREAM_EXECUTION_NOT_OBSERVED
+            ),
+            "conversation_upstream_provider_execution": (
+                UPSTREAM_EXECUTION_NOT_REQUESTED
+            ),
+            "upstream_provider_observation_scope": (
+                UPSTREAM_PROVIDER_OBSERVATION_SCOPE
+            ),
+            "voice_release_verification": {
+                "mode": expected_verification_mode,
+                "upstream_provider_execution": (
+                    UPSTREAM_EXECUTION_NOT_REQUESTED
+                ),
+                "upstream_provider_execution_basis": str(
+                    voice_release_verification[
+                        "upstream_provider_execution_basis"
+                    ]
                 ),
             },
             "browser": {
@@ -822,7 +940,31 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 **expected_browser,
                 "source_revision": expectation["source_revision"],
                 "conversation_action_exercised": False,
+                "passive_quiet_window_ms": int(
+                    passive_quiet_window_ms
+                ),
+                "page_prewarm_expected": expect_page_prewarm,
+                "automatic_preparation_request_paths": list(
+                    browser["automatic_preparation_request_paths"]
+                ),
+                "automatic_preparation_requests": int(
+                    browser["automatic_preparation_requests"]
+                ),
+                "automatic_preparation_request_counts": {
+                    path: int(preparation_count_evidence[path])
+                    for path in PAGE_PREWARM_REQUIRED_PATHS
+                },
+                "same_origin_application_requests_performed": (
+                    expect_page_prewarm
+                ),
+                "same_origin_application_request_count": (
+                    preparation_request_total
+                ),
+                "same_origin_application_request_paths": list(
+                    browser["same_origin_application_request_paths"]
+                ),
                 "automatic_provider_requests": 0,
+                "unexpected_same_origin_application_requests": 0,
                 "automatic_readiness_requests": 0,
                 "automatic_microphone_requests": 0,
                 "automatic_websockets": 0,
@@ -832,15 +974,43 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 "http_errors": 0,
             },
         }
+        expected_verification = {
+            "mode": (
+                "public_evaluation_authorization_verified"
+                if public_evaluation
+                else "signed_voice_release_authorized"
+            ),
+            "status_code": 400,
+            "detail": "tts_text_missing",
+            "authorization_proof": (
+                "authorization_precedes_empty_text_validation_without_provider_call"
+            ),
+            "provider_calls_performed": False,
+            "access_mode": expectation["voice_access_mode"],
+            "source_revision": expectation["source_revision"],
+        }
+        binding = {
+            **expectation,
+            "binding_proof": (
+                "validated_candidate_promotion_evidence_plus_"
+                + (
+                    "signed_public_evaluation_authorization"
+                    if public_evaluation
+                    else "signed_runtime_release_authorization"
+                )
+            ),
+        }
+        result["provider_calls_performed"] = False
+        result["voice_authorization_verification"] = expected_verification
+        result["voice_authorization_candidate_binding"] = binding
         if public_evaluation:
+            result.pop("voice_release_verification", None)
             result["voice_public_evaluation_candidate_binding"] = dict(
-                result["voice_authorization_candidate_binding"]
+                binding
             )
         else:
             result["voice_release_verification"] = expected_verification
-            result["voice_release_candidate_binding"] = dict(
-                result["voice_authorization_candidate_binding"]
-            )
+            result["voice_release_candidate_binding"] = dict(binding)
         return result
 
     @contextmanager

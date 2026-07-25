@@ -297,30 +297,45 @@ def _released_voice_candidate_verifier_payload(
     browser_voice_access: str = "public-release",
     browser_evaluation_status: str = "",
     browser_source_revision: str | None = None,
+    expect_page_prewarm: bool = False,
 ) -> dict[str, object]:
     source_revision = str(expectation["source_revision"])
+    preparation_paths = (
+        list(api_deploy.PAGE_PREWARM_REQUIRED_PATHS)
+        if expect_page_prewarm
+        else []
+    )
+    checks = [
+        "archive_publication_gate",
+        "singular_memorial_alias",
+        "signed_release_passive_no_direct_chat",
+        "voice_release_authorization_verified_provider_not_called",
+        "browser_same_origin_application_boundary",
+    ]
+    if expect_page_prewarm:
+        checks.append("browser_page_preparation_same_origin_requests")
     return {
-        "schema": "ea.manfred_memorial_candidate_smoke.v1",
+        "schema": "ea.manfred_memorial_candidate_smoke.v2",
         "status": "pass",
-        "checks": [
-            "archive_publication_gate",
-            "singular_memorial_alias",
-            "source_grounded_first_person_reconstruction_boundary",
-            "voice_release_authorization_verified_provider_not_called",
-            "browser_provider_websocket_boundary",
-        ],
-        "provider_calls_performed": False,
+        "checks": checks,
+        "same_origin_application_requests_performed": True,
+        "direct_chat_same_origin_requests_performed": False,
+        "direct_chat_same_origin_request_count": 0,
+        "page_preparation_same_origin_requests_performed": (
+            expect_page_prewarm
+        ),
+        "upstream_provider_execution": "not_observed",
+        "conversation_upstream_provider_execution": "not_requested",
+        "upstream_provider_observation_scope": (
+            "same_origin_application_http_only"
+        ),
         "page_get_performed": True,
         "voice_release_verification": {
             "mode": "signed_voice_release_authorized",
-            "status_code": 400,
-            "detail": "tts_text_missing",
-            "authorization_proof": (
+            "upstream_provider_execution": "not_requested",
+            "upstream_provider_execution_basis": (
                 "authorization_precedes_empty_text_validation_without_provider_call"
             ),
-            "provider_calls_performed": False,
-            "access_mode": expectation["voice_access_mode"],
-            "source_revision": source_revision,
         },
         "browser_audit": {
             "status": "pass",
@@ -329,7 +344,22 @@ def _released_voice_candidate_verifier_payload(
             "evaluation_status": browser_evaluation_status,
             "source_revision": browser_source_revision or source_revision,
             "conversation_action_exercised": False,
-            "automatic_provider_requests": 0,
+            "passive_quiet_window_ms": 2200,
+            "page_prewarm_expected": expect_page_prewarm,
+            "automatic_preparation_request_paths": preparation_paths,
+            "automatic_preparation_requests": len(preparation_paths),
+            "automatic_preparation_request_counts": {
+                path: (1 if expect_page_prewarm else 0)
+                for path in api_deploy.PAGE_PREWARM_REQUIRED_PATHS
+            },
+            "same_origin_application_requests_performed": (
+                expect_page_prewarm
+            ),
+            "same_origin_application_request_count": len(
+                preparation_paths
+            ),
+            "same_origin_application_request_paths": preparation_paths,
+            "unexpected_same_origin_application_requests": 0,
             "automatic_readiness_requests": 0,
             "automatic_microphone_requests": 0,
             "automatic_websockets": 0,
@@ -385,33 +415,49 @@ def _public_evaluation_candidate_state(
 
 def _public_evaluation_candidate_verifier_payload(
     expectation: Mapping[str, object],
+    *,
+    expect_page_prewarm: bool = False,
 ) -> dict[str, object]:
     source_revision = str(expectation["source_revision"])
+    preparation_paths = (
+        list(api_deploy.PAGE_PREWARM_REQUIRED_PATHS)
+        if expect_page_prewarm
+        else []
+    )
+    checks = [
+        "archive_publication_gate",
+        "singular_memorial_alias",
+        "signed_release_passive_no_direct_chat",
+        (
+            "voice_public_evaluation_authorization_verified_"
+            "provider_not_called"
+        ),
+        "browser_same_origin_application_boundary",
+    ]
+    if expect_page_prewarm:
+        checks.append("browser_page_preparation_same_origin_requests")
     return {
-        "schema": "ea.manfred_memorial_candidate_smoke.v1",
+        "schema": "ea.manfred_memorial_candidate_smoke.v2",
         "status": "pass",
-        "checks": [
-            "archive_publication_gate",
-            "singular_memorial_alias",
-            "source_grounded_first_person_reconstruction_boundary",
-            (
-                "voice_public_evaluation_authorization_verified_"
-                "provider_not_called"
-            ),
-            "browser_provider_websocket_boundary",
-        ],
-        "provider_calls_performed": False,
+        "checks": checks,
+        "same_origin_application_requests_performed": True,
+        "direct_chat_same_origin_requests_performed": False,
+        "direct_chat_same_origin_request_count": 0,
+        "page_preparation_same_origin_requests_performed": (
+            expect_page_prewarm
+        ),
+        "upstream_provider_execution": "not_observed",
+        "conversation_upstream_provider_execution": "not_requested",
+        "upstream_provider_observation_scope": (
+            "same_origin_application_http_only"
+        ),
         "page_get_performed": True,
         "voice_release_verification": {
             "mode": "public_evaluation_authorization_verified",
-            "status_code": 400,
-            "detail": "tts_text_missing",
-            "authorization_proof": (
+            "upstream_provider_execution": "not_requested",
+            "upstream_provider_execution_basis": (
                 "authorization_precedes_empty_text_validation_without_provider_call"
             ),
-            "provider_calls_performed": False,
-            "access_mode": expectation["voice_access_mode"],
-            "source_revision": source_revision,
         },
         "browser_audit": {
             "status": "pass",
@@ -420,7 +466,22 @@ def _public_evaluation_candidate_verifier_payload(
             "evaluation_status": "owner-authorized",
             "source_revision": source_revision,
             "conversation_action_exercised": False,
-            "automatic_provider_requests": 0,
+            "passive_quiet_window_ms": 2200,
+            "page_prewarm_expected": expect_page_prewarm,
+            "automatic_preparation_request_paths": preparation_paths,
+            "automatic_preparation_requests": len(preparation_paths),
+            "automatic_preparation_request_counts": {
+                path: (1 if expect_page_prewarm else 0)
+                for path in api_deploy.PAGE_PREWARM_REQUIRED_PATHS
+            },
+            "same_origin_application_requests_performed": (
+                expect_page_prewarm
+            ),
+            "same_origin_application_request_count": len(
+                preparation_paths
+            ),
+            "same_origin_application_request_paths": preparation_paths,
+            "unexpected_same_origin_application_requests": 0,
             "automatic_readiness_requests": 0,
             "automatic_microphone_requests": 0,
             "automatic_websockets": 0,
@@ -576,7 +637,8 @@ def test_joint_public_evaluation_base_dispatch_uses_passive_browser_audit(
     expectation = _public_evaluation_candidate_state(lane)
     lane._run_json_script = Mock(  # type: ignore[method-assign]
         return_value=_public_evaluation_candidate_verifier_payload(
-            expectation
+            expectation,
+            expect_page_prewarm=True,
         )
     )
 
@@ -603,6 +665,7 @@ def test_joint_public_evaluation_base_dispatch_uses_passive_browser_audit(
         "--wait-seconds",
         "90",
         "--browser-audit",
+        "--expect-page-prewarm",
         "--expect-signed-voice-release",
         "--voice-access-mode",
         api_deploy.VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
