@@ -9111,7 +9111,8 @@ class MemorialDeployLane:
             is not int
             or browser.get("same_origin_application_request_count") != 0
             or browser.get("same_origin_application_request_paths") != []
-            or not _has_exact_zero_browser_counts(browser)
+            or "automatic_provider_requests" in browser
+            or not _has_exact_zero_candidate_verifier_browser_counts(browser)
             or not required_smoke_checks <= first_checks
             or not required_smoke_checks <= second_checks
             or openapi.get("retirement_policy_id") != OPENAPI_RETIREMENT_POLICY_ID
@@ -9411,7 +9412,7 @@ class MemorialDeployLane:
                 "same_origin_application_requests_performed": False,
                 "same_origin_application_request_count": 0,
                 "same_origin_application_request_paths": [],
-                "automatic_provider_requests": 0,
+                "unexpected_same_origin_application_requests": 0,
                 "automatic_readiness_requests": 0,
                 "automatic_microphone_requests": 0,
                 "automatic_websockets": 0,

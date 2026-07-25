@@ -2564,7 +2564,7 @@ def _lane(
                     "same_origin_application_requests_performed": False,
                     "same_origin_application_request_count": 0,
                     "same_origin_application_request_paths": [],
-                    "automatic_provider_requests": 0,
+                    "unexpected_same_origin_application_requests": 0,
                     "automatic_readiness_requests": 0,
                     "automatic_microphone_requests": 0,
                     "automatic_websockets": 0,
@@ -2917,7 +2917,7 @@ def test_candidate_projection_is_rehashed_before_promotion(
         "same_origin_application_requests_performed": False,
         "same_origin_application_request_count": 0,
         "same_origin_application_request_paths": [],
-        "automatic_provider_requests": 0,
+        "unexpected_same_origin_application_requests": 0,
         "automatic_readiness_requests": 0,
         "automatic_microphone_requests": 0,
         "automatic_websockets": 0,
@@ -4670,6 +4670,9 @@ def test_candidate_promotion_receipt_is_explicit_private_and_non_symlink(
             "browser_surface.same_origin_application_request_paths",
             [PAGE_PREWARM_PATHS[0]],
         ),
+        ("browser_surface.unexpected_same_origin_application_requests", 1),
+        ("browser_surface.unexpected_same_origin_application_requests", None),
+        ("browser_surface.automatic_provider_requests", 0),
     ],
 )
 def test_candidate_promotion_receipt_contract_mismatch_fails_before_mutation(
