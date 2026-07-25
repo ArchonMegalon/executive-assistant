@@ -20,12 +20,12 @@ from typing import Callable, Mapping
 from urllib.parse import unquote, urlparse
 
 
-RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_smoke.v1"
+RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_smoke.v2"
 CONTRIBUTION_RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_contribution.v1"
 PRIVATE_CONTEXT_FILENAME = "memorial_private_context.json"
 PRIVATE_AUDIO_RELPATH = "audio/hanusch-hospital-visit-enhanced.mp3"
 BROWSER_ZERO_COUNT_FIELDS = (
-    "automatic_provider_requests",
+    "unexpected_same_origin_application_requests",
     "automatic_readiness_requests",
     "automatic_microphone_requests",
     "automatic_websockets",
@@ -33,6 +33,47 @@ BROWSER_ZERO_COUNT_FIELDS = (
     "failed_requests",
     "page_errors",
     "http_errors",
+)
+PAGE_PREWARM_REQUIRED_PATHS = (
+    "/memorials/manfred/speech-synthesize",
+    "/memorials/manfred/warmup",
+    "/memorials/manfred/warmup-status",
+)
+PAGE_PREWARM_ALLOWED_AUTOMATIC_PATHS = frozenset(
+    PAGE_PREWARM_REQUIRED_PATHS
+)
+PAGE_PREWARM_ALLOWED_WEBSOCKET_PATHS: frozenset[str] = frozenset()
+PAGE_PREWARM_ACKNOWLEDGEMENT_TEXT = "Worüber möchtest du sprechen?"
+PAGE_PREWARM_WAVE_CONTENT_TYPES = frozenset(
+    {
+        "audio/vnd.wave",
+        "audio/wav",
+        "audio/wave",
+        "audio/x-wav",
+    }
+)
+PAGE_PREWARM_REQUEST_COUNT_BOUNDS = {
+    "/memorials/manfred/speech-synthesize": (1, 1),
+    "/memorials/manfred/warmup": (1, 2),
+    "/memorials/manfred/warmup-status": (1, 64),
+}
+PASSIVE_BROWSER_QUIET_WINDOW_MS = 2_200
+SAME_ORIGIN_APPLICATION_RESOURCE_TYPES = frozenset(
+    {"eventsource", "fetch", "ping", "xhr"}
+)
+UPSTREAM_EXECUTION_NOT_OBSERVED = "not_observed"
+UPSTREAM_EXECUTION_NOT_REQUESTED = "not_requested"
+UPSTREAM_PROVIDER_OBSERVATION_SCOPE = "same_origin_application_http_only"
+PAGE_PREWARM_FORBIDDEN_AUTOMATIC_PATHS = frozenset(
+    {
+        "/memorials/manfred/chat",
+        "/memorials/manfred/conversation-turn",
+        "/memorials/manfred/readiness",
+        "/memorials/manfred/realtime",
+        "/memorials/manfred/realtime/webrtc",
+        "/memorials/manfred/speech-transcribe",
+        "/memorials/manfred/video-meeting/session",
+    }
 )
 VERIFIER_REQUEST_HEADERS = {
     "User-Agent": "EA-Memorial-Launch-Verifier/1.0",
@@ -351,6 +392,10 @@ def _http_origin(value: str) -> tuple[str, str, int] | None:
     except ValueError:
         return None
     scheme = parsed.scheme.casefold()
+    if scheme == "ws":
+        scheme = "http"
+    elif scheme == "wss":
+        scheme = "https"
     hostname = str(parsed.hostname or "").casefold()
     if scheme not in {"http", "https"} or not hostname:
         return None
@@ -383,6 +428,38 @@ def _has_exact_zero_counts(payload: dict[str, object]) -> bool:
     return all(
         type(payload.get(field)) is int and payload[field] == 0
         for field in BROWSER_ZERO_COUNT_FIELDS
+    )
+
+
+def _normalized_content_type(value: object) -> str:
+    return str(value or "").split(";", 1)[0].strip().lower()
+
+
+def _is_riff_wave_payload(payload: object) -> bool:
+    return (
+        isinstance(payload, bytes)
+        and len(payload) >= 128
+        and payload[:4] == b"RIFF"
+        and payload[8:12] == b"WAVE"
+    )
+
+
+def _valid_page_prewarm_request_counts(
+    value: object,
+    *,
+    expected: bool,
+) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    if set(value) != set(PAGE_PREWARM_REQUIRED_PATHS):
+        return False
+    if any(type(value.get(path)) is not int for path in PAGE_PREWARM_REQUIRED_PATHS):
+        return False
+    if not expected:
+        return all(value[path] == 0 for path in PAGE_PREWARM_REQUIRED_PATHS)
+    return all(
+        lower <= value[path] <= upper
+        for path, (lower, upper) in PAGE_PREWARM_REQUEST_COUNT_BOUNDS.items()
     )
 
 
@@ -1310,9 +1387,14 @@ def audit_browser_surface(
     expected_evaluation_status: str = "",
     expected_source_revision: str | None = None,
     exercise_conversation_action: bool = True,
+    expect_page_prewarm: bool = False,
 ) -> dict[str, object]:
     if type(exercise_conversation_action) is not bool:
         raise ValueError("candidate_browser_action_expectation_invalid")
+    if type(expect_page_prewarm) is not bool:
+        raise ValueError("candidate_browser_page_prewarm_expectation_invalid")
+    if expect_page_prewarm and exercise_conversation_action:
+        raise ValueError("candidate_browser_page_prewarm_requires_passive_audit")
     if expected_voice_release not in VOICE_RELEASE_BROWSER_STATES:
         raise ValueError("candidate_browser_voice_release_expectation_invalid")
     if expected_voice_access not in VOICE_ACCESS_BROWSER_STATES:
@@ -1346,6 +1428,8 @@ def audit_browser_surface(
     original_tmpdir = os.environ.get("TMPDIR")
     os.environ["TMPDIR"] = "/tmp"
     requested_urls: list[str] = []
+    requested_records: list[dict[str, str]] = []
+    response_records: list[object] = []
     failed_requests: list[str] = []
     page_errors: list[str] = []
     http_errors: list[str] = []
@@ -1410,22 +1494,40 @@ def audit_browser_surface(
                 """
             )
             page = context.new_page()
-            page.on("request", lambda request: requested_urls.append(request.url))
+
+            def record_request(request) -> None:
+                requested_urls.append(request.url)
+                parsed_url = urlparse(request.url)
+                try:
+                    post_data = str(request.post_data or "")
+                except Exception:
+                    post_data = ""
+                requested_records.append(
+                    {
+                        "url": str(request.url or ""),
+                        "method": str(request.method or "").upper(),
+                        "path": parsed_url.path,
+                        "query": parsed_url.query,
+                        "fragment": parsed_url.fragment,
+                        "post_data": post_data,
+                        "resource_type": str(request.resource_type or "").lower(),
+                    }
+                )
+
+            page.on("request", record_request)
             page.on(
                 "requestfailed", lambda request: failed_requests.append(request.url)
             )
-            page.on(
-                "response",
-                lambda response: (
+            def record_response(response) -> None:
+                response_records.append(response)
+                if _is_same_origin_http_error(
+                    base_url=base_url,
+                    response_url=response.url,
+                    status=response.status,
+                ):
                     http_errors.append(response.url)
-                    if _is_same_origin_http_error(
-                        base_url=base_url,
-                        response_url=response.url,
-                        status=response.status,
-                    )
-                    else None
-                ),
-            )
+
+            page.on("response", record_response)
             page.on("pageerror", lambda error: page_errors.append(str(error)[:200]))
             page.on("websocket", lambda websocket: websocket_urls.append(websocket.url))
             response = page.goto(
@@ -1443,34 +1545,190 @@ def audit_browser_surface(
                 and observed_source_revision != expected_source_revision
             ):
                 raise RuntimeError("candidate_browser_source_revision_mismatch")
-            page.wait_for_timeout(900)
+            if expect_page_prewarm:
+                page.wait_for_function(
+                    """() => {
+                      const button = document.getElementById("memorial-conversation");
+                      return Boolean(
+                        button
+                        && !button.disabled
+                        && String(button.textContent || "").trim() === "Gespräch beginnen"
+                      );
+                    }""",
+                    timeout=30_000,
+                )
+            else:
+                page.wait_for_timeout(900)
+            passive_quiet_window_ms = 0
             if exercise_conversation_action:
                 page.evaluate(
                     """() => document.getElementById("memorial-conversation")?.click()"""
                 )
-            page.wait_for_timeout(150)
+                page.wait_for_timeout(150)
+            else:
+                passive_quiet_window_ms = PASSIVE_BROWSER_QUIET_WINDOW_MS
+                page.wait_for_timeout(passive_quiet_window_ms)
 
-            provider_work_paths = {
-                "/memorials/manfred/readiness",
-                "/memorials/manfred/warmup",
-                "/memorials/manfred/warmup-status",
-                "/memorials/manfred/speech-transcribe",
-                "/memorials/manfred/speech-synthesize",
-                "/memorials/manfred/conversation-turn",
-                "/memorials/manfred/realtime",
+            preparation_records = [
+                record
+                for record in requested_records
+                if (
+                    record["path"] in PAGE_PREWARM_REQUIRED_PATHS
+                    and not record["query"]
+                    and not record["fragment"]
+                )
+            ]
+            preparation_request_paths = sorted(
+                {record["path"] for record in preparation_records}
+            )
+            preparation_request_counts = {
+                path: sum(
+                    1
+                    for record in preparation_records
+                    if record["path"] == path
+                )
+                for path in PAGE_PREWARM_REQUIRED_PATHS
             }
-            automatic_provider_requests = sorted(
-                {
-                    urlparse(url).path
-                    for url in requested_urls
-                    if urlparse(url).path in provider_work_paths
-                }
+            allowed_automatic_paths = (
+                set(PAGE_PREWARM_ALLOWED_AUTOMATIC_PATHS)
+                if expect_page_prewarm
+                else set()
+            )
+            same_origin_application_records = [
+                record
+                for record in requested_records
+                if (
+                    _http_origin(record["url"]) == _http_origin(base_url)
+                    and record["resource_type"]
+                    in SAME_ORIGIN_APPLICATION_RESOURCE_TYPES
+                )
+            ]
+            unexpected_application_records = [
+                record
+                for record in requested_records
+                if (
+                    _http_origin(record["url"]) == _http_origin(base_url)
+                    and not (
+                        record["path"] in allowed_automatic_paths
+                        and not record["query"]
+                        and not record["fragment"]
+                    )
+                    and (
+                        record["resource_type"]
+                        in SAME_ORIGIN_APPLICATION_RESOURCE_TYPES
+                        or record["method"] not in {"GET", "HEAD", "OPTIONS"}
+                    )
+                )
+            ]
+            unexpected_same_origin_application_requests = len(
+                unexpected_application_records
             )
             automatic_readiness_requests = sum(
                 1
-                for url in requested_urls
-                if urlparse(url).path == "/memorials/manfred/readiness"
+                for record in requested_records
+                if record["path"] == "/memorials/manfred/readiness"
             )
+            if unexpected_same_origin_application_requests:
+                raise RuntimeError(
+                    "candidate_browser_unexpected_same_origin_application_request"
+                )
+            if expect_page_prewarm:
+                required_paths = set(PAGE_PREWARM_REQUIRED_PATHS)
+                if set(preparation_request_paths) != required_paths:
+                    raise RuntimeError(
+                        "candidate_browser_page_prewarm_paths_invalid:"
+                        + ",".join(preparation_request_paths)
+                    )
+                if (
+                    not _valid_page_prewarm_request_counts(
+                        preparation_request_counts,
+                        expected=True,
+                    )
+                    or any(
+                        record["method"] != "POST"
+                        for record in preparation_records
+                    )
+                ):
+                    raise RuntimeError(
+                        "candidate_browser_page_prewarm_request_invalid"
+                    )
+                warmup_records = [
+                    record
+                    for record in preparation_records
+                    if record["path"] == "/memorials/manfred/warmup"
+                ]
+                try:
+                    warmup_payloads = [
+                        json.loads(record["post_data"])
+                        for record in warmup_records
+                    ]
+                    status_payloads = [
+                        json.loads(record["post_data"])
+                        for record in preparation_records
+                        if record["path"]
+                        == "/memorials/manfred/warmup-status"
+                    ]
+                    synthesis_payloads = [
+                        json.loads(record["post_data"])
+                        for record in preparation_records
+                        if record["path"]
+                        == "/memorials/manfred/speech-synthesize"
+                    ]
+                except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                    raise RuntimeError(
+                        "candidate_browser_page_prewarm_payload_invalid"
+                    ) from exc
+                if (
+                    warmup_payloads[0] != {"reason": "page_load"}
+                    or any(
+                        payload
+                        not in (
+                            {"reason": "page_load"},
+                            {"reason": "voice_stale_retry"},
+                        )
+                        for payload in warmup_payloads
+                    )
+                    or any(payload != {} for payload in status_payloads)
+                    or len(synthesis_payloads) != 1
+                    or synthesis_payloads[0]
+                    != {"text": PAGE_PREWARM_ACKNOWLEDGEMENT_TEXT}
+                ):
+                    raise RuntimeError(
+                        "candidate_browser_page_prewarm_payload_invalid"
+                    )
+                synthesis_responses = [
+                    response_record
+                    for response_record in response_records
+                    if urlparse(response_record.url).path
+                    == "/memorials/manfred/speech-synthesize"
+                ]
+                if len(synthesis_responses) != 1:
+                    raise RuntimeError(
+                        "candidate_browser_page_prewarm_synthesis_response_invalid"
+                    )
+                synthesis_response = synthesis_responses[0]
+                try:
+                    synthesis_response_type = _normalized_content_type(
+                        synthesis_response.headers.get("content-type")
+                    )
+                    synthesis_response_body = synthesis_response.body()
+                except Exception as exc:
+                    raise RuntimeError(
+                        "candidate_browser_page_prewarm_synthesis_response_invalid"
+                    ) from exc
+                if (
+                    synthesis_response.status != 200
+                    or synthesis_response_type
+                    not in PAGE_PREWARM_WAVE_CONTENT_TYPES
+                    or not _is_riff_wave_payload(synthesis_response_body)
+                ):
+                    raise RuntimeError(
+                        "candidate_browser_page_prewarm_synthesis_response_invalid"
+                    )
+            elif preparation_records:
+                raise RuntimeError(
+                    "candidate_browser_unexpected_same_origin_application_request"
+                )
             microphone_guard = page.evaluate(
                 """() => ({
                   calls: Number(window.__candidateGetUserMediaCalls || 0),
@@ -1488,18 +1746,25 @@ def audit_browser_surface(
                 raise RuntimeError(
                     "candidate_browser_automatic_readiness_detected"
                 )
-            if automatic_provider_requests:
-                raise RuntimeError("candidate_browser_automatic_provider_work_detected")
             if automatic_microphone_requests:
                 raise RuntimeError(
                     "candidate_browser_automatic_microphone_detected"
                 )
-            if websocket_urls:
+            same_origin_websocket_urls = [
+                url
+                for url in websocket_urls
+                if (
+                    _http_origin(url) == _http_origin(base_url)
+                    and urlparse(url).path
+                    not in PAGE_PREWARM_ALLOWED_WEBSOCKET_PATHS
+                )
+            ]
+            if same_origin_websocket_urls:
                 raise RuntimeError("candidate_browser_automatic_websocket_detected")
             external_requests = sorted(
                 {
                     url
-                    for url in requested_urls
+                    for url in [*requested_urls, *websocket_urls]
                     if _http_origin(url) != _http_origin(base_url)
                 }
             )
@@ -1853,14 +2118,30 @@ def audit_browser_surface(
         "text_input_focused": accessibility["text_input_focused"],
         "separate_retry_visible": accessibility["retry_visible"],
         "conversation_action_exercised": exercise_conversation_action,
-        "automatic_provider_requests": 0,
-        "automatic_readiness_requests": 0,
-        "automatic_microphone_requests": 0,
-        "automatic_websockets": 0,
-        "external_requests": 0,
-        "failed_requests": 0,
-        "page_errors": 0,
-        "http_errors": 0,
+        "passive_quiet_window_ms": passive_quiet_window_ms,
+        "page_prewarm_expected": expect_page_prewarm,
+        "automatic_preparation_request_paths": preparation_request_paths,
+        "automatic_preparation_requests": len(preparation_records),
+        "automatic_preparation_request_counts": preparation_request_counts,
+        "same_origin_application_requests_performed": bool(
+            same_origin_application_records
+        ),
+        "same_origin_application_request_count": len(
+            same_origin_application_records
+        ),
+        "same_origin_application_request_paths": sorted(
+            {record["path"] for record in same_origin_application_records}
+        ),
+        "unexpected_same_origin_application_requests": (
+            unexpected_same_origin_application_requests
+        ),
+        "automatic_readiness_requests": automatic_readiness_requests,
+        "automatic_microphone_requests": automatic_microphone_requests,
+        "automatic_websockets": len(same_origin_websocket_urls),
+        "external_requests": len(external_requests),
+        "failed_requests": len(failed_requests),
+        "page_errors": len(page_errors),
+        "http_errors": len(http_errors),
         "dom_content_loaded_ms": dom_loaded_ms,
         "load_event_ms": load_event_ms,
         "transfer_bytes": int(navigation.get("transfer_bytes") or 0),
@@ -2050,7 +2331,10 @@ def _verify_voice_provider_boundary(
             "mode": "phase_one_voice_blocked",
             "status_code": 409,
             "detail": "memorial_voice_release_not_verified",
-            "provider_calls_performed": False,
+            "upstream_provider_execution": UPSTREAM_EXECUTION_NOT_REQUESTED,
+            "upstream_provider_execution_basis": (
+                "release_gate_rejected_before_provider"
+            ),
         }
 
     status, body, headers = request_fn(
@@ -2081,7 +2365,10 @@ def _verify_voice_provider_boundary(
         "status_code": 400,
         "detail": "tts_text_missing",
         "authorization_proof": VOICE_RELEASE_AUTHORIZATION_PROOF,
-        "provider_calls_performed": False,
+        "upstream_provider_execution": UPSTREAM_EXECUTION_NOT_REQUESTED,
+        "upstream_provider_execution_basis": (
+            VOICE_RELEASE_AUTHORIZATION_PROOF
+        ),
         **expectation,
     }
 
@@ -2094,12 +2381,27 @@ def verify_candidate(
     submit_receipt: Path | None,
     withdraw_receipt: Path | None,
     browser_audit: bool = False,
+    expect_page_prewarm: bool = False,
     transport_request: Callable[..., tuple[int, bytes, dict[str, str]]] | None = None,
     voice_release_expectation: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
+    if type(browser_audit) is not bool:
+        raise ValueError("candidate_browser_audit_expectation_invalid")
+    if type(expect_page_prewarm) is not bool:
+        raise ValueError("candidate_browser_page_prewarm_expectation_invalid")
     voice_release_expectation = _validated_voice_release_expectation(
         voice_release_expectation
     )
+    if expect_page_prewarm and (
+        not browser_audit or voice_release_expectation is None
+    ):
+        raise ValueError(
+            "candidate_page_prewarm_requires_browser_signed_voice_release"
+        )
+    if voice_release_expectation is not None and not browser_audit:
+        raise ValueError(
+            "candidate_signed_voice_release_requires_browser_audit"
+        )
     voice_browser_expectation = _voice_browser_expectation(
         voice_release_expectation
     )
@@ -2189,36 +2491,44 @@ def verify_candidate(
     )
     checks.extend(["private_audio_denied", "raw_manifest_denied"])
 
-    _status, narrator_body, _headers = _request(
-        base_url,
-        "/memorials/manfred/chat",
-        method="POST",
-        payload={"question": "Was war dir bei deiner Familie wichtig?"},
-    )
-    narrator = _json_body(narrator_body, path="/memorials/manfred/chat")
-    _assert_first_person_reconstruction_contract(
-        narrator,
-        error="candidate_narrator_boundary_invalid",
-    )
-    checks.append("source_grounded_first_person_reconstruction_boundary")
+    direct_chat_request_count = 0
+    if voice_release_expectation is None:
+        _status, narrator_body, _headers = _request(
+            base_url,
+            "/memorials/manfred/chat",
+            method="POST",
+            payload={"question": "Was war dir bei deiner Familie wichtig?"},
+        )
+        direct_chat_request_count += 1
+        narrator = _json_body(narrator_body, path="/memorials/manfred/chat")
+        _assert_first_person_reconstruction_contract(
+            narrator,
+            error="candidate_narrator_boundary_invalid",
+        )
+        checks.append(
+            "source_grounded_first_person_reconstruction_boundary"
+        )
 
-    _status, identity_body, _headers = _request(
-        base_url,
-        "/memorials/manfred/chat",
-        method="POST",
-        payload={"question": "Bist du wirklich Manfred?"},
-    )
-    identity = _json_body(identity_body, path="/memorials/manfred/chat")
-    identity_answer = _assert_first_person_reconstruction_contract(
-        identity,
-        error="candidate_identity_disclosure_invalid",
-    )
-    if (
-        "ki-rekonstruktion" not in identity_answer
-        or "nicht der echte manfred" not in identity_answer
-    ):
-        raise RuntimeError("candidate_identity_disclosure_invalid")
-    checks.append("synthetic_identity_disclosure_boundary")
+        _status, identity_body, _headers = _request(
+            base_url,
+            "/memorials/manfred/chat",
+            method="POST",
+            payload={"question": "Bist du wirklich Manfred?"},
+        )
+        direct_chat_request_count += 1
+        identity = _json_body(identity_body, path="/memorials/manfred/chat")
+        identity_answer = _assert_first_person_reconstruction_contract(
+            identity,
+            error="candidate_identity_disclosure_invalid",
+        )
+        if (
+            "ki-rekonstruktion" not in identity_answer
+            or "nicht der echte manfred" not in identity_answer
+        ):
+            raise RuntimeError("candidate_identity_disclosure_invalid")
+        checks.append("synthetic_identity_disclosure_boundary")
+    else:
+        checks.append("signed_release_passive_no_direct_chat")
 
     voice_release_verification = _verify_voice_provider_boundary(
         base_url,
@@ -2292,8 +2602,35 @@ def verify_candidate(
             exercise_conversation_action=(
                 voice_release_expectation is None
             ),
+            expect_page_prewarm=expect_page_prewarm,
         )
         expected_action_exercised = voice_release_expectation is None
+        expected_preparation_paths = (
+            list(PAGE_PREWARM_REQUIRED_PATHS)
+            if expect_page_prewarm
+            else []
+        )
+        preparation_count_evidence = browser_evidence.get(
+            "automatic_preparation_request_counts"
+        )
+        preparation_counts_valid = _valid_page_prewarm_request_counts(
+            preparation_count_evidence,
+            expected=expect_page_prewarm,
+        )
+        preparation_request_total = (
+            sum(
+                int(preparation_count_evidence[path])
+                for path in PAGE_PREWARM_REQUIRED_PATHS
+            )
+            if preparation_counts_valid
+            and isinstance(preparation_count_evidence, Mapping)
+            else -1
+        )
+        expected_quiet_window_ms = (
+            0
+            if expected_action_exercised
+            else PASSIVE_BROWSER_QUIET_WINDOW_MS
+        )
         if (
             browser_evidence.get("status") != "pass"
             or browser_evidence.get("voice_release") != expected_voice_release
@@ -2302,6 +2639,35 @@ def verify_candidate(
             != expected_evaluation_status
             or browser_evidence.get("conversation_action_exercised")
             is not expected_action_exercised
+            or browser_evidence.get("passive_quiet_window_ms")
+            != expected_quiet_window_ms
+            or browser_evidence.get("page_prewarm_expected")
+            is not expect_page_prewarm
+            or browser_evidence.get(
+                "automatic_preparation_request_paths"
+            )
+            != expected_preparation_paths
+            or not preparation_counts_valid
+            or type(
+                browser_evidence.get(
+                    "automatic_preparation_requests"
+                )
+            )
+            is not int
+            or browser_evidence.get("automatic_preparation_requests")
+            != preparation_request_total
+            or browser_evidence.get(
+                "same_origin_application_requests_performed"
+            )
+            is not expect_page_prewarm
+            or browser_evidence.get(
+                "same_origin_application_request_count"
+            )
+            != preparation_request_total
+            or browser_evidence.get(
+                "same_origin_application_request_paths"
+            )
+            != expected_preparation_paths
             or (
                 voice_release_expectation is not None
                 and browser_evidence.get("source_revision")
@@ -2309,8 +2675,14 @@ def verify_candidate(
             )
             or not _has_exact_zero_counts(browser_evidence)
         ):
-            raise RuntimeError("candidate_browser_provider_boundary_invalid")
-        checks.append("browser_provider_websocket_boundary")
+            raise RuntimeError(
+                "candidate_browser_same_origin_application_boundary_invalid"
+            )
+        if expect_page_prewarm:
+            checks.append(
+                "browser_page_preparation_same_origin_requests"
+            )
+        checks.append("browser_same_origin_application_boundary")
 
     return {
         "schema": RECEIPT_SCHEMA,
@@ -2322,7 +2694,23 @@ def verify_candidate(
         "base_url": base_url,
         "checks": checks,
         "conversation_only_public_surface": conversation_surface,
-        "provider_calls_performed": False,
+        "same_origin_application_requests_performed": True,
+        "direct_chat_same_origin_requests_performed": (
+            direct_chat_request_count > 0
+        ),
+        "direct_chat_same_origin_request_count": direct_chat_request_count,
+        "page_preparation_same_origin_requests_performed": (
+            expect_page_prewarm
+        ),
+        "upstream_provider_execution": UPSTREAM_EXECUTION_NOT_OBSERVED,
+        "conversation_upstream_provider_execution": (
+            UPSTREAM_EXECUTION_NOT_OBSERVED
+            if direct_chat_request_count
+            else UPSTREAM_EXECUTION_NOT_REQUESTED
+        ),
+        "upstream_provider_observation_scope": (
+            UPSTREAM_PROVIDER_OBSERVATION_SCOPE
+        ),
         "voice_release_verification": voice_release_verification,
         "page_get_performed": True,
         "operator_surface_used": False,
@@ -2338,7 +2726,10 @@ def verify_candidate(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run provider-free HTTP checks against an isolated Manfred candidate."
+        description=(
+            "Run governed HTTP and browser checks against an isolated "
+            "Manfred candidate."
+        )
     )
     parser.add_argument("--base-url", default="http://127.0.0.1:18090")
     parser.add_argument("--public-origin", required=True)
@@ -2346,7 +2737,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--browser-audit",
         action="store_true",
-        help="Exercise the rendered surface and fail on provider requests or WebSockets.",
+        help=(
+            "Exercise the rendered surface and fail on unexpected automatic "
+            "requests, conversation work, or WebSockets."
+        ),
+    )
+    parser.add_argument(
+        "--expect-page-prewarm",
+        action="store_true",
+        help=(
+            "Require the authorized live page to prepare warmup, warmup "
+            "status, and its fixed acknowledgement audio before any click."
+        ),
     )
     parser.add_argument(
         "--expect-signed-voice-release",
@@ -2390,6 +2792,13 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(
             "--expect-signed-voice-release requires --browser-audit"
         )
+    if args.expect_page_prewarm and (
+        not args.browser_audit or not args.expect_signed_voice_release
+    ):
+        raise SystemExit(
+            "--expect-page-prewarm requires --browser-audit and "
+            "--expect-signed-voice-release"
+        )
     voice_release_expectation = (
         {
             "access_mode": (
@@ -2413,6 +2822,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.withdraw_contribution_receipt
             else None,
             browser_audit=bool(args.browser_audit),
+            expect_page_prewarm=bool(args.expect_page_prewarm),
             voice_release_expectation=voice_release_expectation,
         )
     except (

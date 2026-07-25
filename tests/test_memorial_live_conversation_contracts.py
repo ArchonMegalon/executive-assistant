@@ -6034,6 +6034,35 @@ def test_memorial_values_question_replaces_vague_model_answer_with_values_guardr
     assert any(token in lowered for token in ("rechtlich", "prinzip", "bequemlichkeit", "massstab", "juristisch"))
 
 
+def test_memorial_legal_fallback_uses_correct_german_umlauts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    result = public_memorials._memorial_chat_fallback_answer(
+        {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []},
+        "Was bedeutete dir Recht?",
+        {},
+        slug=slug,
+    )
+    answer = str(result["answer"])
+
+    assert "Zuständigkeit" in answer
+    assert (
+        "Mit bloßem Wohlgefühl oder Harmonie war für mich noch nichts geklärt."
+        in answer
+    )
+    for ascii_form in (
+        "Zustaendigkeit",
+        "blossem",
+        "Wohlgefuehl",
+        "fuer mich noch nichts geklaert",
+    ):
+        assert ascii_form not in answer
+
+
 def test_memorial_warmup_route_schedules_background_prewarm(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

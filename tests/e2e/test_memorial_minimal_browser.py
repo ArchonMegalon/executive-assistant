@@ -185,6 +185,53 @@ def _text_similarity(left: str, right: str) -> float:
     return difflib.SequenceMatcher(None, normalized_left, normalized_right).ratio()
 
 
+def _run_authorized_candidate_browser_audit(
+    *,
+    base_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, object]:
+    from scripts.measure_memorial_live_browser import _resolve_chromium_executable
+    from scripts import verify_manfred_memorial_candidate as candidate_verify
+
+    with urllib.request.urlopen(
+        f"{base_url}/memorials/manfred",
+        timeout=5,
+    ) as response:
+        source_revision = str(
+            response.headers.get("X-EA-Source-Revision") or ""
+        ).strip()
+    assert len(source_revision) == 40
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+
+        def _resolve_installed_chromium() -> str | None:
+            with sync_playwright() as playwright:
+                executable_path, _executable_source = (
+                    _resolve_chromium_executable(playwright)
+                )
+            return executable_path
+
+        executable_path = executor.submit(
+            _resolve_installed_chromium
+        ).result(timeout=10)
+        assert executable_path is not None
+        monkeypatch.setenv(
+            "EA_PLAYWRIGHT_CHROMIUM_EXECUTABLE",
+            executable_path,
+        )
+        return executor.submit(
+            candidate_verify.audit_browser_surface,
+            base_url,
+            public_origin="https://myexternalbrain.com",
+            expected_voice_release="available",
+            expected_voice_access="public-release",
+            expected_evaluation_status="",
+            expected_source_revision=source_revision,
+            exercise_conversation_action=False,
+            expect_page_prewarm=True,
+        ).result(timeout=30)
+
+
 @pytest.fixture()
 def memorial_minimal_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[dict[str, object]]:
     from app.api.routes import public_memorials
@@ -933,21 +980,24 @@ def test_memorial_transient_voice_warmup_stays_preparing_until_ready(
     readiness_requests: list[str] = []
     warmup_requests: list[str] = []
     status_requests: list[str] = []
+    requested_urls: list[str] = []
+    websocket_urls: list[str] = []
     voice_ready = {"value": False}
 
     def route_readiness(route) -> None:
         readiness_requests.append(route.request.url)
+        ready = voice_ready["value"]
         route.fulfill(
-            status=503,
+            status=200 if ready else 503,
             content_type="application/json",
             body=json.dumps(
                 {
                     "slug": slug,
-                    "ready": False,
-                    "spoken_voice_ready": False,
+                    "ready": ready,
+                    "spoken_voice_ready": ready,
                     "release": {
                         "enforced": True,
-                        "allowed": False,
+                        "allowed": ready,
                         "public_evaluation": True,
                     },
                 }
@@ -997,6 +1047,8 @@ def test_memorial_transient_voice_warmup_stays_preparing_until_ready(
             f"{base_url}/memorials/{slug}/warmup-status",
             route_warmup_status,
         )
+        page.on("request", lambda request: requested_urls.append(request.url))
+        page.on("websocket", lambda websocket: websocket_urls.append(websocket.url))
         response = page.goto(
             f"{base_url}/memorials/{slug}",
             wait_until="domcontentloaded",
@@ -1006,19 +1058,18 @@ def test_memorial_transient_voice_warmup_stays_preparing_until_ready(
             "() => window.__memorialMinimalBooted === true",
             timeout=3000,
         )
-        page.get_by_role(
-            "button",
-            name="Gespräch beginnen",
-            exact=True,
-        ).click()
         for _ in range(10):
             if status_requests:
                 break
             page.wait_for_timeout(100)
         assert status_requests
-        assert readiness_requests == [
-            f"{base_url}/memorials/{slug}/readiness"
+        assert warmup_requests == [
+            f"{base_url}/memorials/{slug}/warmup",
+            f"{base_url}/memorials/{slug}/warmup",
         ]
+        assert readiness_requests == []
+        assert page.evaluate("window.__getUserMediaCalls") == 0
+        assert websocket_urls == []
         assert page.locator("#memorial-conversation").is_disabled()
         assert page.locator("#memorial-conversation").inner_text().strip() == (
             "Gespräch wird vorbereitet …"
@@ -1063,10 +1114,36 @@ def test_memorial_transient_voice_warmup_stays_preparing_until_ready(
             "data-conversation-state"
         ) == "ready"
         assert page.evaluate("window.__getUserMediaCalls") == 0
+        assert readiness_requests == []
+        assert websocket_urls == []
+        assert any(
+            url.endswith(f"/memorials/{slug}/speech-synthesize")
+            for url in requested_urls
+        )
+        assert not any(
+            url.endswith(
+                (
+                    f"/memorials/{slug}/speech-transcribe",
+                    f"/memorials/{slug}/conversation-turn",
+                    f"/memorials/{slug}/realtime",
+                )
+            )
+            for url in requested_urls
+        )
         assert warmup_requests == [
             f"{base_url}/memorials/{slug}/warmup",
             f"{base_url}/memorials/{slug}/warmup",
         ]
+
+        button.click()
+        page.wait_for_function(
+            "() => window.__getUserMediaCalls === 1",
+            timeout=5000,
+        )
+        assert readiness_requests
+        assert set(readiness_requests) == {
+            f"{base_url}/memorials/{slug}/readiness"
+        }
     finally:
         context.close()
 
@@ -1486,6 +1563,9 @@ def test_candidate_browser_audit_requires_single_blocked_action(
     assert evidence["text_input_focused"] is False
     assert evidence["separate_retry_visible"] is False
     assert evidence["conversation_action_exercised"] is True
+    assert evidence["automatic_preparation_request_counts"] == {
+        path: 0 for path in candidate_verify.PAGE_PREWARM_REQUIRED_PATHS
+    }
     for field in candidate_verify.BROWSER_ZERO_COUNT_FIELDS:
         assert evidence[field] == 0
 
@@ -1591,6 +1671,7 @@ def test_authorized_live_candidate_browser_audit_is_passive(
             expected_evaluation_status=expected_evaluation_status,
             expected_source_revision=source_revision,
             exercise_conversation_action=False,
+            expect_page_prewarm=True,
         ).result(timeout=30)
 
     assert evidence["status"] == "pass"
@@ -1600,12 +1681,413 @@ def test_authorized_live_candidate_browser_audit_is_passive(
     assert evidence["evaluation_status"] == expected_evaluation_status
     assert evidence["visible_button_ids"] == ["memorial-conversation"]
     assert evidence["visible_button_labels"] == ["Gespräch beginnen"]
-    assert evidence["automatic_provider_requests"] == 0
+    assert (
+        evidence["passive_quiet_window_ms"]
+        == candidate_verify.PASSIVE_BROWSER_QUIET_WINDOW_MS
+    )
+    assert evidence["page_prewarm_expected"] is True
+    assert evidence["automatic_preparation_request_paths"] == list(
+        candidate_verify.PAGE_PREWARM_REQUIRED_PATHS
+    )
+    counts = evidence["automatic_preparation_request_counts"]
+    assert isinstance(counts, dict)
+    assert counts["/memorials/manfred/speech-synthesize"] == 1
+    assert 1 <= counts["/memorials/manfred/warmup"] <= 2
+    assert 1 <= counts["/memorials/manfred/warmup-status"] <= 64
+    assert evidence["automatic_preparation_requests"] == sum(counts.values())
+    assert evidence["same_origin_application_requests_performed"] is True
+    assert evidence["same_origin_application_request_count"] == sum(
+        counts.values()
+    )
+    assert evidence["same_origin_application_request_paths"] == list(
+        candidate_verify.PAGE_PREWARM_REQUIRED_PATHS
+    )
+    assert evidence["unexpected_same_origin_application_requests"] == 0
     assert evidence["automatic_readiness_requests"] == 0
     assert evidence["automatic_microphone_requests"] == 0
     assert evidence["automatic_websockets"] == 0
     for field in candidate_verify.BROWSER_ZERO_COUNT_FIELDS:
         assert evidence[field] == 0
+
+
+def test_authorized_candidate_browser_audit_rejects_invalid_prewarm_audio(
+    memorial_minimal_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+    browser: Browser,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_enforced",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_decision",
+        lambda _slug: {
+            "allowed": True,
+            "public_evaluation": False,
+            "status": "released",
+            "reason": "",
+            "receipt_status": "released",
+            "access_mode": "public-release",
+            "disclosure_required": True,
+            "provider_work_allowed": True,
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_render_memorial_tts_audio",
+        lambda **_kwargs: (b"not-a-wave-payload" * 16, "audio/wav"),
+    )
+
+    context = browser.new_context()
+    page = context.new_page()
+    try:
+        response = page.goto(
+            f"{memorial_minimal_server['base_url']}/memorials/manfred",
+            wait_until="domcontentloaded",
+        )
+        assert response is not None and response.ok
+        page.wait_for_function(
+            """() => document
+              .getElementById("memorial-speech-note")
+              ?.classList.contains("is-error")""",
+            timeout=5000,
+        )
+        assert page.evaluate("() => memorialLandingReady") is False
+        assert (
+            page.locator("#memorial-speech-message").inner_text().strip()
+            == "Sprechen ist gerade nicht möglich."
+        )
+    finally:
+        context.close()
+
+    with pytest.raises(
+        RuntimeError,
+        match="candidate_browser_page_prewarm_synthesis_response_invalid",
+    ):
+        _run_authorized_candidate_browser_audit(
+            base_url=str(memorial_minimal_server["base_url"]),
+            monkeypatch=monkeypatch,
+        )
+
+
+@pytest.mark.parametrize("status", [201, 206])
+def test_memorial_prewarm_requires_exact_http_200(
+    memorial_minimal_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+    browser: Browser,
+    status: int,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_enforced",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_decision",
+        lambda _slug: {
+            "allowed": True,
+            "public_evaluation": False,
+            "status": "released",
+            "reason": "",
+            "receipt_status": "released",
+            "access_mode": "public-release",
+            "disclosure_required": True,
+            "provider_work_allowed": True,
+        },
+    )
+    base_url = str(memorial_minimal_server["base_url"])
+    synthesis_requests: list[str] = []
+    context = browser.new_context()
+    page = context.new_page()
+
+    def non_200_synthesis(route) -> None:
+        synthesis_requests.append(route.request.url)
+        route.fulfill(
+            status=status,
+            content_type="audio/wav",
+            body=_wav_bytes(),
+        )
+
+    try:
+        page.route(
+            f"{base_url}/memorials/manfred/speech-synthesize",
+            non_200_synthesis,
+        )
+        response = page.goto(
+            f"{base_url}/memorials/manfred",
+            wait_until="domcontentloaded",
+        )
+        assert response is not None and response.ok
+        page.wait_for_function(
+            """() => document
+              .getElementById("memorial-speech-note")
+              ?.classList.contains("is-error")""",
+            timeout=5000,
+        )
+
+        assert len(synthesis_requests) == 1
+        assert page.evaluate("() => memorialLandingReady") is False
+        assert (
+            page.locator("#memorial-conversation").inner_text().strip()
+            == "Gespräch beginnen"
+        )
+        assert (
+            page.locator("#memorial-speech-message").inner_text().strip()
+            == "Sprechen ist gerade nicht möglich."
+        )
+    finally:
+        context.close()
+
+
+def test_authorized_candidate_browser_audit_requires_exact_acknowledgement(
+    memorial_minimal_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_enforced",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_decision",
+        lambda _slug: {
+            "allowed": True,
+            "public_evaluation": False,
+            "status": "released",
+            "reason": "",
+            "receipt_status": "released",
+            "access_mode": "public-release",
+            "disclosure_required": True,
+            "provider_work_allowed": True,
+        },
+    )
+    original_renderer = public_memorials._minimal_public_memorial_html
+
+    def altered_renderer(*args: object, **kwargs: object) -> str:
+        document = original_renderer(*args, **kwargs)
+        expected = (
+            'const contactAcknowledgementText = '
+            '"Worüber möchtest du sprechen?";'
+        )
+        assert expected in document
+        return document.replace(
+            expected,
+            'const contactAcknowledgementText = "Beliebiger Vorabtext";',
+            1,
+        )
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_minimal_public_memorial_html",
+        altered_renderer,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="candidate_browser_page_prewarm_payload_invalid",
+    ):
+        _run_authorized_candidate_browser_audit(
+            base_url=str(memorial_minimal_server["base_url"]),
+            monkeypatch=monkeypatch,
+        )
+
+
+def test_authorized_candidate_browser_audit_rejects_preclick_chat(
+    memorial_minimal_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_enforced",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_decision",
+        lambda _slug: {
+            "allowed": True,
+            "public_evaluation": False,
+            "status": "released",
+            "reason": "",
+            "receipt_status": "released",
+            "access_mode": "public-release",
+            "disclosure_required": True,
+            "provider_work_allowed": True,
+        },
+    )
+    original_renderer = public_memorials._minimal_public_memorial_html
+
+    def altered_renderer(*args: object, **kwargs: object) -> str:
+        document = original_renderer(*args, **kwargs)
+        injection = """
+    <script>
+      fetch("/memorials/manfred/chat", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({question: "automatisch"}),
+      }).catch(() => null);
+    </script>
+"""
+        assert "</body>" in document
+        return document.replace("</body>", injection + "  </body>", 1)
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_minimal_public_memorial_html",
+        altered_renderer,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "candidate_browser_unexpected_same_origin_application_request"
+        ),
+    ):
+        _run_authorized_candidate_browser_audit(
+            base_url=str(memorial_minimal_server["base_url"]),
+            monkeypatch=monkeypatch,
+        )
+
+
+@pytest.mark.parametrize("delay_ms", [500, 1500])
+def test_authorized_candidate_browser_audit_observes_delayed_unexpected_request(
+    memorial_minimal_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+    delay_ms: int,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_enforced",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_decision",
+        lambda _slug: {
+            "allowed": True,
+            "public_evaluation": False,
+            "status": "released",
+            "reason": "",
+            "receipt_status": "released",
+            "access_mode": "public-release",
+            "disclosure_required": True,
+            "provider_work_allowed": True,
+        },
+    )
+    original_renderer = public_memorials._minimal_public_memorial_html
+
+    def altered_renderer(*args: object, **kwargs: object) -> str:
+        document = original_renderer(*args, **kwargs)
+        injection = f"""
+    <script>
+      (() => {{
+        const scheduleAfterReady = () => {{
+          const button = document.getElementById("memorial-conversation");
+          if (
+            !button
+            || button.disabled
+            || String(button.textContent || "").trim() !== "Gespräch beginnen"
+          ) {{
+            setTimeout(scheduleAfterReady, 25);
+            return;
+          }}
+          setTimeout(() => {{
+            fetch("/health/live?probe=delayed-candidate-{delay_ms}")
+              .catch(() => null);
+          }}, {delay_ms});
+        }};
+        scheduleAfterReady();
+      }})();
+    </script>
+"""
+        assert "</body>" in document
+        return document.replace("</body>", injection + "  </body>", 1)
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_minimal_public_memorial_html",
+        altered_renderer,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "candidate_browser_unexpected_same_origin_application_request"
+        ),
+    ):
+        _run_authorized_candidate_browser_audit(
+            base_url=str(memorial_minimal_server["base_url"]),
+            monkeypatch=monkeypatch,
+        )
+
+
+def test_authorized_candidate_browser_audit_rejects_prewarm_query_suffix(
+    memorial_minimal_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_enforced",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_decision",
+        lambda _slug: {
+            "allowed": True,
+            "public_evaluation": False,
+            "status": "released",
+            "reason": "",
+            "receipt_status": "released",
+            "access_mode": "public-release",
+            "disclosure_required": True,
+            "provider_work_allowed": True,
+        },
+    )
+    original_renderer = public_memorials._minimal_public_memorial_html
+
+    def altered_renderer(*args: object, **kwargs: object) -> str:
+        document = original_renderer(*args, **kwargs)
+        exact_endpoint = '"/memorials/manfred/speech-synthesize"'
+        assert exact_endpoint in document
+        return document.replace(
+            exact_endpoint,
+            '"/memorials/manfred/speech-synthesize?unexpected=1"',
+            1,
+        )
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_minimal_public_memorial_html",
+        altered_renderer,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "candidate_browser_unexpected_same_origin_application_request"
+        ),
+    ):
+        _run_authorized_candidate_browser_audit(
+            base_url=str(memorial_minimal_server["base_url"]),
+            monkeypatch=monkeypatch,
+        )
 
 
 def test_provider_free_candidate_browser_click_performs_no_provider_work(
@@ -2261,6 +2743,61 @@ def test_memorial_stale_recorder_stop_cannot_break_clean_restart(
         start.wait_for(state="visible", timeout=7000)
         assert page.evaluate("window.__memorialMediaTrackStopCalls") >= 2
         assert page.locator("button:visible").count() == 1
+    finally:
+        context.close()
+
+
+def test_memorial_rapid_end_restart_uses_fresh_acknowledgement_generation(
+    browser: Browser,
+    memorial_minimal_server: dict[str, object],
+) -> None:
+    base_url = str(memorial_minimal_server["base_url"])
+    slug = str(memorial_minimal_server["slug"])
+    context = browser.new_context(viewport={"width": 390, "height": 844})
+    _install_fake_audio_runtime(context, playback_delay_ms=1400)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(
+            f"{base_url}/memorials/{slug}",
+            wait_until="domcontentloaded",
+        )
+        assert response is not None and response.ok
+        start = page.get_by_role(
+            "button",
+            name="Gespräch beginnen",
+            exact=True,
+        )
+        start.wait_for(state="visible", timeout=12000)
+        start.click()
+        page.wait_for_function(
+            "() => Number(window.__memorialAudioPlayCalls || 0) === 1",
+            timeout=12000,
+        )
+        page.get_by_role(
+            "button",
+            name="Gespräch beenden",
+            exact=True,
+        ).click()
+        start.wait_for(state="visible", timeout=7000)
+
+        start.click()
+        page.wait_for_function(
+            "() => Number(window.__memorialAudioPlayCalls || 0) === 2",
+            timeout=7000,
+        )
+
+        assert page.evaluate("window.__getUserMediaCalls") == 0
+        assert page.evaluate("window.__memorialMediaRecorderStarts") == 0
+        assert page.locator("#memorial-conversation-region").get_attribute(
+            "data-conversation-state"
+        ) == "speaking"
+        page.get_by_role(
+            "button",
+            name="Gespräch beenden",
+            exact=True,
+        ).click()
+        start.wait_for(state="visible", timeout=7000)
+        assert page.evaluate("window.__memorialAudioPlayCalls") == 2
     finally:
         context.close()
 

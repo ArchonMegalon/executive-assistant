@@ -7779,7 +7779,7 @@ def _memorial_chat_fallback_answer(
     elif any(token in lowered for token in ("jurist", "juristisch", "recht", "urteil", "anspruch", "pflicht", "ordnung", "fairness")):
         variants = (
             "Nein, ich habe vieles zuerst als Rechtsfrage gesehen. Wer hat welchen Anspruch, wer welche Pflicht, und wo wird eine Grenze verletzt. Mit blossen Gefuehlen oder Bequemlichkeiten war fuer mich ein Fall noch lange nicht entschieden; ohne Ordnung spricht am Ende jeder nur aus seiner Laune heraus.",
-            "Da muss man einen Fall sauber auseinanderlegen. Mein erster Blick war oft juristisch: Anspruch, Pflicht, Grenzverletzung, Zustaendigkeit. Mit blossem Wohlgefuehl oder Harmonie war fuer mich noch nichts geklaert. Wenn man sich das bildhaft vorstellt, dann besteht ein Konflikt oft aus vielen einzelnen Mosaiksteinchen. Gerade deshalb muss man sauber unterscheiden und nicht alles in einen Topf werfen.",
+            "Da muss man einen Fall sauber auseinanderlegen. Mein erster Blick war oft juristisch: Anspruch, Pflicht, Grenzverletzung, Zuständigkeit. Mit bloßem Wohlgefühl oder Harmonie war für mich noch nichts geklärt. Wenn man sich das bildhaft vorstellt, dann besteht ein Konflikt oft aus vielen einzelnen Mosaiksteinchen. Gerade deshalb muss man sauber unterscheiden und nicht alles in einen Topf werfen.",
             "Nein, ich wollte einen Fall geordnet sehen: Wer darf was, wer schuldet was, und wo ist die Linie. Wenn das offen blieb, war fuer mich das Reden ueber Gefuehle zweitrangig. Die Welt ist immer sehr vielschichtig, das schon, aber zuerst braucht es Ordnung; andersherum wird jede Sache unerquicklich ungenau. Mit solcher Unschaerfe konnte ich nichts anfangen. Ich habe solche Dinge eher schriftlich und mit Beispielen auseinandergenommen.",
         )
         body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
@@ -14777,7 +14777,7 @@ def _minimal_public_memorial_html(
       // Compatibility alias for the existing client guards; this is never a
       // release receipt and server endpoints independently reverify access.
       const memorialVoiceReleaseAllowed = {_json_for_html_script(voice_release_allowed)};
-      const memorialPagePrewarmEnabled = {_json_for_html_script(_memorial_page_prewarm_enabled() and voice_release_allowed and not conversation_only)};
+      const memorialPagePrewarmEnabled = {_json_for_html_script(_memorial_page_prewarm_enabled() and voice_release_allowed and provider_work_allowed)};
       const installHint = document.getElementById("memorial-install-hint");
       const installButton = document.getElementById("memorial-install-button");
       const contributionDisclosure = document.getElementById("memorial-contribution");
@@ -14904,8 +14904,9 @@ def _minimal_public_memorial_html(
       let lastAnswerStatusText = "";
       let contactAcknowledgementAudioBlob = null;
       let contactAcknowledgementAudioPromise = null;
-      let contactAcknowledgementInFlight = false;
+      let contactAcknowledgementAttempt = null;
       let contactAcknowledgementReady = false;
+      let contactAcknowledgementPlayedGeneration = -1;
       let contactAcknowledgementCacheEpoch = 0;
       const contactAcknowledgementText = "Worüber möchtest du sprechen?";
       const memorialReadinessEndpoint = "/memorials/{html.escape(slug)}/readiness";
@@ -16537,7 +16538,8 @@ def _minimal_public_memorial_html(
         contactAcknowledgementAudioBlob = null;
         contactAcknowledgementAudioPromise = null;
         contactAcknowledgementReady = false;
-        contactAcknowledgementInFlight = false;
+        contactAcknowledgementAttempt = null;
+        contactAcknowledgementPlayedGeneration = -1;
         setLastAnswerAudioBlob(null);
         stopSpeechPlayback();
       }}
@@ -16612,6 +16614,25 @@ def _minimal_public_memorial_html(
         }}
       }}
 
+      function normalizedMemorialAudioContentType(value) {{
+        return String(value || "").split(";", 1)[0].trim().toLowerCase();
+      }}
+
+      function isValidMemorialWaveAudio(buffer) {{
+        if (!(buffer instanceof ArrayBuffer) || buffer.byteLength < 128) return false;
+        const bytes = new Uint8Array(buffer);
+        return (
+          bytes[0] === 0x52
+          && bytes[1] === 0x49
+          && bytes[2] === 0x46
+          && bytes[3] === 0x46
+          && bytes[8] === 0x57
+          && bytes[9] === 0x41
+          && bytes[10] === 0x56
+          && bytes[11] === 0x45
+        );
+      }}
+
       async function ensureContactAcknowledgementAudio() {{
         if (!memorialVoiceReleaseAllowed) throw new Error("memorial_voice_release_not_verified");
         if (contactAcknowledgementAudioBlob) return contactAcknowledgementAudioBlob;
@@ -16630,9 +16651,25 @@ def _minimal_public_memorial_html(
             }},
             15000,
           );
-          if (!response.ok) throw new Error("contact_acknowledgement_audio_failed");
-          const blob = await response.blob();
-          if (!blob || blob.size < 128) throw new Error("contact_acknowledgement_audio_empty");
+          if (response.status !== 200) {{
+            throw new Error("contact_acknowledgement_audio_failed");
+          }}
+          const contentType = normalizedMemorialAudioContentType(
+            response.headers.get("content-type")
+          );
+          if (![
+            "audio/vnd.wave",
+            "audio/wav",
+            "audio/wave",
+            "audio/x-wav",
+          ].includes(contentType)) {{
+            throw new Error("contact_acknowledgement_audio_type_invalid");
+          }}
+          const audioBuffer = await response.arrayBuffer();
+          if (!isValidMemorialWaveAudio(audioBuffer)) {{
+            throw new Error("contact_acknowledgement_audio_invalid");
+          }}
+          const blob = new Blob([audioBuffer], {{ type: contentType }});
           if (cacheEpoch !== contactAcknowledgementCacheEpoch) {{
             throw new Error("contact_acknowledgement_cache_invalidated");
           }}
@@ -16640,7 +16677,7 @@ def _minimal_public_memorial_html(
           contactAcknowledgementReady = true;
           syncConversationButton();
           return blob;
-        }});
+        }})();
         contactAcknowledgementAudioPromise = audioPromise;
         try {{
           return await audioPromise;
@@ -16652,23 +16689,47 @@ def _minimal_public_memorial_html(
       }}
 
       async function playFastContactAcknowledgement(generation) {{
-        if (generation !== activeGeneration || completedConversationTurns > 0 || contactAcknowledgementInFlight) return true;
-        contactAcknowledgementInFlight = true;
+        if (
+          generation !== activeGeneration
+          || completedConversationTurns > 0
+          || contactAcknowledgementPlayedGeneration === generation
+        ) return true;
+        const existingAttempt = contactAcknowledgementAttempt;
+        if (
+          existingAttempt
+          && existingAttempt.generation === generation
+        ) {{
+          return await existingAttempt.promise;
+        }}
+        const attempt = {{
+          generation,
+          promise: null,
+        }};
+        attempt.promise = (async () => {{
+          try {{
+            const authorization = await requireFreshMemorialVoiceAuthorization();
+            if (!authorization || generation !== activeGeneration || !conversationSessionActive) return false;
+            showAnswerText(contactAcknowledgementText);
+            setAnswerStatus("");
+            setSpeechStatus("Antwort wird abgespielt.", "playing", contactAcknowledgementText);
+            const blob = await ensureContactAcknowledgementAudio();
+            if (generation !== activeGeneration || !conversationSessionActive || !blob) return false;
+            setLastAnswerAudioBlob(blob);
+            await playMemorialAudio(blob, generation, contactAcknowledgementText);
+            if (generation !== activeGeneration || !conversationSessionActive) return false;
+            contactAcknowledgementPlayedGeneration = generation;
+            return true;
+          }} catch (error) {{
+            return generation === activeGeneration && conversationSessionActive;
+          }}
+        }})();
+        contactAcknowledgementAttempt = attempt;
         try {{
-          const authorization = await requireFreshMemorialVoiceAuthorization();
-          if (!authorization || generation !== activeGeneration || !conversationSessionActive) return false;
-          showAnswerText(contactAcknowledgementText);
-          setAnswerStatus("");
-          setSpeechStatus("Antwort wird abgespielt.", "playing", contactAcknowledgementText);
-          const blob = await ensureContactAcknowledgementAudio();
-          if (generation !== activeGeneration || !blob) return false;
-          setLastAnswerAudioBlob(blob);
-          await playMemorialAudio(blob, generation, contactAcknowledgementText);
-          return true;
-        }} catch (error) {{
-          return generation === activeGeneration;
+          return await attempt.promise;
         }} finally {{
-          contactAcknowledgementInFlight = false;
+          if (contactAcknowledgementAttempt === attempt) {{
+            contactAcknowledgementAttempt = null;
+          }}
         }}
       }}
 
@@ -16975,7 +17036,14 @@ def _minimal_public_memorial_html(
               setMemorialLandingReady(true, "");
             }} catch (error) {{
               contactAcknowledgementReady = false;
-              setMemorialLandingReady(true, "Das Gespräch ist bereit.");
+              setMemorialLandingReady(false, "");
+              setSpeechStatus(
+                "Sprechen ist gerade nicht möglich.",
+                "error",
+                memorialConversationOnly
+                  ? "Drücke „Gespräch beginnen“, um es erneut zu versuchen."
+                  : "Du kannst schreiben oder es später noch einmal versuchen."
+              );
             }}
           }} else if (
             readinessState === "pending"
@@ -17105,6 +17173,7 @@ def _minimal_public_memorial_html(
 
       function abortActiveTurn() {{
         activeGeneration += 1;
+        contactAcknowledgementAttempt = null;
         activeConversationStart = null;
         conversationSessionActive = false;
         recordingActive = false;
@@ -18936,9 +19005,9 @@ def _minimal_public_memorial_html(
         );
         updatePersonalMemoryStatusUi();
         if (!memorialConversationOnly) void loadPersonalMemoryStatus();
+        if (memorialPagePrewarmEnabled) void primeMemorialLanding();
         window.setTimeout(() => {{
           void retireLegacyMemorialServiceWorkers();
-          if (memorialPagePrewarmEnabled) void ensureMemorialReady("page_load");
         }}, 120);
         const isStandalone = window.matchMedia("(display-mode: standalone)").matches || Boolean(window.navigator.standalone);
         const isPwaLaunch = isStandalone || new URLSearchParams(window.location.search).get("source") === "pwa";

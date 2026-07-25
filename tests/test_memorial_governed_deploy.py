@@ -37,6 +37,11 @@ SAFE_TOUR = json.dumps(
     {"slug": "control-tour", "title": "Control tour"},
     separators=(",", ":"),
 ).encode("utf-8")
+PAGE_PREWARM_PATHS = [
+    "/memorials/manfred/speech-synthesize",
+    "/memorials/manfred/warmup",
+    "/memorials/manfred/warmup-status",
+]
 SPATIAL_VIEWER_RELPATH = "generated-reconstruction/viewer.html"
 SPATIAL_PROOF_RELPATH = "generated-reconstruction/reconstruction.json"
 SPATIAL_ASSET_PATHS = [
@@ -1193,7 +1198,7 @@ class FakeRunner:
                 returncode = 7
                 stdout = json.dumps(
                     {
-                        "schema": "ea.manfred_memorial_candidate_smoke.v1",
+                        "schema": "ea.manfred_memorial_candidate_smoke.v2",
                         "status": "fail",
                         "error": (
                             f"{self.candidate_failure_error}:"
@@ -1204,7 +1209,15 @@ class FakeRunner:
                 stderr = f"verifier stderr {self.candidate_failure_secret}"
             else:
                 voice_check = "voice_provider_boundary_blocked"
-                if "--expect-signed-voice-release" in argv:
+                voice_verification_mode = "phase_one_voice_blocked"
+                voice_verification_basis = (
+                    "release_gate_rejected_before_provider"
+                )
+                expect_page_prewarm = "--expect-page-prewarm" in argv
+                signed_voice_release = (
+                    "--expect-signed-voice-release" in argv
+                )
+                if signed_voice_release:
                     voice_access_mode = argv[
                         argv.index("--voice-access-mode") + 1
                     ]
@@ -1216,27 +1229,110 @@ class FakeRunner:
                             "voice_public_evaluation_authorization_verified_provider_not_called"
                         )
                     )
+                    voice_verification_mode = (
+                        "signed_voice_release_authorized"
+                        if voice_access_mode
+                        == deploy.VOICE_ACCESS_MODE_PUBLIC_RELEASE
+                        else "public_evaluation_authorization_verified"
+                    )
+                    voice_verification_basis = (
+                        "authorization_precedes_empty_text_validation_"
+                        "without_provider_call"
+                    )
                 candidate_checks = [
                     "singular_memorial_alias",
-                    "source_grounded_first_person_reconstruction_boundary",
                     voice_check,
-                    "browser_provider_websocket_boundary",
+                    "browser_same_origin_application_boundary",
                 ]
+                candidate_checks.append(
+                    "signed_release_passive_no_direct_chat"
+                    if signed_voice_release
+                    else (
+                        "source_grounded_first_person_"
+                        "reconstruction_boundary"
+                    )
+                )
+                if expect_page_prewarm:
+                    candidate_checks.append(
+                        "browser_page_preparation_same_origin_requests"
+                    )
                 if self.candidate_archive_gate_check:
                     candidate_checks.append("archive_publication_gate")
                 stdout = json.dumps(
                     {
-                        "schema": "ea.manfred_memorial_candidate_smoke.v1",
+                        "schema": "ea.manfred_memorial_candidate_smoke.v2",
                         "status": self.candidate_status,
                         "checks": candidate_checks,
-                        "provider_calls_performed": False,
+                        "same_origin_application_requests_performed": True,
+                        "direct_chat_same_origin_requests_performed": (
+                            not signed_voice_release
+                        ),
+                        "direct_chat_same_origin_request_count": (
+                            0 if signed_voice_release else 2
+                        ),
+                        "page_preparation_same_origin_requests_performed": (
+                            expect_page_prewarm
+                        ),
+                        "upstream_provider_execution": "not_observed",
+                        "conversation_upstream_provider_execution": (
+                            "not_requested"
+                            if signed_voice_release
+                            else "not_observed"
+                        ),
+                        "upstream_provider_observation_scope": (
+                            "same_origin_application_http_only"
+                        ),
+                        "voice_release_verification": {
+                            "mode": voice_verification_mode,
+                            "upstream_provider_execution": (
+                                "not_requested"
+                            ),
+                            "upstream_provider_execution_basis": (
+                                voice_verification_basis
+                            ),
+                        },
                         "page_get_performed": True,
                         "browser_audit": {
                             "status": "pass",
                             "conversation_action_exercised": (
-                                "--expect-signed-voice-release" not in argv
+                                not signed_voice_release
                             ),
-                            "automatic_provider_requests": 0,
+                            "passive_quiet_window_ms": (
+                                2200 if signed_voice_release else 0
+                            ),
+                            "page_prewarm_expected": expect_page_prewarm,
+                            "automatic_preparation_request_paths": (
+                                list(PAGE_PREWARM_PATHS)
+                                if expect_page_prewarm
+                                else []
+                            ),
+                            "automatic_preparation_requests": (
+                                len(PAGE_PREWARM_PATHS)
+                                if expect_page_prewarm
+                                else 0
+                            ),
+                            "automatic_preparation_request_counts": {
+                                path: (
+                                    1
+                                    if expect_page_prewarm
+                                    else 0
+                                )
+                                for path in PAGE_PREWARM_PATHS
+                            },
+                            "same_origin_application_requests_performed": (
+                                expect_page_prewarm
+                            ),
+                            "same_origin_application_request_count": (
+                                len(PAGE_PREWARM_PATHS)
+                                if expect_page_prewarm
+                                else 0
+                            ),
+                            "same_origin_application_request_paths": (
+                                list(PAGE_PREWARM_PATHS)
+                                if expect_page_prewarm
+                                else []
+                            ),
+                            "unexpected_same_origin_application_requests": 0,
                             "automatic_readiness_requests": 0,
                             "automatic_microphone_requests": 0,
                             "automatic_websockets": self.candidate_websockets,
@@ -6343,6 +6439,282 @@ def test_candidate_verifier_browser_flag_is_explicit() -> None:
     )
 
     assert args.browser_audit is True
+
+
+@pytest.mark.parametrize("expect_page_prewarm", [False, True])
+def test_candidate_origin_only_requests_expected_page_prewarm_and_keeps_conversation_idle(
+    release_root: Path,
+    expect_page_prewarm: bool,
+) -> None:
+    runner = FakeRunner(release_root)
+    lane = _lane(release_root, runner)
+    source_revision = "b" * 40
+    voice_release_expectation = (
+        {
+            "access_mode": deploy.VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+            "source_revision": source_revision,
+        }
+        if expect_page_prewarm
+        else None
+    )
+
+    evidence = lane._verify_candidate_origin(
+        label="public",
+        base_url="https://memorial.example.org",
+        public_origin="https://memorial.example.org",
+        voice_release_expectation=voice_release_expectation,
+        expect_page_prewarm=expect_page_prewarm,
+    )
+
+    candidate_call = next(
+        call
+        for call in runner.calls
+        if any(
+            item.endswith("verify_manfred_memorial_candidate.py")
+            for item in call
+        )
+    )
+    assert (
+        "--expect-page-prewarm" in candidate_call
+    ) is expect_page_prewarm
+    assert (
+        "browser_page_preparation_same_origin_requests"
+        in evidence["checks"]
+    ) is expect_page_prewarm
+    assert evidence["same_origin_application_requests_performed"] is True
+    assert (
+        evidence["direct_chat_same_origin_requests_performed"]
+        is (not expect_page_prewarm)
+    )
+    assert evidence["direct_chat_same_origin_request_count"] == (
+        0 if expect_page_prewarm else 2
+    )
+    assert (
+        evidence["page_preparation_same_origin_requests_performed"]
+        is expect_page_prewarm
+    )
+    assert evidence["upstream_provider_execution"] == "not_observed"
+    assert evidence["conversation_upstream_provider_execution"] == (
+        "not_requested" if expect_page_prewarm else "not_observed"
+    )
+    assert evidence["upstream_provider_observation_scope"] == (
+        "same_origin_application_http_only"
+    )
+    voice_verification = evidence["voice_release_verification"]
+    assert isinstance(voice_verification, dict)
+    assert voice_verification["upstream_provider_execution"] == (
+        "not_requested"
+    )
+    assert voice_verification["upstream_provider_execution_basis"]
+    browser = evidence["browser"]
+    assert isinstance(browser, dict)
+    assert browser["passive_quiet_window_ms"] == (
+        2200 if expect_page_prewarm else 0
+    )
+    assert browser["page_prewarm_expected"] is expect_page_prewarm
+    assert browser["automatic_preparation_request_paths"] == (
+        PAGE_PREWARM_PATHS if expect_page_prewarm else []
+    )
+    assert browser["automatic_preparation_requests"] == (
+        len(PAGE_PREWARM_PATHS) if expect_page_prewarm else 0
+    )
+    assert browser["automatic_preparation_request_counts"] == {
+        path: (1 if expect_page_prewarm else 0)
+        for path in PAGE_PREWARM_PATHS
+    }
+    assert (
+        browser["same_origin_application_requests_performed"]
+        is expect_page_prewarm
+    )
+    assert browser["same_origin_application_request_count"] == (
+        len(PAGE_PREWARM_PATHS) if expect_page_prewarm else 0
+    )
+    assert browser["same_origin_application_request_paths"] == (
+        PAGE_PREWARM_PATHS if expect_page_prewarm else []
+    )
+    for field in (
+        "unexpected_same_origin_application_requests",
+        "automatic_readiness_requests",
+        "automatic_microphone_requests",
+        "automatic_websockets",
+        "external_requests",
+        "failed_requests",
+        "page_errors",
+        "http_errors",
+    ):
+        assert browser[field] == 0
+
+
+def _passing_page_prewarm_candidate_payload() -> dict[str, object]:
+    return {
+        "schema": "ea.manfred_memorial_candidate_smoke.v2",
+        "status": "pass",
+        "checks": [
+            "archive_publication_gate",
+            "singular_memorial_alias",
+            "signed_release_passive_no_direct_chat",
+            (
+                "voice_public_evaluation_authorization_verified_"
+                "provider_not_called"
+            ),
+            "browser_page_preparation_same_origin_requests",
+            "browser_same_origin_application_boundary",
+        ],
+        "same_origin_application_requests_performed": True,
+        "direct_chat_same_origin_requests_performed": False,
+        "direct_chat_same_origin_request_count": 0,
+        "page_preparation_same_origin_requests_performed": True,
+        "upstream_provider_execution": "not_observed",
+        "conversation_upstream_provider_execution": "not_requested",
+        "upstream_provider_observation_scope": (
+            "same_origin_application_http_only"
+        ),
+        "voice_release_verification": {
+            "mode": "public_evaluation_authorization_verified",
+            "upstream_provider_execution": "not_requested",
+            "upstream_provider_execution_basis": (
+                "authorization_precedes_empty_text_validation_"
+                "without_provider_call"
+            ),
+        },
+        "page_get_performed": True,
+        "browser_audit": {
+            "status": "pass",
+            "conversation_action_exercised": False,
+            "passive_quiet_window_ms": 2200,
+            "page_prewarm_expected": True,
+            "automatic_preparation_request_paths": list(
+                PAGE_PREWARM_PATHS
+            ),
+            "automatic_preparation_requests": len(PAGE_PREWARM_PATHS),
+            "automatic_preparation_request_counts": {
+                path: 1 for path in PAGE_PREWARM_PATHS
+            },
+            "same_origin_application_requests_performed": True,
+            "same_origin_application_request_count": len(
+                PAGE_PREWARM_PATHS
+            ),
+            "same_origin_application_request_paths": list(
+                PAGE_PREWARM_PATHS
+            ),
+            "unexpected_same_origin_application_requests": 0,
+            "automatic_readiness_requests": 0,
+            "automatic_microphone_requests": 0,
+            "automatic_websockets": 0,
+            "external_requests": 0,
+            "failed_requests": 0,
+            "page_errors": 0,
+            "http_errors": 0,
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing_preparation_check",
+        "missing_preparation_provider_boundary",
+        "missing_preparation_count",
+        "missing_preparation_counts",
+        "mismatched_prewarm_expectation",
+        "mismatched_preparation_paths",
+        "insufficient_preparation_requests",
+        "excessive_warmup_requests",
+        "mismatched_preparation_total",
+        "short_passive_quiet_window",
+        "misleading_upstream_execution",
+        "misleading_conversation_upstream_execution",
+        "missing_observation_scope",
+        "legacy_provider_false_field",
+        "legacy_browser_provider_count",
+        "legacy_voice_provider_false_field",
+    ],
+)
+def test_candidate_origin_rejects_missing_or_mismatched_page_prewarm_evidence(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    runner = FakeRunner(release_root)
+    lane = _lane(release_root, runner)
+    payload = _passing_page_prewarm_candidate_payload()
+    browser = payload["browser_audit"]
+    assert isinstance(browser, dict)
+    if mutation == "missing_preparation_check":
+        checks = payload["checks"]
+        assert isinstance(checks, list)
+        checks.remove("browser_page_preparation_same_origin_requests")
+    elif mutation == "missing_preparation_provider_boundary":
+        del payload["page_preparation_same_origin_requests_performed"]
+    elif mutation == "missing_preparation_count":
+        del browser["automatic_preparation_requests"]
+    elif mutation == "missing_preparation_counts":
+        del browser["automatic_preparation_request_counts"]
+    elif mutation == "mismatched_prewarm_expectation":
+        browser["page_prewarm_expected"] = False
+    elif mutation == "mismatched_preparation_paths":
+        browser["automatic_preparation_request_paths"] = (
+            PAGE_PREWARM_PATHS[1:]
+        )
+    elif mutation == "insufficient_preparation_requests":
+        browser["automatic_preparation_requests"] = (
+            len(PAGE_PREWARM_PATHS) - 1
+        )
+    elif mutation == "excessive_warmup_requests":
+        counts = browser["automatic_preparation_request_counts"]
+        assert isinstance(counts, dict)
+        counts["/memorials/manfred/warmup"] = 3
+        browser["automatic_preparation_requests"] = (
+            len(PAGE_PREWARM_PATHS) + 2
+        )
+    elif mutation == "mismatched_preparation_total":
+        browser["automatic_preparation_requests"] = (
+            len(PAGE_PREWARM_PATHS) + 1
+        )
+    elif mutation == "short_passive_quiet_window":
+        browser["passive_quiet_window_ms"] = 1999
+    elif mutation == "misleading_upstream_execution":
+        payload["upstream_provider_execution"] = False
+    elif mutation == "misleading_conversation_upstream_execution":
+        payload["conversation_upstream_provider_execution"] = False
+    elif mutation == "missing_observation_scope":
+        del payload["upstream_provider_observation_scope"]
+    elif mutation == "legacy_provider_false_field":
+        payload["provider_calls_performed"] = False
+    elif mutation == "legacy_browser_provider_count":
+        browser["automatic_provider_requests"] = 0
+    elif mutation == "legacy_voice_provider_false_field":
+        voice_verification = payload["voice_release_verification"]
+        assert isinstance(voice_verification, dict)
+        voice_verification["provider_calls_performed"] = False
+    captured_args: list[str] = []
+
+    def verifier_payload(
+        _script: str,
+        *args: str,
+        **_kwargs: object,
+    ) -> dict[str, object]:
+        captured_args.extend(args)
+        return payload
+
+    monkeypatch.setattr(lane, "_run_json_script", verifier_payload)
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="candidate_verifier_contract_failed:public",
+    ):
+        lane._verify_candidate_origin(
+            label="public",
+            base_url="https://memorial.example.org",
+            public_origin="https://memorial.example.org",
+            voice_release_expectation={
+                "access_mode": deploy.VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+                "source_revision": "b" * 40,
+            },
+            expect_page_prewarm=True,
+        )
+
+    assert "--expect-page-prewarm" in captured_args
 
 
 @pytest.mark.parametrize(

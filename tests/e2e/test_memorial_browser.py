@@ -904,7 +904,7 @@ def test_memorial_public_page_is_conversation_only_accessible_and_private_by_def
         assert disclosure.is_visible()
         disclosure_text = disclosure.inner_text()
         assert "KI-Rekonstruktion" in disclosure_text
-        assert "nicht der echte Manfred" in disclosure_text
+        assert "Sie ist nicht Manfred und spricht nicht für ihn." in disclosure_text
         assert "Die Stimme ist künstlich erzeugt." in disclosure_text
         assert "erst nach „Gespräch beginnen“" in disclosure_text
 
@@ -1459,7 +1459,7 @@ def test_memorial_browser_voice_warmup_failure_stays_minimal_and_exposes_recover
             timeout=7000,
         )
         _assert_minimal_memorial_single_button(page, "Gespräch beginnen")
-        assert len(warmup_requests) == 1
+        assert len(warmup_requests) == 2
 
         conversation.click()
         page.wait_for_function(
@@ -1473,7 +1473,7 @@ def test_memorial_browser_voice_warmup_failure_stays_minimal_and_exposes_recover
             "() => document.getElementById('memorial-conversation').disabled === false",
             timeout=7000,
         )
-        assert len(warmup_requests) == 2
+        assert len(warmup_requests) == 3
         _assert_minimal_memorial_single_button(page, "Gespräch beginnen")
     finally:
         context.close()
@@ -1725,6 +1725,7 @@ def test_memorial_recovery_receipts_remain_portable_without_public_management_ui
         )
         assert response is not None and response.ok
         assert storage_page.locator("#memorial-contribution").count() == 0
+        _await_conversation_ready(storage_page)
         _assert_minimal_memorial_single_button(storage_page, "Gespräch beginnen")
         direct = storage_blocked_context.request.post(
             f"{base_url}/memorials/{slug}/contributions",

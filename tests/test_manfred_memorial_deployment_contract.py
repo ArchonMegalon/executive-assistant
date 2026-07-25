@@ -884,6 +884,102 @@ def test_verify_candidate_wires_archive_publication_gate(
     ]
 
 
+@pytest.mark.parametrize(
+    ("browser_audit", "voice_release_expectation"),
+    [
+        (
+            False,
+            {
+                "access_mode": "public-release",
+                "source_revision": "b" * 40,
+            },
+        ),
+        (True, None),
+    ],
+)
+def test_verify_candidate_page_prewarm_requires_browser_and_signed_release(
+    browser_audit: bool,
+    voice_release_expectation: dict[str, object] | None,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="candidate_page_prewarm_requires_browser_signed_voice_release",
+    ):
+        candidate_verify.verify_candidate(
+            base_url="https://memorial.example.test",
+            public_origin="https://memorial.example.test",
+            wait_seconds=1,
+            submit_receipt=None,
+            withdraw_receipt=None,
+            browser_audit=browser_audit,
+            expect_page_prewarm=True,
+            voice_release_expectation=voice_release_expectation,
+        )
+
+
+def test_verify_candidate_signed_release_always_requires_passive_browser_audit() -> None:
+    with pytest.raises(
+        ValueError,
+        match="candidate_signed_voice_release_requires_browser_audit",
+    ):
+        candidate_verify.verify_candidate(
+            base_url="https://memorial.example.test",
+            public_origin="https://memorial.example.test",
+            wait_seconds=1,
+            submit_receipt=None,
+            withdraw_receipt=None,
+            browser_audit=False,
+            voice_release_expectation={
+                "access_mode": "public-release",
+                "source_revision": "b" * 40,
+            },
+        )
+
+
+def test_candidate_page_prewarm_guards_all_same_origin_application_transports() -> None:
+    assert {
+        "/memorials/manfred/chat",
+        "/memorials/manfred/conversation-turn",
+        "/memorials/manfred/readiness",
+        "/memorials/manfred/realtime",
+        "/memorials/manfred/realtime/webrtc",
+        "/memorials/manfred/speech-transcribe",
+        "/memorials/manfred/video-meeting/session",
+    } <= candidate_verify.PAGE_PREWARM_FORBIDDEN_AUTOMATIC_PATHS
+    assert candidate_verify.SAME_ORIGIN_APPLICATION_RESOURCE_TYPES == {
+        "eventsource",
+        "fetch",
+        "ping",
+        "xhr",
+    }
+    assert candidate_verify.PAGE_PREWARM_ALLOWED_AUTOMATIC_PATHS == set(
+        candidate_verify.PAGE_PREWARM_REQUIRED_PATHS
+    )
+    assert candidate_verify.PAGE_PREWARM_ALLOWED_WEBSOCKET_PATHS == set()
+    assert candidate_verify.PASSIVE_BROWSER_QUIET_WINDOW_MS >= 2_000
+    assert candidate_verify._http_origin(
+        "wss://memorial.example.test/realtime"
+    ) == candidate_verify._http_origin("https://memorial.example.test/")
+    assert candidate_verify._http_origin(
+        "ws://127.0.0.1:8090/realtime"
+    ) == candidate_verify._http_origin("http://127.0.0.1:8090/")
+
+
+def test_candidate_page_prewarm_audio_contract_is_exact_wave() -> None:
+    valid_wave = b"RIFF" + (b"\x00" * 4) + b"WAVE" + (b"\x00" * 116)
+
+    assert candidate_verify.PAGE_PREWARM_ACKNOWLEDGEMENT_TEXT == (
+        "Worüber möchtest du sprechen?"
+    )
+    assert candidate_verify._normalized_content_type(
+        "audio/wav; charset=binary"
+    ) == "audio/wav"
+    assert candidate_verify._is_riff_wave_payload(valid_wave) is True
+    assert candidate_verify._is_riff_wave_payload(
+        b"not-a-wave-payload" * 16
+    ) is False
+
+
 def test_candidate_keeps_governed_spatial_http_routes_retired(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2392,6 +2488,11 @@ def test_manfred_public_page_uses_scoped_talk_only_minimal_theme() -> None:
     assert 'if (!memorialConversationOnly) activateProtectedForm(textTurnForm);' in conversation_only_html
     assert (
         "!memorialConversationOnly && memorialVoiceReleaseAllowed && isPwaLaunch"
+        in conversation_only_html
+    )
+    assert "const memorialPagePrewarmEnabled = true;" in conversation_only_html
+    assert (
+        "if (memorialPagePrewarmEnabled) void primeMemorialLanding();"
         in conversation_only_html
     )
     rendered_contract = candidate_verify.verify_conversation_only_page_html(

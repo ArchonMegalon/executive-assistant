@@ -192,6 +192,37 @@ BROWSER_ZERO_COUNT_FIELDS = (
     "page_errors",
     "http_errors",
 )
+CANDIDATE_VERIFIER_BROWSER_ZERO_COUNT_FIELDS = (
+    "unexpected_same_origin_application_requests",
+    "automatic_readiness_requests",
+    "automatic_microphone_requests",
+    "automatic_websockets",
+    "external_requests",
+    "failed_requests",
+    "page_errors",
+    "http_errors",
+)
+PAGE_PREWARM_REQUIRED_PATHS = (
+    "/memorials/manfred/speech-synthesize",
+    "/memorials/manfred/warmup",
+    "/memorials/manfred/warmup-status",
+)
+PAGE_PREWARM_REQUEST_COUNT_BOUNDS = {
+    "/memorials/manfred/speech-synthesize": (1, 1),
+    "/memorials/manfred/warmup": (1, 2),
+    "/memorials/manfred/warmup-status": (1, 64),
+}
+MIN_PASSIVE_BROWSER_QUIET_WINDOW_MS = 2_000
+UPSTREAM_EXECUTION_NOT_OBSERVED = "not_observed"
+UPSTREAM_EXECUTION_NOT_REQUESTED = "not_requested"
+UPSTREAM_PROVIDER_OBSERVATION_SCOPE = "same_origin_application_http_only"
+LEGACY_MISLEADING_PROVIDER_FIELDS = frozenset(
+    {
+        "provider_calls_performed",
+        "conversation_provider_calls_performed",
+        "page_preparation_provider_request_performed",
+    }
+)
 OPENAPI_EVIDENCE_FIELDS = frozenset(
     {
         "path_count",
@@ -1927,6 +1958,34 @@ def _has_exact_zero_browser_counts(payload: Mapping[str, Any]) -> bool:
     return all(
         type(payload.get(field)) is int and payload[field] == 0
         for field in BROWSER_ZERO_COUNT_FIELDS
+    )
+
+
+def _has_exact_zero_candidate_verifier_browser_counts(
+    payload: Mapping[str, Any],
+) -> bool:
+    return all(
+        type(payload.get(field)) is int and payload[field] == 0
+        for field in CANDIDATE_VERIFIER_BROWSER_ZERO_COUNT_FIELDS
+    )
+
+
+def _valid_page_prewarm_request_counts(
+    value: object,
+    *,
+    expected: bool,
+) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    if set(value) != set(PAGE_PREWARM_REQUIRED_PATHS):
+        return False
+    if any(type(value.get(path)) is not int for path in PAGE_PREWARM_REQUIRED_PATHS):
+        return False
+    if not expected:
+        return all(value[path] == 0 for path in PAGE_PREWARM_REQUIRED_PATHS)
+    return all(
+        lower <= value[path] <= upper
+        for path, (lower, upper) in PAGE_PREWARM_REQUEST_COUNT_BOUNDS.items()
     )
 
 
@@ -10691,6 +10750,7 @@ class MemorialDeployLane:
         base_url: str,
         public_origin: str,
         voice_release_expectation: Mapping[str, object] | None,
+        expect_page_prewarm: bool = False,
     ) -> dict[str, Any]:
         verifier_args = [
             "--base-url",
@@ -10701,15 +10761,26 @@ class MemorialDeployLane:
             str(max(1, min(600, int(self.wait_seconds or 1)))),
             "--browser-audit",
         ]
+        if expect_page_prewarm:
+            verifier_args.append("--expect-page-prewarm")
         required_checks = {
             "archive_publication_gate",
             "singular_memorial_alias",
-            "source_grounded_first_person_reconstruction_boundary",
-            "browser_provider_websocket_boundary",
+            "browser_same_origin_application_boundary",
         }
+        if expect_page_prewarm:
+            required_checks.add(
+                "browser_page_preparation_same_origin_requests"
+            )
         if voice_release_expectation is None:
-            required_checks.add("voice_provider_boundary_blocked")
+            required_checks.update(
+                {
+                    "source_grounded_first_person_reconstruction_boundary",
+                    "voice_provider_boundary_blocked",
+                }
+            )
         else:
+            required_checks.add("signed_release_passive_no_direct_chat")
             access_mode = str(
                 voice_release_expectation.get("access_mode") or ""
             )
@@ -10756,16 +10827,119 @@ class MemorialDeployLane:
             if str(item).strip()
         }
         browser = dict(payload.get("browser_audit") or {})
+        voice_release_verification = dict(
+            payload.get("voice_release_verification") or {}
+        )
+        expected_preparation_paths = (
+            list(PAGE_PREWARM_REQUIRED_PATHS)
+            if expect_page_prewarm
+            else []
+        )
+        preparation_count_evidence = browser.get(
+            "automatic_preparation_request_counts"
+        )
+        preparation_counts_valid = _valid_page_prewarm_request_counts(
+            preparation_count_evidence,
+            expected=expect_page_prewarm,
+        )
+        preparation_request_total = (
+            sum(
+                int(preparation_count_evidence[path])
+                for path in PAGE_PREWARM_REQUIRED_PATHS
+            )
+            if preparation_counts_valid
+            and isinstance(preparation_count_evidence, Mapping)
+            else -1
+        )
+        expected_direct_chat_requests = (
+            2 if voice_release_expectation is None else 0
+        )
+        expected_conversation_upstream_execution = (
+            UPSTREAM_EXECUTION_NOT_OBSERVED
+            if expected_direct_chat_requests
+            else UPSTREAM_EXECUTION_NOT_REQUESTED
+        )
+        passive_quiet_window_ms = browser.get(
+            "passive_quiet_window_ms"
+        )
         if (
-            str(payload.get("schema") or "") != "ea.manfred_memorial_candidate_smoke.v1"
+            str(payload.get("schema") or "")
+            != "ea.manfred_memorial_candidate_smoke.v2"
             or str(payload.get("status") or "").lower() != "pass"
             or not required_checks <= checks
-            or payload.get("provider_calls_performed") is not False
+            or any(
+                field in payload
+                for field in LEGACY_MISLEADING_PROVIDER_FIELDS
+            )
+            or "automatic_provider_requests" in browser
+            or payload.get(
+                "same_origin_application_requests_performed"
+            )
+            is not True
+            or payload.get(
+                "direct_chat_same_origin_requests_performed"
+            )
+            is not bool(expected_direct_chat_requests)
+            or payload.get("direct_chat_same_origin_request_count")
+            != expected_direct_chat_requests
+            or payload.get(
+                "page_preparation_same_origin_requests_performed"
+            )
+            is not expect_page_prewarm
+            or payload.get("upstream_provider_execution")
+            != UPSTREAM_EXECUTION_NOT_OBSERVED
+            or payload.get(
+                "conversation_upstream_provider_execution"
+            )
+            != expected_conversation_upstream_execution
+            or payload.get("upstream_provider_observation_scope")
+            != UPSTREAM_PROVIDER_OBSERVATION_SCOPE
+            or voice_release_verification.get(
+                "upstream_provider_execution"
+            )
+            != UPSTREAM_EXECUTION_NOT_REQUESTED
+            or not str(
+                voice_release_verification.get(
+                    "upstream_provider_execution_basis"
+                )
+                or ""
+            ).strip()
+            or "provider_calls_performed"
+            in voice_release_verification
             or payload.get("page_get_performed") is not True
             or str(browser.get("status") or "").lower() != "pass"
             or browser.get("conversation_action_exercised")
             is not (voice_release_expectation is None)
-            or not _has_exact_zero_browser_counts(browser)
+            or type(passive_quiet_window_ms) is not int
+            or (
+                voice_release_expectation is None
+                and passive_quiet_window_ms != 0
+            )
+            or (
+                voice_release_expectation is not None
+                and passive_quiet_window_ms
+                < MIN_PASSIVE_BROWSER_QUIET_WINDOW_MS
+            )
+            or browser.get("page_prewarm_expected")
+            is not expect_page_prewarm
+            or browser.get("automatic_preparation_request_paths")
+            != expected_preparation_paths
+            or not preparation_counts_valid
+            or type(browser.get("automatic_preparation_requests"))
+            is not int
+            or browser.get("automatic_preparation_requests")
+            != preparation_request_total
+            or browser.get(
+                "same_origin_application_requests_performed"
+            )
+            is not expect_page_prewarm
+            or browser.get("same_origin_application_request_count")
+            != preparation_request_total
+            or browser.get("same_origin_application_request_paths")
+            != expected_preparation_paths
+            or not _has_exact_zero_candidate_verifier_browser_counts(
+                browser
+            )
         ):
             self._record_check(
                 "candidate_verifier_origin",
@@ -10778,12 +10952,66 @@ class MemorialDeployLane:
             "origin": label,
             "status": "pass",
             "checks": sorted(required_checks),
-            "provider_calls_performed": False,
+            "same_origin_application_requests_performed": True,
+            "direct_chat_same_origin_requests_performed": bool(
+                expected_direct_chat_requests
+            ),
+            "direct_chat_same_origin_request_count": (
+                expected_direct_chat_requests
+            ),
+            "page_preparation_same_origin_requests_performed": (
+                expect_page_prewarm
+            ),
+            "upstream_provider_execution": (
+                UPSTREAM_EXECUTION_NOT_OBSERVED
+            ),
+            "conversation_upstream_provider_execution": (
+                expected_conversation_upstream_execution
+            ),
+            "upstream_provider_observation_scope": (
+                UPSTREAM_PROVIDER_OBSERVATION_SCOPE
+            ),
+            "voice_release_verification": {
+                "mode": str(
+                    voice_release_verification.get("mode") or ""
+                ),
+                "upstream_provider_execution": (
+                    UPSTREAM_EXECUTION_NOT_REQUESTED
+                ),
+                "upstream_provider_execution_basis": str(
+                    voice_release_verification[
+                        "upstream_provider_execution_basis"
+                    ]
+                ),
+            },
             "browser": {
                 "conversation_action_exercised": (
                     voice_release_expectation is None
                 ),
-                "automatic_provider_requests": 0,
+                "passive_quiet_window_ms": int(
+                    passive_quiet_window_ms
+                ),
+                "page_prewarm_expected": expect_page_prewarm,
+                "automatic_preparation_request_paths": list(
+                    browser["automatic_preparation_request_paths"]
+                ),
+                "automatic_preparation_requests": int(
+                    browser["automatic_preparation_requests"]
+                ),
+                "automatic_preparation_request_counts": {
+                    path: int(preparation_count_evidence[path])
+                    for path in PAGE_PREWARM_REQUIRED_PATHS
+                },
+                "same_origin_application_requests_performed": (
+                    expect_page_prewarm
+                ),
+                "same_origin_application_request_count": (
+                    preparation_request_total
+                ),
+                "same_origin_application_request_paths": list(
+                    browser["same_origin_application_request_paths"]
+                ),
+                "unexpected_same_origin_application_requests": 0,
                 "automatic_readiness_requests": 0,
                 "automatic_microphone_requests": 0,
                 "automatic_websockets": 0,
@@ -10859,6 +11087,7 @@ class MemorialDeployLane:
                 base_url=validated_public_origin,
                 public_origin=validated_public_origin,
                 voice_release_expectation=voice_release_expectation,
+                expect_page_prewarm=voice_release_expectation is not None,
             )
         ]
         self.receipt["candidate_verifier"] = evidence
