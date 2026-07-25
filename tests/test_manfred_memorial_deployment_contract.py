@@ -419,7 +419,7 @@ def test_hosted_clone_config_rejects_pronunciation_dictionary(
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("provider_language", "de-AT"),
+        ("provider_language", "de-DE"),
         ("provider_language", "en-US"),
         ("lang", "de-DE"),
         ("lang", "en-US"),
@@ -2607,8 +2607,8 @@ def test_manfred_public_page_uses_scoped_talk_only_minimal_theme() -> None:
     assert (
         'id="memorial-conversation" class="hero-cta is-readying" '
         'data-hero-action="conversation" data-conversation-state="preparing" '
-        'title="Gespräch wird vorbereitet …" '
-        'aria-label="Gespräch wird vorbereitet …"'
+        'title="Gespräch beginnen" '
+        'aria-label="Gespräch beginnen"'
         in conversation_only_html
     )
     assert 'aria-expanded="false" aria-busy="true"' in conversation_only_html
@@ -2665,7 +2665,7 @@ def test_manfred_public_page_uses_scoped_talk_only_minimal_theme() -> None:
         "evaluation_status": "",
         "operator_preview": "",
         "initial_visible_button_ids": ["memorial-conversation"],
-        "conversation_button_label": "Gespräch wird vorbereitet …",
+        "conversation_button_label": "Gespräch beginnen",
         "conversation_button_disabled": True,
         "conversation_button_aria_disabled": "true",
         "conversation_button_aria_busy": "true",

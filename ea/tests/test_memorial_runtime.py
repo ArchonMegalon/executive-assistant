@@ -165,7 +165,12 @@ class MemorialRuntimeTests(unittest.TestCase):
         self.assertNotIn("PRIVATE_SOURCE_SENTINEL", rendered)
         self.assertNotIn("PRIVATE_PROFILE_SENTINEL", rendered)
         self.assertIn(
-            'id="memorial-speech-message" role="status" aria-live="polite" aria-atomic="true"',
+            'id="memorial-conversation-status" role="status" '
+            'aria-live="polite" aria-atomic="true">Gespräch wird vorbereitet.</p>',
+            rendered,
+        )
+        self.assertIn(
+            '<link rel="icon" href="/memorials/manfred/icon-180.png">',
             rendered,
         )
         self.assertIn(
@@ -181,7 +186,11 @@ class MemorialRuntimeTests(unittest.TestCase):
             'action="/memorials/manfred/chat" hidden inert aria-hidden="true"',
             rendered,
         )
-        self.assertNotIn('id="memorial-speech-note" role="status"', rendered)
+        self.assertIn(
+            'id="memorial-speech-message" role="status" '
+            'aria-live="polite" aria-atomic="true"',
+            rendered,
+        )
         self.assertNotIn('id="memorial-speech-transcript-shell" aria-live=', rendered)
         self.assertIn('id="memorial-speech-audio" preload="none" aria-hidden="true"', rendered)
         self.assertNotIn(" autoplay", rendered)
@@ -191,10 +200,16 @@ class MemorialRuntimeTests(unittest.TestCase):
         )
         self.assertIn("Die Stimme ist künstlich erzeugt.", rendered)
         self.assertIn(
-            "Mikrofon und Audio werden erst nach „Gespräch beginnen“ verarbeitet.",
+            "Dein Mikrofon und deine Audioeingabe werden erst nach "
+            "„Gespräch beginnen“ verarbeitet.",
             rendered,
         )
-        self.assertIn('title="Gespräch beginnen" aria-label="Gespräch beginnen"', rendered)
+        self.assertIn(
+            'data-conversation-state="preparing" '
+            'title="Gespräch beginnen" '
+            'aria-label="Gespräch beginnen"',
+            rendered,
+        )
         self.assertIn("const memorialPagePrewarmEnabled = true;", rendered)
         self.assertIn(
             "if (!memorialConversationOnly) activateProtectedForm(textTurnForm);",

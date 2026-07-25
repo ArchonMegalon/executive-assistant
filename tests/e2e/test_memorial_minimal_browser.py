@@ -893,6 +893,12 @@ def test_memorial_conversation_only_page_has_one_main_without_ui_noise(
             "memorial-conversation"
         ]
         assert page.evaluate("window.__getUserMediaCalls") == 0
+        assert page.locator("#memorial-conversation").get_attribute(
+            "aria-pressed"
+        ) == "false"
+        assert page.locator("#memorial-conversation-status").get_attribute(
+            "role"
+        ) == "status"
 
         disclosure = page.locator("#memorial-conversation-disclosure")
         assert disclosure.is_visible()
@@ -1088,17 +1094,35 @@ def test_memorial_transient_voice_warmup_stays_preparing_until_ready(
         assert websocket_urls == []
         assert page.locator("#memorial-conversation").is_disabled()
         assert page.locator("#memorial-conversation").inner_text().strip() == (
-            "Gespräch wird vorbereitet …"
+            "Gespräch beginnen"
         )
         assert page.locator("#memorial-conversation").get_attribute(
             "aria-label"
-        ) == "Gespräch wird vorbereitet …"
+        ) == "Gespräch beginnen"
         assert page.locator("#memorial-conversation").get_attribute(
             "title"
-        ) == "Gespräch wird vorbereitet …"
+        ) == "Gespräch beginnen"
         assert page.locator("#memorial-conversation").get_attribute(
             "aria-busy"
         ) == "true"
+        assert page.locator("#memorial-conversation-status").inner_text() == (
+            "Gespräch wird vorbereitet …"
+        )
+        requests_before_focus = (
+            len(warmup_requests),
+            len(status_requests),
+        )
+        page.evaluate(
+            """() => {
+              document.dispatchEvent(new Event("visibilitychange"));
+              window.dispatchEvent(new Event("focus"));
+            }"""
+        )
+        page.wait_for_timeout(150)
+        assert (
+            len(warmup_requests),
+            len(status_requests),
+        ) == requests_before_focus
 
         page.evaluate("window.__advanceMemorialClock(46_000)")
         page.wait_for_timeout(2600)
@@ -1114,7 +1138,7 @@ def test_memorial_transient_voice_warmup_stays_preparing_until_ready(
             "aria-busy"
         ) == "true"
         assert page.locator("#memorial-conversation").inner_text().strip() == (
-            "Gespräch wird vorbereitet …"
+            "Gespräch beginnen"
         )
         assert page.locator("#memorial-conversation-region").get_attribute(
             "data-conversation-state"
@@ -1162,6 +1186,25 @@ def test_memorial_transient_voice_warmup_stays_preparing_until_ready(
             f"{base_url}/memorials/{slug}/warmup",
             f"{base_url}/memorials/{slug}/warmup",
         ]
+        requests_before_ready_focus = (
+            len(warmup_requests),
+            len(status_requests),
+        )
+        page.evaluate(
+            """() => {
+              document.dispatchEvent(new Event("visibilitychange"));
+              window.dispatchEvent(new Event("focus"));
+            }"""
+        )
+        page.wait_for_timeout(150)
+        assert (
+            len(warmup_requests),
+            len(status_requests),
+        ) == requests_before_ready_focus
+        assert page.locator("#memorial-conversation-status").inner_text() == (
+            "Bereit für deine Frage."
+        )
+        assert button.get_attribute("aria-pressed") == "false"
 
         button.click()
         page.wait_for_function(
@@ -1210,6 +1253,10 @@ def test_memorial_blocked_voice_release_fails_closed_without_requesting_micropho
         """
     )
     page: Page = context.new_page()
+    requested_urls: list[str] = []
+    websocket_urls: list[str] = []
+    page.on("request", lambda request: requested_urls.append(request.url))
+    page.on("websocket", lambda websocket: websocket_urls.append(websocket.url))
     try:
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
         assert response is not None and response.ok
@@ -1217,9 +1264,18 @@ def test_memorial_blocked_voice_release_fails_closed_without_requesting_micropho
         assert page.locator("#memorial-conversation-region").get_attribute("data-voice-release") == "blocked"
         conversation = page.get_by_role("button", name="Gespräch beginnen", exact=True)
         assert conversation.is_visible()
-        assert conversation.is_enabled()
+        assert conversation.is_disabled()
         assert conversation.get_attribute("aria-label") == "Gespräch beginnen"
         assert conversation.get_attribute("title") == "Gespräch beginnen"
+        assert conversation.get_attribute("aria-pressed") == "false"
+        assert conversation.get_attribute("aria-busy") == "false"
+        assert conversation.get_attribute("data-conversation-state") == "blocked"
+        assert page.locator("#memorial-conversation-region").get_attribute(
+            "data-conversation-state"
+        ) == "blocked"
+        assert page.locator("#memorial-conversation-status").inner_text() == (
+            "Sprechen ist derzeit nicht verfügbar."
+        )
         assert page.locator("#memorial-text-turn-form").is_hidden()
         assert page.locator("#memorial-retry-button").is_hidden()
         assert page.locator("#memorial-voice-recovery-note").is_hidden()
@@ -1230,18 +1286,24 @@ def test_memorial_blocked_voice_release_fails_closed_without_requesting_micropho
         assert page.locator("button:visible").count() == 1
         assert page.locator("input:visible,textarea:visible,select:visible").count() == 0
 
-        conversation.click()
-        page.wait_for_function(
-            """() => {
-              const message = document.getElementById("memorial-speech-message");
-              return Boolean(
-                message
-                && message.textContent.includes("Sprechen ist derzeit nicht verfügbar")
-              );
-            }""",
-            timeout=3000,
-        )
+        page.evaluate("window.__memorialToggleConversation()")
+        page.wait_for_timeout(200)
         assert page.evaluate("window.__getUserMediaCalls") == 0
+        assert websocket_urls == []
+        assert not any(
+            url.endswith(
+                (
+                    f"/memorials/{slug}/warmup",
+                    f"/memorials/{slug}/warmup-status",
+                    f"/memorials/{slug}/readiness",
+                    f"/memorials/{slug}/speech-synthesize",
+                    f"/memorials/{slug}/speech-transcribe",
+                    f"/memorials/{slug}/conversation-turn",
+                    f"/memorials/{slug}/realtime",
+                )
+            )
+            for url in requested_urls
+        )
         assert page.locator("button:visible").count() == 1
         assert page.locator("input:visible,textarea:visible,select:visible").count() == 0
         assert page.locator("#memorial-text-turn-form").is_hidden()
@@ -1308,11 +1370,13 @@ def test_memorial_public_evaluation_is_enabled_without_review_cookie_and_stays_m
             "memorial-conversation-disclosure"
         )
         assert page.locator("#memorial-conversation-disclosure").inner_text() == (
-            "Öffentliche Testphase. Diese KI-Rekonstruktion antwortet auf Grundlage "
-            "freigegebener Erinnerungen und Quellen in der Ich-Perspektive. Sie ist "
+            "Öffentliche Testphase. Diese KI-Rekonstruktion antwortet auf der Grundlage "
+            "freigegebener Erinnerungen und Quellen aus der Ich-Perspektive. Sie ist "
             "nicht Manfred und spricht nicht für ihn. Die künstliche Stimme wird noch "
-            "beurteilt. Mikrofon und Audio werden erst nach „Gespräch beginnen“ verarbeitet."
+            "geprüft. Dein Mikrofon und deine Audioeingabe werden erst nach "
+            "„Gespräch beginnen“ verarbeitet."
         )
+        assert conversation.get_attribute("aria-pressed") == "false"
         assert all(
             cookie["name"] != "ea_manfred_voice_review"
             for cookie in context.cookies()
@@ -1382,7 +1446,9 @@ def test_memorial_public_evaluation_revocation_blocks_before_microphone_or_socke
         """
     )
     page: Page = context.new_page()
+    requested_urls: list[str] = []
     websockets: list[str] = []
+    page.on("request", lambda request: requested_urls.append(request.url))
     page.on("websocket", lambda websocket: websockets.append(websocket.url))
     try:
         response = page.goto(
@@ -1427,9 +1493,47 @@ def test_memorial_public_evaluation_revocation_blocks_before_microphone_or_socke
         assert page.locator("button:visible").count() == 1
         assert page.locator("input:visible,textarea:visible,select:visible").count() == 0
         assert conversation.inner_text().strip() == "Gespräch beginnen"
+        assert conversation.is_disabled()
+        assert conversation.get_attribute("data-conversation-state") == "blocked"
         assert all(
             cookie["name"] != "ea_manfred_voice_review"
             for cookie in context.cookies()
+        )
+
+        protected_suffixes = (
+            f"/memorials/{slug}/warmup",
+            f"/memorials/{slug}/warmup-status",
+            f"/memorials/{slug}/readiness",
+            f"/memorials/{slug}/speech-synthesize",
+        )
+        protected_requests_before_return = [
+            url for url in requested_urls if url.endswith(protected_suffixes)
+        ]
+        decision.update(
+            {
+                "public_evaluation": True,
+                "status": "public_evaluation",
+                "receipt_status": "public_evaluation_authorized",
+                "access_mode": "owner-authorized-public-evaluation",
+                "disclosure_required": True,
+            }
+        )
+        public_memorials._memorial_runtime_readiness_cache_invalidate(slug)
+        page.evaluate(
+            """() => {
+              document.dispatchEvent(new Event("visibilitychange"));
+              window.dispatchEvent(new Event("focus"));
+            }"""
+        )
+        page.wait_for_timeout(700)
+
+        assert [
+            url for url in requested_urls if url.endswith(protected_suffixes)
+        ] == protected_requests_before_return
+        assert conversation.is_disabled()
+        assert conversation.get_attribute("data-conversation-state") == "blocked"
+        assert page.locator("#memorial-speech-message").inner_text() == (
+            "Sprechen ist derzeit nicht verfügbar."
         )
     finally:
         context.close()

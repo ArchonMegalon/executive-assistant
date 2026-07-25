@@ -29,6 +29,7 @@ _OPENVOICE_DEFAULT_BASE_URL = "http://127.0.0.1:8093"
 _OPENVOICE_CLONE_CLIP_SECONDS = 180
 _OPENVOICE_CLONE_SAMPLE_RATE = 16000
 _OPENVOICE_MAX_CURATED_CLIPS = 3
+_UNMIXR_CLONE_MIN_SECONDS = 30
 _UNMIXR_CLONE_CLIP_SECONDS = 75
 _UNMIXR_CLONE_SAMPLE_RATE = 16000
 _UNMIXR_API_KEY_ENV = "UNMIXR_API_KEY"
@@ -782,6 +783,13 @@ def _prepare_clone_upload_path(path: Path) -> tuple[Path, bool]:
 def _prepare_unmixr_clone_upload_path(path: Path) -> Path:
     if not path.is_file():
         raise HTTPException(status_code=400, detail="voice_profile_sample_missing")
+    duration_seconds = _ffprobe_duration_seconds(path)
+    if duration_seconds <= 0:
+        raise HTTPException(status_code=400, detail="voice_profile_sample_invalid")
+    if duration_seconds + 0.05 < float(_UNMIXR_CLONE_MIN_SECONDS):
+        raise HTTPException(status_code=400, detail="voice_profile_sample_too_short")
+    if duration_seconds > float(_UNMIXR_CLONE_CLIP_SECONDS) + 0.05:
+        raise HTTPException(status_code=400, detail="voice_profile_sample_too_long")
     handle = tempfile.NamedTemporaryFile(prefix="ea-unmixr-clone-", suffix=".wav", delete=False)
     temp_path = Path(handle.name)
     handle.close()
@@ -885,7 +893,11 @@ def openvoice_clone_request(
 def unmixr_clone_request(*, slug: str, voice_label: str, sample_paths: list[Path]) -> str:
     if not sample_paths:
         raise HTTPException(status_code=400, detail="voice_profile_no_samples")
-    sample_paths = _curate_clone_paths(sample_paths)
+    if len(sample_paths) != 1:
+        raise HTTPException(
+            status_code=400,
+            detail="voice_profile_requires_single_prepared_sample",
+        )
     source_path = sample_paths[0]
     upload_path = _prepare_unmixr_clone_upload_path(source_path)
     temp_paths: list[Path] = [upload_path]

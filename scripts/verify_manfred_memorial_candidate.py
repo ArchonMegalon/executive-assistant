@@ -1316,6 +1316,7 @@ def verify_conversation_only_page_html(page_body: bytes) -> dict[str, object]:
         "memorial-conversation-region",
         "memorial-conversation",
         "memorial-conversation-disclosure",
+        "memorial-conversation-status",
         "memorial-text-turn-form",
         "memorial-text-turn-input",
         "memorial-text-guidance",
@@ -1357,13 +1358,9 @@ def verify_conversation_only_page_html(page_body: bytes) -> dict[str, object]:
     conversation_button_label = " ".join(
         " ".join(parser._id_text.get("memorial-conversation", ())).split()
     )
-    expected_conversation_button_label = (
-        "Gespräch beginnen"
-        if parser.voice_access == "text-only"
-        else "Gespräch wird vorbereitet …"
-    )
+    expected_conversation_button_label = "Gespräch beginnen"
     expected_conversation_state = (
-        "ready" if parser.voice_access == "text-only" else "preparing"
+        "blocked" if parser.voice_access == "text-only" else "preparing"
     )
     expected_conversation_busy = (
         "false" if parser.voice_access == "text-only" else "true"
@@ -2102,7 +2099,8 @@ def audit_browser_surface(
                 or accessibility.get("personal_memory_optin_present") is not True
                 or accessibility.get("personal_memory_checked") is True
                 or accessibility.get("personal_memory_forget_present") is not True
-                or accessibility.get("conversation_enabled") is not True
+                or accessibility.get("conversation_enabled")
+                != (expected_voice_access != "text-only")
                 or accessibility.get("conversation_label")
                 != CONVERSATION_ONLY_BLOCKED_ACTION_LABEL
                 or accessibility.get("visible_button_ids")

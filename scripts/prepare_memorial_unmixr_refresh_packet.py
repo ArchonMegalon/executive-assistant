@@ -21,10 +21,10 @@ from app.services.memorial_paths import private_profile_dir  # noqa: E402
 
 
 DEFAULT_SEGMENT_RELATIVE_PATHS = (
-    Path("voice_profile/optimization/candidates/oSQ9FhFc4YI-01440s-28.wav"),
-    Path("voice_profile/optimization/candidates/xlrEDbQDTFA-01354s.wav"),
-    Path("voice_profile/optimization/beno_candidates2/_oXBWKa3A5M-01180s.wav"),
+    Path("voice_profile/curated/manfred-unmixr-xlr-1325-1355-v1.wav"),
 )
+UNMIXR_MIN_SAMPLE_SECONDS = 30.0
+UNMIXR_MAX_SAMPLE_SECONDS = 75.0
 
 
 def _safe_slug(value: object) -> str:
@@ -68,11 +68,48 @@ def _sha256_file(path: Path) -> str:
 
 
 def _segment_entry(path: Path) -> dict[str, object]:
+    completed = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=codec_name,sample_rate,channels:format=duration",
+            "-of",
+            "json",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise ValueError("segment_audio_invalid")
+    try:
+        probe = json.loads(completed.stdout or "{}")
+        stream = dict((probe.get("streams") or [])[0])
+        duration_seconds = float(dict(probe.get("format") or {}).get("duration") or 0.0)
+        sample_rate_hz = int(stream.get("sample_rate") or 0)
+        channels = int(stream.get("channels") or 0)
+    except (IndexError, TypeError, ValueError) as exc:
+        raise ValueError("segment_audio_invalid") from exc
+    if duration_seconds <= 0:
+        raise ValueError("segment_audio_invalid")
+    if duration_seconds + 0.05 < UNMIXR_MIN_SAMPLE_SECONDS:
+        raise ValueError("segment_audio_too_short")
+    if duration_seconds > UNMIXR_MAX_SAMPLE_SECONDS + 0.05:
+        raise ValueError("segment_audio_too_long")
     return {
         "path": path.as_posix(),
         "filename": path.name,
         "size_bytes": int(path.stat().st_size),
         "sha256": _sha256_file(path),
+        "duration_seconds": round(duration_seconds, 3),
+        "sample_rate_hz": sample_rate_hz,
+        "channels": channels,
+        "codec_name": str(stream.get("codec_name") or "").strip(),
     }
 
 
@@ -93,6 +130,8 @@ def _load_unmixr_key_from_live_env() -> str:
 
 
 def build_packet(*, slug: str, voice_label: str, segment_paths: list[Path], output_dir: Path) -> dict[str, object]:
+    if len(segment_paths) != 1:
+        raise ValueError("single_prepared_segment_required")
     output_dir.mkdir(parents=True, exist_ok=True)
     packet = {
         "generated_at": _utc_now(),
@@ -107,6 +146,12 @@ def build_packet(*, slug: str, voice_label: str, segment_paths: list[Path], outp
 
 
 def attempt_clone(*, slug: str, voice_label: str, segment_paths: list[Path]) -> dict[str, object]:
+    if len(segment_paths) != 1:
+        return {
+            "status": "blocked",
+            "code": "single_prepared_segment_required",
+            "detail": "Unmixr requires one precomposed, speaker-reviewed sample.",
+        }
     api_key = _load_unmixr_key_from_live_env()
     if not api_key:
         return {
@@ -158,6 +203,8 @@ def main() -> int:
     missing = [path.as_posix() for path in segment_paths if not path.is_file()]
     if missing:
         raise SystemExit(f"segment_missing:{missing[0]}")
+    if len(segment_paths) != 1:
+        raise SystemExit("single_prepared_segment_required")
     output_dir = Path(str(args.output_dir or "/tmp/manfred_unmixr_refresh_packet")).expanduser()
     payload = build_packet(slug=slug, voice_label=voice_label, segment_paths=segment_paths, output_dir=output_dir)
     if bool(args.attempt_clone):

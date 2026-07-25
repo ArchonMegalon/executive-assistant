@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import time
+import wave
 
 import pytest
 from fastapi import HTTPException
@@ -41,6 +42,98 @@ def _clear_unmixr_key_env(monkeypatch) -> None:
     for name in list(os.environ):
         if name.startswith("UNMIXR_API_KEY_FALLBACK_"):
             monkeypatch.delenv(name, raising=False)
+
+
+def _write_wav(path: Path, *, seconds: float = 1.0) -> None:
+    sample_rate = 16_000
+    with wave.open(str(path), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(b"\0\0" * int(sample_rate * seconds))
+
+
+def test_unmixr_clone_requires_one_precomposed_sample_before_provider_call(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first.wav"
+    second = tmp_path / "second.wav"
+    _write_wav(first)
+    _write_wav(second)
+    provider_called = False
+
+    def fake_request(**kwargs):  # noqa: ANN003
+        nonlocal provider_called
+        provider_called = True
+        return _FakeResponse(payload={"voice_id": "unexpected"})
+
+    monkeypatch.setattr(memorial_openvoice, "_unmixr_request", fake_request)
+
+    with pytest.raises(HTTPException) as caught:
+        memorial_openvoice.unmixr_clone_request(
+            slug="manfred",
+            voice_label="Manfred reviewed",
+            sample_paths=[first, second],
+        )
+
+    assert caught.value.status_code == 400
+    assert caught.value.detail == "voice_profile_requires_single_prepared_sample"
+    assert provider_called is False
+
+
+def test_unmixr_clone_rejects_sample_over_75_seconds_without_truncating(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "too-long.wav"
+    _write_wav(source, seconds=75.2)
+    provider_called = False
+
+    def fake_request(**kwargs):  # noqa: ANN003
+        nonlocal provider_called
+        provider_called = True
+        return _FakeResponse(payload={"voice_id": "unexpected"})
+
+    monkeypatch.setattr(memorial_openvoice, "_unmixr_request", fake_request)
+
+    with pytest.raises(HTTPException) as caught:
+        memorial_openvoice.unmixr_clone_request(
+            slug="manfred",
+            voice_label="Manfred reviewed",
+            sample_paths=[source],
+        )
+
+    assert caught.value.status_code == 400
+    assert caught.value.detail == "voice_profile_sample_too_long"
+    assert provider_called is False
+
+
+def test_unmixr_clone_rejects_sample_below_provider_minimum(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "too-short.wav"
+    _write_wav(source, seconds=29.8)
+    provider_called = False
+
+    def fake_request(**kwargs):  # noqa: ANN003
+        nonlocal provider_called
+        provider_called = True
+        return _FakeResponse(payload={"voice_id": "unexpected"})
+
+    monkeypatch.setattr(memorial_openvoice, "_unmixr_request", fake_request)
+
+    with pytest.raises(HTTPException) as caught:
+        memorial_openvoice.unmixr_clone_request(
+            slug="manfred",
+            voice_label="Manfred reviewed",
+            sample_paths=[source],
+        )
+
+    assert caught.value.status_code == 400
+    assert caught.value.detail == "voice_profile_sample_too_short"
+    assert provider_called is False
 
 
 def test_unmixr_synthesize_rotates_to_fallback_slot_on_balance_response(monkeypatch, tmp_path: Path) -> None:

@@ -220,6 +220,7 @@ _MEMORIAL_TTS_LEAD_IN_MS = 420
 _MEMORIAL_TTS_TAIL_SILENCE_MS = 700
 _MEMORIAL_CONTACT_TTS_LEAD_IN_MS = 420
 _MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS = 320
+_MEMORIAL_LANDING_ACKNOWLEDGEMENT_TEXT = "Worüber möchtest du sprechen?"
 _MEMORIAL_FAST_TTS_LEAD_IN_MS = 280
 _MEMORIAL_FAST_TTS_TAIL_SILENCE_MS = 320
 _MEMORIAL_REALTIME_TTS_LEAD_IN_MS = 640
@@ -11080,6 +11081,8 @@ def _run_memorial_server_voice_contact_prewarm(
         )
         base_config = _load_voice_config(slug)
         merged_config = dict(base_config)
+        merged_config["lang"] = _memorial_fixed_conversation_language()
+        merged_config = _apply_memorial_spoken_tts_clarity_policy(merged_config)
         tts_options = _tts_plugin_options(
             payload=merged_config,
             voice_profile_ready=bool(base_config.get("voice_profile_ready")),
@@ -11089,39 +11092,28 @@ def _run_memorial_server_voice_contact_prewarm(
             raise RuntimeError("server_voice_prewarm_provider_unavailable")
         if not bool(selected_option.get("tts_plugin_enabled")):
             raise RuntimeError("server_voice_prewarm_provider_disabled")
-        seed_texts = tuple(
-            dict.fromkeys(
-                _memorial_contact_answer_body(seed_question)
-                for seed_question in (
-                    "Kann ich jetzt mit dir reden?",
-                    "Bist du da?",
-                    "Hoerst du zu?",
-                )
-            )
+        _require_memorial_voice_provider_authorization(
+            slug=slug,
+            action="realtime",
+            operator_preview_session=operator_preview_session,
+            required_scope="warmup",
         )
-        for seed_text in seed_texts:
-            _require_memorial_voice_provider_authorization(
-                slug=slug,
-                action="realtime",
-                operator_preview_session=operator_preview_session,
-                required_scope="warmup",
-            )
-            _render_memorial_tts_audio(
-                slug=slug,
-                text=seed_text,
-                merged_config=merged_config,
-                base_config=base_config,
-                selected_plugin=selected_plugin,
-                selected_option=selected_option,
-                lead_in_ms=_MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
-                tail_silence_ms=_MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
-            )
-            _require_memorial_voice_provider_authorization(
-                slug=slug,
-                action="realtime",
-                operator_preview_session=operator_preview_session,
-                required_scope="warmup",
-            )
+        _render_memorial_tts_audio(
+            slug=slug,
+            text=_MEMORIAL_LANDING_ACKNOWLEDGEMENT_TEXT,
+            merged_config=merged_config,
+            base_config=base_config,
+            selected_plugin=selected_plugin,
+            selected_option=selected_option,
+            lead_in_ms=_MEMORIAL_TTS_LEAD_IN_MS,
+            tail_silence_ms=_MEMORIAL_TTS_TAIL_SILENCE_MS,
+        )
+        _require_memorial_voice_provider_authorization(
+            slug=slug,
+            action="realtime",
+            operator_preview_session=operator_preview_session,
+            required_scope="warmup",
+        )
     except Exception as exc:
         errors.append(f"server_voice_prewarm:{str(exc)[:120]}")
     finally:
@@ -13264,20 +13256,27 @@ def _minimal_public_memorial_html(
     hero_actions_class = "" if voice_access_blocked else " is-readying"
     conversation_button_class = "" if voice_access_blocked else " is-readying"
     conversation_button_label = (
-        (
-            "Gespräch beginnen"
-            if voice_access_blocked
-            else "Gespräch wird vorbereitet …"
-        )
+        "Gespräch beginnen"
         if conversation_only
         else ("Frage schreiben" if voice_access_blocked else "Gespräch starten")
     )
     initial_conversation_preparing = conversation_only and not voice_access_blocked
     initial_conversation_state = (
-        "preparing" if initial_conversation_preparing else "ready"
+        "blocked"
+        if voice_access_blocked
+        else ("preparing" if initial_conversation_preparing else "ready")
     )
     initial_conversation_busy = (
         "true" if initial_conversation_preparing else "false"
+    )
+    initial_conversation_status = (
+        "Sprechen ist derzeit nicht verfügbar."
+        if voice_access_blocked
+        else (
+            "Gespräch wird vorbereitet."
+            if initial_conversation_preparing
+            else "Gespräch ist bereit."
+        )
     )
     text_turn_label = "Frage schreiben" if voice_access_blocked else "Oder schreiben"
     # The server-rendered control always fails closed. JavaScript enables it only
@@ -13292,10 +13291,11 @@ def _minimal_public_memorial_html(
         )
     elif public_voice_evaluation_allowed:
         voice_guidance = (
-            "Öffentliche Testphase. Diese KI-Rekonstruktion antwortet auf Grundlage "
-            "freigegebener Erinnerungen und Quellen in der Ich-Perspektive. Sie ist "
+            "Öffentliche Testphase. Diese KI-Rekonstruktion antwortet auf der Grundlage "
+            "freigegebener Erinnerungen und Quellen aus der Ich-Perspektive. Sie ist "
             "nicht Manfred und spricht nicht für ihn. Die künstliche Stimme wird noch "
-            "beurteilt. Mikrofon und Audio werden erst nach „Gespräch beginnen“ verarbeitet."
+            "geprüft. Dein Mikrofon und deine Audioeingabe werden erst nach "
+            "„Gespräch beginnen“ verarbeitet."
         )
     elif voice_access_blocked:
         voice_guidance = (
@@ -13309,10 +13309,10 @@ def _minimal_public_memorial_html(
         )
     elif conversation_only:
         voice_guidance = (
-            "KI-Rekonstruktion in einer aus freigegebenen Erinnerungen und Quellen "
-            "abgeleiteten Ich-Perspektive. Sie ist nicht Manfred und spricht nicht "
-            "für ihn. Die Stimme ist künstlich erzeugt. Mikrofon und Audio werden erst nach "
-            "„Gespräch beginnen“ verarbeitet."
+            "KI-Rekonstruktion auf der Grundlage freigegebener Erinnerungen und Quellen "
+            "aus der Ich-Perspektive. Sie ist nicht Manfred und spricht nicht für ihn. "
+            "Die Stimme ist künstlich erzeugt. Dein Mikrofon und deine Audioeingabe "
+            "werden erst nach „Gespräch beginnen“ verarbeitet."
         )
     else:
         voice_guidance = (
@@ -13376,6 +13376,7 @@ def _minimal_public_memorial_html(
     <meta name="apple-mobile-web-app-title" content="{html.escape(pwa_short_name)}">
     <meta name="mobile-web-app-capable" content="yes">
     <link rel="manifest" href="/memorials/{html.escape(slug)}/app.webmanifest?v={_MEMORIAL_PWA_VERSION}&surface=page">
+    <link rel="icon" href="{memorial_avatar_url}">
     <link rel="apple-touch-icon" href="{memorial_avatar_url}">
     {clickrank_html}
     <style>
@@ -13394,6 +13395,17 @@ def _minimal_public_memorial_html(
         --conversation-dock-clearance: 0px;
       }}
       * {{ box-sizing: border-box; }}
+      .memorial-visually-hidden {{
+        position: absolute !important;
+        width: 1px !important;
+        height: 1px !important;
+        padding: 0 !important;
+        margin: -1px !important;
+        overflow: hidden !important;
+        clip: rect(0, 0, 0, 0) !important;
+        white-space: nowrap !important;
+        border: 0 !important;
+      }}
       html {{
         -webkit-text-size-adjust: 100%;
         min-height: 100dvh;
@@ -14519,7 +14531,7 @@ def _minimal_public_memorial_html(
       }}
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] header {{
         min-height: auto;
-        padding: clamp(68px, 9vh, 104px) 0 clamp(28px, 4vw, 40px);
+        padding: clamp(78px, 11vh, 116px) 0 clamp(34px, 5vw, 48px);
       }}
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-shell {{
         width: min(100%, 620px);
@@ -14566,6 +14578,9 @@ def _minimal_public_memorial_html(
         letter-spacing: .01em;
         transition: background-color .18s ease, border-color .18s ease, color .18s ease;
       }}
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta:not(:disabled) {{
+        cursor: pointer;
+      }}
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .hero-cta::before {{
         content: "";
         display: inline-block;
@@ -14610,7 +14625,7 @@ def _minimal_public_memorial_html(
         margin: 12px auto 0;
         color: var(--muted);
         text-align: center;
-        font: 500 12px/1.55 ui-sans-serif, system-ui, sans-serif;
+        font: 500 13px/1.55 ui-sans-serif, system-ui, sans-serif;
       }}
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] #memorial-text-turn-form,
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] details.conversation-settings,
@@ -14868,6 +14883,7 @@ def _minimal_public_memorial_html(
           <p class="hero-guidance" role="status">Für das Sprachgespräch und die schriftliche Alternative muss JavaScript aktiviert sein. Ohne JavaScript wird nichts aufgenommen oder gesendet.</p>
         </noscript>
         <p class="hero-guidance" id="memorial-conversation-disclosure">{html.escape(voice_guidance)}</p>
+        <p class="memorial-visually-hidden" id="memorial-conversation-status" role="status" aria-live="polite" aria-atomic="true">{html.escape(initial_conversation_status)}</p>
         <div class="hero-actions{hero_actions_class}" id="memorial-hero-actions">
           <button type="button" id="memorial-conversation" class="hero-cta{conversation_button_class}" data-hero-action="conversation" data-conversation-state="{initial_conversation_state}" title="{conversation_button_label}" aria-label="{conversation_button_label}" aria-describedby="memorial-conversation-disclosure" aria-controls="memorial-speech-note memorial-speech-transcript-shell" aria-expanded="false" aria-busy="{initial_conversation_busy}" {conversation_button_state}>{conversation_button_label}</button>
         </div>
@@ -14968,6 +14984,7 @@ def _minimal_public_memorial_html(
       const memorialOperatorPreviewAllowed = {_json_for_html_script(operator_preview_allowed)};
       const memorialVoiceAccessAllowed = {_json_for_html_script(voice_access_allowed)};
       const memorialProviderWorkAllowed = {_json_for_html_script(provider_work_allowed)};
+      let memorialVoiceAuthorizationBlocked = !memorialVoiceAccessAllowed;
       // Compatibility alias for the existing client guards; this is never a
       // release receipt and server endpoints independently reverify access.
       const memorialVoiceReleaseAllowed = {_json_for_html_script(voice_release_allowed)};
@@ -15003,6 +15020,7 @@ def _minimal_public_memorial_html(
       const textTurnSubmit = document.getElementById("memorial-text-turn-submit");
       const retryButton = document.getElementById("memorial-retry-button");
       const speechAudio = document.getElementById("memorial-speech-audio");
+      const conversationStatus = document.getElementById("memorial-conversation-status");
       const speechNote = document.getElementById("memorial-speech-note");
       const speechMessage = document.getElementById("memorial-speech-message");
       const speechMonitor = document.getElementById("memorial-speech-monitor");
@@ -15102,7 +15120,7 @@ def _minimal_public_memorial_html(
       let contactAcknowledgementReady = false;
       let contactAcknowledgementPlayedGeneration = -1;
       let contactAcknowledgementCacheEpoch = 0;
-      const contactAcknowledgementText = "Worüber möchtest du sprechen?";
+      const contactAcknowledgementText = {_json_for_html_script(_MEMORIAL_LANDING_ACKNOWLEDGEMENT_TEXT)};
       const memorialReadinessEndpoint = "/memorials/{html.escape(slug)}/readiness";
       const browserPreferredLanguage = "de-AT";
       const memorialReducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -16450,6 +16468,7 @@ def _minimal_public_memorial_html(
       }}
 
       function setSpeechStatus(message, state = "idle", detail = "") {{
+        const normalizedMessage = String(message || "").trim() || "Bereit für deine Frage.";
         const normalizedState =
           state === "playing" || state === "speaking"
             ? "speaking"
@@ -16464,10 +16483,17 @@ def _minimal_public_memorial_html(
             : (normalizedState === "idle" ? "ready" : normalizedState);
         const statusVisible = !memorialConversationOnly || memorialInteractionStarted;
         if (memorialConversationOnly) {{
-          memorialConversationRetryAvailable = normalizedState === "error";
+          memorialConversationRetryAvailable = (
+            !memorialVoiceAuthorizationBlocked
+            && normalizedState === "error"
+          );
           suppressMinimalActionControls();
         }} else if (retryButton) {{
-          retryButton.hidden = normalizedState !== "error" || !statusVisible;
+          retryButton.hidden = (
+            memorialVoiceAuthorizationBlocked
+            || normalizedState !== "error"
+            || !statusVisible
+          );
           if (normalizedState !== "error") {{
             delete retryButton.dataset.action;
             retryButton.textContent = "Sprachfunktion erneut versuchen";
@@ -16475,7 +16501,15 @@ def _minimal_public_memorial_html(
             retryButton.textContent = "Sprachfunktion erneut versuchen";
           }}
         }}
-        if (speechMessage) speechMessage.textContent = String(message || "").trim() || "Bereit für deine Frage.";
+        if (speechMessage) speechMessage.textContent = normalizedMessage;
+        if (conversationStatus) {{
+          const landingAnnouncement = (
+            memorialConversationOnly && !memorialInteractionStarted
+          ) ? normalizedMessage : "";
+          if (conversationStatus.textContent !== landingAnnouncement) {{
+            conversationStatus.textContent = landingAnnouncement;
+          }}
+        }}
         if (speechNote) {{
           if (statusVisible) revealConversationRegion(speechNote);
           speechNote.classList.remove(
@@ -16723,7 +16757,10 @@ def _minimal_public_memorial_html(
       }}
 
       function setLastAnswerAudioBlob(blob) {{
-        lastAnswerAudioBlob = memorialVoiceReleaseAllowed ? (blob || null) : null;
+        lastAnswerAudioBlob = (
+          memorialVoiceReleaseAllowed
+          && !memorialVoiceAuthorizationBlocked
+        ) ? (blob || null) : null;
         if (replayAnswerButton) replayAnswerButton.hidden = memorialConversationOnly || !lastAnswerAudioBlob;
       }}
 
@@ -16738,9 +16775,11 @@ def _minimal_public_memorial_html(
         stopSpeechPlayback();
       }}
 
-      function blockMemorialVoiceAuthorization() {{
+      function blockMemorialVoiceAuthorization(options = {{}}) {{
+        if (options.permanent !== false) memorialVoiceAuthorizationBlocked = true;
         clearMemorialVoiceAudioCache();
         cancelMemorialReadyContinuation();
+        cancelMemorialReadyRefresh();
         memorialWarmupPendingStartedAt = 0;
         memorialReadySnapshot = null;
         memorialLandingReady = false;
@@ -16752,6 +16791,7 @@ def _minimal_public_memorial_html(
 
       async function requireFreshMemorialVoiceAuthorization(options = {{}}) {{
         const requireReady = options.requireReady !== false;
+        if (memorialVoiceAuthorizationBlocked) return null;
         try {{
           if (!memorialVoiceReleaseAllowed) throw new Error("memorial_voice_release_not_verified");
           const response = await fetchWithTimeout(
@@ -16801,9 +16841,18 @@ def _minimal_public_memorial_html(
           if (!requireReady && response.status !== 200 && response.status !== 503) {{
             throw new Error("memorial_readiness_failed");
           }}
+          if (memorialVoiceAuthorizationBlocked) return null;
           return payload;
         }} catch (error) {{
-          blockMemorialVoiceAuthorization();
+          const failureCode = String(
+            error && error.message ? error.message : error || ""
+          ).trim();
+          blockMemorialVoiceAuthorization({{
+            permanent: [
+              "memorial_voice_release_not_verified",
+              "memorial_readiness_invalid",
+            ].includes(failureCode),
+          }});
           return null;
         }}
       }}
@@ -16828,7 +16877,9 @@ def _minimal_public_memorial_html(
       }}
 
       async function ensureContactAcknowledgementAudio() {{
-        if (!memorialVoiceReleaseAllowed) throw new Error("memorial_voice_release_not_verified");
+        if (memorialVoiceAuthorizationBlocked || !memorialVoiceReleaseAllowed) {{
+          throw new Error("memorial_voice_release_not_verified");
+        }}
         if (contactAcknowledgementAudioBlob) return contactAcknowledgementAudioBlob;
         if (contactAcknowledgementAudioPromise) return await contactAcknowledgementAudioPromise;
         const cacheEpoch = contactAcknowledgementCacheEpoch;
@@ -16866,6 +16917,9 @@ def _minimal_public_memorial_html(
           const blob = new Blob([audioBuffer], {{ type: contentType }});
           if (cacheEpoch !== contactAcknowledgementCacheEpoch) {{
             throw new Error("contact_acknowledgement_cache_invalidated");
+          }}
+          if (memorialVoiceAuthorizationBlocked) {{
+            throw new Error("memorial_voice_release_not_verified");
           }}
           contactAcknowledgementAudioBlob = blob;
           contactAcknowledgementReady = true;
@@ -16936,21 +16990,39 @@ def _minimal_public_memorial_html(
           conversationButton.setAttribute("title", label);
           conversationButton.disabled = false;
           conversationButton.setAttribute("aria-disabled", "false");
-          conversationButton.setAttribute("aria-pressed", "false");
+          conversationButton.removeAttribute("aria-pressed");
           conversationButton.classList.remove("is-readying");
           if (heroActions) heroActions.classList.remove("is-readying");
           return;
         }}
         if (memorialConversationOnly) {{
+          if (memorialVoiceAuthorizationBlocked) {{
+            const label = "Gespräch beginnen";
+            conversationButton.textContent = label;
+            conversationButton.setAttribute("aria-label", label);
+            conversationButton.setAttribute("title", label);
+            conversationButton.disabled = true;
+            conversationButton.setAttribute("aria-disabled", "true");
+            conversationButton.setAttribute("aria-pressed", "false");
+            conversationButton.setAttribute("aria-expanded", "false");
+            conversationButton.setAttribute("aria-busy", "false");
+            conversationButton.dataset.conversationState = "blocked";
+            conversationButton.classList.remove("is-readying");
+            if (heroActions) heroActions.classList.remove("is-readying");
+            if (conversationDock) {{
+              conversationDock.dataset.conversationState = "blocked";
+              conversationDock.setAttribute("aria-busy", "false");
+            }}
+            suppressMinimalActionControls();
+            return;
+          }}
           const readinessPending = Boolean(
             !memorialLandingReady
             && !memorialConversationRetryAvailable,
           );
           const preparing = Boolean(activeConversationStart) || readinessPending;
           const active = recordingActive || conversationSessionActive;
-          const label = active
-            ? "Gespräch beenden"
-            : (preparing ? "Gespräch wird vorbereitet …" : "Gespräch beginnen");
+          const label = active ? "Gespräch beenden" : "Gespräch beginnen";
           const disabled =
             preparing
             || (!active && !memorialLandingReady && !memorialConversationRetryAvailable);
@@ -16959,7 +17031,7 @@ def _minimal_public_memorial_html(
           conversationButton.setAttribute("title", label);
           conversationButton.disabled = disabled;
           conversationButton.setAttribute("aria-disabled", disabled ? "true" : "false");
-          conversationButton.setAttribute("aria-pressed", conversationSessionActive ? "true" : "false");
+          conversationButton.setAttribute("aria-pressed", active ? "true" : "false");
           conversationButton.setAttribute(
             "aria-expanded",
             memorialInteractionStarted ? "true" : "false",
@@ -16994,13 +17066,20 @@ def _minimal_public_memorial_html(
         conversationButton.setAttribute("title", label);
         conversationButton.disabled = disabled;
         conversationButton.setAttribute("aria-disabled", disabled ? "true" : "false");
-        conversationButton.setAttribute("aria-pressed", conversationSessionActive ? "true" : "false");
+        conversationButton.setAttribute(
+          "aria-pressed",
+          recordingActive || conversationSessionActive ? "true" : "false",
+        );
         conversationButton.classList.toggle("is-readying", disabled && !recordingActive && !requestInFlight);
         if (heroActions) heroActions.classList.toggle("is-readying", disabled && !recordingActive && !requestInFlight);
       }}
 
       function setMemorialLandingReady(ready, detail = "") {{
-        memorialLandingReady = memorialVoiceReleaseAllowed ? Boolean(ready) : true;
+        memorialLandingReady = (
+          memorialVoiceReleaseAllowed
+          && !memorialVoiceAuthorizationBlocked
+          && Boolean(ready)
+        );
         if (memorialLandingReady && retryButton && retryButton.dataset.action === "voice-readiness") {{
           delete retryButton.dataset.action;
           retryButton.textContent = "Sprachfunktion erneut versuchen";
@@ -17008,7 +17087,15 @@ def _minimal_public_memorial_html(
         syncConversationButton();
         if (!recordingActive && !requestInFlight) {{
           if (!memorialVoiceReleaseAllowed) {{
-            setSpeechStatus("Schreiben ist bereit.", "idle", "Sprechen ist derzeit nicht verfügbar.");
+            if (memorialConversationOnly) {{
+              setSpeechStatus("Sprechen ist derzeit nicht verfügbar.", "error", "");
+            }} else {{
+              setSpeechStatus(
+                "Schreiben ist bereit.",
+                "idle",
+                "Sprechen ist derzeit nicht verfügbar.",
+              );
+            }}
           }} else if (memorialLandingReady) setSpeechStatus("Bereit für deine Frage.", "idle", detail || "");
           else setSpeechStatus("Gespräch wird vorbereitet …", "preparing", detail || "");
         }}
@@ -17038,6 +17125,7 @@ def _minimal_public_memorial_html(
 
       async function requestMemorialWarmup(reason = "page_load") {{
         if (!memorialVoiceReleaseAllowed) return null;
+        if (memorialVoiceAuthorizationBlocked) return null;
         if (memorialWarmupPromise) return memorialWarmupPromise;
         memorialWarmupPromise = fetch("/memorials/{html.escape(slug)}/warmup", {{
           method: "POST",
@@ -17053,7 +17141,7 @@ def _minimal_public_memorial_html(
       }}
 
       async function fetchMemorialWarmupStatus() {{
-        if (!memorialVoiceReleaseAllowed) {{
+        if (memorialVoiceAuthorizationBlocked || !memorialVoiceReleaseAllowed) {{
           return {{ status: "blocked_release", warm: false, voice_ready: false }};
         }}
         const response = await fetchWithTimeout("/memorials/{html.escape(slug)}/warmup-status", {{
@@ -17098,15 +17186,26 @@ def _minimal_public_memorial_html(
         memorialReadyContinuationTimer = null;
       }}
 
+      function cancelMemorialReadyRefresh() {{
+        if (!memorialReadyRefreshTimer) return;
+        window.clearTimeout(memorialReadyRefreshTimer);
+        memorialReadyRefreshTimer = null;
+      }}
+
       function scheduleMemorialReadyContinuation() {{
         if (
           memorialReadyContinuationTimer
           || memorialLandingReady
+          || memorialVoiceAuthorizationBlocked
           || !memorialVoiceReleaseAllowed
         ) return;
         memorialReadyContinuationTimer = window.setTimeout(() => {{
           memorialReadyContinuationTimer = null;
-          if (memorialLandingReady || !memorialVoiceReleaseAllowed) return;
+          if (
+            memorialLandingReady
+            || memorialVoiceAuthorizationBlocked
+            || !memorialVoiceReleaseAllowed
+          ) return;
           void ensureMemorialReady(
             "voice_prewarm_continuation",
             {{ requestWarmup: false }},
@@ -17115,20 +17214,27 @@ def _minimal_public_memorial_html(
       }}
 
       function scheduleMemorialReadyRefresh(payload) {{
-        if (memorialReadyRefreshTimer) {{
-          window.clearTimeout(memorialReadyRefreshTimer);
-          memorialReadyRefreshTimer = null;
-        }}
+        cancelMemorialReadyRefresh();
+        if (memorialVoiceAuthorizationBlocked) return;
         const ttl = Number(payload && payload.readiness_ttl_remaining_seconds);
         if (!Number.isFinite(ttl) || ttl <= 0) return;
         const refreshMs = Math.max(5000, Math.min(300000, Math.floor(Math.max(5, ttl - 45) * 1000)));
         memorialReadyRefreshTimer = window.setTimeout(() => {{
           memorialReadyRefreshTimer = null;
+          if (memorialVoiceAuthorizationBlocked) return;
           memorialStaleWarmupRetryIssued = false;
           void requestMemorialWarmup("ttl_refresh")
             .then(() => waitForMemorialVoiceReady(30000))
             .then((nextPayload) => {{
-              if (nextPayload && nextPayload.warm && (nextPayload.voice_required === false || nextPayload.voice_ready === true)) {{
+              if (
+                !memorialVoiceAuthorizationBlocked
+                && nextPayload
+                && nextPayload.warm
+                && (
+                  nextPayload.voice_required === false
+                  || nextPayload.voice_ready === true
+                )
+              ) {{
                 memorialReadySnapshot = nextPayload;
                 scheduleMemorialReadyRefresh(nextPayload);
                 setMemorialLandingReady(true, "");
@@ -17144,7 +17250,7 @@ def _minimal_public_memorial_html(
       }}
 
       function recheckMemorialReadinessOnReturn(reason = "page_visible") {{
-        if (!memorialPagePrewarmEnabled) return;
+        if (!memorialPagePrewarmEnabled || memorialVoiceAuthorizationBlocked) return;
         if (document.visibilityState && document.visibilityState !== "visible") return;
         if (!memorialReadyNeedsRefresh(memorialReadySnapshot)) return;
         memorialReadySnapshot = null;
@@ -17155,10 +17261,15 @@ def _minimal_public_memorial_html(
       window.addEventListener("focus", () => recheckMemorialReadinessOnReturn("window_focus"));
 
       async function waitForMemorialVoiceReady(maxWaitMs = 12000) {{
-        if (!memorialVoiceReleaseAllowed) return {{ status: "blocked_release", warm: false, voice_ready: false }};
+        if (memorialVoiceAuthorizationBlocked || !memorialVoiceReleaseAllowed) {{
+          return {{ status: "blocked_release", warm: false, voice_ready: false }};
+        }}
         const startedAt = Date.now();
         let lastPayload = null;
         while (Date.now() - startedAt < maxWaitMs) {{
+          if (memorialVoiceAuthorizationBlocked) {{
+            return {{ status: "blocked_release", warm: false, voice_ready: false }};
+          }}
           let payload = null;
           try {{
             payload = await fetchMemorialWarmupStatus();
@@ -17190,8 +17301,8 @@ def _minimal_public_memorial_html(
       }}
 
       async function ensureMemorialReady(reason = "page_load", options = {{}}) {{
-        if (!memorialVoiceReleaseAllowed) {{
-          setMemorialLandingReady(true, "Sprechen ist derzeit nicht verfügbar.");
+        if (memorialVoiceAuthorizationBlocked || !memorialVoiceReleaseAllowed) {{
+          setMemorialLandingReady(false, "Sprechen ist derzeit nicht verfügbar.");
           return {{ status: "blocked_release", warm: false, voice_ready: false }};
         }}
         if (memorialLandingReady && memorialReadySnapshot) return memorialReadySnapshot;
@@ -17206,6 +17317,9 @@ def _minimal_public_memorial_html(
         memorialReadyPromise = (async () => {{
           try {{
             if (shouldRequestWarmup) await requestMemorialWarmup(reason);
+            if (memorialVoiceAuthorizationBlocked) {{
+              return {{ status: "blocked_release", warm: false, voice_ready: false }};
+            }}
             const pendingElapsedMs = Math.max(
               0,
               Date.now() - memorialWarmupPendingStartedAt,
@@ -17218,6 +17332,9 @@ def _minimal_public_memorial_html(
               Math.min(memorialWarmupPollWindowMs, remainingPendingMs),
             );
           }} catch (error) {{}}
+          if (memorialVoiceAuthorizationBlocked) {{
+            return {{ status: "blocked_release", warm: false, voice_ready: false }};
+          }}
           const readinessState = memorialReadinessState(memorialReadySnapshot);
           if (readinessState === "ready") {{
             memorialWarmupPendingStartedAt = 0;
@@ -17276,7 +17393,9 @@ def _minimal_public_memorial_html(
       }}
 
       async function ensureInputStream(generation) {{
-        if (!memorialVoiceReleaseAllowed) throw new Error("memorial_voice_release_not_verified");
+        if (memorialVoiceAuthorizationBlocked || !memorialVoiceReleaseAllowed) {{
+          throw new Error("memorial_voice_release_not_verified");
+        }}
         const authorization = await requireFreshMemorialVoiceAuthorization();
         if (!authorization) throw new Error("memorial_voice_release_not_verified");
         if (generation !== activeGeneration || !conversationSessionActive) {{
@@ -17385,7 +17504,7 @@ def _minimal_public_memorial_html(
       }}
 
       function decodeAudioPayload(payload) {{
-        if (!memorialVoiceReleaseAllowed) return null;
+        if (memorialVoiceAuthorizationBlocked || !memorialVoiceReleaseAllowed) return null;
         const encoded = String((payload && payload.audio_base64) || "").trim();
         if (!encoded) return null;
         const bytes = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
@@ -17623,6 +17742,9 @@ def _minimal_public_memorial_html(
       }}
 
       async function playMemorialAudio(blob, generation, answerText = "") {{
+        if (memorialVoiceAuthorizationBlocked) {{
+          throw new Error("memorial_voice_release_not_verified");
+        }}
         stopSpeechPlayback();
         setLastAnswerAudioBlob(blob);
         speechObjectUrl = URL.createObjectURL(blob);
@@ -18659,7 +18781,9 @@ def _minimal_public_memorial_html(
       }}
 
       function ensureRealtimeSocket() {{
-        if (!memorialVoiceReleaseAllowed) return Promise.reject(new Error("memorial_voice_release_not_verified"));
+        if (memorialVoiceAuthorizationBlocked || !memorialVoiceReleaseAllowed) {{
+          return Promise.reject(new Error("memorial_voice_release_not_verified"));
+        }}
         if (realtimeSocket && realtimeSocket.readyState === WebSocket.OPEN) return Promise.resolve(realtimeSocket);
         if (realtimeSocketPromise) return realtimeSocketPromise;
         realtimeSocketPromise = new Promise((resolve, reject) => {{
@@ -18698,7 +18822,7 @@ def _minimal_public_memorial_html(
       async function startConversationSession() {{
         memorialInteractionStarted = true;
         revealConversationRegion(speechNote);
-        if (!memorialVoiceReleaseAllowed) {{
+        if (memorialVoiceAuthorizationBlocked || !memorialVoiceReleaseAllowed) {{
           if (!memorialConversationOnly) {{
             revealTextFallback();
             if (textTurnForm) textTurnForm.scrollIntoView({{ block: "nearest", behavior: memorialReducedMotionQuery.matches ? "auto" : "smooth" }});
@@ -18945,6 +19069,10 @@ def _minimal_public_memorial_html(
       }}
 
       function toggleConversation() {{
+        if (memorialVoiceAuthorizationBlocked || !memorialVoiceAccessAllowed) {{
+          if (!memorialConversationOnly) void startConversationSession();
+          return;
+        }}
         // A provider-free signed candidate may render the exact public
         // evaluation surface, but its browser proof must not initiate
         // readiness, microphone, socket, STT, or TTS work.

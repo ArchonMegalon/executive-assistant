@@ -519,7 +519,7 @@ def _validate_hosted_clone_config_schema(
     if (
         set(voice_config) != HOSTED_CLONE_VOICE_CONFIG_FIELDS
         or voice_config.get("lang") != "de-AT"
-        or voice_config.get("provider_language") != "de-DE"
+        or voice_config.get("provider_language") != "de-AT"
         or type(consent) is not dict
         or set(consent) != HOSTED_CLONE_VOICE_CONSENT_FIELDS
         or type(backups) is not dict

@@ -878,7 +878,10 @@ def test_memorial_public_page_is_conversation_only_accessible_and_private_by_def
         assert page.locator("#memorial-speech-audio").get_attribute("controls") is None
 
         assert page.get_by_role("heading", name="Erinnerungen an Manfred", exact=True).count() == 1
-        assert page.get_by_text("Ein ruhiger Ort für ein Gespräch über Manfred Hoza.", exact=True).count() == 1
+        assert page.get_by_text(
+            "Ein ruhiger Ort für ein Gespräch über Manfred Hoza.",
+            exact=True,
+        ).count() == 0
         assert page.locator("article.memory-card").count() == 0
         assert page.locator(".source-list a").count() == 0
         assert page.locator(".prompt-list li").count() == 0

@@ -4208,11 +4208,13 @@ def test_memorial_warmup_primes_unmixr_contact_openings(
     public_memorials._run_memorial_live_warmup(slug)
 
     assert len(seen_render_calls) == 1
-    assert {item["text"] for item in seen_render_calls} <= CONTACT_REPLY_VARIANTS
+    assert seen_render_calls[0]["text"] == (
+        public_memorials._MEMORIAL_LANDING_ACKNOWLEDGEMENT_TEXT
+    )
     assert all(item["slug"] == slug for item in seen_render_calls)
     assert all(item["selected_plugin"] == public_memorials.UNMIXR_TTS_PLUGIN_ID for item in seen_render_calls)
-    assert all(item["lead_in_ms"] == public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS for item in seen_render_calls)
-    assert all(item["tail_silence_ms"] == public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS for item in seen_render_calls)
+    assert all(item["lead_in_ms"] == public_memorials._MEMORIAL_TTS_LEAD_IN_MS for item in seen_render_calls)
+    assert all(item["tail_silence_ms"] == public_memorials._MEMORIAL_TTS_TAIL_SILENCE_MS for item in seen_render_calls)
 
 
 def test_memorial_speech_synthesize_reuses_final_render_cache(
@@ -6710,7 +6712,7 @@ def test_memorial_unmixr_raw_preserve_profile_is_available() -> None:
     assert filters == ""
 
 
-def test_manfred_voice_config_softens_timbre_with_explicit_german_provider_locale() -> None:
+def test_manfred_voice_config_preserves_raw_timbre_with_austrian_provider_locale() -> None:
     payload = json.loads(
         (
             ROOT
@@ -6722,8 +6724,10 @@ def test_manfred_voice_config_softens_timbre_with_explicit_german_provider_local
     )
 
     assert payload["lang"] == "de-AT"
-    assert payload["provider_language"] == "de-DE"
-    assert payload["tts_postprocess_profile"] == "unmixr_natural_soft"
+    assert payload["provider_language"] == "de-AT"
+    assert payload["unmixr_speaking_rate"] == "0.90"
+    assert payload["unmixr_speaking_pitch"] == "medium"
+    assert payload["tts_postprocess_profile"] == "unmixr_raw_preserve"
     assert "unmixr_pronunciation_dict" not in payload
 
 
@@ -7356,10 +7360,17 @@ def test_memorial_warmup_snapshot_tracks_server_voice_contact_readiness(monkeypa
     assert snapshot["voice_ready"] is False
 
 
-def test_memorial_server_voice_contact_prewarm_deduplicates_canonical_contact_phrase(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_memorial_server_voice_contact_prewarm_primes_exact_landing_audio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from app.api.routes import public_memorials
 
     monkeypatch.setattr(public_memorials, "_load_voice_config", lambda slug: {"tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID})
+    monkeypatch.setattr(
+        public_memorials,
+        "_apply_memorial_spoken_tts_clarity_policy",
+        lambda config: {**config, "clarity_policy_marker": "applied"},
+    )
     monkeypatch.setattr(
         public_memorials,
         "_tts_plugin_options",
@@ -7370,16 +7381,27 @@ def test_memorial_server_voice_contact_prewarm_deduplicates_canonical_contact_ph
         "_resolve_server_tts_plugin",
         lambda **kwargs: (public_memorials.UNMIXR_TTS_PLUGIN_ID, {"tts_plugin_enabled": True}),
     )
-    seen_texts: list[str] = []
+    seen_calls: list[dict[str, object]] = []
     monkeypatch.setattr(
         public_memorials,
         "_render_memorial_tts_audio",
-        lambda **kwargs: seen_texts.append(str(kwargs.get("text") or "")) or (b"audio", "audio/wav"),
+        lambda **kwargs: seen_calls.append(dict(kwargs)) or (b"audio", "audio/wav"),
     )
 
     public_memorials._run_memorial_server_voice_contact_prewarm("manfred")
 
-    assert seen_texts == [public_memorials._memorial_contact_answer_body("Bist du da?")]
+    assert len(seen_calls) == 1
+    assert seen_calls[0]["text"] == (
+        public_memorials._MEMORIAL_LANDING_ACKNOWLEDGEMENT_TEXT
+    )
+    assert seen_calls[0]["lead_in_ms"] == public_memorials._MEMORIAL_TTS_LEAD_IN_MS
+    assert seen_calls[0]["tail_silence_ms"] == (
+        public_memorials._MEMORIAL_TTS_TAIL_SILENCE_MS
+    )
+    assert seen_calls[0]["merged_config"]["lang"] == (
+        public_memorials._memorial_fixed_conversation_language()
+    )
+    assert seen_calls[0]["merged_config"]["clarity_policy_marker"] == "applied"
 
 
 def test_memorial_server_voice_prewarm_rechecks_after_each_provider_call(
@@ -7687,6 +7709,8 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    from app.api.routes import public_memorials
+
     slug = _setup_memorial(monkeypatch, tmp_path)
     client = _client(principal_id="exec-memorial-minimal-client")
 
@@ -7727,7 +7751,13 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     assert '"Cache-Control": "no-store"' in authorization_source
     assert "payload.release.allowed === true" in authorization_source
     assert "payload.spoken_voice_ready !== true" in authorization_source
-    assert "blockMemorialVoiceAuthorization();" in authorization_source
+    assert "blockMemorialVoiceAuthorization({" in authorization_source
+    assert "memorialVoiceAuthorizationBlocked = false;" not in authorization_source
+    assert (
+        "if (options.permanent !== false) memorialVoiceAuthorizationBlocked = true;"
+        in source
+    )
+    assert "cancelMemorialReadyRefresh();" in source
     assert "contactAcknowledgementCacheEpoch += 1;" in source
     assert "contactAcknowledgementAudioBlob = null;" in source
     assert "contactAcknowledgementAudioPromise = null;" in source
@@ -7784,7 +7814,14 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     ) < replay_source.index(
         "playMemorialAudio(replayBlob"
     )
-    assert 'const contactAcknowledgementText = "Worüber möchtest du sprechen?";' in source
+    assert (
+        public_memorials._MEMORIAL_LANDING_ACKNOWLEDGEMENT_TEXT
+        == "Worüber möchtest du sprechen?"
+    )
+    assert (
+        'const contactAcknowledgementText = "Worüber möchtest du sprechen?";'
+        in source
+    )
     assert 'const contactAcknowledgementText = "Worum geht es?";' not in source
     assert 'id="memorial-read-answer"' in source
     assert 'id="memorial-replay-answer"' in source
