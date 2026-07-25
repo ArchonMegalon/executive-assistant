@@ -4156,6 +4156,7 @@ def _prove_candidate_with_execution_inputs(
     _assert_sealed_execution_inputs_current(execution_inputs)
     compose = _compose_argv(project, env_file, compose_file)
     base_url = f"http://127.0.0.1:{port}"
+    expect_signed_page_prewarm = voice_release_expectation is not None
 
     def cleanup_candidate_project() -> None:
         _assert_sealed_execution_inputs_current(execution_inputs)
@@ -4420,6 +4421,8 @@ def _prove_candidate_with_execution_inputs(
                     wait_seconds=wait_seconds,
                     submit_receipt=contribution_receipt,
                     withdraw_receipt=None,
+                    browser_audit=expect_signed_page_prewarm,
+                    expect_page_prewarm=expect_signed_page_prewarm,
                     transport_request=transport_request,
                     voice_release_expectation=voice_release_expectation,
                 )
@@ -4460,6 +4463,8 @@ def _prove_candidate_with_execution_inputs(
                 wait_seconds=wait_seconds,
                 submit_receipt=None,
                 withdraw_receipt=contribution_receipt,
+                browser_audit=expect_signed_page_prewarm,
+                expect_page_prewarm=expect_signed_page_prewarm,
                 transport_request=transport_request,
                 voice_release_expectation=voice_release_expectation,
             )
@@ -4535,6 +4540,8 @@ def _prove_candidate_with_execution_inputs(
                     if voice_release_expectation is not None
                     else None
                 ),
+                exercise_conversation_action=not expect_signed_page_prewarm,
+                expect_page_prewarm=expect_signed_page_prewarm,
             )
             _assert_logs_clean(compose, compose_environment)
             candidate_openapi_retirement = _assert_candidate_openapi_retired(base_url)

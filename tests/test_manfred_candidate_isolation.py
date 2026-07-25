@@ -355,7 +355,12 @@ def test_phase_one_voice_boundary_remains_blocked_and_provider_free() -> None:
         "mode": "phase_one_voice_blocked",
         "status_code": 409,
         "detail": "memorial_voice_release_not_verified",
-        "provider_calls_performed": False,
+        "upstream_provider_execution": (
+            candidate_verifier.UPSTREAM_EXECUTION_NOT_REQUESTED
+        ),
+        "upstream_provider_execution_basis": (
+            "release_gate_rejected_before_provider"
+        ),
     }
     assert requests == [
         {
@@ -409,7 +414,12 @@ def test_signed_voice_boundary_uses_empty_text_authorization_probe() -> None:
         "status_code": 400,
         "detail": "tts_text_missing",
         "authorization_proof": (candidate_verifier.VOICE_RELEASE_AUTHORIZATION_PROOF),
-        "provider_calls_performed": False,
+        "upstream_provider_execution": (
+            candidate_verifier.UPSTREAM_EXECUTION_NOT_REQUESTED
+        ),
+        "upstream_provider_execution_basis": (
+            candidate_verifier.VOICE_RELEASE_AUTHORIZATION_PROOF
+        ),
         **expectation,
     }
     assert requests == [
@@ -468,7 +478,12 @@ def test_public_evaluation_voice_boundary_is_provider_free_and_not_released() ->
         "authorization_proof": (
             candidate_verifier.VOICE_RELEASE_AUTHORIZATION_PROOF
         ),
-        "provider_calls_performed": False,
+        "upstream_provider_execution": (
+            candidate_verifier.UPSTREAM_EXECUTION_NOT_REQUESTED
+        ),
+        "upstream_provider_execution_basis": (
+            candidate_verifier.VOICE_RELEASE_AUTHORIZATION_PROOF
+        ),
         **expectation,
     }
     assert requests == [
@@ -623,6 +638,7 @@ def test_candidate_browser_audit_binds_runtime_voice_state(
         expected_evaluation_status: str,
         expected_source_revision: str | None,
         exercise_conversation_action: bool,
+        expect_page_prewarm: bool,
     ) -> dict[str, object]:
         browser_calls.append(
             {
@@ -635,8 +651,18 @@ def test_candidate_browser_audit_binds_runtime_voice_state(
                 "conversation_action_exercised": (
                     exercise_conversation_action
                 ),
+                "page_prewarm_expected": expect_page_prewarm,
             }
         )
+        preparation_counts = {
+            path: (
+                candidate_verifier.PAGE_PREWARM_REQUEST_COUNT_BOUNDS[path][0]
+                if expect_page_prewarm
+                else 0
+            )
+            for path in candidate_verifier.PAGE_PREWARM_REQUIRED_PATHS
+        }
+        preparation_request_count = sum(preparation_counts.values())
         return {
             "status": "pass",
             "voice_release": expected_voice_release,
@@ -645,6 +671,28 @@ def test_candidate_browser_audit_binds_runtime_voice_state(
             "source_revision": expected_source_revision or "",
             "conversation_action_exercised": (
                 exercise_conversation_action
+            ),
+            "passive_quiet_window_ms": (
+                0
+                if exercise_conversation_action
+                else candidate_verifier.PASSIVE_BROWSER_QUIET_WINDOW_MS
+            ),
+            "page_prewarm_expected": expect_page_prewarm,
+            "automatic_preparation_request_paths": (
+                list(candidate_verifier.PAGE_PREWARM_REQUIRED_PATHS)
+                if expect_page_prewarm
+                else []
+            ),
+            "automatic_preparation_request_counts": preparation_counts,
+            "automatic_preparation_requests": preparation_request_count,
+            "same_origin_application_requests_performed": (
+                expect_page_prewarm
+            ),
+            "same_origin_application_request_count": preparation_request_count,
+            "same_origin_application_request_paths": (
+                list(candidate_verifier.PAGE_PREWARM_REQUIRED_PATHS)
+                if expect_page_prewarm
+                else []
             ),
             **{
                 field: 0
@@ -685,6 +733,7 @@ def test_candidate_browser_audit_binds_runtime_voice_state(
             "conversation_action_exercised": (
                 voice_release_expectation is None
             ),
+            "page_prewarm_expected": False,
         }
     ]
 
@@ -3931,6 +3980,166 @@ def test_main_forwards_signed_voice_release_intent(
         == 0
     )
     assert captured["expect_signed_voice_release"] is True
+
+
+def test_signed_runner_smokes_and_standalone_audit_require_page_prewarm(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    _patch_prestart(monkeypatch, env)
+    projection = {
+        "release_id": "release-a",
+        "release_root": env["EA_MANFRED_RELEASE_ROOT"],
+        "projection_sha256": "d" * 64,
+        "projection_files": [],
+        "projection_file_count": 0,
+        "projection_bytes": 0,
+        "prepared_image_locator": env["EA_MANFRED_IMAGE"],
+        "public_origin": env["EA_PUBLIC_APP_BASE_URL"],
+        "projection_tree_revalidated": True,
+        **_runner_voice_release_projection(
+            release_allowed=False,
+            review_verified=False,
+            public_evaluation_allowed=True,
+        ),
+    }
+    monkeypatch.setattr(
+        runner,
+        "_projection_evidence",
+        lambda _env: copy.deepcopy(projection),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_candidate_preflight",
+        lambda project, port: {"project": project, "loopback_port": port},
+    )
+    monkeypatch.setattr(runner, "_assert_redis", lambda *_args: None)
+
+    api_container_id = "1" * 64
+    gateway_container_id = "2" * 64
+
+    def run(argv: list[str], **_kwargs: object) -> bytes:
+        if "ps" in argv and "api" in argv:
+            return api_container_id.encode("ascii")
+        return b""
+
+    monkeypatch.setattr(runner, "_run", run)
+    monkeypatch.setattr(
+        runner,
+        "_wait_for_candidate_api_healthy",
+        lambda **_kwargs: None,
+    )
+
+    smoke_calls: list[dict[str, object]] = []
+
+    def verify_candidate(**kwargs: object) -> dict[str, object]:
+        smoke_calls.append(dict(kwargs))
+        if kwargs.get("browser_audit") is not True:
+            raise RuntimeError(
+                "candidate_signed_voice_release_requires_browser_audit"
+            )
+        if kwargs.get("expect_page_prewarm") is not True:
+            raise RuntimeError(
+                "candidate_page_prewarm_requires_browser_signed_voice_release"
+            )
+        return {
+            "checks": ["browser_page_preparation_same_origin_requests"],
+            "contribution": {
+                "survived_candidate_restart": (
+                    kwargs.get("withdraw_receipt") is not None
+                )
+            },
+        }
+
+    monkeypatch.setattr(runner, "verify_candidate", verify_candidate)
+    monkeypatch.setattr(
+        runner,
+        "_assert_contribution_modes",
+        lambda *_args: {"status": "pass"},
+    )
+    monkeypatch.setattr(
+        runner,
+        "_candidate_api_runtime_posture",
+        lambda **_kwargs: {"api_container_id": api_container_id},
+    )
+    container_images = {
+        "revision_label": COMMIT,
+        "gateway": {"container_id": gateway_container_id},
+    }
+    monkeypatch.setattr(
+        runner,
+        "_candidate_container_image_evidence",
+        lambda **_kwargs: copy.deepcopy(container_images),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_candidate_runtime_version_identity",
+        lambda *_args, **_kwargs: {
+            "source_revision_header": COMMIT,
+            "body_commit_sha": COMMIT,
+        },
+    )
+
+    standalone_browser_calls: list[dict[str, object]] = []
+
+    def audit_browser_surface(
+        _base_url: str,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        standalone_browser_calls.append(dict(kwargs))
+        raise RuntimeError("standalone-browser-audit-reached")
+
+    monkeypatch.setattr(runner, "audit_browser_surface", audit_browser_surface)
+    monkeypatch.setattr(
+        runner,
+        "_withdraw_candidate_contribution_if_present",
+        lambda *_args: False,
+    )
+    monkeypatch.setattr(
+        runner,
+        "_cleanup_candidate_project",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        runner,
+        "_assert_candidate_project_absent",
+        lambda _project: {},
+    )
+    monkeypatch.setattr(
+        runner,
+        "_wait_for_loopback_port_not_listening",
+        lambda _port: None,
+    )
+
+    with pytest.raises(RuntimeError, match="standalone-browser-audit-reached"):
+        runner.prove_candidate(
+            env_file=env_file,
+            compose_file=tmp_path / "compose.yml",
+            receipt_path=tmp_path / "runtime-v5.json",
+            wait_seconds=60,
+            expect_signed_voice_release=True,
+        )
+
+    assert len(smoke_calls) == 2
+    for smoke_call in smoke_calls:
+        assert smoke_call["browser_audit"] is True
+        assert smoke_call["expect_page_prewarm"] is True
+        assert smoke_call["voice_release_expectation"] == {
+            "source_revision": COMMIT,
+            "access_mode": prepare.VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+        }
+    assert standalone_browser_calls == [
+        {
+            "public_origin": env["EA_PUBLIC_APP_BASE_URL"],
+            "expected_voice_release": "blocked",
+            "expected_voice_access": "public-evaluation",
+            "expected_evaluation_status": "owner-authorized",
+            "expected_source_revision": COMMIT,
+            "exercise_conversation_action": False,
+            "expect_page_prewarm": True,
+        }
+    ]
 
 
 def test_existing_release_is_rehashed_and_mode_bound_before_reuse(
