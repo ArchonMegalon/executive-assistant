@@ -42,6 +42,26 @@ services:
       - EA_MEMORIAL_VOICE_IDENTITY_SHA256=${EA_MEMORIAL_VOICE_IDENTITY_SHA256:-}
       - EA_MEMORIAL_VOICE_MANIFEST_SHA256=${EA_MEMORIAL_VOICE_MANIFEST_SHA256:-}
       - EA_MEMORIAL_VOICE_REFERENCE_AGGREGATE_SHA256=${EA_MEMORIAL_VOICE_REFERENCE_AGGREGATE_SHA256:-}
+      - EA_MEMORIAL_STT_PRIMARY_PROVIDER=blipai
+      - EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH=/data/memorial-writable/state/memorial_blipai_shadow_stt_tokens.json
+      - EA_MEMORIAL_BLIPAI_STT_API_KEY=
+      - EA_MEMORIAL_SHADOW_STT_API_KEY=
+      - EA_MEMORIAL_BLIPAI_STT_REFRESH_TOKEN=
+      - EA_MEMORIAL_SHADOW_STT_REFRESH_TOKEN=
+      - BLIPAI_APP_API_TOKEN=
+      - BLIPAI_APP_REFRESH_TOKEN=
+      - BLIPAI_APP_USERNAME=
+      - BLIPAI_APP_PASSWORD=
+      - CARTESIA_API_KEY=
+      - EA_CARTESIA_API_KEY=
+      - CARTESIA_API_KEY_JSON=
+      - EA_CARTESIA_API_KEY_JSON=
+      - CARTESIA_CREDENTIALS_JSON=
+      - EA_CARTESIA_CREDENTIALS_JSON=
+      - CARTESIA_API_KEY_FILE=
+      - EA_CARTESIA_API_KEY_FILE=
+      - CARTESIA_CREDENTIALS_JSON_FILE=
+      - EA_CARTESIA_CREDENTIALS_JSON_FILE=/run/secrets/ea_memorial_cartesia.json
       - EA_TRUST_API_TOKEN_PRINCIPAL_HEADER=0
       - EA_TRUST_PROXY_HEADERS=1
       - EA_TRUSTED_PROXY_CIDRS=${EA_MEMORIAL_TRUSTED_PROXY_CIDRS:?set the exact trusted memorial proxy CIDR}
@@ -52,4 +72,5 @@ services:
       - ${EA_MEMORIAL_RUNTIME_HOST_PATH:?set the validated Manfred runtime root}/public-contributions:/data/memorial-writable/public-contributions
       - ${EA_MEMORIAL_RUNTIME_HOST_PATH:?set the validated Manfred runtime root}/private-contributions:/data/memorial-writable/private-contributions
       - ${EA_MEMORIAL_RUNTIME_HOST_PATH:?set the validated Manfred runtime root}/state:/data/memorial-writable/state
+      - ${EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE:?set a receipt-validated protected Cartesia credential file}:/run/secrets/ea_memorial_cartesia.json:ro
       - ea_artifacts:/data/artifacts

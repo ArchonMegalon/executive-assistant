@@ -150,7 +150,7 @@
     "CUSTOMER_DIAGNOSTICS.md": "afef88a121f558d0cd7a461aaa481671e3e97bb2ca1c9b633914acdd2f2a637e",
     "Dockerfile": "69aeaca5a71144a66b0807bbdce35fb89d8dbdf8f769000c2e521e849e670b2f",
     "EA_GOVERNED_SPATIAL_RENDER_DESIGN_PETITION.md": "61b15f3c007df19dad80c78514b8b5ff218925f7a96b8b846be2dae4e1b88d0b",
-    "ENVIRONMENT_MATRIX.md": "39b37ce790409228aee78f4907715b4b0cd7979a401ece71d28bd5f87796144c",
+    "ENVIRONMENT_MATRIX.md": "e186749528eaeeece73b7dc67d5a36b5016e4927c188bb028c22313258c4e99c",
     "EXECUTIVE_ASSISTANT_MILESTONE_DEV_GUIDE.md": "151109cd1ba77033b12ad320ae690677fb2ccebdb6cab9f0f352ef3cc97129fa",
     "FIXTURE_SCENARIOS.md": "61e22e87f81f3040611468c17be7dfeefe78549a7030f66967c9fcc2cec6f76e",
     "FLAGSHIP_CLOSEOUT_PLAN.md": "8c4268df2b3a6a0c527010912ec84c5479462043998ee62fb29f6c052143f331",
@@ -1473,7 +1473,7 @@
     "tests/test_compose_portable_storage_defaults.py": "29651a201bbac6862eba6009fa204bcfe43390b789ecafe67746d502c50467a6",
     "tests/test_continuous_improvement_goal_posture.py": "a9e0a9859a500fb01324ca32f42d100132cdac53bd2b2a652934fb9313975a77",
     "tests/test_crezlo_email_runtime_defaults.py": "e0f72bb694c5bd82c7660eae441779b3965c81eac2ff69f69639a17424c52d06",
-    "tests/test_deployment_contracts.py": "fc2393ec7b90214a79d826df7faf244184aed458b68d326f98ad51a483e0e022",
+    "tests/test_deployment_contracts.py": "97f9b5bb0bf29c8d0fe2c7697f1549c07c811ca6bea6b7db682cb5ed45fabf01",
     "tests/test_design_mirror_bundle_contracts.py": "54ebbfb48b84edc0a5bb80ca1b90f2baf2df62dd30d169a8803951f3f882a6a9",
     "tests/test_di_container.py": "d0725ef67f804e324eb8d7f8ac0ff9f9d9974423f77dcf428e9159ef028e885f",
     "tests/test_docs_and_verifier_path_portability.py": "7041e44b34d2ce71c0dee311df5e639078dcfebd47be1a543acac11ce9a21f55",
@@ -1588,7 +1588,7 @@
     "tests/test_memorial_helper_path_defaults.py": "2ba8a09bb6a582c7539c05100ba31d3122e8dca4e99af6f3dc2125002b9371a4",
     "tests/test_memorial_joggai_asset_receipts.py": "a75f2e0f6d6007360f8fd6d60ea34c2fcbd2e8b1c91faa5d0bf77557f3904429",
     "tests/test_memorial_joggai_provider_contracts.py": "c3296ddc605f566bb3542d6ae753dff6ecf7485d250d0b76bdfe0f8663b6c402",
-    "tests/test_memorial_live_conversation_contracts.py": "587d19bcf345eac4682416e0d32d9a07aa8ff79690ac7e9a3ad045a60a53f6d0",
+    "tests/test_memorial_live_conversation_contracts.py": "f67b255d8aca6be4ea2bf7f25292b2dede0b6a7a99a817a9689c8cbaef80994f",
     "tests/test_memorial_memory_room.py": "0e62ad6426cdc59b601bc07076911560d70e16afec27e30941f92dd3a9372089",
     "tests/test_memorial_memory_service.py": "93cf3f32c95a40f541060c4d6cc0a16a505e5ef0ad0d8fe0dc4be854ac7320bd",
     "tests/test_memorial_openvoice_voicewave.py": "584911083ba3f2382e29d270a991829b9d29db17c9fb8a00e456e89e9cc364d4",
@@ -1842,13 +1842,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "29ade50b881b5808dcdceda4167b0200c98b034e",
-  "indexed_at_timestamp": "2026-07-26T10:58:26.647476202+00:00",
+  "indexed_at_commit": "2ca7cf4e6f7ab681653f029fc040c80b469d5d8f",
+  "indexed_at_timestamp": "2026-07-26T12:13:50.322464341+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 46013,
+    "total_edges": 46016,
     "total_files": 1841,
-    "total_nodes": 28934
+    "total_nodes": 28945
   },
   "vexp_version": "2.3.1"
 }

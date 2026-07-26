@@ -42,9 +42,11 @@
 
 ## Memorial Voice Variables
 
+- `EA_MEMORIAL_STT_PRIMARY_PROVIDER`: production memorial speech-to-text primary. The memorial deployment pins this to `blipai`.
+- `EA_CARTESIA_CREDENTIALS_JSON_FILE`: path to the read-only Cartesia fallback credential JSON. The memorial deployment uses `/run/secrets/ea_memorial_cartesia.json`, backed by the required `EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE` bind source.
 - `EA_MEMORIAL_SHADOW_STT_PROVIDER`: shadow speech-to-text provider for memorial user-question audio. Current allowed value is `blipai`.
 - `EA_MEMORIAL_SHADOW_STT_URL`: optional explicit shadow STT endpoint. If unset and a BlipAI token is available, the memorial route falls back to BlipAI's official STT endpoint.
-- `EA_MEMORIAL_SHADOW_STT_API_KEY`: explicit shadow STT bearer token. If unset for `blipai`, runtime lookup falls back to the persisted BlipAI token state and then `BLIPAI_APP_API_TOKEN`.
+- `EA_MEMORIAL_SHADOW_STT_API_KEY`: bootstrap shadow STT bearer token used only when no complete protected BlipAI token pair exists.
 - `EA_MEMORIAL_SHADOW_STT_REFRESH_TOKEN`: preferred refresh token used to recover an expired BlipAI access token before the lane enters cooldown.
 - `BLIPAI_APP_API_TOKEN`: fallback BlipAI access token used when no explicit memorial shadow token is configured.
 - `BLIPAI_APP_REFRESH_TOKEN`: fallback BlipAI refresh token used when no explicit memorial refresh token is configured.
@@ -53,17 +55,22 @@
 - `EA_MEMORIAL_SHADOW_STT_MAX_BYTES`: upper bound for user-question audio sent to the shadow STT lane.
 - `EA_MEMORIAL_SHADOW_STT_ERROR_COOLDOWN_SECONDS`: cooldown after BlipAI auth/rate-limit errors (`401`, `403`, `429`) so one bad token does not slow every memorial turn.
 
-Memorial shadow STT lookup order:
+General memorial Blip credential lookup order:
 
-1. `EA_MEMORIAL_SHADOW_STT_API_KEY`
-2. persisted refreshed token state at `EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH`
+1. a complete, protected persisted token pair at `EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH`
+2. `EA_MEMORIAL_SHADOW_STT_API_KEY`
 3. `BLIPAI_APP_API_TOKEN`
 
-Memorial shadow STT refresh-token lookup order:
+General memorial Blip refresh-token lookup order:
 
-1. `EA_MEMORIAL_SHADOW_STT_REFRESH_TOKEN`
-2. persisted refreshed token state at `EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH`
+1. a complete, protected persisted token pair at `EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH`
+2. `EA_MEMORIAL_SHADOW_STT_REFRESH_TOKEN`
 3. `BLIPAI_APP_REFRESH_TOKEN`
+
+The production memorial profile deliberately blanks direct and legacy Blip
+credential variables. It accepts Blip only from the protected, atomically
+rotated state file. Its speech-to-text order is BlipAI, then Cartesia from the
+read-only credential bind, then the existing 1min.ai pool.
 
 ## Recommended Profiles
 

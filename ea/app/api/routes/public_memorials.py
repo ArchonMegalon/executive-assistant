@@ -248,6 +248,8 @@ _CARTESIA_CREDENTIAL_FILE_ENV_NAMES = (
 _CARTESIA_DEFAULT_CREDENTIAL_FILES = ("config/cartesia.local.json",)
 _BLIPAI_SUPABASE_URL = "https://hqwmccawtepvundsgnil.supabase.co"
 _BLIPAI_SUPABASE_ANON_KEY = "sb_publishable_TCu8hwzGitgxmzCu2rYHiA_6r3MImeD"
+_MEMORIAL_BLIPAI_TOKEN_STATE_MAX_BYTES = 65536
+_MEMORIAL_BLIPAI_TOKEN_MAX_CHARS = 16384
 _MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS: dict[str, float] = {}
 _MEMORIAL_STT_PROVIDER_COOLDOWNS: dict[str, float] = {}
 _MEMORIAL_STT_KEY_COOLDOWNS: dict[str, float] = {}
@@ -12985,60 +12987,71 @@ def _memorial_should_cooldown_cartesia(error_text: str) -> bool:
 
 
 def _memorial_shadow_stt_api_key(*, provider: str) -> str:
-    api_key = _text(
-        os.getenv("EA_MEMORIAL_BLIPAI_STT_API_KEY")
-        or os.getenv("EA_MEMORIAL_SHADOW_STT_API_KEY")
-    ).strip()
-    if provider == "blipai" and not api_key:
+    if provider == "blipai":
         with _MEMORIAL_BLIPAI_TOKEN_LOCK:
-            if not _MEMORIAL_BLIPAI_TOKEN_STATE:
-                _MEMORIAL_BLIPAI_TOKEN_STATE.update(_load_memorial_blipai_token_state())
-            api_key = _text(_MEMORIAL_BLIPAI_TOKEN_STATE.get("access_token")).strip()
+            cached_access = _memorial_blipai_token_value(
+                _MEMORIAL_BLIPAI_TOKEN_STATE.get("access_token")
+            )
+            cached_refresh = _memorial_blipai_token_value(
+                _MEMORIAL_BLIPAI_TOKEN_STATE.get("refresh_token")
+            )
+            if not cached_access or not cached_refresh:
+                loaded = _load_memorial_blipai_token_state()
+                if loaded:
+                    _MEMORIAL_BLIPAI_TOKEN_STATE.clear()
+                    _MEMORIAL_BLIPAI_TOKEN_STATE.update(loaded)
+                    cached_access = loaded["access_token"]
+                    cached_refresh = loaded["refresh_token"]
+            if cached_access and cached_refresh:
+                return cached_access
+        api_key = _memorial_blipai_token_value(
+            os.getenv("EA_MEMORIAL_BLIPAI_STT_API_KEY")
+            or os.getenv("EA_MEMORIAL_SHADOW_STT_API_KEY")
+        )
         if not api_key:
-            api_key = _text(os.getenv("BLIPAI_APP_API_TOKEN")).strip()
-    return api_key
+            api_key = _memorial_blipai_token_value(os.getenv("BLIPAI_APP_API_TOKEN"))
+        return api_key
+    return _text(os.getenv("EA_MEMORIAL_SHADOW_STT_API_KEY")).strip()
 
 
 def _memorial_blipai_token_state_path() -> Path:
     configured = _text(os.getenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH")).strip()
     if configured:
         return Path(configured).expanduser()
+    configured_state_dir = _text(os.getenv("EA_MEMORIAL_STATE_DIR")).strip()
+    if configured_state_dir:
+        return (
+            Path(configured_state_dir).expanduser()
+            / "memorial_blipai_shadow_stt_tokens.json"
+        )
     return _memorial_state_dir() / "memorial_blipai_shadow_stt_tokens.json"
 
 
-def _load_memorial_blipai_token_state() -> dict[str, str]:
-    path = _memorial_blipai_token_state_path()
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    if not isinstance(payload, dict):
-        return {}
-    access_token = _text(payload.get("access_token")).strip()
-    refresh_token = _text(payload.get("refresh_token")).strip()
-    result: dict[str, str] = {}
-    if access_token:
-        result["access_token"] = access_token
-    if refresh_token:
-        result["refresh_token"] = refresh_token
-    return result
+def _memorial_blipai_token_value(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    token = value
+    if (
+        not token
+        or len(token) > _MEMORIAL_BLIPAI_TOKEN_MAX_CHARS
+        or any(ord(character) < 33 or ord(character) == 127 for character in token)
+    ):
+        return ""
+    return token
 
 
-def _save_memorial_blipai_token_state(access_token: str, refresh_token: str) -> None:
-    path = _memorial_blipai_token_state_path()
-    payload = {
-        "access_token": _text(access_token).strip(),
-        "refresh_token": _text(refresh_token).strip(),
-        "saved_at": datetime.now(timezone.utc).isoformat(),
-    }
+def _open_memorial_blipai_token_parent(
+    path: Path,
+    *,
+    create: bool,
+) -> tuple[int, str] | None:
     parent_fd: int | None = None
-    temporary_fd: int | None = None
-    temporary_name = ""
     try:
         if not all(hasattr(os, name) for name in ("O_DIRECTORY", "O_NOFOLLOW")):
-            return
-        if not all(function in os.supports_dir_fd for function in (os.open, os.mkdir, os.unlink)):
-            return
+            return None
+        required_dir_fd_functions = (os.open, os.mkdir) if create else (os.open,)
+        if not all(function in os.supports_dir_fd for function in required_dir_fd_functions):
+            return None
         parent_flags = os.O_RDONLY
         parent_flags |= getattr(os, "O_CLOEXEC", 0)
         parent_flags |= os.O_DIRECTORY
@@ -13055,13 +13068,15 @@ def _save_memorial_blipai_token_state(access_token: str, refresh_token: str) -> 
             or target_name in {".", ".."}
             or any(part == ".." for part in parent_parts)
         ):
-            return
+            return None
         for part in parent_parts:
             if not part or part == ".":
                 continue
             try:
                 next_fd = os.open(part, parent_flags, dir_fd=parent_fd)
             except FileNotFoundError:
+                if not create:
+                    return None
                 try:
                     os.mkdir(part, mode=0o700, dir_fd=parent_fd)
                 except FileExistsError:
@@ -13072,8 +13087,109 @@ def _save_memorial_blipai_token_state(access_token: str, refresh_token: str) -> 
             parent_fd = next_fd
             os.close(old_parent_fd)
         if not stat.S_ISDIR(os.fstat(parent_fd).st_mode):
-            return
+            return None
+        result_fd = parent_fd
+        parent_fd = None
+        return result_fd, target_name
+    except Exception:
+        return None
+    finally:
+        if parent_fd is not None:
+            try:
+                os.close(parent_fd)
+            except OSError:
+                pass
+
+
+def _load_memorial_blipai_token_state() -> dict[str, str]:
+    try:
+        path = _memorial_blipai_token_state_path()
+    except Exception:
+        return {}
+    opened_parent = _open_memorial_blipai_token_parent(path, create=False)
+    if opened_parent is None:
+        return {}
+    parent_fd, target_name = opened_parent
+    state_fd: int | None = None
+    try:
+        state_flags = os.O_RDONLY
+        state_flags |= getattr(os, "O_CLOEXEC", 0)
+        state_flags |= getattr(os, "O_NONBLOCK", 0)
+        state_flags |= os.O_NOFOLLOW
+        state_fd = os.open(target_name, state_flags, dir_fd=parent_fd)
+        state_stat = os.fstat(state_fd)
+        effective_uid = os.geteuid() if hasattr(os, "geteuid") else state_stat.st_uid
+        if (
+            not stat.S_ISREG(state_stat.st_mode)
+            or stat.S_IMODE(state_stat.st_mode) != 0o600
+            or state_stat.st_nlink != 1
+            or state_stat.st_uid != effective_uid
+            or state_stat.st_size <= 0
+            or state_stat.st_size > _MEMORIAL_BLIPAI_TOKEN_STATE_MAX_BYTES
+        ):
+            return {}
+        chunks: list[bytes] = []
+        remaining = _MEMORIAL_BLIPAI_TOKEN_STATE_MAX_BYTES + 1
+        while remaining > 0:
+            chunk = os.read(state_fd, min(8192, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        encoded = b"".join(chunks)
+        if not encoded or len(encoded) > _MEMORIAL_BLIPAI_TOKEN_STATE_MAX_BYTES:
+            return {}
+        payload = json.loads(encoded.decode("utf-8"))
+    except Exception:
+        return {}
+    finally:
+        if state_fd is not None:
+            try:
+                os.close(state_fd)
+            except OSError:
+                pass
+        try:
+            os.close(parent_fd)
+        except OSError:
+            pass
+    if not isinstance(payload, dict):
+        return {}
+    access_token = _memorial_blipai_token_value(payload.get("access_token"))
+    refresh_token = _memorial_blipai_token_value(payload.get("refresh_token"))
+    if not access_token or not refresh_token:
+        return {}
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+    }
+
+
+def _save_memorial_blipai_token_state(access_token: str, refresh_token: str) -> bool:
+    try:
+        path = _memorial_blipai_token_state_path()
+    except Exception:
+        return False
+    normalized_access_token = _memorial_blipai_token_value(access_token)
+    normalized_refresh_token = _memorial_blipai_token_value(refresh_token)
+    if not normalized_access_token or not normalized_refresh_token:
+        return False
+    payload = {
+        "access_token": normalized_access_token,
+        "refresh_token": normalized_refresh_token,
+        "saved_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if os.unlink not in os.supports_dir_fd:
+        return False
+    opened_parent = _open_memorial_blipai_token_parent(path, create=True)
+    if opened_parent is None:
+        return False
+    parent_fd, target_name = opened_parent
+    temporary_fd: int | None = None
+    temporary_name = ""
+    try:
         encoded = (json.dumps(payload, ensure_ascii=True, indent=2) + "\n").encode("utf-8")
+        if len(encoded) > _MEMORIAL_BLIPAI_TOKEN_STATE_MAX_BYTES:
+            return False
         temporary_name = f".blipai-token-state.{secrets.token_hex(8)}.tmp"
         temporary_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
         temporary_flags |= getattr(os, "O_CLOEXEC", 0)
@@ -13089,7 +13205,7 @@ def _save_memorial_blipai_token_state(access_token: str, refresh_token: str) -> 
         while remaining:
             written = os.write(temporary_fd, remaining)
             if written <= 0:  # pragma: no cover - kernel write invariant
-                return
+                return False
             remaining = remaining[written:]
         os.fsync(temporary_fd)
         os.close(temporary_fd)
@@ -13102,45 +13218,48 @@ def _save_memorial_blipai_token_state(access_token: str, refresh_token: str) -> 
         )
         temporary_name = ""
         os.fsync(parent_fd)
+        return True
     except Exception:
-        return
+        return False
     finally:
         if temporary_fd is not None:
             try:
                 os.close(temporary_fd)
             except OSError:
                 pass
-        if temporary_name and parent_fd is not None:
+        if temporary_name:
             try:
                 os.unlink(temporary_name, dir_fd=parent_fd)
             except OSError:
                 pass
-        if parent_fd is not None:
-            try:
-                os.close(parent_fd)
-            except OSError:
-                pass
+        try:
+            os.close(parent_fd)
+        except OSError:
+            pass
 
 
 def _refresh_blipai_shadow_stt_access_token(*, rejected_access_token: str = "") -> str:
-    refresh_token = _text(
-        os.getenv("EA_MEMORIAL_BLIPAI_STT_REFRESH_TOKEN")
-        or os.getenv("EA_MEMORIAL_SHADOW_STT_REFRESH_TOKEN")
-    ).strip()
-    if not refresh_token:
-        with _MEMORIAL_BLIPAI_TOKEN_LOCK:
-            if not _MEMORIAL_BLIPAI_TOKEN_STATE:
-                _MEMORIAL_BLIPAI_TOKEN_STATE.update(_load_memorial_blipai_token_state())
-            refresh_token = _text(_MEMORIAL_BLIPAI_TOKEN_STATE.get("refresh_token")).strip()
-    if not refresh_token:
-        refresh_token = _text(os.getenv("BLIPAI_APP_REFRESH_TOKEN")).strip()
-    if not refresh_token:
-        return ""
+    rejected = _memorial_blipai_token_value(rejected_access_token)
     with _MEMORIAL_BLIPAI_TOKEN_LOCK:
-        if _text(_MEMORIAL_BLIPAI_TOKEN_STATE.get("refresh_token")).strip() == refresh_token:
-            cached = _text(_MEMORIAL_BLIPAI_TOKEN_STATE.get("access_token")).strip()
-            if cached and cached != _text(rejected_access_token).strip():
-                return cached
+        loaded = _load_memorial_blipai_token_state()
+        if loaded:
+            _MEMORIAL_BLIPAI_TOKEN_STATE.clear()
+            _MEMORIAL_BLIPAI_TOKEN_STATE.update(loaded)
+        cached_access = _memorial_blipai_token_value(
+            _MEMORIAL_BLIPAI_TOKEN_STATE.get("access_token")
+        )
+        cached_refresh = _memorial_blipai_token_value(
+            _MEMORIAL_BLIPAI_TOKEN_STATE.get("refresh_token")
+        )
+        if cached_access and cached_refresh and cached_access != rejected:
+            return cached_access
+        refresh_token = cached_refresh or _memorial_blipai_token_value(
+            os.getenv("EA_MEMORIAL_BLIPAI_STT_REFRESH_TOKEN")
+            or os.getenv("EA_MEMORIAL_SHADOW_STT_REFRESH_TOKEN")
+            or os.getenv("BLIPAI_APP_REFRESH_TOKEN")
+        )
+        if not refresh_token:
+            return ""
         headers = {
             "apikey": _BLIPAI_SUPABASE_ANON_KEY,
             "Content-Type": "application/json",
@@ -13158,13 +13277,27 @@ def _refresh_blipai_shadow_stt_access_token(*, rejected_access_token: str = "") 
             payload = response.json()
         except ValueError:
             return ""
-        access_token = _text(payload.get("access_token")).strip()
+        if not isinstance(payload, dict):
+            return ""
+        access_token = _memorial_blipai_token_value(payload.get("access_token"))
         if not access_token:
             return ""
-        next_refresh_token = _text(payload.get("refresh_token")).strip() or refresh_token
-        _MEMORIAL_BLIPAI_TOKEN_STATE["access_token"] = access_token
-        _MEMORIAL_BLIPAI_TOKEN_STATE["refresh_token"] = next_refresh_token
-        _save_memorial_blipai_token_state(access_token, next_refresh_token)
+        raw_next_refresh_token = payload.get("refresh_token")
+        if raw_next_refresh_token in (None, ""):
+            next_refresh_token = refresh_token
+        else:
+            next_refresh_token = _memorial_blipai_token_value(raw_next_refresh_token)
+            if not next_refresh_token:
+                return ""
+        if not _save_memorial_blipai_token_state(access_token, next_refresh_token):
+            return ""
+        _MEMORIAL_BLIPAI_TOKEN_STATE.clear()
+        _MEMORIAL_BLIPAI_TOKEN_STATE.update(
+            {
+                "access_token": access_token,
+                "refresh_token": next_refresh_token,
+            }
+        )
         return access_token
 
 

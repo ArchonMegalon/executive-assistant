@@ -847,6 +847,7 @@ def test_memorial_shadow_stt_loads_persisted_blipai_access_token(
         json.dumps({"access_token": "persisted-access", "refresh_token": "persisted-refresh"}),
         encoding="utf-8",
     )
+    state_path.chmod(0o600)
     public_memorials._MEMORIAL_BLIPAI_TOKEN_STATE.clear()
     monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(state_path))
     monkeypatch.delenv("EA_MEMORIAL_SHADOW_STT_API_KEY", raising=False)
@@ -877,6 +878,191 @@ def test_memorial_shadow_stt_loads_persisted_blipai_access_token(
 
     assert result["status"] == "ok"
     assert seen["auth"] == "Bearer persisted-access"
+
+
+def test_memorial_blipai_token_state_load_rejects_insecure_mode_and_partial_pair(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    state_path = tmp_path / "blipai-token-state.json"
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(state_path))
+    state_path.write_text(
+        json.dumps(
+            {
+                "access_token": "persisted-access",
+                "refresh_token": "persisted-refresh",
+            }
+        ),
+        encoding="utf-8",
+    )
+    state_path.chmod(0o644)
+
+    assert public_memorials._load_memorial_blipai_token_state() == {}
+
+    state_path.chmod(0o600)
+    state_path.write_text(
+        json.dumps({"access_token": "persisted-access"}),
+        encoding="utf-8",
+    )
+
+    assert public_memorials._load_memorial_blipai_token_state() == {}
+
+    state_path.write_text(
+        json.dumps(
+            {
+                "access_token": 123,
+                "refresh_token": "persisted-refresh",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert public_memorials._load_memorial_blipai_token_state() == {}
+
+
+@pytest.mark.parametrize(
+    ("access_token", "refresh_token"),
+    (
+        ("access-with\nnewline", "refresh-token"),
+        ("access-token", "refresh-with\rreturn"),
+        ("access-token\n", "refresh-token"),
+        ("a" * 16385, "refresh-token"),
+    ),
+)
+def test_memorial_blipai_token_state_load_rejects_unsafe_token_values(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    access_token: str,
+    refresh_token: str,
+) -> None:
+    from app.api.routes import public_memorials
+
+    state_path = tmp_path / "blipai-token-state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+            }
+        ),
+        encoding="utf-8",
+    )
+    state_path.chmod(0o600)
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(state_path))
+
+    assert public_memorials._load_memorial_blipai_token_state() == {}
+
+
+def test_memorial_blipai_token_state_load_rejects_oversized_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    state_path = tmp_path / "blipai-token-state.json"
+    state_path.write_bytes(
+        b"x" * (public_memorials._MEMORIAL_BLIPAI_TOKEN_STATE_MAX_BYTES + 1)
+    )
+    state_path.chmod(0o600)
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(state_path))
+
+    assert public_memorials._load_memorial_blipai_token_state() == {}
+
+
+def test_memorial_blipai_token_state_load_rejects_final_and_intermediate_symlinks(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    victim = outside / "tokens.json"
+    victim.write_text(
+        json.dumps(
+            {
+                "access_token": "persisted-access",
+                "refresh_token": "persisted-refresh",
+            }
+        ),
+        encoding="utf-8",
+    )
+    victim.chmod(0o600)
+    final_link = tmp_path / "final-link.json"
+    final_link.symlink_to(victim)
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(final_link))
+
+    assert public_memorials._load_memorial_blipai_token_state() == {}
+
+    trusted = tmp_path / "trusted"
+    trusted.mkdir()
+    intermediate_link = trusted / "redirect"
+    intermediate_link.symlink_to(outside, target_is_directory=True)
+    monkeypatch.setenv(
+        "EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH",
+        str(intermediate_link / "tokens.json"),
+    )
+
+    assert public_memorials._load_memorial_blipai_token_state() == {}
+
+
+def test_memorial_blipai_token_state_load_rejects_fifo_and_hardlink(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    fifo_path = tmp_path / "tokens.fifo"
+    os.mkfifo(fifo_path, 0o600)
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(fifo_path))
+
+    assert public_memorials._load_memorial_blipai_token_state() == {}
+
+    source_path = tmp_path / "source.json"
+    source_path.write_text(
+        json.dumps(
+            {
+                "access_token": "persisted-access",
+                "refresh_token": "persisted-refresh",
+            }
+        ),
+        encoding="utf-8",
+    )
+    source_path.chmod(0o600)
+    hardlink_path = tmp_path / "hardlink.json"
+    os.link(source_path, hardlink_path)
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(hardlink_path))
+
+    assert public_memorials._load_memorial_blipai_token_state() == {}
+
+
+def test_memorial_blipai_token_state_load_rejects_wrong_owner(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    state_path = tmp_path / "blipai-token-state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "access_token": "persisted-access",
+                "refresh_token": "persisted-refresh",
+            }
+        ),
+        encoding="utf-8",
+    )
+    state_path.chmod(0o600)
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(state_path))
+    monkeypatch.setattr(
+        public_memorials.os,
+        "geteuid",
+        lambda: state_path.stat().st_uid + 1,
+    )
+
+    assert public_memorials._load_memorial_blipai_token_state() == {}
 
 
 def test_memorial_shadow_stt_persists_refreshed_blipai_tokens(
@@ -937,6 +1123,149 @@ def test_memorial_shadow_stt_persists_refreshed_blipai_tokens(
     assert not any(path.name.endswith(".tmp") for path in tmp_path.iterdir())
 
 
+def test_memorial_blipai_refresh_fails_closed_when_token_state_commit_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    public_memorials._MEMORIAL_BLIPAI_TOKEN_STATE.clear()
+    public_memorials._MEMORIAL_BLIPAI_TOKEN_STATE.update(
+        {
+            "access_token": "expired-access",
+            "refresh_token": "current-refresh",
+        }
+    )
+    monkeypatch.setenv(
+        "EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH",
+        str(tmp_path / "missing-token-state.json"),
+    )
+
+    class _RefreshOK:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return {
+                "access_token": "fresh-access",
+                "refresh_token": "next-refresh",
+            }
+
+    monkeypatch.setattr(
+        public_memorials.requests,
+        "post",
+        lambda *args, **kwargs: _RefreshOK(),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_save_memorial_blipai_token_state",
+        lambda *args, **kwargs: False,
+    )
+
+    refreshed = public_memorials._refresh_blipai_shadow_stt_access_token(
+        rejected_access_token="expired-access"
+    )
+
+    assert refreshed == ""
+    assert public_memorials._MEMORIAL_BLIPAI_TOKEN_STATE == {
+        "access_token": "expired-access",
+        "refresh_token": "current-refresh",
+    }
+
+
+def test_memorial_blipai_protected_state_outranks_stale_explicit_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    state_path = tmp_path / "blipai-token-state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "access_token": "protected-access",
+                "refresh_token": "protected-refresh",
+            }
+        ),
+        encoding="utf-8",
+    )
+    state_path.chmod(0o600)
+    public_memorials._MEMORIAL_BLIPAI_TOKEN_STATE.clear()
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(state_path))
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_STT_API_KEY", "stale-env-access")
+    monkeypatch.setenv(
+        "EA_MEMORIAL_BLIPAI_STT_REFRESH_TOKEN",
+        "stale-env-refresh",
+    )
+
+    selected = public_memorials._memorial_shadow_stt_api_key(provider="blipai")
+
+    assert selected == "protected-access"
+    assert public_memorials._MEMORIAL_BLIPAI_TOKEN_STATE == {
+        "access_token": "protected-access",
+        "refresh_token": "protected-refresh",
+    }
+
+
+def test_memorial_blipai_consecutive_refreshes_use_rotated_protected_pair(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    state_path = tmp_path / "blipai-token-state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "access_token": "access-0",
+                "refresh_token": "refresh-0",
+            }
+        ),
+        encoding="utf-8",
+    )
+    state_path.chmod(0o600)
+    public_memorials._MEMORIAL_BLIPAI_TOKEN_STATE.clear()
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(state_path))
+    monkeypatch.setenv(
+        "EA_MEMORIAL_BLIPAI_STT_REFRESH_TOKEN",
+        "stale-env-refresh",
+    )
+    refresh_tokens_seen: list[str] = []
+
+    class _RefreshOK:
+        status_code = 200
+
+        def __init__(self, index: int) -> None:
+            self.index = index
+
+        def json(self) -> dict[str, object]:
+            return {
+                "access_token": f"access-{self.index}",
+                "refresh_token": f"refresh-{self.index}",
+            }
+
+    def _fake_post(url, *, headers, json, timeout):
+        refresh_tokens_seen.append(json["refresh_token"])
+        return _RefreshOK(len(refresh_tokens_seen))
+
+    monkeypatch.setattr(public_memorials.requests, "post", _fake_post)
+
+    first_access = public_memorials._refresh_blipai_shadow_stt_access_token(
+        rejected_access_token="access-0"
+    )
+    second_access = public_memorials._refresh_blipai_shadow_stt_access_token(
+        rejected_access_token="access-1"
+    )
+
+    persisted = json.loads(state_path.read_text(encoding="utf-8"))
+    assert first_access == "access-1"
+    assert second_access == "access-2"
+    assert refresh_tokens_seen == ["refresh-0", "refresh-1"]
+    assert persisted["access_token"] == "access-2"
+    assert persisted["refresh_token"] == "refresh-2"
+    assert state_path.stat().st_mode & 0o777 == 0o600
+
+
 def test_memorial_blipai_token_state_replaces_existing_file_atomically(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -949,10 +1278,10 @@ def test_memorial_blipai_token_state_replaces_existing_file_atomically(
     original_inode = state_path.stat().st_ino
     monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(state_path))
 
-    public_memorials._save_memorial_blipai_token_state(
+    assert public_memorials._save_memorial_blipai_token_state(
         "fresh-token",
         "next-refresh-token",
-    )
+    ) is True
 
     saved = json.loads(state_path.read_text(encoding="utf-8"))
     assert saved["access_token"] == "fresh-token"
@@ -960,6 +1289,34 @@ def test_memorial_blipai_token_state_replaces_existing_file_atomically(
     assert state_path.stat().st_ino != original_inode
     assert state_path.stat().st_mode & 0o777 == 0o600
     assert not any(path.name.endswith(".tmp") for path in tmp_path.iterdir())
+
+
+@pytest.mark.parametrize(
+    ("access_token", "refresh_token"),
+    (
+        ("", "refresh-token"),
+        ("access-token", ""),
+        ("access-with\nnewline", "refresh-token"),
+        ("access-token", "refresh-token\r\n"),
+        ("a" * 16385, "refresh-token"),
+    ),
+)
+def test_memorial_blipai_token_state_save_rejects_invalid_pair(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    access_token: str,
+    refresh_token: str,
+) -> None:
+    from app.api.routes import public_memorials
+
+    state_path = tmp_path / "blipai-shadow-token.json"
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(state_path))
+
+    assert public_memorials._save_memorial_blipai_token_state(
+        access_token,
+        refresh_token,
+    ) is False
+    assert not state_path.exists()
 
 
 def test_memorial_blipai_token_state_replace_failure_preserves_old_file(
@@ -979,10 +1336,10 @@ def test_memorial_blipai_token_state_replace_failure_preserves_old_file(
 
     monkeypatch.setattr(public_memorials.os, "replace", _fail_replace)
 
-    public_memorials._save_memorial_blipai_token_state(
+    assert public_memorials._save_memorial_blipai_token_state(
         "fresh-token",
         "next-refresh-token",
-    )
+    ) is False
 
     assert state_path.read_text(encoding="utf-8") == original
     assert not any(path.name.endswith(".tmp") for path in tmp_path.iterdir())

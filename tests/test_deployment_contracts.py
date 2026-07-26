@@ -319,6 +319,51 @@ def test_base_compose_loads_optional_local_env_for_provider_runtime_only() -> No
         } not in env_files, service_name
 
 
+def test_memorial_compose_pins_stt_order_and_uses_protected_credentials() -> None:
+    compose = _load_yaml(ROOT / "docker-compose.memorial.yml")
+    services = compose.get("services") or {}
+    service = services.get("ea-api") or {}
+    environment = {}
+    for item in list(service.get("environment") or []):
+        name, separator, value = str(item).partition("=")
+        assert separator == "=", name
+        environment[name] = value
+    volumes = [str(item) for item in list(service.get("volumes") or [])]
+
+    assert environment["EA_MEMORIAL_STT_PRIMARY_PROVIDER"] == "blipai"
+    assert environment["EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH"] == (
+        "/data/memorial-writable/state/memorial_blipai_shadow_stt_tokens.json"
+    )
+    assert environment["EA_CARTESIA_CREDENTIALS_JSON_FILE"] == (
+        "/run/secrets/ea_memorial_cartesia.json"
+    )
+    for name in (
+        "EA_MEMORIAL_BLIPAI_STT_API_KEY",
+        "EA_MEMORIAL_SHADOW_STT_API_KEY",
+        "EA_MEMORIAL_BLIPAI_STT_REFRESH_TOKEN",
+        "EA_MEMORIAL_SHADOW_STT_REFRESH_TOKEN",
+        "BLIPAI_APP_API_TOKEN",
+        "BLIPAI_APP_REFRESH_TOKEN",
+        "BLIPAI_APP_USERNAME",
+        "BLIPAI_APP_PASSWORD",
+        "CARTESIA_API_KEY",
+        "EA_CARTESIA_API_KEY",
+        "CARTESIA_API_KEY_JSON",
+        "EA_CARTESIA_API_KEY_JSON",
+        "CARTESIA_CREDENTIALS_JSON",
+        "EA_CARTESIA_CREDENTIALS_JSON",
+        "CARTESIA_API_KEY_FILE",
+        "EA_CARTESIA_API_KEY_FILE",
+        "CARTESIA_CREDENTIALS_JSON_FILE",
+    ):
+        assert environment[name] == ""
+    assert (
+        "${EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE:?"
+        "set a receipt-validated protected Cartesia credential file}:"
+        "/run/secrets/ea_memorial_cartesia.json:ro"
+    ) in volumes
+
+
 def test_base_compose_applies_auxiliary_runtime_privilege_limits() -> None:
     compose = _load_yaml(ROOT / "docker-compose.yml")
     services = compose.get("services") or {}
