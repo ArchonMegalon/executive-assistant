@@ -6879,18 +6879,45 @@ def _memorial_direct_memory_text(memory_lines: list[str] | None) -> str:
     for axis in ("legal", "general", "episodic"):
         for raw_line in grouped.get(axis, []):
             line = " ".join(_text(raw_line, "").split())
-            lowered = line.lower()
             if (
                 not line
                 or line.endswith("?")
-                or "https://" in lowered
-                or "http://" in lowered
             ):
                 continue
             for separator in (". ", "! "):
                 if separator in line:
                     line = line.split(separator, 1)[0].rstrip() + separator[0]
                     break
+            line = re.sub(
+                r"\b(verbind(?:en|et))\s+Manfred(?:\s+Hoza)?\b",
+                r"\1 mich",
+                line,
+                flags=re.IGNORECASE,
+            )
+            lowered = line.lower()
+            if (
+                "https://" in lowered
+                or "http://" in lowered
+                or "manfred" in lowered
+                or any(
+                    marker in lowered
+                    for marker in (
+                        "ki-rekonstruktion",
+                        "nicht der echte",
+                        "synthetisch gesprochen",
+                        "keine originalaufnahme",
+                        "keine direkte simulation",
+                        "echte worte",
+                        "an seiner stelle",
+                    )
+                )
+            ):
+                # Public source memories can include third-person attribution or
+                # disclosure copy.  Both are valid provenance, but neither is a
+                # substantive first-person answer and both deliberately trip the
+                # narrator boundary.  Rewrite the narrow grammatical attribution
+                # above; otherwise prefer the next approved topical memory.
+                continue
             if len(line) > 240:
                 line = line[:237].rsplit(" ", 1)[0].rstrip(" ,;:-") + "..."
             if line:

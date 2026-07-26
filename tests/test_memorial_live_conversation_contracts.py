@@ -3330,6 +3330,37 @@ def test_memorial_values_guardrail_answer_body_stays_substantive_without_context
     assert any(token in lowered for token in ("fairness", "gerecht", "verantwortung"))
 
 
+def test_memorial_direct_memory_prefers_topical_evidence_over_narrator_meta() -> None:
+    from app.api.routes import public_memorials
+
+    memory_lines = [
+        (
+            "[Grundsatz] Oeffentliche Treffer verbinden Manfred Hoza wiederholt "
+            "mit Mobbing, Diskriminierung und Opferschutz."
+        ),
+        (
+            "[Grundsatz] Die Jimdo-Autorseite nennt Opferschutz explizit als "
+            "Schwerpunkt seiner rechtswissenschaftlichen Untersuchungen."
+        ),
+    ]
+
+    values_answer = public_memorials._memorial_values_guardrail_answer_body(
+        "Was war dir bei Gerechtigkeit wichtig?",
+        memory_lines=memory_lines,
+    )
+    medical_answer = public_memorials._memorial_current_speculation_answer_body(
+        "Wuerdest du dich heute gegen Covid impfen lassen?",
+        memory_lines=memory_lines,
+    )
+
+    for answer in (values_answer, medical_answer):
+        lowered = answer.lower()
+        assert "opferschutz" in lowered
+        assert "manfred" not in lowered
+        assert "ki-rekonstruktion" not in lowered
+        assert "frag es enger" not in lowered
+
+
 def test_memorial_chat_values_question_uses_matching_approved_profile_memory(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -130,6 +130,27 @@ def test_release_questions_retrieve_faithful_approved_manfred_memories(
         slug="manfred",
         memory_runtime=runtime,
     )
+    medical_answer = public_memorials._memorial_chat_answer(
+        payload,
+        "Wuerdest du dich heute gegen Covid impfen lassen?",
+        {},
+        "ea-gemini-flash",
+        slug="manfred",
+        memory_runtime=runtime,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_enforced",
+        lambda: True,
+    )
+    fairness_public_answer = public_memorials._apply_memorial_narrator_response_policy(
+        fairness_answer,
+        question="Was war dir bei Gerechtigkeit wichtig?",
+    )
+    medical_public_answer = public_memorials._apply_memorial_narrator_response_policy(
+        medical_answer,
+        question="Wuerdest du dich heute gegen Covid impfen lassen?",
+    )
 
     assert fairness_lines
     assert all(
@@ -155,6 +176,16 @@ def test_release_questions_retrieve_faithful_approved_manfred_memories(
     assert ai_answer["public_memory_used"] is True
     assert "KI" in ai_answer["answer"]
     assert "Falschinformationen" in ai_answer["answer"]
+    assert medical_answer["public_memory_used"] is True
+    assert medical_answer["sources"] == ["Freigegebene Erinnerungen"]
+    assert "Opferschutz" in medical_answer["answer"]
+    assert "aktuelle Fakten und aerztlichen Rat" in medical_answer["answer"]
+    for public_answer in (fairness_public_answer, medical_public_answer):
+        lowered = str(public_answer["answer"]).lower()
+        assert "opferschutz" in lowered
+        assert "ki-rekonstruktion" not in lowered
+        assert "nicht der echte manfred" not in lowered
+        assert "frag es enger" not in lowered
     assert all(
         item["fact_json"]["public_approved"] is True
         and item["fact_json"]["public_approval_key"]

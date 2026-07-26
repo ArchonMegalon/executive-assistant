@@ -1588,9 +1588,9 @@
     "tests/test_memorial_helper_path_defaults.py": "2ba8a09bb6a582c7539c05100ba31d3122e8dca4e99af6f3dc2125002b9371a4",
     "tests/test_memorial_joggai_asset_receipts.py": "a75f2e0f6d6007360f8fd6d60ea34c2fcbd2e8b1c91faa5d0bf77557f3904429",
     "tests/test_memorial_joggai_provider_contracts.py": "c3296ddc605f566bb3542d6ae753dff6ecf7485d250d0b76bdfe0f8663b6c402",
-    "tests/test_memorial_live_conversation_contracts.py": "d417be021801856aa7938fd147cfc04ccf7d08f96abadd9745b4a3eb665fe3d4",
+    "tests/test_memorial_live_conversation_contracts.py": "587d19bcf345eac4682416e0d32d9a07aa8ff79690ac7e9a3ad045a60a53f6d0",
     "tests/test_memorial_memory_room.py": "0e62ad6426cdc59b601bc07076911560d70e16afec27e30941f92dd3a9372089",
-    "tests/test_memorial_memory_service.py": "26c0ca6a37a1cf6534d795c07e2eb1d55f5779141024daa73e98300f975ff48e",
+    "tests/test_memorial_memory_service.py": "93cf3f32c95a40f541060c4d6cc0a16a505e5ef0ad0d8fe0dc4be854ac7320bd",
     "tests/test_memorial_openvoice_voicewave.py": "584911083ba3f2382e29d270a991829b9d29db17c9fb8a00e456e89e9cc364d4",
     "tests/test_memorial_operator_artifacts.py": "252c1194d678b45da598cb466e9ac6033a88ac70bc4f36ed86cac6deb90eb77e",
     "tests/test_memorial_path_defaults.py": "37caa71fb36ddd61beec23a4b85958a6e3cd05c89bff6a953cbc581ed62a0c16",
@@ -1842,13 +1842,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "5ae50a9bec44a96e8e3b6fbd0ce95378145b3693",
-  "indexed_at_timestamp": "2026-07-26T10:29:55.616250937+00:00",
+  "indexed_at_commit": "29ade50b881b5808dcdceda4167b0200c98b034e",
+  "indexed_at_timestamp": "2026-07-26T10:58:26.647476202+00:00",
   "schema_version": 3,
   "stats": {
     "total_edges": 46013,
     "total_files": 1841,
-    "total_nodes": 28933
+    "total_nodes": 28934
   },
   "vexp_version": "2.3.1"
 }
