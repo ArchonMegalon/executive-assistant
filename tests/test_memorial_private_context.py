@@ -83,7 +83,7 @@ def test_tracked_manfred_source_is_public_only_without_private_artifact() -> Non
             "source_grounded_profile",
             "character_notes",
         )
-    ] == [0, 6, 0, 9, 0]
+    ] == [0, 7, 0, 9, 0]
     external_sources = public_payload["external_sources"]
     assert len(external_sources) == 13
     assert external_sources[0] == {

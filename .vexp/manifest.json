@@ -1594,7 +1594,7 @@
     "tests/test_memorial_openvoice_voicewave.py": "584911083ba3f2382e29d270a991829b9d29db17c9fb8a00e456e89e9cc364d4",
     "tests/test_memorial_operator_artifacts.py": "252c1194d678b45da598cb466e9ac6033a88ac70bc4f36ed86cac6deb90eb77e",
     "tests/test_memorial_path_defaults.py": "37caa71fb36ddd61beec23a4b85958a6e3cd05c89bff6a953cbc581ed62a0c16",
-    "tests/test_memorial_private_context.py": "f3fdf816247cc640586b5e60bcf828e1a23970f9ea70ac00b985b44a62c29491",
+    "tests/test_memorial_private_context.py": "2223778c887bb2d4bcadef26b1fb00ad557809f82ad3d40a0d96caa974f2c26d",
     "tests/test_memorial_recovery_inventory.py": "f557518f71a21992045ae75d9aa4dd91fc4e82ee5a94408f087bca916582ddc9",
     "tests/test_memorial_recovery_inventory_cli.py": "b3633d80da2442b8577d62587a2013879865f4b1e761b6a88ded8c6797f8be27",
     "tests/test_memorial_release_policy.py": "e81db97a01bbe2db1472b3b89ee9f33ce5b928838cff9f066e531b54c38d13a3",
@@ -1842,8 +1842,8 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "1f11e2a4b304981298267b853596fa12ee4d2f88",
-  "indexed_at_timestamp": "2026-07-26T15:17:49.262419328+00:00",
+  "indexed_at_commit": "5fc1aef0110bc88b1fe8d787f7012378ef6b8488",
+  "indexed_at_timestamp": "2026-07-26T15:23:44.966802389+00:00",
   "schema_version": 3,
   "stats": {
     "total_edges": 46033,
