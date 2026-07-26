@@ -47,6 +47,16 @@ def _release_tree(tmp_path: Path) -> tuple[Path, Path, Path]:
     return release, source, runner
 
 
+def _cartesia_credential(tmp_path: Path) -> tuple[Path, Path]:
+    release, _source, _runner = _release_tree(tmp_path)
+    credential_root = tmp_path / "runtime" / "provider-secrets"
+    credential_root.mkdir(parents=True)
+    credential = credential_root / "ea_memorial_cartesia.json"
+    credential.write_text('{"api_key":"test-only"}\n', encoding="utf-8")
+    credential.chmod(0o440)
+    return release, credential
+
+
 def test_group_readable_release_tree_passes_and_revalidates_exact_snapshot(
     tmp_path: Path,
 ) -> None:
@@ -73,6 +83,99 @@ def test_group_readable_release_tree_passes_and_revalidates_exact_snapshot(
         expected_snapshot_sha256=str(first["snapshot_sha256"]),
     )
     assert second["snapshot_sha256"] == first["snapshot_sha256"]
+
+
+def test_protected_cartesia_credential_file_passes_without_content_evidence(
+    tmp_path: Path,
+) -> None:
+    release, credential = _cartesia_credential(tmp_path)
+
+    receipt = guard.validate_memorial_bind_sources(
+        _rendered(
+            credential,
+            target=guard.MEMORIAL_CARTESIA_CREDENTIAL_TARGET,
+        ),
+        service="ea-api",
+        release_root=release,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["bind_mount_count"] == 1
+    assert receipt["root_inode_mount_count"] == 1
+    assert receipt["file_contents_read"] is False
+    assert receipt["secrets_included"] is False
+    assert "source" not in receipt["mounts"][0]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "reason"),
+    [
+        ("world_readable", "cartesia_credential_source_mode_invalid"),
+        ("hard_linked", "cartesia_credential_source_link_count_invalid"),
+        ("empty", "cartesia_credential_source_size_invalid"),
+        ("writable", "cartesia_credential_source_must_be_read_only"),
+        ("wrong_owner", "cartesia_credential_source_owner_invalid"),
+        ("wrong_group", "cartesia_credential_source_group_invalid"),
+        ("acl", "bind_source_posix_acl_unsupported"),
+    ],
+)
+def test_cartesia_credential_file_posture_is_fail_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+    reason: str,
+) -> None:
+    release, credential = _cartesia_credential(tmp_path)
+    read_only = True
+    group_add: list[str] | None = None
+    if mutation == "world_readable":
+        credential.chmod(0o444)
+    elif mutation == "hard_linked":
+        os.link(credential, credential.with_name("linked-cartesia.json"))
+    elif mutation == "empty":
+        credential.chmod(0o600)
+        credential.write_bytes(b"")
+        credential.chmod(0o440)
+    elif mutation == "writable":
+        read_only = False
+    elif mutation == "wrong_owner":
+        current_uid = os.geteuid()
+        monkeypatch.setattr(guard.os, "geteuid", lambda: current_uid + 1)
+    elif mutation == "wrong_group":
+        group_add = []
+    elif mutation == "acl":
+        monkeypatch.setattr(guard.os, "getxattr", lambda *_args: b"acl")
+
+    with pytest.raises(guard.BindSourceGuardError, match=reason):
+        guard.validate_memorial_bind_sources(
+            _rendered(
+                credential,
+                group_add=group_add,
+                read_only=read_only,
+                target=guard.MEMORIAL_CARTESIA_CREDENTIAL_TARGET,
+            ),
+            service="ea-api",
+            release_root=release,
+        )
+
+
+def test_symlinked_cartesia_credential_file_is_rejected(tmp_path: Path) -> None:
+    release, credential = _cartesia_credential(tmp_path)
+    linked = credential.with_name("linked-cartesia.json")
+    linked.symlink_to(credential)
+
+    with pytest.raises(
+        guard.BindSourceGuardError,
+        match="bind_source_symlink_forbidden",
+    ):
+        guard.validate_memorial_bind_sources(
+            _rendered(
+                linked,
+                target=guard.MEMORIAL_CARTESIA_CREDENTIAL_TARGET,
+            ),
+            service="ea-api",
+            release_root=release,
+        )
 
 
 def test_umask_077_release_directory_is_rejected_for_container_user(

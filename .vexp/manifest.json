@@ -1100,7 +1100,7 @@
     "scripts/db_status.sh": "63f643d2b232f81ab3eca748df989f42589eeb766ad8a56c670203e254af9d25",
     "scripts/deploy.sh": "8b58844ecc348b6f65d6a547065070d4abdb92d8f64166db0253662b3472129b",
     "scripts/deploy_ea_audiobook_runtime.py": "6f64088eb42451da3c067f084a351e09528c018348e21322e015f141b40051ee",
-    "scripts/deploy_ea_memorial.py": "4cd2ba592a88fdf6ccba10dbd025dc38eb954aee0d9ef88636a466180be214b4",
+    "scripts/deploy_ea_memorial.py": "df892dc94ca39732c95a8eae6f3df9df6eb17d17cd547ec46fb9bca62acec0c5",
     "scripts/deploy_ea_memorial_joint.py": "1a7b9ffffd9b55242623d378d0d12946a05cc0cc6c4b2e9fb72cba0ff1fa5973",
     "scripts/deploy_proactive_ooda_runtime.sh": "fc1f50168a7a69870a59234cfd03859bf7a6b2aa2649b11a2b38e899b28a079f",
     "scripts/diff_openapi.sh": "3e9259551ce0a3ed922cc1f3078c78bec125f0e5112db768cbb9e36aeef51f97",
@@ -1201,7 +1201,7 @@
     "scripts/materialize_whole_project_gold_map.py": "80c15b9b472926e8da244e5884b5fed47dec1e2b7b4811c8538634c9e555ac86",
     "scripts/measure_memorial_live_browser.py": "479a14b37f8cc595ae8c18fb09d9df468e6cbaca8e86980fb0c981d6a70bc547",
     "scripts/memorial_audio_probe.py": "6ba9c1a68cb3342f4e69ab107f8fc8c169e7bc94057f7dd5e2b7f01bb1d18663",
-    "scripts/memorial_bind_source_guard.py": "7ec2d92fdaa3b173c2cd289209a87d768f2501dc354670c2bc6e20fe450d23ae",
+    "scripts/memorial_bind_source_guard.py": "791dbb9af54421d454887dd3cfb97565b80ac25c690289208503a2509b44c8bc",
     "scripts/memorial_demo_rehearsal.py": "7917e67b608f0eba76f4c46e57decafdada4c3637118e202a4c372904eadcedf",
     "scripts/memorial_flagship_exit_gates.sh": "dd4fdfee7ff851084c4a234d586f928e81b83b7d3a57e837820ac15139b7367a",
     "scripts/memorial_flagship_preflight.py": "90fcc24096d6ae6f99ce607f92cfb6d11f2d68e1d0c3a42ba072c0df38cde99e",
@@ -1573,7 +1573,7 @@
     "tests/test_memorial_api_baseline_normalization_plan.py": "15ccfb889bfe501a79928562b823119effcb2d6d5d14d94c1346db480ed60e3a",
     "tests/test_memorial_archive_registry_public.py": "1d0886acdff74c7cbaaaa118ba08a5f41e5a09f026bc9588469a665ad635647a",
     "tests/test_memorial_audio_probe_contracts.py": "1b61fb581e8c018cbc83e77c8fe9761efc9aba6cbd2990de7d01e754fd824b6d",
-    "tests/test_memorial_bind_source_guard.py": "044eb63b92d9a9a70eb4c776d9bf23f4c15f860b063961138fe7a6e29bd34165",
+    "tests/test_memorial_bind_source_guard.py": "c331128785e2312e730ab44d17de7c69e5eca724cfd23da9c4b8232343f278d7",
     "tests/test_memorial_chatlab_contract_receipt.py": "f761b6a1a496241ea46fcc97c8c176eb0b46034bcc2314f5661858e8ffa32984",
     "tests/test_memorial_chatlab_route_surface.py": "f173a102cdbab392440bc8981386299f6bd73bf47993c796a8c6415c3e857636",
     "tests/test_memorial_chatlab_runtime_preflight.py": "b9d4237f521535b2b2ecb2aae50666bf12624625248211eee35db9b300911af7",
@@ -1584,7 +1584,7 @@
     "tests/test_memorial_flagship_preflight.py": "1afdcab2209b829c7662f86dcb059b1913adf40b9273e877248f83c780d0f063",
     "tests/test_memorial_fliplink_publisher.py": "31bec15e989f4d9c4e771f2369e885a3e9919e50b69686bcdc09d1fa53f38a76",
     "tests/test_memorial_gold_readiness.py": "c7e78944308a88d4f2ad513dd3413dea5a7e1e3badeefe5316addc6826567715",
-    "tests/test_memorial_governed_deploy.py": "9ae9e6389ea09eeedea4f56682ec7b0cb93cb42a75cdb0769b6597c88fc9f194",
+    "tests/test_memorial_governed_deploy.py": "2cb208122a7c71c7182af830f9deb589aece296d822a0bcdc15d943da3d83d40",
     "tests/test_memorial_helper_path_defaults.py": "2ba8a09bb6a582c7539c05100ba31d3122e8dca4e99af6f3dc2125002b9371a4",
     "tests/test_memorial_joggai_asset_receipts.py": "a75f2e0f6d6007360f8fd6d60ea34c2fcbd2e8b1c91faa5d0bf77557f3904429",
     "tests/test_memorial_joggai_provider_contracts.py": "c3296ddc605f566bb3542d6ae753dff6ecf7485d250d0b76bdfe0f8663b6c402",
@@ -1842,13 +1842,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "f746377a4a2b92430856af39675e8cf0351587f5",
-  "indexed_at_timestamp": "2026-07-26T12:39:22.840622904+00:00",
+  "indexed_at_commit": "236e773d41d4b8c7eccd38c8d741f62bd7f95056",
+  "indexed_at_timestamp": "2026-07-26T13:44:06.516169582+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 46016,
+    "total_edges": 46033,
     "total_files": 1841,
-    "total_nodes": 28945
+    "total_nodes": 28953
   },
   "vexp_version": "2.3.1"
 }

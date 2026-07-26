@@ -465,7 +465,15 @@ class FakeRunner:
         self.rendered_memorial_runtime_source = str(
             self.root / ".runtime" / "candidate-data"
         )
+        self.rendered_memorial_cartesia_source = str(
+            self.root
+            / ".runtime"
+            / "candidate-data"
+            / "provider-secrets"
+            / "ea_memorial_cartesia.json"
+        )
         self.rendered_memorial_data_read_only = True
+        self.rendered_memorial_cartesia_read_only = True
         self.mounted_projection_sha256 = ""
         self.prior_source_revision = "a" * 40
         self.prior_source_revision_env = [
@@ -550,6 +558,18 @@ class FakeRunner:
                     ("/data/memorial-writable/state", "state"),
                 )
             ],
+            {
+                "Type": "bind",
+                "Source": str(
+                    runtime_root
+                    / "provider-secrets"
+                    / "ea_memorial_cartesia.json"
+                ),
+                "Destination": "/run/secrets/ea_memorial_cartesia.json",
+                "Mode": "ro",
+                "RW": False,
+                "Propagation": "rprivate",
+            },
             {
                 "Type": "volume",
                 "Name": "ea_ea_artifacts",
@@ -1078,6 +1098,19 @@ class FakeRunner:
                                             ),
                                         )
                                     ],
+                                    {
+                                        "type": "bind",
+                                        "source": (
+                                            self.rendered_memorial_cartesia_source
+                                        ),
+                                        "target": (
+                                            "/run/secrets/"
+                                            "ea_memorial_cartesia.json"
+                                        ),
+                                        "read_only": (
+                                            self.rendered_memorial_cartesia_read_only
+                                        ),
+                                    },
                                     {
                                         "type": "volume",
                                         "source": "ea_artifacts",
@@ -1808,9 +1841,9 @@ def _passing_bind_source_validator(
         "uid": 10001,
         "primary_gid": 10001,
         "supplemental_gids": [10001],
-        "bind_mount_count": 4,
+        "bind_mount_count": 5,
         "release_tree_mount_count": 1,
-        "root_inode_mount_count": 3,
+        "root_inode_mount_count": 4,
         "release_entries_scanned": 1,
         "release_files_scanned": 1,
         "release_directories_scanned": 1,
@@ -2588,6 +2621,9 @@ def _lane(
         "EA_MEMORIAL_CANDIDATE_RECEIPT": str(candidate_receipt),
         "EA_MEMORIAL_DATA_HOST_PATH": str((root / "memorial_data").resolve()),
         "EA_MEMORIAL_RUNTIME_HOST_PATH": str(runtime_root),
+        "EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE": str(
+            runtime_root / "provider-secrets" / "ea_memorial_cartesia.json"
+        ),
         "EA_MEMORIAL_PUBLIC_HOST_ALLOWLIST": "memorial.example.org",
         "HOME": str(root.parent.resolve()),
     }
@@ -3471,6 +3507,60 @@ def test_rendered_compose_requires_exact_read_only_memorial_data_mount(
         deploy.DeployError, match="memorial_compose_data_mount_mismatch"
     ):
         _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+
+
+@pytest.mark.parametrize(
+    ("attribute", "value"),
+    [
+        ("rendered_memorial_cartesia_source", "/wrong/cartesia.json"),
+        ("rendered_memorial_cartesia_read_only", False),
+    ],
+)
+def test_rendered_compose_requires_exact_read_only_cartesia_credential_mount(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    attribute: str,
+    value: object,
+) -> None:
+    runner = FakeRunner(release_root)
+    setattr(runner, attribute, value)
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="memorial_compose_cartesia_credential_mount_mismatch",
+    ):
+        _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+
+
+def test_cartesia_credential_host_file_is_confined_to_runtime_provider_secrets(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+    lane.env["EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE"] = str(
+        release_root / "outside-provider-secrets.json"
+    )
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="memorial_cartesia_credential_host_file_scope_invalid",
+    ):
+        lane.deploy(preflight_only=True)
 
     assert not any("up" in call for call in runner.calls)
 

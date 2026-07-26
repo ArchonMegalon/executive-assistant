@@ -27,6 +27,8 @@ DEFAULT_MAX_RELEASE_ENTRIES = 50_000
 DEFAULT_MAX_RELEASE_BYTES = 2 * 1024**3
 DEFAULT_MAX_RELEASE_DEPTH = 64
 DEFAULT_TIMEOUT_SECONDS = 20.0
+MEMORIAL_CARTESIA_CREDENTIAL_TARGET = "/run/secrets/ea_memorial_cartesia.json"
+MAX_MEMORIAL_CARTESIA_CREDENTIAL_BYTES = 64 * 1024
 
 
 class BindSourceGuardError(RuntimeError):
@@ -157,6 +159,36 @@ def _require_access(
             else "bind_source_file_not_readable"
         )
         raise BindSourceGuardError(reason)
+
+
+def _require_cartesia_credential_source(
+    metadata: os.stat_result,
+    *,
+    kind: str,
+    read_only: bool,
+    under_release: bool,
+    gids: frozenset[int],
+) -> None:
+    if kind != "file" or not stat.S_ISREG(metadata.st_mode):
+        raise BindSourceGuardError("cartesia_credential_source_type_invalid")
+    if not read_only:
+        raise BindSourceGuardError(
+            "cartesia_credential_source_must_be_read_only"
+        )
+    if under_release:
+        raise BindSourceGuardError("cartesia_credential_source_scope_invalid")
+    if metadata.st_uid != os.geteuid():
+        raise BindSourceGuardError("cartesia_credential_source_owner_invalid")
+    if metadata.st_gid not in gids:
+        raise BindSourceGuardError("cartesia_credential_source_group_invalid")
+    if stat.S_IMODE(metadata.st_mode) != 0o440:
+        raise BindSourceGuardError("cartesia_credential_source_mode_invalid")
+    if metadata.st_nlink != 1:
+        raise BindSourceGuardError(
+            "cartesia_credential_source_link_count_invalid"
+        )
+    if not 1 <= metadata.st_size <= MAX_MEMORIAL_CARTESIA_CREDENTIAL_BYTES:
+        raise BindSourceGuardError("cartesia_credential_source_size_invalid")
 
 
 def _reject_access_acl(descriptor: int) -> None:
@@ -465,6 +497,14 @@ def _validate_memorial_bind_sources(
                 if under_release
                 else _external_identity(metadata, kind=kind)
             )
+            if target == MEMORIAL_CARTESIA_CREDENTIAL_TARGET:
+                _require_cartesia_credential_source(
+                    metadata,
+                    kind=kind,
+                    read_only=read_only,
+                    under_release=under_release,
+                    gids=gids,
+                )
             if under_release and not read_only:
                 raise BindSourceGuardError("bind_source_release_mount_must_be_read_only")
             _require_access(

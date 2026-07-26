@@ -71,11 +71,13 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
 try:
     from scripts.memorial_bind_source_guard import (
         BindSourceGuardError,
+        MEMORIAL_CARTESIA_CREDENTIAL_TARGET,
         validate_memorial_bind_sources,
     )
 except ModuleNotFoundError:  # pragma: no cover - direct script execution
     from memorial_bind_source_guard import (  # type: ignore[no-redef]
         BindSourceGuardError,
+        MEMORIAL_CARTESIA_CREDENTIAL_TARGET,
         validate_memorial_bind_sources,
     )
 
@@ -6025,6 +6027,9 @@ class MemorialDeployLane:
         )
         data_root = self._configured_memorial_data_root()
         runtime_root = self._configured_memorial_runtime_root()
+        cartesia_credential_file = (
+            self._configured_memorial_cartesia_credential_file()
+        )
         expected_bind_mounts = {
             "/data/memorial_data": {
                 "type": "bind",
@@ -6050,6 +6055,12 @@ class MemorialDeployLane:
                 "destination": "/data/memorial-writable/state",
                 "read_write": True,
             },
+            MEMORIAL_CARTESIA_CREDENTIAL_TARGET: {
+                "type": "bind",
+                "source": str(cartesia_credential_file),
+                "destination": MEMORIAL_CARTESIA_CREDENTIAL_TARGET,
+                "read_write": False,
+            },
         }
         mounts_by_destination = {
             str(item.get("destination") or ""): dict(item) for item in target_mounts
@@ -6063,6 +6074,10 @@ class MemorialDeployLane:
             raise DeployError("memorial_compose_mount_scope_invalid")
         for destination, expected in expected_bind_mounts.items():
             if mounts_by_destination.get(destination) != expected:
+                if destination == MEMORIAL_CARTESIA_CREDENTIAL_TARGET:
+                    raise DeployError(
+                        "memorial_compose_cartesia_credential_mount_mismatch"
+                    )
                 raise DeployError("memorial_compose_data_mount_mismatch")
         artifacts_mount = mounts_by_destination["/data/artifacts"]
         if (
@@ -7890,6 +7905,33 @@ class MemorialDeployLane:
         if not runtime_root.is_absolute():
             runtime_root = self.root / runtime_root
         return runtime_root.resolve()
+
+    def _configured_memorial_cartesia_credential_file(self) -> Path:
+        configured_credential_file = _first_nonempty(
+            self.env.get("EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE"),
+            self.env_file_values.get("EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE"),
+        )
+        if not configured_credential_file:
+            raise DeployError(
+                "explicit_memorial_cartesia_credential_host_file_required"
+            )
+        credential_file = Path(configured_credential_file).expanduser()
+        if not credential_file.is_absolute():
+            credential_file = self.root / credential_file
+        expected_credential_file = (
+            self._configured_memorial_runtime_root()
+            / "provider-secrets"
+            / "ea_memorial_cartesia.json"
+        )
+        if (
+            not credential_file.is_absolute()
+            or ".." in credential_file.parts
+            or credential_file != expected_credential_file
+        ):
+            raise DeployError(
+                "memorial_cartesia_credential_host_file_scope_invalid"
+            )
+        return credential_file
 
     def _validate_candidate_promotion_receipt(
         self,
