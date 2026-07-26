@@ -1065,7 +1065,7 @@
     "scripts/build_browseract_playwright_image.sh": "6f8070dae4fb4a46f8ca6bee1a29b05ba456fffac1e4936aba57e5113e553c77",
     "scripts/build_ea_sendr_campaign_packet.py": "a4b13e6c89fdebaf7763fc063282da1850ed49fd04f47209a196d90e678d8b94",
     "scripts/build_manfred_memorial_image.py": "c24228023c26396f9ab71d9f6e358dc7d3d76e1ce71ff3446a42f3b5d19b3eae",
-    "scripts/capture_blipai_browseract_session.py": "bcfbd1bf53b8e29e8742e7858e0b5d26ac952989f4e98323742732db9ac1da03",
+    "scripts/capture_blipai_browseract_session.py": "a57c0da769efbf3995f014251a327a8fd16e548534ed367f7fbd0e1728aa8e69",
     "scripts/capture_poppy_provider_receipts.py": "a0614951a48952e56efe004bcbc644f3bacf21607e33d091cffe88853c9e8407",
     "scripts/capture_vidboard_provider_receipts.py": "0bb6f143d38a9df3dfb2f8dd9eda797cacf6e61f2a3afecc916e846b966b8bda",
     "scripts/check_docs_links.py": "e3c0d27670f88a88c70e818df9d4623b03276f8bf8cb0c930b3c9206245a19eb",
@@ -1159,7 +1159,7 @@
     "scripts/materialize_memorial_operator_status.py": "c8ee884e1541d4158d48a83abeb529b502902b9a2864eeaf3be94de01dbfd719",
     "scripts/materialize_memorial_phrase_bank.py": "f3ed53127334e45ac1297acca6a171735decf62cf10f407faa5c5bd17d32eb71",
     "scripts/materialize_memorial_public_auto_receipts_clean.py": "fa0deb370d44964881b87a26762cf7d75f25f4871e3db0b51e115f68aa337175",
-    "scripts/materialize_memorial_public_blip_stt_proof.py": "42a28aaccbf2eef80e3f91a67ca18959a37e9d25633316dccb6c01a76c018720",
+    "scripts/materialize_memorial_public_blip_stt_proof.py": "b4163c971dc4c394b4e75e261ecd08f390efb303d95f642320cecc90c3262051",
     "scripts/materialize_memorial_public_gold_clean.py": "768e572f0c4a5b15936fb6facca964b0de89724c3e52c07e3cfac8917c2ebe43",
     "scripts/materialize_memorial_room_audio_attestation_packet.py": "993ca33ff061636c68460b841b94a0a22a69ff66bf2c1fd8f8971addaeea2722",
     "scripts/materialize_memorial_room_audio_receipt.py": "52c5c88fbedfaa1e1bb5e2cdc95b3b4f41861367d5430d76cc913d745427adcb",
@@ -1327,7 +1327,7 @@
     "scripts/verify_memorial_deploy_readiness.py": "a8f2fe4de9de243e3d09d915fe90514def5b205808bd2883c11ab6aee0d8ff0c",
     "scripts/verify_memorial_gold_readiness.py": "8d64e648ba8cf478faa0bb6f8fcd1f5405287b1bcdd49b400cfc176178b6840f",
     "scripts/verify_memorial_joggai_asset.py": "17479f63690ecbe11dbb82d753565d494fe8ab2221c89d1ae449c05c258bcf1d",
-    "scripts/verify_memorial_public_blip_stt_proof.py": "6688a3f3399d1ea9d033c10c1af15aa7113ca892e4fde69eb023eaae6a468b38",
+    "scripts/verify_memorial_public_blip_stt_proof.py": "e080caff6846faa25f379d0e3da0959cdefaa7e9c6f7e65449fcba46c9fb2556",
     "scripts/verify_memorial_runtime_overlay.py": "6b1c6d4d6cbac3a453facd9e44e564303970a3f5a006b29a14525d53caa01dcd",
     "scripts/verify_memorial_spatial_tour_public_origin.py": "029c493dfcb78aa30bed71f64a1f81a6011b3057e39e6c8246a2a7c5f1900966",
     "scripts/verify_memorial_stt_captured_candidate_diagnostic.py": "39b0aa06a5de2d7dbbb39e62dc494cb4dfe1113e6d128e88a64ef4c18989cc99",
@@ -1440,7 +1440,7 @@
     "tests/test_browseract_template_path_defaults.py": "83371a14b883d8e6f0ecbbf1254dbce832504e320b676e63bce278e1f60e73d3",
     "tests/test_browseract_template_service_worker.py": "6996aa3a10c74e091f7e3861b04d6d47ef83f70a5860af0ed14c6181736aa294",
     "tests/test_browseract_template_worker.py": "f24227e308ce7c80fce6d61dc6b78f58f1a294a4b8ce04ecb4736d225d4f2b76",
-    "tests/test_capture_blipai_browseract_session.py": "80c4a968566fda55a97363d0d064ba359f14efb14f1c268175dc079bb2fad4cf",
+    "tests/test_capture_blipai_browseract_session.py": "283a2e9e4222d05d98bd64005047c11b7ffae85dadb02f1b9743aa4519def2f0",
     "tests/test_capture_vidboard_provider_receipts.py": "e232e36d4a13f5c384405e0c5e83bbb9556bdc54528c48d95299dd1a1c024cd3",
     "tests/test_channel_runtime_postgres_integration.py": "286cafe0d56b8bd3b4657ad0d427f1863c2e38614d2cdf84030b3cddf2fb001c",
     "tests/test_channel_runtime_repositories.py": "5db3ae9ffdb6891b9892459d2b7bcd70741c47490e427b0b570db3c8920ee160",
@@ -1599,7 +1599,7 @@
     "tests/test_memorial_operator_artifacts.py": "252c1194d678b45da598cb466e9ac6033a88ac70bc4f36ed86cac6deb90eb77e",
     "tests/test_memorial_path_defaults.py": "37caa71fb36ddd61beec23a4b85958a6e3cd05c89bff6a953cbc581ed62a0c16",
     "tests/test_memorial_private_context.py": "2223778c887bb2d4bcadef26b1fb00ad557809f82ad3d40a0d96caa974f2c26d",
-    "tests/test_memorial_public_blip_stt_proof.py": "610f0e91321189223d9ffb6ca120c8fe2482b1bdf4d3fc7ed0b9df1aba46b8be",
+    "tests/test_memorial_public_blip_stt_proof.py": "f238021d6c6f032077eab982195e56bcb9f2f30bf2ed0e9f70bbc34dc784a940",
     "tests/test_memorial_recovery_inventory.py": "f557518f71a21992045ae75d9aa4dd91fc4e82ee5a94408f087bca916582ddc9",
     "tests/test_memorial_recovery_inventory_cli.py": "b3633d80da2442b8577d62587a2013879865f4b1e761b6a88ded8c6797f8be27",
     "tests/test_memorial_release_policy.py": "10b43cbda6e520bca81b787e3269e21e54149fd695e247ab94d4fb1e44f96507",
@@ -1848,13 +1848,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "9675317bb878e799e086736f45d64d848a4ef22b",
-  "indexed_at_timestamp": "2026-07-26T19:14:10.259110199+00:00",
+  "indexed_at_commit": "661723d26735b8874d7fb9e94d20e159d1eec619",
+  "indexed_at_timestamp": "2026-07-26T19:32:43.482644323+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 45950,
+    "total_edges": 46067,
     "total_files": 1847,
-    "total_nodes": 29111
+    "total_nodes": 29143
   },
   "vexp_version": "2.3.1"
 }
