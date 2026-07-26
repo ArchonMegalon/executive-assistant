@@ -933,6 +933,181 @@ def test_memorial_shadow_stt_persists_refreshed_blipai_tokens(
     assert result["status"] == "ok"
     assert saved["access_token"] == "fresh-token"
     assert saved["refresh_token"] == "next-refresh-token"
+    assert state_path.stat().st_mode & 0o777 == 0o600
+    assert not any(path.name.endswith(".tmp") for path in tmp_path.iterdir())
+
+
+def test_memorial_blipai_token_state_replaces_existing_file_atomically(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    state_path = tmp_path / "blipai-shadow-token.json"
+    state_path.write_text('{"access_token":"old"}\n', encoding="utf-8")
+    state_path.chmod(0o644)
+    original_inode = state_path.stat().st_ino
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(state_path))
+
+    public_memorials._save_memorial_blipai_token_state(
+        "fresh-token",
+        "next-refresh-token",
+    )
+
+    saved = json.loads(state_path.read_text(encoding="utf-8"))
+    assert saved["access_token"] == "fresh-token"
+    assert saved["refresh_token"] == "next-refresh-token"
+    assert state_path.stat().st_ino != original_inode
+    assert state_path.stat().st_mode & 0o777 == 0o600
+    assert not any(path.name.endswith(".tmp") for path in tmp_path.iterdir())
+
+
+def test_memorial_blipai_token_state_replace_failure_preserves_old_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    state_path = tmp_path / "blipai-shadow-token.json"
+    original = '{"access_token":"old","refresh_token":"old-refresh"}\n'
+    state_path.write_text(original, encoding="utf-8")
+    state_path.chmod(0o600)
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(state_path))
+
+    def _fail_replace(*_args, **_kwargs) -> None:
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(public_memorials.os, "replace", _fail_replace)
+
+    public_memorials._save_memorial_blipai_token_state(
+        "fresh-token",
+        "next-refresh-token",
+    )
+
+    assert state_path.read_text(encoding="utf-8") == original
+    assert not any(path.name.endswith(".tmp") for path in tmp_path.iterdir())
+
+
+def test_memorial_blipai_token_state_does_not_follow_target_symlink(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    victim_path = tmp_path / "victim.json"
+    victim_path.write_text('{"keep":"unchanged"}\n', encoding="utf-8")
+    state_path = tmp_path / "blipai-shadow-token.json"
+    state_path.symlink_to(victim_path)
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(state_path))
+
+    public_memorials._save_memorial_blipai_token_state(
+        "fresh-token",
+        "next-refresh-token",
+    )
+
+    saved = json.loads(state_path.read_text(encoding="utf-8"))
+    assert victim_path.read_text(encoding="utf-8") == '{"keep":"unchanged"}\n'
+    assert not state_path.is_symlink()
+    assert saved["access_token"] == "fresh-token"
+    assert saved["refresh_token"] == "next-refresh-token"
+    assert state_path.stat().st_mode & 0o777 == 0o600
+
+
+def test_memorial_blipai_token_state_rejects_intermediate_symlink(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    trusted_path = tmp_path / "trusted"
+    trusted_path.mkdir()
+    outside_path = tmp_path / "outside" / "nested"
+    outside_path.mkdir(parents=True)
+    victim_path = outside_path / "blipai-shadow-token.json"
+    original = '{"keep":"unchanged"}\n'
+    victim_path.write_text(original, encoding="utf-8")
+    redirect_path = trusted_path / "redirect"
+    redirect_path.symlink_to(tmp_path / "outside", target_is_directory=True)
+    state_path = redirect_path / "nested" / "blipai-shadow-token.json"
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(state_path))
+
+    public_memorials._save_memorial_blipai_token_state(
+        "fresh-token",
+        "next-refresh-token",
+    )
+
+    assert redirect_path.is_symlink()
+    assert victim_path.read_text(encoding="utf-8") == original
+    assert not any(path.name.endswith(".tmp") for path in outside_path.iterdir())
+
+
+def test_memorial_blipai_token_state_rejects_parent_traversal_without_side_effect(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(
+        "EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH",
+        "new/../blipai-shadow-token.json",
+    )
+
+    public_memorials._save_memorial_blipai_token_state(
+        "fresh-token",
+        "next-refresh-token",
+    )
+
+    assert not (tmp_path / "new").exists()
+    assert not (tmp_path / "blipai-shadow-token.json").exists()
+
+
+def test_memorial_blipai_token_state_fsyncs_new_parent_chain(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    state_path = tmp_path / "new" / "nested" / "blipai-shadow-token.json"
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(state_path))
+    real_fsync = os.fsync
+    fsynced_identities: set[tuple[int, int]] = set()
+
+    def _record_fsync(fd: int) -> None:
+        opened = os.fstat(fd)
+        fsynced_identities.add((opened.st_dev, opened.st_ino))
+        real_fsync(fd)
+
+    monkeypatch.setattr(public_memorials.os, "fsync", _record_fsync)
+
+    public_memorials._save_memorial_blipai_token_state(
+        "fresh-token",
+        "next-refresh-token",
+    )
+
+    for directory in (state_path.parent, state_path.parent.parent, tmp_path):
+        opened = directory.stat()
+        assert (opened.st_dev, opened.st_ino) in fsynced_identities
+
+
+def test_memorial_blipai_token_state_supports_long_valid_target_name(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    state_path = tmp_path / ("b" * 240)
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(state_path))
+
+    public_memorials._save_memorial_blipai_token_state(
+        "fresh-token",
+        "next-refresh-token",
+    )
+
+    saved = json.loads(state_path.read_text(encoding="utf-8"))
+    assert saved["access_token"] == "fresh-token"
+    assert saved["refresh_token"] == "next-refresh-token"
+    assert state_path.stat().st_mode & 0o777 == 0o600
 
 
 def test_memorial_shadow_stt_marks_substantial_user_question_correction() -> None:
@@ -2595,6 +2770,14 @@ def test_memorial_chat_current_medical_speculation_short_circuits_to_guardrail(
         return SimpleNamespace(text="Sollte hier nicht benutzt werden.", provider_key="unit-test-model", model="unit-test-model")
 
     monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_memory_context_lines",
+        lambda **kwargs: [
+            "[Stil] STYLE_ONLY_SENTINEL darf nicht als inhaltliche Erinnerung ausgegeben werden.",
+            "[Grundsatz] Ich habe Entscheidungen an Tatsachen, Verantwortung und Fairness gemessen.",
+        ],
+    )
     client = _client(principal_id="exec-memorial-current-medical-speculation")
 
     response = client.post(f"/memorials/{slug}/chat", json={"question": "Wuerdest du dich heute gegen Covid impfen lassen?"})
@@ -2605,7 +2788,190 @@ def test_memorial_chat_current_medical_speculation_short_circuits_to_guardrail(
     assert body["fallback_reason"] == "current_speculation_guardrail"
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["current_world_policy"] == "no_current_medical_or_political_speculation"
-    assert "aktuelle medizinische oder politische entscheidung" in body["answer"].lower()
+    assert body["public_memory_used"] is True
+    assert body["sources"] == ["Freigegebene Erinnerungen"]
+    lowered = body["answer"].lower()
+    assert "tatsachen, verantwortung und fairness" in lowered
+    assert "style_only_sentinel" not in lowered
+    assert "aktuelle fakten und aerztlichen rat" in lowered
+    assert "konkrete impf- oder therapieempfehlung" in lowered
+    assert all(
+        phrase not in lowered
+        for phrase in ("kann ich", "wenn du wissen willst", "frag es enger", "konkreten punkt")
+    )
+
+
+def test_memorial_current_speculation_ignores_style_only_memory_and_answers_directly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_memory_context_lines",
+        lambda **kwargs: ["[Stil] STYLE_ONLY_SENTINEL"],
+    )
+
+    answer = public_memorials._memorial_chat_answer(
+        {"slug": "manfred", "person_name": "Manfred Hoza", "audio_clips": []},
+        "Wuerdest du dich heute gegen Covid impfen lassen?",
+        {},
+        "ea-gemini-flash",
+        slug="manfred",
+        memory_runtime=object(),
+    )
+
+    lowered = answer["answer"].lower()
+    assert answer["public_memory_used"] is False
+    assert answer["sources"] == []
+    assert "style_only_sentinel" not in lowered
+    assert "aktuelle fakten und aerztlichen rat" in lowered
+    assert "kann ich" not in lowered
+    assert "frag es enger" not in lowered
+
+
+def test_memorial_current_political_question_uses_direct_remembered_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_memory_context_lines",
+        lambda **kwargs: [
+            "[Grundsatz] Politische Verantwortung musste an Recht und Fairness gemessen werden."
+        ],
+    )
+
+    answer = public_memorials._memorial_chat_answer(
+        {"slug": "manfred", "person_name": "Manfred Hoza", "audio_clips": []},
+        "Wuerdest du heute politisch kandidieren?",
+        {},
+        "ea-gemini-flash",
+        slug="manfred",
+        memory_runtime=object(),
+    )
+
+    lowered = answer["answer"].lower()
+    assert answer["fallback_reason"] == "current_speculation_guardrail"
+    assert answer["current_world_policy"] == "no_current_medical_or_political_speculation"
+    assert answer["public_memory_used"] is True
+    assert "politische verantwortung musste an recht und fairness" in lowered
+    assert "keine heutige partei-, wahl- oder kandidaturentscheidung" in lowered
+    assert "keine wahlempfehlung" in lowered
+    assert "politische ueberzeugungsarbeit" in lowered
+    assert "wuerde ich" not in lowered
+    assert "impf" not in lowered
+
+
+def test_memorial_current_political_classifier_does_not_match_ordinary_auswahl() -> None:
+    from app.api.routes import public_memorials
+
+    for question in (
+        "Welche Musikauswahl würdest du heute treffen?",
+        "Welche Farbauswahl würdest du heute treffen?",
+        "Welches Lied würdest du heute auswählen?",
+        "Welche Telefonnummer würdest du heute wählen?",
+        "Welche Worte würdest du heute wählen?",
+        "Welche Route würdest du heute wählen?",
+        "Wen wählst du als Schachpartner?",
+        "Wen wählst du zum Kapitän?",
+        "Welche Wahl würdest du heute treffen?",
+        "Welche Wahl würdest du zwischen Tee und Kaffee treffen?",
+    ):
+        assert public_memorials._is_memorial_current_speculation_question(question) is False
+        assert public_memorials._is_memorial_political_topic_question(question) is False
+
+    medical_choice = "Wen würdest du heute als Arzt wählen?"
+    assert public_memorials._is_memorial_political_topic_question(medical_choice) is False
+    assert public_memorials._is_memorial_current_speculation_question(medical_choice) is True
+
+    for question in (
+        "Guten Morgen, was dachtest du über Ärzte?",
+        "Morgen, was hast du von Impfungen gehalten?",
+        "Guten Morgen. Welche politische Haltung hattest du damals?",
+    ):
+        assert public_memorials._is_memorial_current_speculation_question(question) is False
+
+    for question in (
+        "Würdest du heute wählen?",
+        "Wuerdest du heute politisch kandidieren?",
+        "Würdest du heute bei der Europawahl abstimmen?",
+        "Würdest du heute im Wahlkampf antreten?",
+        "Würdest du dich heute wiederwählen lassen?",
+        "Würdest du heute jemanden abwählen?",
+        "Würdest du heute bei der Bundespräsidentenwahl antreten?",
+        "Würdest du heute bei der Präsidentschaftswahl abstimmen?",
+        "Wen wählst du bei der nächsten Wahl?",
+        "Wen wählst du morgen?",
+        "Würdest du morgen bei einer Wahl antreten?",
+    ):
+        assert public_memorials._is_memorial_current_speculation_question(question) is True
+        assert public_memorials._is_memorial_political_topic_question(question) is True
+
+
+def test_memorial_vaccine_classifier_does_not_match_schimpfen() -> None:
+    from app.api.routes import public_memorials
+
+    for question in (
+        "Würdest du heute noch so schimpfen?",
+        "Welches Schimpfwort würdest du heute verwenden?",
+    ):
+        assert public_memorials._is_memorial_vaccine_question(question) is False
+        assert public_memorials._is_memorial_current_speculation_question(question) is False
+        assert public_memorials._is_difficult_memory_question(question) is False
+        assert public_memorials._is_sensitive_private_profile_question(question) is False
+        assert public_memorials._is_memorial_high_risk_sensitive_question(question) is False
+
+    for question in (
+        "Würdest du dich heute impfen lassen?",
+        "Würdest du dich heute geimpft besser fühlen?",
+        "Würdest du heute ungeimpft bleiben?",
+        "Würdest du Ungeimpfte heute anders beurteilen?",
+        "Was dachtest du über die Impfung?",
+    ):
+        assert public_memorials._is_memorial_vaccine_question(question) is True
+        assert public_memorials._is_difficult_memory_question(question) is True
+        assert public_memorials._is_sensitive_private_profile_question(question) is True
+        assert public_memorials._is_memorial_high_risk_sensitive_question(question) is True
+
+
+def test_memorial_doctor_classifier_does_not_match_schwarztee() -> None:
+    from app.api.routes import public_memorials
+
+    question = "Würdest du heute Schwarztee trinken?"
+    assert public_memorials._is_memorial_doctor_question(question) is False
+    assert public_memorials._is_memorial_current_speculation_question(question) is False
+    assert public_memorials._is_sensitive_private_profile_question(question) is False
+    assert public_memorials._is_memorial_high_risk_sensitive_question(question) is False
+
+    for medical_question in (
+        "Würdest du heute Arzt werden?",
+        "Würdest du heute deinem Hausarzt vertrauen?",
+        "Würdest du heute auf ärztlichen Rat hören?",
+        "Würdest du heute Augenarzt werden?",
+        "Würdest du heute Frauenarzt werden?",
+        "Würdest du heute Assistenzarzt werden?",
+        "Würdest du heute als Wahlarzt arbeiten?",
+    ):
+        assert public_memorials._is_memorial_doctor_question(medical_question) is True
+        assert public_memorials._is_memorial_current_speculation_question(medical_question) is True
+        assert public_memorials._is_memorial_narcissism_question(medical_question) is False
+
+
+def test_memorial_current_doctor_career_question_avoids_treatment_advice() -> None:
+    from app.api.routes import public_memorials
+
+    answer = public_memorials._memorial_current_speculation_answer_body(
+        "Wuerdest du heute Arzt werden?",
+    )
+
+    lowered = answer.lower()
+    assert "arztberuf" in lowered
+    assert "fachliche eignung" in lowered
+    assert "keine heutige berufswahl" in lowered
+    assert "impf" not in lowered
+    assert "therapie" not in lowered
 
 
 def test_memorial_chat_covid_attitude_question_uses_specific_difficult_memory_boundary(
@@ -2622,6 +2988,13 @@ def test_memorial_chat_covid_attitude_question_uses_specific_difficult_memory_bo
         return SimpleNamespace(text="Sollte hier nicht benutzt werden.", provider_key="unit-test-model", model="unit-test-model")
 
     monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_memory_context_lines",
+        lambda **kwargs: [
+            "[Grundsatz] Entscheidungen mussten an Tatsachen und Verantwortung gemessen werden."
+        ],
+    )
     client = _client(principal_id="exec-memorial-covid-attitude-boundary")
 
     response = client.post(f"/memorials/{slug}/chat", json={"question": "Wie stehst du zur Covid-Impfung?"})
@@ -2632,11 +3005,15 @@ def test_memorial_chat_covid_attitude_question_uses_specific_difficult_memory_bo
     assert called["generate_text"] == 0
     assert body["fallback_reason"] == "difficult_memory_guardrail"
     assert body["llm_provider"] == "memorial_guardrail"
-    assert "covid-impfung" in lowered
+    assert body["public_memory_used"] is True
+    assert body["sources"] == ["Freigegebene Erinnerungen"]
+    assert "entscheidungen mussten an tatsachen und verantwortung" in lowered
     assert "heutige medizinische entscheidung" in lowered
-    assert "ich-form-rekonstruktion" in lowered
     assert "misstrauen gegen aerzte" in lowered
-    assert "zu diesem thema gebe ich standardmaessig" not in lowered
+    assert "konkrete impf- oder therapieempfehlung" in lowered
+    assert "ich-form-rekonstruktion" not in lowered
+    assert "difficult_memory_mode" not in lowered
+    assert "wenn du" not in lowered
 
 
 def test_memorial_chat_current_weather_ignores_present_world_search_even_when_enabled(
@@ -2925,7 +3302,11 @@ def test_memorial_live_guardrail_prefers_current_speculation_guardrail_for_covid
         turn_id="turn_1",
     )
 
-    assert "aktuelle medizinische oder politische Entscheidung" in guarded
+    lowered = guarded.lower()
+    assert "aktuelle fakten und aerztlichen rat" in lowered
+    assert "konkrete impf- oder therapieempfehlung" in lowered
+    assert "kann ich" not in lowered
+    assert "frag es enger" not in lowered
 
 
 def test_memorial_gemini_live_rejects_narrowing_reply_even_with_soft_transcript() -> None:
@@ -2947,6 +3328,26 @@ def test_memorial_values_guardrail_answer_body_stays_substantive_without_context
     assert "rechtlich" in lowered
     assert "bequemlichkeit" in lowered
     assert any(token in lowered for token in ("fairness", "gerecht", "verantwortung"))
+
+
+def test_memorial_direct_memory_text_ignores_style_urls_and_question_prompts() -> None:
+    from app.api.routes import public_memorials
+
+    selected = public_memorials._memorial_direct_memory_text(
+        [
+            "[Stil] STYLE_SENTINEL",
+            "[Grundsatz] https://example.test/INTERNAL_LINK_SENTINEL",
+            "[Kontext] Was war dir wichtig?",
+            "[Erinnerung] Eine konkrete freigegebene Erinnerung blieb als ruhiger Massstab erhalten. "
+            + ("Weitere Einzelheiten " * 30),
+        ]
+    )
+
+    assert selected.startswith("Eine konkrete freigegebene Erinnerung")
+    assert "style_sentinel" not in selected.lower()
+    assert "internal_link_sentinel" not in selected.lower()
+    assert not selected.endswith("?")
+    assert len(selected) <= 240
 
 
 def test_memorial_content_length_helper_tolerates_malformed_header() -> None:
@@ -3030,7 +3431,10 @@ def test_memorial_conversation_turn_current_medical_speculation_short_circuits_t
     _write_unmixr_private_voice(monkeypatch, Path(str(tmp_path / "private")), slug)
 
     input_audio = _generated_wav_bytes(textish_seed="Wuerdest du dich heute gegen Covid impfen lassen?")
-    output_audio = _generated_wav_bytes(textish_seed="Das kann ich aus meiner Erinnerung nicht als aktuelle medizinische oder politische Entscheidung beantworten.")
+    output_audio = _generated_wav_bytes(
+        textish_seed="Bei einer heutigen medizinischen Entscheidung pruefe ich aktuelle Fakten und aerztlichen Rat."
+    )
+    synthesized_text: list[str] = []
 
     monkeypatch.setattr(
         public_memorials,
@@ -3041,10 +3445,14 @@ def test_memorial_conversation_turn_current_medical_speculation_short_circuits_t
             "transcriber": "unit-test",
         },
     )
+    def _capture_rendered_text(**kwargs):
+        synthesized_text.append(str(kwargs.get("text") or ""))
+        return output_audio, "audio/wav"
+
     monkeypatch.setattr(
         public_memorials,
         "_render_memorial_tts_audio",
-        lambda **kwargs: (output_audio, "audio/wav"),
+        _capture_rendered_text,
     )
 
     called = {"generate_text": 0}
@@ -3054,6 +3462,13 @@ def test_memorial_conversation_turn_current_medical_speculation_short_circuits_t
         return SimpleNamespace(text="Sollte hier nicht benutzt werden.", provider_key="unit-test-model", model="unit-test-model")
 
     monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_memory_context_lines",
+        lambda **kwargs: [
+            "[Grundsatz] Ich habe Entscheidungen an Tatsachen, Verantwortung und Fairness gemessen."
+        ],
+    )
     client = _client(principal_id="exec-memorial-current-medical-turn")
 
     response = client.post(
@@ -3067,7 +3482,20 @@ def test_memorial_conversation_turn_current_medical_speculation_short_circuits_t
     assert called["generate_text"] == 0
     assert body["fallback_reason"] == "current_speculation_guardrail"
     assert body["current_world_policy"] == "no_current_medical_or_political_speculation"
-    assert "aktuelle medizinische oder politische entscheidung" in body["answer"].lower()
+    assert body["public_memory_used"] is True
+    lowered = body["answer"].lower()
+    assert "tatsachen, verantwortung und fairness" in lowered
+    assert "aktuelle fakten und aerztlichen rat" in lowered
+    assert all(
+        phrase not in lowered
+        for phrase in ("kann ich", "wenn du wissen willst", "frag es enger", "konkreten punkt")
+    )
+    assert synthesized_text
+    spoken = synthesized_text[-1].lower()
+    assert "tatsachen, verantwortung und fairness" in spoken
+    assert "aktuelle fakten und aerztlichen rat" in spoken
+    assert "wenn du wissen willst" not in spoken
+    assert "frag es enger" not in spoken
 
 
 def test_memorial_conversation_turn_covid_attitude_question_gets_specific_spoken_boundary(
@@ -3080,7 +3508,10 @@ def test_memorial_conversation_turn_covid_attitude_question_gets_specific_spoken
     _write_unmixr_private_voice(monkeypatch, Path(str(tmp_path / "private")), slug)
 
     input_audio = _generated_wav_bytes(textish_seed="Wie stehst du zur Covid-Impfung?")
-    output_audio = _generated_wav_bytes(textish_seed="Zur Covid-Impfung trenne ich drei Dinge.")
+    output_audio = _generated_wav_bytes(
+        textish_seed="Eine heutige medizinische Entscheidung braucht aktuelle Fakten."
+    )
+    synthesized_text: list[str] = []
 
     monkeypatch.setattr(
         public_memorials,
@@ -3091,10 +3522,14 @@ def test_memorial_conversation_turn_covid_attitude_question_gets_specific_spoken
             "transcriber": "unit-test",
         },
     )
+    def _capture_rendered_text(**kwargs):
+        synthesized_text.append(str(kwargs.get("text") or ""))
+        return output_audio, "audio/wav"
+
     monkeypatch.setattr(
         public_memorials,
         "_render_memorial_tts_audio",
-        lambda **kwargs: (output_audio, "audio/wav"),
+        _capture_rendered_text,
     )
 
     called = {"generate_text": 0}
@@ -3104,6 +3539,13 @@ def test_memorial_conversation_turn_covid_attitude_question_gets_specific_spoken
         return SimpleNamespace(text="Sollte hier nicht benutzt werden.", provider_key="unit-test-model", model="unit-test-model")
 
     monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_memory_context_lines",
+        lambda **kwargs: [
+            "[Grundsatz] Entscheidungen mussten an Tatsachen und Verantwortung gemessen werden."
+        ],
+    )
     client = _client(principal_id="exec-memorial-covid-attitude-turn")
 
     response = client.post(
@@ -3120,10 +3562,16 @@ def test_memorial_conversation_turn_covid_attitude_question_gets_specific_spoken
     assert body["audio_content_type"] == "audio/wav"
     assert body["audio_base64"]
     assert body["transcript_text"] == "Wie stehst du zur Covid-Impfung?"
-    assert "covid-impfung" in lowered
+    assert body["public_memory_used"] is True
+    assert "entscheidungen mussten an tatsachen und verantwortung" in lowered
     assert "heutige medizinische entscheidung" in lowered
-    assert "ich-form-rekonstruktion" in lowered
-    assert "zu diesem thema gebe ich standardmaessig" not in lowered
+    assert "ich-form-rekonstruktion" not in lowered
+    assert synthesized_text
+    spoken = synthesized_text[-1].lower()
+    assert "entscheidungen mussten an tatsachen und verantwortung" in spoken
+    assert "heutige medizinische entscheidung" in spoken
+    assert "wenn du" not in spoken
+    assert "difficult_memory_mode" not in spoken
 
 
 def test_memorial_conversation_turn_exposes_original_and_effective_transcript_text(
@@ -6202,6 +6650,98 @@ def test_memorial_local_fast_fallback_keeps_requested_model_metadata(
     assert "Jugend" in answer["answer"] or "jugend" in answer["answer"].lower()
 
 
+def test_memorial_current_speculation_fallback_uses_public_memory_without_meta_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_memory_context_lines",
+        lambda **kwargs: [
+            "[Grundsatz] Entscheidungen mussten an Tatsachen und Verantwortung gemessen werden."
+        ],
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_personal_memory_context_lines",
+        lambda **kwargs: ["PERSONAL_MEMORY_SENTINEL"],
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_public_memorial_has_imported_mail",
+        lambda **kwargs: False,
+    )
+
+    answer = public_memorials._memorial_chat_fallback_answer(
+        {"slug": "manfred", "person_name": "Manfred Hoza", "audio_clips": []},
+        "Wuerdest du dich heute gegen Covid impfen lassen?",
+        {"family_context_notes": [{"note": "PRIVATE_MEMORY_SENTINEL"}]},
+        slug="manfred",
+        memory_runtime=object(),
+        personal_memory_context={"enabled": True},
+        llm_model="memorial-local-fast",
+        fallback_reason="turn_timeout",
+        difficult_memory_mode=False,
+    )
+
+    lowered = answer["answer"].lower()
+    assert answer["public_memory_used"] is True
+    assert answer["sources"] == ["Freigegebene Erinnerungen"]
+    assert answer["private_context_used"] is False
+    assert answer["personal_memory_used"] is False
+    assert "entscheidungen mussten an tatsachen und verantwortung" in lowered
+    assert "private_memory_sentinel" not in lowered
+    assert "personal_memory_sentinel" not in lowered
+    assert "difficult_memory_mode" not in lowered
+    assert "wenn du" not in lowered
+
+
+def test_memorial_sensitive_public_boundary_does_not_claim_private_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_memory_context_lines",
+        lambda **kwargs: [
+            "[Grundsatz] Aussagen mussten an klaren Tatsachen gemessen werden."
+        ],
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_personal_memory_context_lines",
+        lambda **kwargs: ["PERSONAL_MEMORY_SENTINEL"],
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_public_memorial_has_imported_mail",
+        lambda **kwargs: False,
+    )
+
+    answer = public_memorials._memorial_chat_fallback_answer(
+        {"slug": "manfred", "person_name": "Manfred Hoza", "audio_clips": []},
+        "Was dachtest du ueber Aerzte?",
+        {"family_context_notes": [{"note": "PRIVATE_MEMORY_SENTINEL"}]},
+        slug="manfred",
+        memory_runtime=object(),
+        personal_memory_context={"enabled": True},
+        llm_model="memorial-local-fast",
+        fallback_reason="difficult_memory_guardrail",
+        difficult_memory_mode=False,
+    )
+
+    lowered = answer["answer"].lower()
+    assert answer["public_memory_used"] is True
+    assert answer["sources"] == ["Freigegebene Erinnerungen"]
+    assert answer["private_context_used"] is False
+    assert answer["personal_memory_used"] is False
+    assert "aussagen mussten an klaren tatsachen" in lowered
+    assert "private_memory_sentinel" not in lowered
+    assert "personal_memory_sentinel" not in lowered
+
+
 def test_memorial_generic_fallback_answer_does_not_default_to_schach_und_familie() -> None:
     from app.api.routes import public_memorials
 
@@ -6221,6 +6761,8 @@ def test_memorial_generic_fallback_answer_does_not_default_to_schach_und_familie
     assert "belegt ist hier vor allem" not in lowered
     assert "schach" not in lowered
     assert "familie" not in lowered
+    assert "sag mir" not in lowered
+    assert "enger" not in lowered
 
 
 def test_memorial_multi_question_transcript_gets_single_question_retry_guardrail(
@@ -6268,6 +6810,13 @@ def test_memorial_values_question_replaces_vague_model_answer_with_values_guardr
             model="ea-gemini-flash",
         ),
     )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_memory_context_lines",
+        lambda **kwargs: [
+            "[Grundsatz] Verantwortung musste anhand klarer Tatsachen zugeordnet werden."
+        ],
+    )
 
     answer = public_memorials._memorial_chat_answer(
         {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []},
@@ -6280,8 +6829,204 @@ def test_memorial_values_question_replaces_vague_model_answer_with_values_guardr
     lowered = answer["answer"].lower()
     assert answer["llm_fallback_used"] is True
     assert answer["fallback_reason"] == "memorial_values_guardrail"
+    assert answer["public_memory_used"] is True
+    assert answer["sources"] == ["Freigegebene Erinnerungen"]
+    assert "verantwortung musste anhand klarer tatsachen" in lowered
     assert "konkreten punkt" not in lowered
+    assert "wenn du" not in lowered
     assert any(token in lowered for token in ("rechtlich", "prinzip", "bequemlichkeit", "massstab", "juristisch"))
+
+
+def test_memorial_values_question_with_schuld_bypasses_difficult_meta_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    called = {"generate_text": 0}
+
+    def _fake_generate_text(**kwargs):
+        called["generate_text"] += 1
+        return SimpleNamespace(
+            text="Sollte hier nicht benutzt werden.",
+            provider_key="unit-test-model",
+            model="ea-gemini-flash",
+        )
+
+    monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_memory_context_lines",
+        lambda **kwargs: [
+            "[Grundsatz] Verantwortung musste anhand klarer Tatsachen zugeordnet werden."
+        ],
+    )
+    client = _client(principal_id="exec-memorial-values-with-schuld")
+    question = "Was war dir bei Verantwortung und Schuld wichtig?"
+
+    assert public_memorials._is_memorial_relational_blame_question(question) is False
+    assert public_memorials._is_memorial_high_risk_sensitive_question(question) is False
+
+    response = client.post(
+        f"/memorials/{slug}/chat",
+        json={"question": question},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    lowered = body["answer"].lower()
+    assert called["generate_text"] == 0
+    assert body["fallback_reason"] == "memorial_values_guardrail"
+    assert body["public_memory_used"] is True
+    assert "verantwortung musste anhand klarer tatsachen" in lowered
+    assert "difficult_memory_mode" not in lowered
+    assert "ich-form-rekonstruktion" not in lowered
+    assert "wenn du" not in lowered
+
+
+def test_memorial_relational_blame_values_preserve_sensitive_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_memory_context_lines",
+        lambda **kwargs: [
+            "[Grundsatz] Verantwortung musste anhand klarer Tatsachen zugeordnet werden."
+        ],
+    )
+    client = _client(principal_id="exec-memorial-relational-blame-values")
+
+    for question in (
+        "War es fair, dass du mir immer die Schuld gegeben hast?",
+        "Welche Verantwortung hattest du bei deiner Schuldumkehr?",
+    ):
+        assert public_memorials._is_memorial_relational_blame_question(question) is True
+        assert public_memorials._is_memorial_high_risk_sensitive_question(question) is True
+
+        response = client.post(
+            f"/memorials/{slug}/chat",
+            json={"question": question},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        lowered = body["answer"].lower()
+        assert body["fallback_reason"] == "difficult_memory_guardrail"
+        assert body["private_context_used"] is False
+        assert body["personal_memory_used"] is False
+        assert "keine weitergehende sichere ich-aussage belegt" in lowered
+        assert "gerecht war etwas" not in lowered
+        assert "bequemlichkeit war kein massstab" not in lowered
+
+
+def test_memorial_high_risk_values_question_preserves_sensitive_boundary_without_public_leak(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    profile_dir = tmp_path / "private" / slug
+    profile_dir.mkdir(parents=True)
+    (profile_dir / "llm_profile_notes.json").write_text(
+        json.dumps(
+            {
+                "family_context_notes": [
+                    {
+                        "label": "childhood_violence",
+                        "note": "Tibor family report.",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_memory_context_lines",
+        lambda **kwargs: [
+            "[Grundsatz] Verantwortung musste anhand klarer Tatsachen zugeordnet werden."
+        ],
+    )
+    client = _client(principal_id="exec-memorial-high-risk-values")
+    question = "Welche Verantwortung hattest du, als du ein Kind geschlagen hast?"
+
+    default_response = client.post(
+        f"/memorials/{slug}/chat",
+        json={"question": question},
+    )
+    explicit_response = client.post(
+        f"/memorials/{slug}/chat",
+        json={"question": question, "difficult_memory_mode": True},
+    )
+
+    assert default_response.status_code == 200
+    default_body = default_response.json()
+    default_answer = default_body["answer"].lower()
+    assert default_body["fallback_reason"] == "difficult_memory_guardrail"
+    assert default_body["private_context_used"] is False
+    assert default_body["personal_memory_used"] is False
+    assert default_body["public_memory_used"] is True
+    assert "keine weitergehende sichere ich-aussage belegt" in default_answer
+    assert "tibor berichtet" not in default_answer
+    assert "gerecht war etwas" not in default_answer
+
+    assert explicit_response.status_code == 200
+    explicit_body = explicit_response.json()
+    explicit_answer = explicit_body["answer"].lower()
+    assert explicit_body["fallback_reason"] == "difficult_memory_guardrail"
+    assert explicit_body["private_context_used"] is False
+    assert explicit_body["personal_memory_used"] is False
+    assert explicit_body["public_memory_used"] is False
+    assert explicit_body["sources"] == []
+    assert "kein passend zugeordnetes zeugnis" in explicit_answer
+    assert "ich erfinde deshalb keine persönliche haltung" in explicit_answer
+    assert "tibor berichtet" not in explicit_answer
+    assert "gerecht war etwas" not in explicit_answer
+
+
+def test_memorial_values_without_memory_do_not_claim_unrelated_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_memory_context_lines",
+        lambda **kwargs: [],
+    )
+
+    answer = public_memorials._memorial_chat_answer(
+        {
+            "slug": "manfred",
+            "person_name": "Manfred Hoza",
+            "external_sources": [
+                {
+                    "public": True,
+                    "approved": True,
+                    "label": "UNRELATED_INTERVIEW_SENTINEL",
+                    "status": "public_audio_reference",
+                    "url": "https://example.test/interview",
+                }
+            ],
+        },
+        "Was war dir bei Fairness wichtig?",
+        {},
+        "ea-gemini-flash",
+        slug="manfred",
+    )
+
+    assert answer["public_memory_used"] is False
+    assert answer["sources"] == []
+    assert answer["private_context_used"] is False
+    assert answer["personal_memory_used"] is False
+    assert "UNRELATED_INTERVIEW_SENTINEL" not in answer["answer"]
 
 
 def test_memorial_legal_fallback_uses_correct_german_umlauts(
@@ -8511,6 +9256,9 @@ def test_memorial_difficult_fallback_source_gates_mfg_attribution() -> None:
         fallback_reason="upstream_unavailable:test",
     )
     unrelated_answer = str(unrelated["answer"])
+    assert unrelated["private_context_used"] is False
+    assert unrelated["personal_memory_used"] is False
+    assert unrelated["public_memory_used"] is False
     assert "kein passend zugeordnetes persönliches Zeugnis" in unrelated_answer
     assert "keine Haltung Manfreds" in unrelated_answer
     assert "Tibor berichtet von Manfreds politischer Nähe" not in unrelated_answer
@@ -8538,6 +9286,10 @@ def test_memorial_difficult_fallback_source_gates_mfg_attribution() -> None:
         )
 
         attributed_answer = str(attributed["answer"])
+        assert attributed["private_context_used"] is True
+        assert attributed["personal_memory_used"] is False
+        assert attributed["public_memory_used"] is False
+        assert attributed["sources"] == []
         assert "Tibor berichtet von Manfreds politischer Nähe zu MFG" in attributed_answer
         assert "Direktmails bestätigen das nicht ausdrücklich" in attributed_answer
         assert "nicht automatisch Manfreds Zustimmung zu jedem Punkt" in attributed_answer

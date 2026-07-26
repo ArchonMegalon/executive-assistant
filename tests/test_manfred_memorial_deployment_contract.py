@@ -2630,6 +2630,9 @@ def test_manfred_public_page_uses_scoped_talk_only_minimal_theme() -> None:
     )
     assert '<html lang="de-AT">' in conversation_only_html
     assert 'placeholder="Was möchtest du fragen?"' in conversation_only_html
+    assert 'role === "assistant" ? "Freddy" : "Du"' in conversation_only_html
+    assert "KI-Begleiter" not in conversation_only_html
+    assert "ist nicht Manfred und spricht nicht für ihn" in conversation_only_html
     assert (
         'id="memorial-speech-note" hidden inert aria-hidden="true"'
         in conversation_only_html

@@ -576,7 +576,37 @@ class MemorialRuntimeTests(unittest.TestCase):
         retrieve.assert_called_once_with(
             memory_runtime=retrieve.call_args.kwargs["memory_runtime"],
             principal_id="memorial:manfred",
-            question="Was war dir wichtig?",
+            question=(
+                "Was war dir wichtig? Ordnung Pflicht Klarheit Recht Zustaendigkeit "
+                "Tatsachen Verantwortung Fairness Prinzip"
+            ),
+            limit=6,
+            public_only=True,
+            public_approval_keys={"public_v2:approved"},
+        )
+
+    def test_current_medical_memory_context_uses_grounded_retrieval_terms(self) -> None:
+        with (
+            patch.object(public_memorials, "_ensure_memorial_memory_seeded", return_value={"public_v2:approved"}),
+            patch.object(public_memorials, "memorial_memory_principal_id", return_value="memorial:manfred"),
+            patch.object(public_memorials, "retrieve_memorial_memory_items", return_value=[]) as retrieve,
+        ):
+            lines = public_memorials._memorial_memory_context_lines(
+                slug="manfred",
+                payload={"slug": "manfred"},
+                private_profile={},
+                question="Wuerdest du dich heute gegen Covid impfen lassen?",
+                memory_runtime=object(),
+            )
+
+        self.assertEqual(lines, [])
+        retrieve.assert_called_once_with(
+            memory_runtime=retrieve.call_args.kwargs["memory_runtime"],
+            principal_id="memorial:manfred",
+            question=(
+                "Wuerdest du dich heute gegen Covid impfen lassen? Ordnung Pflicht "
+                "Klarheit Recht Zustaendigkeit Tatsachen Verantwortung Fairness Prinzip"
+            ),
             limit=6,
             public_only=True,
             public_approval_keys={"public_v2:approved"},

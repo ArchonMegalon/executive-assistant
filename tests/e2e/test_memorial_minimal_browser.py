@@ -2742,7 +2742,7 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
         assert turns.nth(0).get_attribute("class") == "speech-turn user"
         assert turns.nth(1).get_attribute("class") == "speech-turn assistant"
         assert turns.nth(0).locator("strong").text_content() == "Du"
-        assert turns.nth(1).locator("strong").text_content() == "KI-Begleiter"
+        assert turns.nth(1).locator("strong").text_content() == "Freddy"
         assert "ich " in (turns.nth(1).text_content() or "").casefold()
         assert page.evaluate("window.__memorialAudioPlayCalls") >= 1
         assert page.evaluate("window.__memorialAudioEndedEvents") >= 1

@@ -54,7 +54,14 @@ def _memorial_chat_answer_payload(*, slug: str, request: Request, body: dict[str
             personal_memory_context=personal_memory_context,
             difficult_memory_mode=difficult_memory_mode,
         )
-    elif not difficult_memory_mode and shared._is_difficult_memory_question(question_text):
+    elif (
+        not difficult_memory_mode
+        and shared._is_difficult_memory_question(question_text)
+        and (
+            not shared._is_memorial_values_question(question_text)
+            or shared._is_memorial_high_risk_sensitive_question(question_text)
+        )
+    ):
         answer = shared._memorial_chat_fallback_answer(
             payload,
             question_text,

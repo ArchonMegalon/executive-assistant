@@ -1853,6 +1853,66 @@ def _extract_difficult_memory_mode(
     return str(raw).strip().lower() in {"1", "true", "yes", "on", "ja"}
 
 
+def _is_memorial_vaccine_question(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    if not lowered:
+        return False
+    return any(
+        "impf" in token and "schimpf" not in token
+        for token in re.findall(r"\w+", lowered)
+    )
+
+
+def _is_memorial_doctor_question(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    if not lowered:
+        return False
+    for token in re.findall(r"\w+", lowered):
+        if "ärzt" in token or "aerzt" in token:
+            return True
+        if "arzt" in token and not token.startswith(("schwarzt", "schwärzt")):
+            return True
+    return False
+
+
+def _is_memorial_narcissism_question(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    return any(
+        token.startswith(("narz", "narc"))
+        for token in re.findall(r"\w+", lowered)
+    )
+
+
+def _is_memorial_relational_blame_question(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    if not lowered:
+        return False
+    if any(
+        token in lowered
+        for token in (
+            "beschuldig",
+            "schuldumkehr",
+            "schuldzuweis",
+            "schuld zuschieb",
+            "schuld zugeschob",
+            "schuld in die schuhe",
+        )
+    ):
+        return True
+    return bool(
+        re.search(
+            r"\b(?:die\s+)?schuld\s+(?:gegeben|geben|geschoben|schieben|"
+            r"zugeschoben|zuschieben)\b",
+            lowered,
+        )
+        or re.search(
+            r"\b(?:meine|deine|seine|ihre|unsere|eure)\s+schuld\b",
+            lowered,
+        )
+        or re.search(r"\bschuld\s+an\b", lowered)
+    )
+
+
 def _is_difficult_memory_question(question: str) -> bool:
     lowered = _text(question, "").lower()
     needles = (
@@ -1868,7 +1928,6 @@ def _is_difficult_memory_question(question: str) -> bool:
         "ernährer",
         "corona",
         "covid",
-        "impf",
         "pharma",
         "auslaender",
         "ausländer",
@@ -1881,9 +1940,12 @@ def _is_difficult_memory_question(question: str) -> bool:
         "gewalt",
         "schuld",
         "adhs",
-        "narz",
     )
-    return any(token in lowered for token in needles)
+    return (
+        any(token in lowered for token in needles)
+        or _is_memorial_vaccine_question(lowered)
+        or _is_memorial_narcissism_question(lowered)
+    )
 
 
 def _contains_mfg_reference(question: str) -> bool:
@@ -1895,7 +1957,13 @@ def _contains_mfg_reference(question: str) -> bool:
 
 def _is_sensitive_private_profile_question(question: str) -> bool:
     lowered = _text(question, "").lower()
-    return _contains_mfg_reference(lowered) or any(
+    return (
+        _contains_mfg_reference(lowered)
+        or _is_memorial_vaccine_question(lowered)
+        or _is_memorial_doctor_question(lowered)
+        or _is_memorial_narcissism_question(lowered)
+        or _is_memorial_relational_blame_question(lowered)
+        or any(
         token in lowered
         for token in (
             "mutter",
@@ -1918,10 +1986,6 @@ def _is_sensitive_private_profile_question(question: str) -> bool:
             "politik",
             "corona",
             "covid",
-            "impf",
-            "arzt",
-            "aerzte",
-            "ärzte",
             "pharma",
             "auslaender",
             "ausländer",
@@ -1941,27 +2005,88 @@ def _is_sensitive_private_profile_question(question: str) -> bool:
             "kritik",
             "schuld",
             "adhs",
-            "narz",
+        )
         )
     )
 
 
-def _difficult_memory_blocked_answer(*, source_labels: list[str], question: str = "") -> str:
-    source_hint = ""
-    if source_labels:
-        source_hint = " Belegt ist hier vor allem Material aus " + ", ".join(source_labels[:3]) + "."
+def _difficult_memory_blocked_answer(
+    *,
+    source_labels: list[str],
+    question: str = "",
+    memory_lines: list[str] | None = None,
+) -> str:
+    del source_labels
+    grounded_memory = _memorial_direct_memory_statement(memory_lines)
+    grounding = f"{grounded_memory} " if grounded_memory else ""
     lowered = _text(question, "").lower()
-    if any(token in lowered for token in ("corona", "covid", "impf", "arzt", "aerzte", "ärzte", "pharma")):
+    if (
+        _is_memorial_vaccine_question(lowered)
+        or _is_memorial_doctor_question(lowered)
+        or any(
+        token in lowered
+        for token in ("corona", "covid", "pharma")
+        )
+    ):
         return (
-            "Zur Covid-Impfung trenne ich drei Dinge: Eine heutige medizinische Entscheidung gehoert nicht in diesen Erinnerungsmodus; "
-            "hier gilt keine Ich-Form-Rekonstruktion zu diesem schwierigen Thema; "
-            "und belegt ist nur, dass Misstrauen gegen Aerzte, Pharma und Institutionen ein schwieriger Teil der Erinnerung war."
-            f"{source_hint} Wenn du das als schwierige Erinnerung wirklich in Ich-Form hoeren willst, aktiviere difficult_memory_mode."
+            f"{grounding}Misstrauen gegen Aerzte, Pharma und Institutionen war ein schwieriger Teil der Erinnerung. "
+            "Eine heutige medizinische Entscheidung braucht aktuelle Fakten und aerztlichen Rat; "
+            "eine konkrete Impf- oder Therapieempfehlung folgt daraus nicht."
         )
     return (
-        "Zu diesem Thema gebe ich standardmaessig keine Ich-Form-Rekonstruktion aus."
-        " Ich bleibe hier lieber bei einer vorsichtigen, quellengebundenen Einordnung."
-        f"{source_hint} Wenn du ausdruecklich eine schwierige Erinnerung in Ich-Form willst, aktiviere difficult_memory_mode."
+        f"{grounding}Dazu ist in den freigegebenen Erinnerungen keine weitergehende sichere Ich-Aussage belegt. "
+        "Ich bleibe bei dem, was quellengebunden nachvollziehbar ist, und erfinde keine private Erinnerung dazu."
+    )
+
+
+def _is_memorial_high_risk_sensitive_question(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    return (
+        _contains_mfg_reference(lowered)
+        or _is_memorial_vaccine_question(lowered)
+        or _is_memorial_doctor_question(lowered)
+        or _is_memorial_narcissism_question(lowered)
+        or _is_memorial_relational_blame_question(lowered)
+        or any(
+        token in lowered
+        for token in (
+            "mutter",
+            "mama",
+            "vater",
+            "haushalt",
+            "hemden",
+            "buegel",
+            "bügel",
+            "fenster",
+            "putz",
+            "frau",
+            "ehefrau",
+            "ernaehrer",
+            "ernährer",
+            "kindererziehung",
+            "partei",
+            "politik",
+            "corona",
+            "covid",
+            "pharma",
+            "auslaender",
+            "ausländer",
+            "migration",
+            "fremde",
+            "zuwander",
+            "institution",
+            "geschlagen",
+            "schlagen",
+            "strafe",
+            "disziplin",
+            "gewalt",
+            "ohrfeig",
+            "prügel",
+            "pruegel",
+            "misshandel",
+            "adhs",
+        )
+        )
     )
 
 
@@ -2018,7 +2143,14 @@ def _attributed_sensitive_memory_answer(
             "von einem Erwachsenen geschlagen zu werden. Ich erfinde keine spätere Einsicht, Entschuldigung, Reue, "
             "Trauma-Anerkennung oder Fehleranerkennung."
         )
-    if any(token in lowered for token in ("corona", "covid", "impf", "arzt", "aerzte", "ärzte", "pharma")):
+    if (
+        _is_memorial_vaccine_question(lowered)
+        or _is_memorial_doctor_question(lowered)
+        or any(
+        token in lowered
+        for token in ("corona", "covid", "pharma")
+        )
+    ):
         if not _private_family_note_has_label(private_notes, "covid_vaccine"):
             return (
                 "Dazu liegt in den privaten Familiennotizen kein passend zugeordnetes persönliches Zeugnis vor. "
@@ -2063,7 +2195,10 @@ def _attributed_sensitive_memory_answer(
             "Tibor berichtet, Manfred habe eine traditionelle patriarchale Rollenverteilung erwartet. "
             "Das wird hier als private Familienerinnerung eingeordnet, nicht als richtige oder empfehlenswerte Ordnung."
         )
-    if any(token in lowered for token in ("mutter", "mama", "vater", "kritik", "schuld", "adhs", "narz", "allein", "einsam")):
+    if _is_memorial_narcissism_question(lowered) or any(
+        token in lowered
+        for token in ("mutter", "mama", "vater", "kritik", "schuld", "adhs", "allein", "einsam")
+    ):
         if not _private_family_note_has_label(
             private_notes,
             "parental_ambivalence",
@@ -6542,6 +6677,81 @@ def _is_memorial_present_world_question(question: str) -> bool:
     return any(token in lowered for token in (*weather_terms, *time_terms, *current_terms))
 
 
+def _is_memorial_political_topic_question(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    if not lowered:
+        return False
+    if _contains_mfg_reference(lowered) or any(
+        token in lowered
+        for token in (
+            "politik",
+            "politisch",
+            "partei",
+            "kandidat",
+            "kandidier",
+            "regierung",
+            "parlament",
+            "wahlempfehl",
+        )
+    ):
+        return True
+    strong_political_noun = re.search(
+        r"\b(?:(?:europa|nationalrats|bundestags|landtags|gemeinderats|"
+        r"bundespraesidenten|bundespräsidenten|praesidentschafts|präsidentschafts|"
+        r"praesidenten|präsidenten|parlaments|stich|volks|neu|direkt|bundes|landes)"
+        r"wahl(?:en|kampf|recht|urne|lokal|termin|ergebnis|beteiligung|werbung|"
+        r"programm|versprechen|empfehlung|entscheidung)?|"
+        r"wahl(?:en|kampf|recht|urne|lokal|termin|ergebnis|beteiligung|werbung|"
+        r"programm|versprechen|empfehlung|entscheidung))\b",
+        lowered,
+    )
+    electoral_context_noun = bool(
+        re.search(
+            r"\b(?:(?:bei|vor|nach)\s+(?:der|einer)\s+"
+            r"(?:nächsten|naechsten|kommenden|heutigen)?\s*wahl|"
+            r"zur\s+wahl|(?:nächste|naechste|kommende)\s+wahl)\b",
+            lowered,
+        )
+    ) and not bool(
+        re.search(r"\bzwischen\b", lowered)
+    )
+    prefixed_political_verb = re.search(
+        r"\b(?:wieder|ab|neu|mit)w(?:ä|ae)hl(?:e|en|st|t)\b",
+        lowered,
+    )
+    person_vote = re.search(
+        r"^\s*wen\s+w(?:ä|ae)hlst\s+du"
+        r"(?:\s+(?:heute|jetzt|morgen|heutzutage|aktuell|noch|nicht|auch|"
+        r"selbst|lieber|zukünftig|zukuenftig))*\s*[?.!]*$",
+        lowered,
+    ) or re.search(
+        r"^\s*wen\s+(?:würdest|wuerdest)\s+du"
+        r"(?:\s+(?:heute|jetzt|morgen|heutzutage|aktuell|noch|nicht|auch|"
+        r"selbst|lieber|zukünftig|zukuenftig))*\s+w(?:ä|ae)hlen\s*[?.!]*$",
+        lowered,
+    )
+    bare_conditional_vote = re.search(
+        r"^\s*(?:würdest|wuerdest)\s+du"
+        r"(?:\s+(?:heute|jetzt|morgen|heutzutage|aktuell|noch|nicht|auch|"
+        r"selbst|lieber|zukünftig|zukuenftig))*\s+w(?:ä|ae)hlen\s*[?.!]*$",
+        lowered,
+    )
+    bare_direct_vote = re.search(
+        r"^\s*w(?:ä|ae)hlst\s+du"
+        r"(?:\s+(?:heute|jetzt|morgen|heutzutage|aktuell|noch|nicht|auch|"
+        r"selbst|lieber|zukünftig|zukuenftig))*\s*[?.!]*$",
+        lowered,
+    )
+    return bool(
+        strong_political_noun
+        or electoral_context_noun
+        or prefixed_political_verb
+        or person_vote
+        or bare_conditional_vote
+        or bare_direct_vote
+    )
+
+
 def _is_memorial_current_speculation_question(question: str) -> bool:
     lowered = _text(question, "").lower()
     if not lowered:
@@ -6557,24 +6767,34 @@ def _is_memorial_current_speculation_question(question: str) -> bool:
         "heut",
         "gegenwart",
         "aktuell",
+        "bei der nächsten",
+        "bei der naechsten",
+        "kommende wahl",
+        "kommenden wahl",
+        "zukünftig",
+        "zukuenftig",
+        "wählst du",
+        "waehlst du",
+        "lässt du",
+        "laesst du",
+        "wirst du",
+        "willst du",
     )
-    medical_political_terms = (
+    medical_terms = (
         "covid",
         "corona",
-        "impf",
-        "impfen",
-        "impfung",
-        "impfen lassen",
-        "arzt",
-        "ärzte",
-        "aerzte",
         "pharma",
         "behandlung",
         "therapie",
         "medikament",
         "medizin",
     )
-    return any(token in lowered for token in current_modal_terms) and any(token in lowered for token in medical_political_terms)
+    return any(token in lowered for token in current_modal_terms) and (
+        any(token in lowered for token in medical_terms)
+        or _is_memorial_vaccine_question(lowered)
+        or _is_memorial_doctor_question(lowered)
+        or _is_memorial_political_topic_question(lowered)
+    )
 
 
 def _is_memorial_weather_question(question: str) -> bool:
@@ -6611,16 +6831,88 @@ def _memorial_present_world_visible_text(question: str) -> str:
     return _text(_memorial_phrase_bank_entry("present_world_guardrail").get("visible_text"))
 
 
-def _memorial_current_speculation_answer_body(question: str) -> str:
-    del question
-    return "Das kann ich aus meiner Erinnerung nicht als aktuelle medizinische oder politische Entscheidung beantworten."
+def _memorial_direct_memory_text(memory_lines: list[str] | None) -> str:
+    grouped = _memorial_memory_axis_context(memory_lines or [])
+    for axis in ("legal", "general", "episodic"):
+        for raw_line in grouped.get(axis, []):
+            line = " ".join(_text(raw_line, "").split())
+            lowered = line.lower()
+            if (
+                not line
+                or line.endswith("?")
+                or "https://" in lowered
+                or "http://" in lowered
+            ):
+                continue
+            for separator in (". ", "! "):
+                if separator in line:
+                    line = line.split(separator, 1)[0].rstrip() + separator[0]
+                    break
+            if len(line) > 240:
+                line = line[:237].rsplit(" ", 1)[0].rstrip(" ,;:-") + "..."
+            if line:
+                return line
+    return ""
 
 
-def _memorial_current_speculation_visible_text(question: str) -> str:
-    del question
+def _memorial_direct_memory_statement(memory_lines: list[str] | None) -> str:
+    grounded_memory = _memorial_direct_memory_text(memory_lines)
+    if not grounded_memory:
+        return ""
+    grounded_memory = grounded_memory.rstrip()
+    suffix = "" if grounded_memory.endswith((".", "!", "?")) else "."
+    return f"Fuer mich galt: {grounded_memory}{suffix}"
+
+
+def _memorial_current_speculation_answer_body(
+    question: str,
+    *,
+    memory_lines: list[str] | None = None,
+) -> str:
+    grounded_memory = _memorial_direct_memory_statement(memory_lines)
+    grounding = f"{grounded_memory} " if grounded_memory else ""
+    lowered = _text(question, "").lower()
+    if _is_memorial_political_topic_question(lowered):
+        decision_boundary = (
+            "Bei politischen Fragen waren Tatsachen, Verantwortung, Recht und Fairness der Massstab. "
+            "Daraus folgt keine heutige Partei-, Wahl- oder Kandidaturentscheidung und keine Wahlempfehlung. "
+            "Politische Ueberzeugungsarbeit betreibe ich daraus nicht."
+        )
+    elif _is_memorial_vaccine_question(lowered) or any(
+        token in lowered
+        for token in ("covid", "corona", "behandlung", "therapie", "medikament")
+    ):
+        decision_boundary = (
+            "Eine heutige medizinische Entscheidung braucht aktuelle Fakten und aerztlichen Rat. "
+            "Pauschales Misstrauen gegen Aerzte oder Pharma ist ebenso wenig ein Ersatz fuer Belege wie blinde Gefolgschaft. "
+            "Eine konkrete Impf- oder Therapieempfehlung folgt daraus nicht."
+        )
+    elif _is_memorial_doctor_question(lowered) and any(
+        token in lowered for token in ("werden", "beruf", "arbeiten")
+    ):
+        decision_boundary = (
+            "Fuer den Arztberuf waeren fachliche Eignung, Verantwortung und die heutigen Berufsbedingungen entscheidend. "
+            "Aus meiner belegten Haltung folgt dazu keine heutige Berufswahl."
+        )
+    else:
+        decision_boundary = (
+            "Aerztlicher Rat muss an aktuellen Fakten und nachvollziehbaren Belegen gemessen werden. "
+            "Pauschales Misstrauen ist ebenso wenig ein brauchbarer Massstab wie blinde Gefolgschaft. "
+            "Eine konkrete heutige Entscheidung folgt daraus nicht."
+        )
     return (
-        "Das kann ich aus meiner Erinnerung nicht als aktuelle medizinische oder politische Entscheidung beantworten. "
-        "Wenn du wissen willst, wie ich ueber Verantwortung, Aerzte, Fairness oder Misstrauen gedacht habe, frag es enger als Erinnerungsfrage."
+        f"{grounding}{decision_boundary}"
+    )
+
+
+def _memorial_current_speculation_visible_text(
+    question: str,
+    *,
+    memory_lines: list[str] | None = None,
+) -> str:
+    return _memorial_current_speculation_answer_body(
+        question,
+        memory_lines=memory_lines,
     )
 
 
@@ -6940,7 +7232,10 @@ def _memorial_ooda_domain(question: str) -> str:
         return "employment"
     if any(token in lowered for token in ("prozess", "klagen", "klage", "anwalt", "gericht", "streit", "rechtsstreit", "anzeige")):
         return "legal_dispute"
-    if any(token in lowered for token in ("arzt", "operation", "behandlung", "therapie", "medikament", "krankenhaus", "spital")):
+    if _is_memorial_doctor_question(lowered) or any(
+        token in lowered
+        for token in ("operation", "behandlung", "therapie", "medikament", "krankenhaus", "spital")
+    ):
         return "healthcare"
     if any(token in lowered for token in ("kredit", "darlehen", "finanzierung", "anlage", "investment", "investieren", "schuld", "rate")):
         return "finance"
@@ -7272,11 +7567,18 @@ def _memorial_values_answer_is_too_vague(answer_text: str, question: str) -> boo
     return group_matches < 2
 
 
-def _memorial_values_guardrail_answer_body(question: str) -> str:
+def _memorial_values_guardrail_answer_body(
+    question: str,
+    *,
+    memory_lines: list[str] | None = None,
+) -> str:
+    del question
+    grounded_memory = _memorial_direct_memory_statement(memory_lines)
+    grounding = f"{grounded_memory} " if grounded_memory else ""
     return (
-        "Nein, fuer mich musste man zuerst die Tatsachen sauber trennen und die Sache rechtlich ordnen. "
+        f"{grounding}Fuer mich musste man zuerst die Tatsachen sauber trennen und die Sache rechtlich ordnen. "
         "Gerecht war etwas fuer mich erst dann, wenn Prinzip, Verantwortung und Fairness zusammenpassen. "
-        "Bequemlichkeit war fuer mich kein Massstab. Ein bequemer Weg, der das Prinzip verbiegt, war am Ende kein sauberer Weg."
+        "Bequemlichkeit war kein Massstab; ein Weg, der das Prinzip verbiegt, war am Ende kein sauberer Weg."
     )
 
 
@@ -7898,6 +8200,11 @@ def _memorial_chat_fallback_answer(
         question=normalized_question,
     )
     primary_memory_line = memory_lines[0] if memory_lines else ""
+    direct_memory_statement = _memorial_direct_memory_statement(memory_lines)
+    response_sources = [item for item in source_labels if item]
+    response_private_context_used = bool(private_notes)
+    response_personal_memory_used = bool(personal_memory_lines)
+    public_memory_used = False
     if _is_memorial_identity_question(normalized_question):
         body = (
             "Nein, man muss die Dinge schon sauber auseinanderhalten. "
@@ -7915,24 +8222,63 @@ def _memorial_chat_fallback_answer(
             f"Ich halte mich kuenftig daran: {preference_text}. "
             "Ich antworte also direkt und ohne unnoetigen Umweg."
         )
+    elif _is_memorial_current_speculation_question(normalized_question):
+        public_memory_used = bool(direct_memory_statement)
+        response_sources = ["Freigegebene Erinnerungen"] if public_memory_used else []
+        response_private_context_used = False
+        response_personal_memory_used = False
+        body = _memorial_current_speculation_visible_text(
+            normalized_question,
+            memory_lines=memory_lines,
+        )
+    elif (
+        _is_memorial_values_question(normalized_question)
+        and not _is_memorial_high_risk_sensitive_question(normalized_question)
+        and not (
+            difficult_memory_mode
+            and _is_sensitive_private_profile_question(normalized_question)
+        )
+    ):
+        public_memory_used = bool(direct_memory_statement)
+        response_sources = ["Freigegebene Erinnerungen"] if public_memory_used else []
+        response_private_context_used = False
+        response_personal_memory_used = False
+        body = _memorial_values_guardrail_answer_body(
+            normalized_question,
+            memory_lines=memory_lines,
+        )
     elif not difficult_memory_mode and _is_difficult_memory_question(normalized_question):
-        body = _difficult_memory_blocked_answer(source_labels=source_labels, question=normalized_question)
+        public_memory_used = bool(direct_memory_statement)
+        response_sources = ["Freigegebene Erinnerungen"] if public_memory_used else []
+        response_private_context_used = False
+        response_personal_memory_used = False
+        body = _difficult_memory_blocked_answer(
+            source_labels=source_labels,
+            question=normalized_question,
+            memory_lines=memory_lines,
+        )
     elif _is_sensitive_private_profile_question(normalized_question):
-        body = (
-            _attributed_sensitive_memory_answer(
+        if difficult_memory_mode:
+            body = _attributed_sensitive_memory_answer(
                 question=normalized_question,
                 private_notes=private_notes,
             )
-            if difficult_memory_mode
-            else _difficult_memory_blocked_answer(
+            response_sources = []
+            response_private_context_used = body.startswith("Tibor ")
+            response_personal_memory_used = False
+            public_memory_used = False
+        else:
+            public_memory_used = bool(direct_memory_statement)
+            response_sources = ["Freigegebene Erinnerungen"] if public_memory_used else []
+            response_private_context_used = False
+            response_personal_memory_used = False
+            body = _difficult_memory_blocked_answer(
                 source_labels=source_labels,
                 question=normalized_question,
+                memory_lines=memory_lines,
             )
-        )
     elif _is_memorial_contact_question(normalized_question):
         body = _memorial_contact_answer_body(normalized_question)
-    elif _is_memorial_current_speculation_question(normalized_question):
-        body = _memorial_current_speculation_visible_text(normalized_question)
     elif _is_memorial_present_world_question(normalized_question):
         body = _memorial_present_world_answer_body(normalized_question)
     elif _is_memorial_family_mail_question(normalized_question):
@@ -7951,6 +8297,8 @@ def _memorial_chat_fallback_answer(
                 "Typisch waere zuerst die Einordnung, dann das Beispiel oder der Verweis, und am Ende eine knappe Empfehlung. Pathos war dabei kaum von Nutzen."
             )
         elif primary_memory_line:
+            public_memory_used = True
+            response_sources = ["Freigegebene Erinnerungen"]
             body = (
                 f"Zur Information: {primary_memory_line}. "
                 "Ich habe schriftlich eher trocken und zur Sache geschrieben, meist zuerst die Einordnung, dann das Beispiel, dann die Empfehlung; gern auch mit einem Link. "
@@ -7962,6 +8310,9 @@ def _memorial_chat_fallback_answer(
                 "Meines Erachtens ist das immer noch die sauberste Art, eine Sache darzustellen. Pathos war nie sehr brauchbar."
             )
     elif _is_memorial_ooda_question(normalized_question):
+        public_memory_used = bool(direct_memory_statement)
+        if public_memory_used:
+            response_sources = ["Freigegebene Erinnerungen"]
         body = _memorial_ooda_answer_body(
             normalized_question,
             source_labels=source_labels,
@@ -8023,6 +8374,8 @@ def _memorial_chat_fallback_answer(
         body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
     elif "familie" in lowered:
         if primary_memory_line:
+            public_memory_used = True
+            response_sources = ["Freigegebene Erinnerungen"]
             body = (
                 f"Zur Information: {primary_memory_line}. "
                 "Gerade bei Familie und bei solchen Dingen wollte ich, dass nicht alles beliebig auseinanderfaellt. "
@@ -8042,24 +8395,29 @@ def _memorial_chat_fallback_answer(
             "Was belegt ist, steht in den Quellen und in der Originalstimme."
         )
     else:
-        if primary_memory_line:
+        if direct_memory_statement:
+            public_memory_used = True
+            response_sources = ["Freigegebene Erinnerungen"]
+            response_private_context_used = False
+            response_personal_memory_used = False
             body = (
-                f"Ich wuerde es so fassen: {primary_memory_line} "
-                "Wenn du den Punkt enger ziehst, antworte ich dir auch enger darauf."
+                f"{direct_memory_statement} "
+                "Das war fuer mich der entscheidende Punkt."
             )
         else:
             body = (
-                "Sag mir den konkreten Punkt noch etwas enger. "
-                "Dann antworte ich dir direkt darauf und nicht allgemein drum herum."
+                "Fuer mich musste man zuerst die Tatsachen sauber trennen, Verantwortung und Folgen ordnen "
+                "und erst danach urteilen. Ein bequemer, aber unklarer Schluss war keine brauchbare Antwort."
             )
     response = {
         "person_name": person_name,
         "mode": "memorial_first_person_memory_chat",
         "question": normalized_question,
         "answer": _compact_memorial_spoken_answer(body),
-        "sources": [item for item in source_labels if item],
-        "private_context_used": bool(private_notes),
-        "personal_memory_used": bool(personal_memory_lines),
+        "sources": response_sources,
+        "private_context_used": response_private_context_used,
+        "personal_memory_used": response_personal_memory_used,
+        "public_memory_used": public_memory_used,
         "difficult_memory_mode": bool(difficult_memory_mode),
         "safety_note": "KI-Rekonstruktion in Ich-Form: quellengebunden, synthetisch gesprochen und nicht der echte Manfred.",
         "llm_model": llm_model or "",
@@ -8390,11 +8748,17 @@ def _memorial_memory_context_lines(
         memory_runtime=memory_runtime,
     )
     principal_id = memorial_memory_principal_id(normalized_slug, payload)
+    retrieval_question = question
+    if _is_memorial_values_question(question) or _is_memorial_current_speculation_question(question):
+        retrieval_question = (
+            f"{question} Ordnung Pflicht Klarheit Recht Zustaendigkeit Tatsachen "
+            "Verantwortung Fairness Prinzip"
+        )
     try:
         rows = retrieve_memorial_memory_items(
             memory_runtime=memory_runtime,
             principal_id=principal_id,
-            question=question,
+            question=retrieval_question,
             limit=6,
             public_only=True,
             public_approval_keys=public_approval_keys,
@@ -8552,15 +8916,28 @@ def _memorial_chat_answer(
             "fallback_reason": "multi_question_retry_required",
         }
     if _is_memorial_current_speculation_question(normalized_question):
+        memory_lines = _memorial_memory_context_lines(
+            slug=slug or _text(payload.get("slug"), ""),
+            payload=payload,
+            private_profile=private_profile,
+            question=normalized_question,
+            memory_runtime=memory_runtime,
+        )
+        answer = _memorial_current_speculation_visible_text(
+            normalized_question,
+            memory_lines=memory_lines,
+        )
+        public_memory_used = bool(_memorial_direct_memory_text(memory_lines))
         return {
             "person_name": person_name,
             "mode": "memorial_first_person_memory_chat",
             "question": normalized_question,
-            "answer": _memorial_current_speculation_visible_text(normalized_question),
-            "answer_audio_text": _memorial_current_speculation_answer_body(normalized_question),
-            "sources": [],
+            "answer": answer,
+            "answer_audio_text": answer,
+            "sources": ["Freigegebene Erinnerungen"] if public_memory_used else [],
             "private_context_used": False,
             "personal_memory_used": False,
+            "public_memory_used": public_memory_used,
             "difficult_memory_mode": bool(difficult_memory_mode),
             "safety_note": "KI-Rekonstruktion in Ich-Form: quellengebunden, synthetisch gesprochen und nicht der echte Manfred.",
             "llm_model": "memorial_guardrail",
@@ -8659,25 +9036,6 @@ def _memorial_chat_answer(
             "fallback_reason": "present_world_guardrail",
             "current_world_policy": "local_memories_and_conversation_only_no_internet_search",
         }
-    if _is_memorial_current_speculation_question(normalized_question):
-        return {
-            "person_name": person_name,
-            "mode": "memorial_first_person_memory_chat",
-            "question": normalized_question,
-            "answer": _memorial_current_speculation_visible_text(normalized_question),
-            "answer_audio_text": _memorial_current_speculation_answer_body(normalized_question),
-            "sources": [],
-            "private_context_used": False,
-            "personal_memory_used": False,
-            "difficult_memory_mode": bool(difficult_memory_mode),
-            "safety_note": "KI-Rekonstruktion in Ich-Form: quellengebunden, synthetisch gesprochen und nicht der echte Manfred.",
-            "llm_model": "memorial_guardrail",
-            "llm_provider": "memorial_guardrail",
-            "llm_request_model": requested_model,
-            "llm_fallback_used": False,
-            "fallback_reason": "current_speculation_guardrail",
-            "current_world_policy": "no_current_medical_or_political_speculation",
-        }
     if _is_memorial_contact_question(normalized_question):
         phrase = _memorial_phrase_bank_entry("contact_opening")
         return {
@@ -8704,19 +9062,44 @@ def _memorial_chat_answer(
         private_profile=private_profile,
         has_imported_mail=has_imported_mail,
     )
+    if _is_memorial_high_risk_sensitive_question(normalized_question):
+        fallback = _memorial_chat_fallback_answer(
+            payload,
+            normalized_question,
+            private_profile,
+            slug=slug or _text(payload.get("slug"), ""),
+            memory_runtime=memory_runtime,
+            personal_memory_context=personal_memory_context,
+            llm_model=requested_model,
+            fallback_reason="difficult_memory_guardrail",
+            difficult_memory_mode=difficult_memory_mode,
+        )
+        fallback["llm_model"] = requested_model
+        fallback["llm_provider"] = "memorial_guardrail"
+        fallback["llm_request_model"] = requested_model
+        fallback["llm_fallback_used"] = True
+        return fallback
     if _is_memorial_values_question(normalized_question):
+        memory_lines = _memorial_memory_context_lines(
+            slug=slug or _text(payload.get("slug"), ""),
+            payload=payload,
+            private_profile=private_profile,
+            question=normalized_question,
+            memory_runtime=memory_runtime,
+        )
+        public_memory_used = bool(_memorial_direct_memory_text(memory_lines))
         return {
             "person_name": person_name,
             "mode": "memorial_first_person_memory_chat",
             "question": normalized_question,
-            "answer": _memorial_values_guardrail_answer_body(normalized_question),
-            "sources": [item for item in source_labels if item],
-            "private_context_used": bool(_list_of_dicts(private_profile.get("family_context_notes"))),
-            "personal_memory_used": bool(_personal_memory_context_lines(
-                slug=slug or _text(payload.get("slug"), ""),
-                context=personal_memory_context or {},
-                question=normalized_question,
-            )),
+            "answer": _memorial_values_guardrail_answer_body(
+                normalized_question,
+                memory_lines=memory_lines,
+            ),
+            "sources": ["Freigegebene Erinnerungen"] if public_memory_used else [],
+            "private_context_used": False,
+            "personal_memory_used": False,
+            "public_memory_used": public_memory_used,
             "difficult_memory_mode": bool(difficult_memory_mode),
             "safety_note": "KI-Rekonstruktion in Ich-Form: quellengebunden, synthetisch gesprochen und nicht der echte Manfred.",
             "llm_model": "memorial_guardrail",
@@ -12458,12 +12841,95 @@ def _save_memorial_blipai_token_state(access_token: str, refresh_token: str) -> 
         "refresh_token": _text(refresh_token).strip(),
         "saved_at": datetime.now(timezone.utc).isoformat(),
     }
+    parent_fd: int | None = None
+    temporary_fd: int | None = None
+    temporary_name = ""
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
-        path.chmod(0o600)
+        if not all(hasattr(os, name) for name in ("O_DIRECTORY", "O_NOFOLLOW")):
+            return
+        if not all(function in os.supports_dir_fd for function in (os.open, os.mkdir, os.unlink)):
+            return
+        parent_flags = os.O_RDONLY
+        parent_flags |= getattr(os, "O_CLOEXEC", 0)
+        parent_flags |= os.O_DIRECTORY
+        parent_flags |= os.O_NOFOLLOW
+        if path.is_absolute():
+            parent_fd = os.open(path.anchor, parent_flags)
+            parent_parts = path.parent.parts[1:]
+        else:
+            parent_fd = os.open(".", parent_flags)
+            parent_parts = path.parent.parts
+        target_name = path.name
+        if (
+            not target_name
+            or target_name in {".", ".."}
+            or any(part == ".." for part in parent_parts)
+        ):
+            return
+        for part in parent_parts:
+            if not part or part == ".":
+                continue
+            try:
+                next_fd = os.open(part, parent_flags, dir_fd=parent_fd)
+            except FileNotFoundError:
+                try:
+                    os.mkdir(part, mode=0o700, dir_fd=parent_fd)
+                except FileExistsError:
+                    pass
+                os.fsync(parent_fd)
+                next_fd = os.open(part, parent_flags, dir_fd=parent_fd)
+            old_parent_fd = parent_fd
+            parent_fd = next_fd
+            os.close(old_parent_fd)
+        if not stat.S_ISDIR(os.fstat(parent_fd).st_mode):
+            return
+        encoded = (json.dumps(payload, ensure_ascii=True, indent=2) + "\n").encode("utf-8")
+        temporary_name = f".blipai-token-state.{secrets.token_hex(8)}.tmp"
+        temporary_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        temporary_flags |= getattr(os, "O_CLOEXEC", 0)
+        temporary_flags |= getattr(os, "O_NOFOLLOW", 0)
+        temporary_fd = os.open(
+            temporary_name,
+            temporary_flags,
+            0o600,
+            dir_fd=parent_fd,
+        )
+        os.fchmod(temporary_fd, 0o600)
+        remaining = memoryview(encoded)
+        while remaining:
+            written = os.write(temporary_fd, remaining)
+            if written <= 0:  # pragma: no cover - kernel write invariant
+                return
+            remaining = remaining[written:]
+        os.fsync(temporary_fd)
+        os.close(temporary_fd)
+        temporary_fd = None
+        os.replace(
+            temporary_name,
+            target_name,
+            src_dir_fd=parent_fd,
+            dst_dir_fd=parent_fd,
+        )
+        temporary_name = ""
+        os.fsync(parent_fd)
     except Exception:
         return
+    finally:
+        if temporary_fd is not None:
+            try:
+                os.close(temporary_fd)
+            except OSError:
+                pass
+        if temporary_name and parent_fd is not None:
+            try:
+                os.unlink(temporary_name, dir_fd=parent_fd)
+            except OSError:
+                pass
+        if parent_fd is not None:
+            try:
+                os.close(parent_fd)
+            except OSError:
+                pass
 
 
 def _refresh_blipai_shadow_stt_access_token(*, rejected_access_token: str = "") -> str:
@@ -16856,7 +17322,7 @@ def _minimal_public_memorial_html(
         const turn = document.createElement("div");
         turn.className = "speech-turn " + normalizedRole;
         const label = document.createElement("strong");
-        label.textContent = role === "assistant" ? "KI-Begleiter" : "Du";
+        label.textContent = role === "assistant" ? "Freddy" : "Du";
         const body = document.createElement("p");
         body.textContent = normalized;
         turn.append(label, body);
