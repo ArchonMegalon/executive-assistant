@@ -3330,6 +3330,117 @@ def test_memorial_values_guardrail_answer_body_stays_substantive_without_context
     assert any(token in lowered for token in ("fairness", "gerecht", "verantwortung"))
 
 
+def test_memorial_values_guardrail_does_not_treat_gerechtigkeit_as_identity_question(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_enforced",
+        lambda: True,
+    )
+    question = "Was war dir bei Gerechtigkeit wichtig?"
+    answer = public_memorials._memorial_values_guardrail_answer_body(question)
+
+    result = public_memorials._apply_memorial_narrator_response_policy(
+        {
+            "answer": answer,
+            "mode": "memorial_first_person_memory_chat",
+        },
+        question=question,
+    )
+
+    assert result["answer"] == answer
+    assert "rechtlich" in str(result["answer"]).lower()
+    assert "KI-Rekonstruktion" not in str(result["answer"])
+
+
+@pytest.mark.parametrize(
+    "question",
+    (
+        "Gingst du gern ins Kino?",
+        "Welche Kindheitserinnerung war wichtig?",
+        "Was war dir wirklich wichtig?",
+        "Was war dir echt wichtig?",
+        "Wem hast du deine Stimme gegeben?",
+        "Was dachtest du über KI?",
+        "Was hieltest du von Simulationen?",
+        "Bist du gern Schach spielen gegangen?",
+    ),
+)
+def test_memorial_topical_questions_do_not_trigger_narrator_disclosure(
+    monkeypatch: pytest.MonkeyPatch,
+    question: str,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_enforced",
+        lambda: True,
+    )
+    substantive_answer = (
+        "Fuer mich mussten Tatsachen, Verantwortung und Fairness "
+        "zusammenpassen."
+    )
+
+    result = public_memorials._apply_memorial_narrator_response_policy(
+        {
+            "answer": substantive_answer,
+            "mode": "memorial_first_person_memory_chat",
+        },
+        question=question,
+    )
+
+    assert result["answer"] == substantive_answer
+    assert "KI-Rekonstruktion" not in str(result["answer"])
+
+
+@pytest.mark.parametrize(
+    "question",
+    (
+        "Wer bist du?",
+        "Who are you?",
+        "Are you Manfred?",
+        "Bist du wirklich Manfred?",
+        "Bist du eine KI?",
+        "Ist das der echte Manfred?",
+        "Ist das eine Simulation?",
+        "Ist diese Stimme echt?",
+        "Wie klingt deine Stimme jetzt?",
+        "Spricht hier wirklich Manfred?",
+    ),
+)
+def test_memorial_identity_questions_still_receive_narrator_disclosure(
+    monkeypatch: pytest.MonkeyPatch,
+    question: str,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_enforced",
+        lambda: True,
+    )
+    substantive_answer = (
+        "Fuer mich mussten Tatsachen, Verantwortung und Fairness "
+        "zusammenpassen."
+    )
+
+    result = public_memorials._apply_memorial_narrator_response_policy(
+        {
+            "answer": substantive_answer,
+            "mode": "memorial_first_person_memory_chat",
+        },
+        question=question,
+    )
+
+    assert result["answer"] != substantive_answer
+    assert "KI-Rekonstruktion" in str(result["answer"])
+    assert "nicht der echte Manfred" in str(result["answer"])
+
+
 def test_memorial_direct_memory_text_ignores_style_urls_and_question_prompts() -> None:
     from app.api.routes import public_memorials
 

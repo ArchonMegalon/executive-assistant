@@ -9683,19 +9683,52 @@ def _enforce_memorial_narrator_boundary(value: object, *, question: str = "") ->
         "i'm an llm",
     )
     normalized_question = _identity_match_text(question)
+    identity_question_patterns = (
+        r"\bwer\s+bist(?:\s+du)?\b",
+        r"\bwer\s+spricht(?:\s+hier)?\b",
+        r"\bwho\s+are\s+you\b",
+        r"\bwho\s+is\s+speaking\b",
+        r"\bwie\s+klingt\s+(?:(?:deine|die|diese)\s+)?stimme\b",
+        r"\bhow\s+does\s+(?:(?:your|the|this)\s+)?voice\s+sound\b",
+        (
+            r"\b(?:bist\s+du|"
+            r"ist\s+(?:das|dies|dieser|diese|dieses|er)|"
+            r"are\s+you|is\s+(?:this|that|it|he))\s+"
+            r"(?:(?:wirklich|tatsachlich|really|actually)\s+)?"
+            r"(?:(?:der|die|das|ein|eine|the|an?)\s+)?"
+            r"(?:(?:echt(?:e|er|es|en|em)?|real|actual)\s+)?"
+            r"(?:manfred|ki|ai|simulation|rekonstruktion|reconstruction)\b"
+        ),
+        (
+            r"\b(?:ist|is)\s+"
+            r"(?:(?:das|dies|dieser|diese|dieses|deine|die|"
+            r"this|that|your|the)\s+)*"
+            r"(?:stimme|voice)\s+"
+            r"(?:(?:wirklich|tatsachlich|really|actually)\s+)?"
+            r"(?:echt(?:e|er|es|en|em)?|real|synthetisch|synthetic|"
+            r"kunstlich|artificial|ki|ai)\b"
+        ),
+        (
+            r"\b(?:spricht|redet|speaks|talks)\s+"
+            r"(?:(?:hier|there)\s+)?"
+            r"(?:(?:wirklich|tatsachlich|really|actually)\s+)?"
+            r"(?:(?:der|die|the)\s+)?"
+            r"(?:(?:echt(?:e|er|es|en|em)?|real|actual)\s+)?"
+            r"manfred\b"
+        ),
+    )
+    terminal_authenticity_question = normalized_question.strip(" |")
     identity_question = any(
-        token in normalized_question
-        for token in (
-            "wer bist",
-            "bist du",
-            "who are you",
-            "are you manfred",
-            "echt",
-            "wirklich",
-            "stimme",
-            "voice",
-            "ki",
-            "simulation",
+        re.search(pattern, normalized_question)
+        for pattern in identity_question_patterns
+    ) or bool(
+        re.fullmatch(
+            (
+                r"(?:bist\s+du|are\s+you)\s+"
+                r"(?:(?:wirklich|tatsachlich|really|actually)\s+)?"
+                r"(?:echt|real)"
+            ),
+            terminal_authenticity_question,
         )
     )
     allowed_manfred_disclosures = {

@@ -1588,7 +1588,7 @@
     "tests/test_memorial_helper_path_defaults.py": "2ba8a09bb6a582c7539c05100ba31d3122e8dca4e99af6f3dc2125002b9371a4",
     "tests/test_memorial_joggai_asset_receipts.py": "a75f2e0f6d6007360f8fd6d60ea34c2fcbd2e8b1c91faa5d0bf77557f3904429",
     "tests/test_memorial_joggai_provider_contracts.py": "c3296ddc605f566bb3542d6ae753dff6ecf7485d250d0b76bdfe0f8663b6c402",
-    "tests/test_memorial_live_conversation_contracts.py": "aefe0b1538b5ce764f7e00f0f36f740ba3425868da25ec3606889d563fd61a15",
+    "tests/test_memorial_live_conversation_contracts.py": "7bb28933a893c598d5bfaa134678bacadcd9a8c080b862b8b5924834cf065702",
     "tests/test_memorial_memory_room.py": "0e62ad6426cdc59b601bc07076911560d70e16afec27e30941f92dd3a9372089",
     "tests/test_memorial_memory_service.py": "98bfccc44b7b76b14bcc9a509ff19b6d272c01a182bb7ac2b9e239f9ee999ba4",
     "tests/test_memorial_openvoice_voicewave.py": "584911083ba3f2382e29d270a991829b9d29db17c9fb8a00e456e89e9cc364d4",
@@ -1842,13 +1842,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "213e4243e0e57d90d0a6fcd68aa14f19131c7fc8",
-  "indexed_at_timestamp": "2026-07-26T07:01:14.919094239+00:00",
+  "indexed_at_commit": "422b3fe25d90ecf24564d096ca2a0b1728858c64",
+  "indexed_at_timestamp": "2026-07-26T08:46:14.287587044+00:00",
   "schema_version": 3,
   "stats": {
     "total_edges": 45990,
     "total_files": 1841,
-    "total_nodes": 28918
+    "total_nodes": 28921
   },
   "vexp_version": "2.3.1"
 }
