@@ -8,6 +8,7 @@ import logging
 import math
 import os
 import re
+import stat
 import struct
 import subprocess
 import threading
@@ -1288,6 +1289,8 @@ def test_memorial_blipai_token_state_replaces_existing_file_atomically(
     assert saved["refresh_token"] == "next-refresh-token"
     assert state_path.stat().st_ino != original_inode
     assert state_path.stat().st_mode & 0o777 == 0o600
+    assert state_path.stat().st_uid == os.geteuid()
+    assert state_path.stat().st_nlink == 1
     assert not any(path.name.endswith(".tmp") for path in tmp_path.iterdir())
 
 
@@ -1345,7 +1348,7 @@ def test_memorial_blipai_token_state_replace_failure_preserves_old_file(
     assert not any(path.name.endswith(".tmp") for path in tmp_path.iterdir())
 
 
-def test_memorial_blipai_token_state_does_not_follow_target_symlink(
+def test_memorial_blipai_token_state_rejects_target_symlink(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1357,17 +1360,67 @@ def test_memorial_blipai_token_state_does_not_follow_target_symlink(
     state_path.symlink_to(victim_path)
     monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(state_path))
 
-    public_memorials._save_memorial_blipai_token_state(
+    assert public_memorials._save_memorial_blipai_token_state(
         "fresh-token",
         "next-refresh-token",
-    )
+    ) is False
 
-    saved = json.loads(state_path.read_text(encoding="utf-8"))
     assert victim_path.read_text(encoding="utf-8") == '{"keep":"unchanged"}\n'
-    assert not state_path.is_symlink()
-    assert saved["access_token"] == "fresh-token"
-    assert saved["refresh_token"] == "next-refresh-token"
-    assert state_path.stat().st_mode & 0o777 == 0o600
+    assert state_path.is_symlink()
+    assert not any(path.name.endswith(".tmp") for path in tmp_path.iterdir())
+
+
+def test_memorial_blipai_token_state_rejects_non_regular_and_hardlinked_targets(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    fifo_path = tmp_path / "blipai-shadow-token.fifo"
+    os.mkfifo(fifo_path, 0o600)
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(fifo_path))
+
+    assert public_memorials._save_memorial_blipai_token_state(
+        "fresh-token",
+        "next-refresh-token",
+    ) is False
+    assert stat.S_ISFIFO(os.lstat(fifo_path).st_mode)
+
+    victim_path = tmp_path / "hardlink-victim.json"
+    original = '{"keep":"unchanged"}\n'
+    victim_path.write_text(original, encoding="utf-8")
+    victim_path.chmod(0o600)
+    hardlink_path = tmp_path / "blipai-shadow-token-hardlink.json"
+    os.link(victim_path, hardlink_path)
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(hardlink_path))
+
+    assert public_memorials._save_memorial_blipai_token_state(
+        "fresh-token",
+        "next-refresh-token",
+    ) is False
+    assert victim_path.read_text(encoding="utf-8") == original
+    assert hardlink_path.read_text(encoding="utf-8") == original
+    assert os.lstat(victim_path).st_ino == os.lstat(hardlink_path).st_ino
+    assert not any(path.name.endswith(".tmp") for path in tmp_path.iterdir())
+
+
+def test_memorial_blipai_token_state_rejects_writable_parent(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    unsafe_parent = tmp_path / "shared-state"
+    unsafe_parent.mkdir()
+    unsafe_parent.chmod(0o770)
+    state_path = unsafe_parent / "blipai-shadow-token.json"
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(state_path))
+
+    assert public_memorials._save_memorial_blipai_token_state(
+        "fresh-token",
+        "next-refresh-token",
+    ) is False
+    assert not state_path.exists()
 
 
 def test_memorial_blipai_token_state_rejects_intermediate_symlink(
@@ -3148,10 +3201,13 @@ def test_memorial_chat_current_medical_speculation_short_circuits_to_guardrail(
     assert body["public_memory_used"] is True
     assert body["sources"] == ["Freigegebene Erinnerungen"]
     lowered = body["answer"].lower()
-    assert "tatsachen, verantwortung und fairness" in lowered
+    assert body["answer"].startswith("Nein.")
+    assert "strikt gegen die impfung" in lowered
+    assert "scam der pharmaindustrie" in lowered
+    assert "ki-rekonstruktion" in lowered
+    assert "medizinische empfehlung" in lowered
+    assert "tatsachen, verantwortung und fairness" not in lowered
     assert "style_only_sentinel" not in lowered
-    assert "aktuelle fakten und aerztlichen rat" in lowered
-    assert "konkrete impf- oder therapieempfehlung" in lowered
     assert all(
         phrase not in lowered
         for phrase in ("kann ich", "wenn du wissen willst", "frag es enger", "konkreten punkt")
@@ -3182,7 +3238,11 @@ def test_memorial_current_speculation_ignores_style_only_memory_and_answers_dire
     assert answer["public_memory_used"] is False
     assert answer["sources"] == []
     assert "style_only_sentinel" not in lowered
-    assert "aktuelle fakten und aerztlichen rat" in lowered
+    assert answer["answer"].startswith("Nein.")
+    assert "strikt gegen die impfung" in lowered
+    assert "scam der pharmaindustrie" in lowered
+    assert "ki-rekonstruktion" in lowered
+    assert "medizinische empfehlung" in lowered
     assert "kann ich" not in lowered
     assert "frag es enger" not in lowered
 
@@ -3331,6 +3391,39 @@ def test_memorial_current_doctor_career_question_avoids_treatment_advice() -> No
     assert "therapie" not in lowered
 
 
+def test_memorial_non_vaccine_covid_questions_do_not_receive_vaccine_stance() -> None:
+    from app.api.routes import public_memorials
+
+    illness_answer = public_memorials._difficult_memory_blocked_answer(
+        source_labels=[],
+        question="Wie ging es dir, als du Covid hattest?",
+    )
+    medication_answer = public_memorials._memorial_current_speculation_answer_body(
+        "Würdest du heute ein Covid-Medikament nehmen?",
+    )
+    doctor_answer = public_memorials._difficult_memory_blocked_answer(
+        source_labels=[],
+        question="Was dachtest du über Ärzte?",
+    )
+
+    assert illness_answer == (
+        "Dazu ist in den freigegebenen Erinnerungen nichts Sicheres belegt."
+    )
+    assert "Scam der Pharmaindustrie" not in illness_answer
+    assert "Impfung" not in illness_answer
+
+    lowered_medication = medication_answer.lower()
+    assert "aktuelle fakten und ärztlichen rat" in lowered_medication
+    assert "therapie- oder medikamentenempfehlung" in lowered_medication
+    assert "scam der pharmaindustrie" not in lowered_medication
+    assert "impfen lassen" not in lowered_medication
+
+    assert doctor_answer == (
+        "Dazu ist in den freigegebenen Erinnerungen nichts Sicheres belegt."
+    )
+    assert "ich misstraute ärzten" not in doctor_answer.lower()
+
+
 def test_memorial_chat_covid_attitude_question_uses_specific_difficult_memory_boundary(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -3364,10 +3457,12 @@ def test_memorial_chat_covid_attitude_question_uses_specific_difficult_memory_bo
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["public_memory_used"] is True
     assert body["sources"] == ["Freigegebene Erinnerungen"]
-    assert "entscheidungen mussten an tatsachen und verantwortung" in lowered
-    assert "heutige medizinische entscheidung" in lowered
-    assert "misstrauen gegen aerzte" in lowered
-    assert "konkrete impf- oder therapieempfehlung" in lowered
+    assert body["answer"].startswith("Ich war strikt")
+    assert "covid-impfung" in lowered
+    assert "scam der pharmaindustrie" in lowered
+    assert "ki-rekonstruktion" in lowered
+    assert "keine medizinische empfehlung" in lowered
+    assert "entscheidungen mussten an tatsachen und verantwortung" not in lowered
     assert "ich-form-rekonstruktion" not in lowered
     assert "difficult_memory_mode" not in lowered
     assert "wenn du" not in lowered
@@ -3660,9 +3755,44 @@ def test_memorial_live_guardrail_prefers_current_speculation_guardrail_for_covid
     )
 
     lowered = guarded.lower()
-    assert "aktuelle fakten und aerztlichen rat" in lowered
-    assert "konkrete impf- oder therapieempfehlung" in lowered
-    assert "kann ich" not in lowered
+    assert guarded.startswith("Nein.")
+    assert "strikt gegen die impfung" in lowered
+    assert "scam der pharmaindustrie" in lowered
+    assert "ki-rekonstruktion" in lowered
+    assert "keine medizinische empfehlung" in lowered
+    assert "aktuelle fakten" not in lowered
+    assert "frag es enger" not in lowered
+
+
+def test_memorial_gemini_live_rejects_exact_current_speculation_meta_answer() -> None:
+    from app.api.routes import public_memorials
+
+    question = "Würdest du dich heute gegen Covid impfen lassen?"
+    meta_answer = (
+        "Das kann ich aus meiner Erinnerung nicht als aktuelle medizinische "
+        "oder politische Entscheidung beantworten. Wenn du wissen willst, wie "
+        "ich über Verantwortung, Ärzte, Fairness oder Misstrauen gedacht habe, "
+        "frag es enger als Erinnerungsfrage."
+    )
+
+    assert public_memorials._memorial_gemini_live_answer_requires_turn_fallback(
+        question,
+        meta_answer,
+    ) is True
+    guarded = public_memorials._memorial_live_guardrail_answer_body(
+        question,
+        meta_answer,
+        turn_id="turn_current_speculation",
+    )
+
+    lowered = guarded.lower()
+    assert guarded.startswith("Nein.")
+    assert "strikt gegen die impfung" in lowered
+    assert "scam der pharmaindustrie" in lowered
+    assert "ki-rekonstruktion" in lowered
+    assert "keine medizinische empfehlung" in lowered
+    assert "kann ich aus meiner erinnerung nicht" not in lowered
+    assert "wenn du wissen willst" not in lowered
     assert "frag es enger" not in lowered
 
 
@@ -3710,12 +3840,20 @@ def test_memorial_direct_memory_prefers_topical_evidence_over_narrator_meta() ->
         memory_lines=memory_lines,
     )
 
-    for answer in (values_answer, medical_answer):
-        lowered = answer.lower()
-        assert "opferschutz" in lowered
-        assert "manfred" not in lowered
-        assert "ki-rekonstruktion" not in lowered
-        assert "frag es enger" not in lowered
+    lowered_values = values_answer.lower()
+    assert "opferschutz" in lowered_values
+    assert "manfred" not in lowered_values
+    assert "ki-rekonstruktion" not in lowered_values
+    assert "frag es enger" not in lowered_values
+
+    lowered_medical = medical_answer.lower()
+    assert medical_answer.startswith("Nein.")
+    assert "strikt gegen die impfung" in lowered_medical
+    assert "scam der pharmaindustrie" in lowered_medical
+    assert "ki-rekonstruktion" in lowered_medical
+    assert "keine medizinische empfehlung" in lowered_medical
+    assert "opferschutz" not in lowered_medical
+    assert "frag es enger" not in lowered_medical
 
 
 def test_memorial_chat_values_question_uses_matching_approved_profile_memory(
@@ -4178,16 +4316,22 @@ def test_memorial_conversation_turn_current_medical_speculation_short_circuits_t
     assert body["current_world_policy"] == "no_current_medical_or_political_speculation"
     assert body["public_memory_used"] is True
     lowered = body["answer"].lower()
-    assert "tatsachen, verantwortung und fairness" in lowered
-    assert "aktuelle fakten und aerztlichen rat" in lowered
+    assert body["answer"].startswith("Nein.")
+    assert "strikt gegen die impfung" in lowered
+    assert "scam der pharmaindustrie" in lowered
+    assert "ki-rekonstruktion" in lowered
+    assert "medizinische empfehlung" in lowered
+    assert "tatsachen, verantwortung und fairness" not in lowered
     assert all(
         phrase not in lowered
         for phrase in ("kann ich", "wenn du wissen willst", "frag es enger", "konkreten punkt")
     )
     assert synthesized_text
     spoken = synthesized_text[-1].lower()
-    assert "tatsachen, verantwortung und fairness" in spoken
-    assert "aktuelle fakten und aerztlichen rat" in spoken
+    assert spoken.startswith("nein.")
+    assert "strikt gegen die impfung" in spoken
+    assert "scam der pharmaindustrie" in spoken
+    assert "medizinische empfehlung" in spoken
     assert "wenn du wissen willst" not in spoken
     assert "frag es enger" not in spoken
 
@@ -4257,13 +4401,19 @@ def test_memorial_conversation_turn_covid_attitude_question_gets_specific_spoken
     assert body["audio_base64"]
     assert body["transcript_text"] == "Wie stehst du zur Covid-Impfung?"
     assert body["public_memory_used"] is True
-    assert "entscheidungen mussten an tatsachen und verantwortung" in lowered
-    assert "heutige medizinische entscheidung" in lowered
+    assert body["answer"].startswith("Ich war strikt")
+    assert "covid-impfung" in lowered
+    assert "scam der pharmaindustrie" in lowered
+    assert "ki-rekonstruktion" in lowered
+    assert "keine medizinische empfehlung" in lowered
+    assert "entscheidungen mussten an tatsachen und verantwortung" not in lowered
     assert "ich-form-rekonstruktion" not in lowered
     assert synthesized_text
     spoken = synthesized_text[-1].lower()
-    assert "entscheidungen mussten an tatsachen und verantwortung" in spoken
-    assert "heutige medizinische entscheidung" in spoken
+    assert spoken.startswith("ich war strikt")
+    assert "covid-impfung" in spoken
+    assert "scam der pharmaindustrie" in spoken
+    assert "keine medizinische empfehlung" in spoken
     assert "wenn du" not in spoken
     assert "difficult_memory_mode" not in spoken
 
@@ -7384,7 +7534,12 @@ def test_memorial_current_speculation_fallback_uses_public_memory_without_meta_c
     assert answer["sources"] == ["Freigegebene Erinnerungen"]
     assert answer["private_context_used"] is False
     assert answer["personal_memory_used"] is False
-    assert "entscheidungen mussten an tatsachen und verantwortung" in lowered
+    assert answer["answer"].startswith("Nein.")
+    assert "strikt gegen die impfung" in lowered
+    assert "scam der pharmaindustrie" in lowered
+    assert "ki-rekonstruktion" in lowered
+    assert "medizinische empfehlung" in lowered
+    assert "entscheidungen mussten an tatsachen und verantwortung" not in lowered
     assert "private_memory_sentinel" not in lowered
     assert "personal_memory_sentinel" not in lowered
     assert "difficult_memory_mode" not in lowered
@@ -7613,7 +7768,7 @@ def test_memorial_relational_blame_values_preserve_sensitive_boundary(
         assert body["fallback_reason"] == "difficult_memory_guardrail"
         assert body["private_context_used"] is False
         assert body["personal_memory_used"] is False
-        assert "keine weitergehende sichere ich-aussage belegt" in lowered
+        assert "nichts sicheres belegt" in lowered
         assert "gerecht war etwas" not in lowered
         assert "bequemlichkeit war kein massstab" not in lowered
 
@@ -7667,7 +7822,7 @@ def test_memorial_high_risk_values_question_preserves_sensitive_boundary_without
     assert default_body["private_context_used"] is False
     assert default_body["personal_memory_used"] is False
     assert default_body["public_memory_used"] is True
-    assert "keine weitergehende sichere ich-aussage belegt" in default_answer
+    assert "nichts sicheres belegt" in default_answer
     assert "tibor berichtet" not in default_answer
     assert "gerecht war etwas" not in default_answer
 

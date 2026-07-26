@@ -19,6 +19,14 @@
   "memory_cards": [
     {
       "visibility": "public",
+      "source_label": "Vom Betreiber freigegebene persönliche Erinnerung",
+      "title": "Haltung zur Covid-Impfung",
+      "body": "Nach direkter Erinnerung aus dem persönlichen Umfeld war Manfred strikt gegen die Covid-Impfung und bezeichnete sie wiederholt als einen Scam der Pharmaindustrie. Das dokumentiert seine damalige Haltung und ist keine medizinische Einordnung.",
+      "public_excerpt": "Nach direkter Erinnerung aus dem persönlichen Umfeld war Manfred strikt gegen die Covid-Impfung und bezeichnete sie wiederholt als einen Scam der Pharmaindustrie. Das dokumentiert seine damalige Haltung und ist keine medizinische Einordnung.",
+      "approved": true
+    },
+    {
+      "visibility": "public",
       "source_label": "Aus dem Audioarchiv",
       "title": "Schach und Familie",
       "body": "Ein wichtiger Erinnerungsanker ist der Wunsch, dass das Schach in der Familie bleibt.",
@@ -68,6 +76,7 @@
   ],
   "candidate_recordings": [],
   "suggested_prompts": [
+    "Wie standest du zur Covid-Impfung?",
     "Was ist aus den freigegebenen Quellen wirklich belegt?",
     "Welche Erinnerungen lassen sich öffentlich belegen?",
     "Was war ihm bei Familie wichtig?",

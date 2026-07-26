@@ -5744,8 +5744,9 @@ def test_difficult_memory_defaults_to_blocked_first_person_reconstruction(
     assert response.status_code == 200
     body = response.json()
     assert body["fallback_reason"] == "difficult_memory_guardrail"
-    assert "keine weitergehende sichere Ich-Aussage belegt" in body["answer"]
-    assert "erfinde keine private Erinnerung" in body["answer"]
+    assert body["answer"] == (
+        "Dazu ist in den freigegebenen Erinnerungen nichts Sicheres belegt."
+    )
     assert "difficult_memory_mode" not in body["answer"]
 
 
@@ -5766,8 +5767,9 @@ def test_difficult_family_question_prefers_difficult_memory_guardrail_over_trans
     assert response.status_code == 200
     body = response.json()
     assert body["fallback_reason"] == "difficult_memory_guardrail"
-    assert "keine weitergehende sichere Ich-Aussage belegt" in body["answer"]
-    assert "erfinde keine private Erinnerung" in body["answer"]
+    assert body["answer"] == (
+        "Dazu ist in den freigegebenen Erinnerungen nichts Sicheres belegt."
+    )
     assert "difficult_memory_mode" not in body["answer"]
 
 

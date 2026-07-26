@@ -809,7 +809,7 @@
     "ea/tests/test_landing_actions_acceptance_evidence.py": "4bc2c53bfbeca34ff6c776105a5ee5ec1291a097efea06b4c1c59f5c3124a904",
     "ea/tests/test_memorial_narration_cast_resolution.py": "d0dae6f4562ec720608ef20995c63aaf3abe8497311cf724e2bd0de9ed72f3e4",
     "ea/tests/test_memorial_narration_work_package.py": "664d06d135517d111578094a7da187629e014059a84e1570ddf291de3f81e592",
-    "ea/tests/test_memorial_runtime.py": "381007d915150f42d771939ecb6d3d691f8ceb7e9150f25542f460309022d137",
+    "ea/tests/test_memorial_runtime.py": "b2d7192e5246b654e9f03b01cb174f8721977086ea030e5b7c6cc9cfb6cafe24",
     "ea/tests/test_onemin_billing_fallback.py": "82f8640d919ca8c2b74aa517df53ac3382908a086bb4b4908553cd7d5f3ac4f5",
     "ea/tests/test_proactive_gmail_draft_followthrough.py": "1fb154ee945403017294a9cf9bc202b17afa0a86ff37baf1d9b3e94f4a50286c",
     "ea/tests/test_proactive_gold_source_coverage.py": "2f57e2a7407a2370449d02f37f7ce855efee92cae74619a28a85e85ea9b9354e",
@@ -1392,7 +1392,7 @@
     "tests/e2e/test_memorial_browser.py": "74b82dd900e942aa06a7ebda9f6f0e04ec2d17ed4e17bf1f68c4fc3ee6daced6",
     "tests/e2e/test_memorial_flagship_exit_gates.py": "c826abb0196b1cf63eaee77e91475f123c9c37b20065a73e47a935feb098a403",
     "tests/e2e/test_memorial_flagship_operator_tools.py": "54cb7e92cb169332848162fb79a3f1bf86f6c61c17d18c3e10e999fc644dbfb1",
-    "tests/e2e/test_memorial_minimal_browser.py": "9a8a4afbf79d8e3b7ada7ee14021fd1afe3f1edb790bcec9102dbf3b019ae3eb",
+    "tests/e2e/test_memorial_minimal_browser.py": "b3b841e919c07401c88f5e4d09858fb88f484ff17cafeb61cf3474c5881fd7be",
     "tests/e2e/test_memorial_showtime_cli.py": "0f92a59f294f70743ed3104611ea9c8677f0015877f15ccc615a2165f5ad6c13",
     "tests/e2e/test_product_workflows.py": "3262daa6e5a0464d6ce4bcf7e09fab5642a566a4c2b5e3d701ef3a3908bfa096",
     "tests/e2e/test_propertyquarry_greenfield_browser.py": "5c1bc4ade981738e9827d18cdb8f3d7c3a2d6d9a49b4b4eadbd915e5767740de",
@@ -1558,7 +1558,7 @@
     "tests/test_manfred_capacity_remediation.py": "fcc8002ed4ec827cd5bc1bceb365deba9feeec27fbede85cc8ca81ca7aaaac8b",
     "tests/test_manfred_image_builder_cache.py": "3046c178e879e8b294b48d6f20b3fef428003d9e647ac8a5feb32cb6606089f9",
     "tests/test_manfred_joint_deploy.py": "cc1068e445fc2d3c9c94a685f0318354a8b1f903f291f29dc404f29c1eec995e",
-    "tests/test_manfred_memorial_deployment_contract.py": "5fa2a492e547db96a3d2995c0f6f7079fb00b6e913cbe260210a00ee1793a68c",
+    "tests/test_manfred_memorial_deployment_contract.py": "52f9d4989a01e3ab3fbd393e60b1fcb0ec6552dd0b1de841c71c843692ab08cc",
     "tests/test_manfred_operator_acceptance_materializer.py": "dae0a17f40e4f3a7dcfde7bfe270bccf8d67f0b2f427ce179e91fb32760a91b0",
     "tests/test_manfred_realtime_conversation_readiness.py": "4b3e64a9736d3e01dbbe0bc23fc5654e80eec7385172d13d067275d24700847f",
     "tests/test_manfred_spatial_candidate_browser.py": "3c363ac41b9730912b88ca63b9d9bfa1fd34b28413cad4960c3feb3045509335",
@@ -1588,7 +1588,7 @@
     "tests/test_memorial_helper_path_defaults.py": "2ba8a09bb6a582c7539c05100ba31d3122e8dca4e99af6f3dc2125002b9371a4",
     "tests/test_memorial_joggai_asset_receipts.py": "a75f2e0f6d6007360f8fd6d60ea34c2fcbd2e8b1c91faa5d0bf77557f3904429",
     "tests/test_memorial_joggai_provider_contracts.py": "c3296ddc605f566bb3542d6ae753dff6ecf7485d250d0b76bdfe0f8663b6c402",
-    "tests/test_memorial_live_conversation_contracts.py": "f67b255d8aca6be4ea2bf7f25292b2dede0b6a7a99a817a9689c8cbaef80994f",
+    "tests/test_memorial_live_conversation_contracts.py": "81deee4d89d37c3d70353c2661a6185471ba2af672a6d9d9ed6abaaf1856567b",
     "tests/test_memorial_memory_room.py": "0e62ad6426cdc59b601bc07076911560d70e16afec27e30941f92dd3a9372089",
     "tests/test_memorial_memory_service.py": "93cf3f32c95a40f541060c4d6cc0a16a505e5ef0ad0d8fe0dc4be854ac7320bd",
     "tests/test_memorial_openvoice_voicewave.py": "584911083ba3f2382e29d270a991829b9d29db17c9fb8a00e456e89e9cc364d4",
@@ -1602,7 +1602,7 @@
     "tests/test_memorial_room_audio_receipt.py": "f5f3f489bf78947872a0526f5cafcda266fe1e39122d0cdf18e6f90563d479ca",
     "tests/test_memorial_room_ready_contracts.py": "527e9cfe03c3e90cfb7627608aaac8906ed8cee7fcb5f316107c35ef76e54f23",
     "tests/test_memorial_runtime_source_revision.py": "1e0d770dac5692ff08eb46967742a9b96a7aba224fb920d7bb15a480f231cf01",
-    "tests/test_memorial_security_contracts.py": "15481b9844009fc6ee035ec7219e7dd0d8c84a0362a39e19cf37935a92787b61",
+    "tests/test_memorial_security_contracts.py": "a1d87fce0dbecf69dd60a754f23857ecf9581d8b4888a44b44f38bdbe421507f",
     "tests/test_memorial_share_packet.py": "a5ca508a967df12e1b1bcf84d8b91a8ed3d569fe376566987fbe68316b21123a",
     "tests/test_memorial_showtime_contracts.py": "18dde6392acb08c9db9c019e028c447853b6a8097d06b241ed06d25fb1b2f2b0",
     "tests/test_memorial_source_gate_contract.py": "8a460afcc0b656d2dfd10a701554289fa13ef2a596d1122fd57fdc0cb153f74c",
@@ -1842,13 +1842,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "236e773d41d4b8c7eccd38c8d741f62bd7f95056",
-  "indexed_at_timestamp": "2026-07-26T13:44:06.516169582+00:00",
+  "indexed_at_commit": "1f11e2a4b304981298267b853596fa12ee4d2f88",
+  "indexed_at_timestamp": "2026-07-26T15:17:49.262419328+00:00",
   "schema_version": 3,
   "stats": {
     "total_edges": 46033,
     "total_files": 1841,
-    "total_nodes": 28953
+    "total_nodes": 28958
   },
   "vexp_version": "2.3.1"
 }

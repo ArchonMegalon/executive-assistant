@@ -420,11 +420,19 @@ class MemorialRuntimeTests(unittest.TestCase):
             public_payload = public_memorials._public_memorial_payload(payload)
 
         self.assertEqual(len(public_payload["audio_clips"]), 0)
-        self.assertEqual(len(public_payload["memory_cards"]), 6)
+        self.assertEqual(len(public_payload["memory_cards"]), 7)
         self.assertEqual(len(public_payload["source_grounded_profile"]), 9)
         self.assertEqual(len(public_payload["external_sources"]), 1)
         self.assertNotIn("candidate_recordings", public_payload)
-        self.assertEqual(len(public_payload["suggested_prompts"]), 4)
+        self.assertEqual(len(public_payload["suggested_prompts"]), 5)
+        self.assertEqual(
+            public_payload["memory_cards"][0]["title"],
+            "Haltung zur Covid-Impfung",
+        )
+        self.assertIn(
+            "Scam der Pharmaindustrie",
+            public_payload["memory_cards"][0]["body"],
+        )
         self.assertTrue(
             all(
                 item.get("curation_status") == "approved_public_excerpt"
@@ -453,6 +461,23 @@ class MemorialRuntimeTests(unittest.TestCase):
         self.assertNotIn("3D-Erinnerungsraum", rendered)
         self.assertNotIn('id="memorial-contribution"', rendered)
         self.assertIn('data-public-memorial-surface="conversation-only"', rendered)
+
+        with (
+            patch.object(public_memorials, "_load_memorial", return_value=payload),
+            patch.object(public_memorials, "_load_private_profile", return_value={}),
+            patch.object(
+                public_memorials,
+                "_memorial_memory_context_lines",
+                return_value=[],
+            ),
+        ):
+            instruction = public_memorials._build_memorial_gemini_live_instruction(
+                slug="manfred",
+            )
+        self.assertIn("Haltung zur Covid-Impfung", instruction)
+        self.assertIn("strikt gegen die Covid-Impfung", instruction)
+        self.assertIn("Scam der Pharmaindustrie", instruction)
+        self.assertIn("Kein Diagnoseprofil", instruction)
         self.assertNotIn("Hanusch Krankenhaus: Gespraech ueber Behandlung und Familie", rendered)
         self.assertNotIn("Der Flugzeugreisegepaeckkoffer", rendered)
 
@@ -703,19 +728,43 @@ class MemorialRuntimeTests(unittest.TestCase):
             ],
             "transcript_signal_report": {"private": "PRIVATE_TRANSCRIPT_SENTINEL"},
         }
+        memory_runtime = object()
         with (
             patch.object(public_memorials, "_load_memorial", return_value=payload),
             patch.object(public_memorials, "_load_private_profile", return_value=raw_profile),
+            patch.object(
+                public_memorials,
+                "_memorial_memory_context_lines",
+                return_value=["[Grundsatz] APPROVED_RUNTIME_MEMORY_SENTINEL"],
+            ) as memory_context,
         ):
-            instruction = public_memorials._build_memorial_gemini_live_instruction(slug="manfred")
+            instruction = public_memorials._build_memorial_gemini_live_instruction(
+                slug="manfred",
+                memory_runtime=memory_runtime,
+            )
 
         self.assertIn("Public memory", instruction)
         self.assertIn("Approved detail", instruction)
         self.assertIn("Approved style", instruction)
         self.assertIn("Approved tone", instruction)
+        self.assertIn("APPROVED_RUNTIME_MEMORY_SENTINEL", instruction)
+        self.assertIn("im ersten Satz schlicht und direkt", instruction)
+        self.assertIn("Vermeide defensive Meta-Antworten", instruction)
+        self.assertIn("'frag es enger'", instruction)
         self.assertNotIn("PRIVATE_", instruction)
+        memory_context.assert_called_once()
+        call = memory_context.call_args.kwargs
+        self.assertIs(call["memory_runtime"], memory_runtime)
+        self.assertEqual(call["question"], "")
+        approved_notes = call["private_profile"]["family_context_notes"]
+        self.assertEqual(len(approved_notes), 1)
+        self.assertTrue(approved_notes[0]["public"])
+        self.assertEqual(approved_notes[0]["trait"], "Approved style")
+        self.assertEqual(approved_notes[0]["evidence"], "Approved tone")
+        self.assertNotIn("PRIVATE_", json.dumps(call["private_profile"]))
 
     def test_gemini_live_instruction_uses_only_browser_scoped_personal_memory(self) -> None:
+        memory_runtime = object()
         with (
             patch.object(
                 public_memorials,
@@ -737,11 +786,15 @@ class MemorialRuntimeTests(unittest.TestCase):
                 "_personal_memory_context_lines",
                 return_value=["[Persoenlich] Nutzerpraeferenz: APPROVED_BROWSER_MEMORY"],
             ) as personal_memory,
-            patch.object(public_memorials, "retrieve_memorial_memory_items") as memorial_wide_memory,
+            patch.object(
+                public_memorials,
+                "_memorial_memory_context_lines",
+                return_value=[],
+            ) as public_memory,
         ):
             instruction = public_memorials._build_memorial_gemini_live_instruction(
                 slug="manfred",
-                memory_runtime=object(),
+                memory_runtime=memory_runtime,
             )
 
         self.assertIn("APPROVED_BROWSER_MEMORY", instruction)
@@ -755,7 +808,12 @@ class MemorialRuntimeTests(unittest.TestCase):
             },
             question="",
         )
-        memorial_wide_memory.assert_not_called()
+        public_memory.assert_called_once()
+        self.assertIs(
+            public_memory.call_args.kwargs["memory_runtime"],
+            memory_runtime,
+        )
+        self.assertEqual(public_memory.call_args.kwargs["question"], "")
 
     def test_public_turn_runtime_loads_sanitized_profile(self) -> None:
         raw_profile = {

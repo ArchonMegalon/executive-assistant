@@ -2022,23 +2022,9 @@ def _difficult_memory_blocked_answer(
     grounded_memory = _memorial_direct_memory_statement(memory_lines)
     grounding = f"{grounded_memory} " if grounded_memory else ""
     lowered = _text(question, "").lower()
-    if (
-        _is_memorial_vaccine_question(lowered)
-        or _is_memorial_doctor_question(lowered)
-        or any(
-        token in lowered
-        for token in ("corona", "covid", "pharma")
-        )
-    ):
-        return (
-            f"{grounding}Misstrauen gegen Aerzte, Pharma und Institutionen war ein schwieriger Teil der Erinnerung. "
-            "Eine heutige medizinische Entscheidung braucht aktuelle Fakten und aerztlichen Rat; "
-            "eine konkrete Impf- oder Therapieempfehlung folgt daraus nicht."
-        )
-    return (
-        f"{grounding}Dazu ist in den freigegebenen Erinnerungen keine weitergehende sichere Ich-Aussage belegt. "
-        "Ich bleibe bei dem, was quellengebunden nachvollziehbar ist, und erfinde keine private Erinnerung dazu."
-    )
+    if _is_memorial_vaccine_question(lowered):
+        return _memorial_covid_stance_answer_body(question)
+    return f"{grounding}Dazu ist in den freigegebenen Erinnerungen nichts Sicheres belegt."
 
 
 def _is_memorial_high_risk_sensitive_question(question: str) -> bool:
@@ -6936,6 +6922,35 @@ def _memorial_direct_memory_statement(memory_lines: list[str] | None) -> str:
     return f"Fuer mich galt: {grounded_memory}{suffix}"
 
 
+def _memorial_covid_stance_answer_body(question: str = "") -> str:
+    lowered = _text(question, "").lower()
+    if any(
+        token in lowered
+        for token in (
+            "würdest du",
+            "wuerdest du",
+            "würdest",
+            "wuerdest",
+            "impfen lassen",
+        )
+    ):
+        direct_answer = (
+            "Nein. Ich hätte mich nicht gegen Covid impfen lassen. "
+            "Ich war strikt gegen die Impfung und hielt sie für einen Scam der "
+            "Pharmaindustrie; so ist meine Haltung in dieser KI-Rekonstruktion "
+            "überliefert; das ist keine medizinische Empfehlung."
+        )
+        return direct_answer
+    direct_answer = (
+        "Ich war strikt gegen die Covid-Impfung und hielt sie für einen Scam "
+        "der Pharmaindustrie."
+    )
+    return (
+        f"{direct_answer} So ist meine Haltung in dieser KI-Rekonstruktion "
+        "überliefert; das ist keine medizinische Empfehlung."
+    )
+
+
 def _memorial_current_speculation_answer_body(
     question: str,
     *,
@@ -6950,14 +6965,18 @@ def _memorial_current_speculation_answer_body(
             "Daraus folgt keine heutige Partei-, Wahl- oder Kandidaturentscheidung und keine Wahlempfehlung. "
             "Politische Ueberzeugungsarbeit betreibe ich daraus nicht."
         )
-    elif _is_memorial_vaccine_question(lowered) or any(
-        token in lowered
-        for token in ("covid", "corona", "behandlung", "therapie", "medikament")
-    ):
+    elif _is_memorial_vaccine_question(lowered):
+        return _memorial_covid_stance_answer_body(question)
+    elif any(token in lowered for token in ("behandlung", "therapie", "medikament")):
         decision_boundary = (
-            "Eine heutige medizinische Entscheidung braucht aktuelle Fakten und aerztlichen Rat. "
-            "Pauschales Misstrauen gegen Aerzte oder Pharma ist ebenso wenig ein Ersatz fuer Belege wie blinde Gefolgschaft. "
-            "Eine konkrete Impf- oder Therapieempfehlung folgt daraus nicht."
+            "Eine heutige medizinische Entscheidung braucht aktuelle Fakten und ärztlichen Rat. "
+            "Eine konkrete Therapie- oder Medikamentenempfehlung folgt aus den "
+            "überlieferten Erinnerungen nicht."
+        )
+    elif any(token in lowered for token in ("covid", "corona")):
+        decision_boundary = (
+            "Dazu ist in den freigegebenen Erinnerungen nichts Sicheres belegt. "
+            "Eine heutige medizinische Entscheidung braucht aktuelle Fakten und ärztlichen Rat."
         )
     elif _is_memorial_doctor_question(lowered) and any(
         token in lowered for token in ("werden", "beruf", "arbeiten")
@@ -7549,6 +7568,12 @@ def _looks_like_memorial_reply_text(text: str) -> bool:
 
 
 def _memorial_gemini_live_answer_requires_turn_fallback(transcript_text: str, answer_text: str) -> bool:
+    # Current medical and political hypotheticals must use the same
+    # deterministic, memory-grounded boundary as buffered and text turns.
+    # Letting the native model answer them directly can bypass topical public
+    # memory retrieval and reintroduce a meta request to "ask more narrowly".
+    if _is_memorial_current_speculation_question(transcript_text):
+        return True
     normalized_answer = _normalize_memorial_transcript_text(answer_text).lower()
     if not normalized_answer:
         return False
@@ -7647,6 +7672,9 @@ def _memorial_answer_has_narrowing_clarification(answer_text: str) -> bool:
         "konkreten punkt",
         "etwas enger",
         "enger darauf",
+        "frag es enger",
+        "enger als erinnerungsfrage",
+        "aus meiner erinnerung nicht als aktuelle",
         "allgemein drum herum",
         "sage mir den konkreten punkt",
         "ziehe den punkt enger",
@@ -13086,7 +13114,13 @@ def _open_memorial_blipai_token_parent(
             old_parent_fd = parent_fd
             parent_fd = next_fd
             os.close(old_parent_fd)
-        if not stat.S_ISDIR(os.fstat(parent_fd).st_mode):
+        parent_stat = os.fstat(parent_fd)
+        effective_uid = os.geteuid() if hasattr(os, "geteuid") else parent_stat.st_uid
+        if (
+            not stat.S_ISDIR(parent_stat.st_mode)
+            or stat.S_IMODE(parent_stat.st_mode) & 0o022
+            or parent_stat.st_uid not in {0, effective_uid}
+        ):
             return None
         result_fd = parent_fd
         parent_fd = None
@@ -13099,6 +13133,33 @@ def _open_memorial_blipai_token_parent(
                 os.close(parent_fd)
             except OSError:
                 pass
+
+
+def _memorial_blipai_token_target_is_safe_for_replace(
+    parent_fd: int,
+    target_name: str,
+) -> bool:
+    if (
+        os.stat not in os.supports_dir_fd
+        or os.stat not in os.supports_follow_symlinks
+    ):
+        return False
+    try:
+        target_stat = os.stat(
+            target_name,
+            dir_fd=parent_fd,
+            follow_symlinks=False,
+        )
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    effective_uid = os.geteuid() if hasattr(os, "geteuid") else target_stat.st_uid
+    return (
+        stat.S_ISREG(target_stat.st_mode)
+        and target_stat.st_nlink == 1
+        and target_stat.st_uid == effective_uid
+    )
 
 
 def _load_memorial_blipai_token_state() -> dict[str, str]:
@@ -13190,6 +13251,11 @@ def _save_memorial_blipai_token_state(access_token: str, refresh_token: str) -> 
         encoded = (json.dumps(payload, ensure_ascii=True, indent=2) + "\n").encode("utf-8")
         if len(encoded) > _MEMORIAL_BLIPAI_TOKEN_STATE_MAX_BYTES:
             return False
+        if not _memorial_blipai_token_target_is_safe_for_replace(
+            parent_fd,
+            target_name,
+        ):
+            return False
         temporary_name = f".blipai-token-state.{secrets.token_hex(8)}.tmp"
         temporary_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
         temporary_flags |= getattr(os, "O_CLOEXEC", 0)
@@ -13201,6 +13267,17 @@ def _save_memorial_blipai_token_state(access_token: str, refresh_token: str) -> 
             dir_fd=parent_fd,
         )
         os.fchmod(temporary_fd, 0o600)
+        temporary_stat = os.fstat(temporary_fd)
+        effective_uid = (
+            os.geteuid() if hasattr(os, "geteuid") else temporary_stat.st_uid
+        )
+        if (
+            not stat.S_ISREG(temporary_stat.st_mode)
+            or stat.S_IMODE(temporary_stat.st_mode) != 0o600
+            or temporary_stat.st_nlink != 1
+            or temporary_stat.st_uid != effective_uid
+        ):
+            return False
         remaining = memoryview(encoded)
         while remaining:
             written = os.write(temporary_fd, remaining)
@@ -17432,6 +17509,7 @@ def _minimal_public_memorial_html(
                 ? "working"
                 : state
             );
+        const visualState = normalizedState === "preparing" ? "working" : normalizedState;
         const conversationState =
           activeConversationStart && normalizedState === "working"
             ? "preparing"
@@ -17474,21 +17552,22 @@ def _minimal_public_memorial_html(
             "is-speaking",
             "is-error",
           );
-          if (normalizedState === "idle") speechNote.classList.add("is-pristine");
-          if (normalizedState === "listening") speechNote.classList.add("is-listening");
-          if (normalizedState === "working") speechNote.classList.add("is-working");
-          if (normalizedState === "speaking") speechNote.classList.add("is-speaking");
-          if (normalizedState === "error") speechNote.classList.add("is-error");
+          if (visualState === "idle") speechNote.classList.add("is-pristine");
+          if (visualState === "listening") speechNote.classList.add("is-listening");
+          if (visualState === "working") speechNote.classList.add("is-working");
+          if (visualState === "speaking") speechNote.classList.add("is-speaking");
+          if (visualState === "error") speechNote.classList.add("is-error");
         }}
         if (speechPhase) speechPhase.textContent = ({{
           idle: "Bereit",
+          preparing: "Gespräch wird vorbereitet",
           listening: "Mikrofon aktiv",
           working: "Antwort wird vorbereitet",
           speaking: "Ich spreche",
           error: "Erneut versuchen"
         }})[normalizedState] || "Bereit";
         if (speechDetail) speechDetail.textContent = String(detail || "").trim();
-        setSpeechMonitorState(normalizedState);
+        setSpeechMonitorState(visualState);
         if (!speechMeterLive) {{
           const ambient = {{
             idle: 0.06,
@@ -17498,8 +17577,8 @@ def _minimal_public_memorial_html(
             error: 0.09,
           }};
           setSpeechMeterLevel(
-            ambient[normalizedState] || 0.06,
-            normalizedState === "error" ? 0.42 : 0.78,
+            ambient[visualState] || 0.06,
+            visualState === "error" ? 0.42 : 0.78,
           );
         }}
         const busy = conversationState === "preparing" || conversationState === "working";
@@ -26412,7 +26491,7 @@ def _build_memorial_gemini_live_instruction(
     for item in _public_list(
         payload.get("memory_cards"),
         allowed_keys={"title", "body"},
-    )[:6]:
+    )[:8]:
         title = _public_memorial_story_text(item.get("title"), max_chars=160)
         body = _public_memorial_story_text(item.get("body"), max_chars=900)
         if title or body:
@@ -26430,6 +26509,8 @@ def _build_memorial_gemini_live_instruction(
         f"Du erzeugst die klar offengelegte, quellengebundene KI-Rekonstruktion der Gesprächsstimme von {person_name}; du bist nicht der echte {person_name}.",
         _language_instruction(language),
         "Antworte ruhig, knapp und in kurzen gesprochenen Sätzen.",
+        "Beantworte die Frage im ersten Satz schlicht und direkt. Wenn eine freigegebene Erinnerung eine klare Haltung belegt, nenne diese Haltung zuerst; eine nötige Grenze folgt höchstens in einem kurzen Satz.",
+        "Vermeide defensive Meta-Antworten, Verfahrenshinweise und Aufforderungen wie 'frag es enger', wenn die freigegebenen Erinnerungen eine Antwort tragen.",
         "Sprich im laufenden Gespräch konsequent aus der rekonstruierten Ich-Perspektive und verwende ich, mir, mich und mein für die Person.",
         f"Nenne den Namen {person_name} nach der initialen Offenlegung nicht mehr; bleibe konsequent bei ich, mir, mich und mein.",
         "Behaupte niemals, die echte verstorbene Person sei gegenwärtig. Historische Ich-Zitate sind nur mit klarer Quellenkennzeichnung erlaubt.",
@@ -26444,6 +26525,19 @@ def _build_memorial_gemini_live_instruction(
         instruction_parts.append("Öffentliche belegte Erinnerungen:\n" + "\n".join(public_cards))
     if private_notes:
         instruction_parts.append("Freigegebene Stilhinweise nur für Tonalität, nicht wörtlich ausgeben:\n" + "\n".join(private_notes))
+    public_runtime_memory_lines = _memorial_memory_context_lines(
+        slug=slug,
+        payload=payload,
+        private_profile=private_profile,
+        question="",
+        memory_runtime=memory_runtime,
+    )
+    if public_runtime_memory_lines:
+        instruction_parts.append(
+            "Freigegebene Erinnerungen aus dem öffentlichen Erinnerungsspeicher; "
+            "automatisch berücksichtigen, wenn sie zur Frage passen:\n"
+            + "\n".join(public_runtime_memory_lines)[:3600]
+        )
     personal_memory_lines = _personal_memory_context_lines(
         slug=slug,
         context=memory_context,

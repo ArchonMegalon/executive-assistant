@@ -144,6 +144,32 @@ def _voice_release_bytes(
     return candidate_prep._receipt_bytes(payload)
 
 
+def test_public_manfred_manifest_contains_operator_approved_covid_stance() -> None:
+    payload = json.loads(
+        (
+            ROOT / "memorial_data/public_memorials/manfred/memorial.json"
+        ).read_text(encoding="utf-8")
+    )
+    cards = [
+        card
+        for card in payload["memory_cards"]
+        if card.get("title") == "Haltung zur Covid-Impfung"
+    ]
+
+    assert len(cards) == 1
+    card = cards[0]
+    assert card["visibility"] == "public"
+    assert card["approved"] is True
+    assert card["source_label"] == (
+        "Vom Betreiber freigegebene persönliche Erinnerung"
+    )
+    lowered = card["body"].lower()
+    assert "strikt gegen die covid-impfung" in lowered
+    assert "scam der pharmaindustrie" in lowered
+    assert "keine medizinische einordnung" in lowered
+    assert "Wie standest du zur Covid-Impfung?" in payload["suggested_prompts"]
+
+
 def test_production_memorial_compose_is_image_pure_and_numeric_nonroot() -> None:
     raw = (ROOT / "docker-compose.memorial.yml").read_text(encoding="utf-8")
 
@@ -2858,6 +2884,8 @@ def test_candidate_conversation_surface_rejects_generic_visible_features() -> No
         story_html="",
         conversation_only=True,
     )
+    assert '"Freddy"' in page_html
+    assert "KI-Begleiter" not in page_html
     hostile_fragments = (
         "<div><h2>Geschichte</h2><p>Eine vollständige Biografie.</p></div>",
         '<div id="neutral-panel"><h2>Archiv</h2><p>Alle Erinnerungen.</p></div>',

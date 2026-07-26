@@ -1143,6 +1143,15 @@ def test_memorial_transient_voice_warmup_stays_preparing_until_ready(
         assert page.locator("#memorial-conversation-region").get_attribute(
             "data-conversation-state"
         ) == "preparing"
+        assert page.locator("#memorial-speech-phase").inner_text() == (
+            "Gespräch wird vorbereitet"
+        )
+        assert "is-working" in (
+            page.locator("#memorial-speech-note").get_attribute("class") or ""
+        ).split()
+        assert page.locator("#memorial-speech-monitor").get_attribute(
+            "class"
+        ) == "speech-live-monitor is-working"
         assert page.locator("#memorial-speech-message").inner_text() != (
             "Sprechen ist gerade nicht möglich."
         )
