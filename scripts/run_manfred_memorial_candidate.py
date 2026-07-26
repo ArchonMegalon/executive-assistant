@@ -2065,7 +2065,6 @@ def _candidate_runtime_projection_evidence(
 
 def _candidate_stt_policy_evidence(
     *,
-    compose: list[str],
     environment: dict[str, str],
     image_id: str,
     source_revision: str,
@@ -2073,13 +2072,21 @@ def _candidate_stt_policy_evidence(
 ) -> dict[str, object]:
     """Read the effective nonsecret STT policy from the candidate image."""
 
+    if (
+        IMAGE_ID_RE.fullmatch(image_id) is None
+        or len(source_revision) != 40
+        or any(character not in "0123456789abcdef" for character in source_revision)
+        or len(api_container_id) != 64
+        or any(character not in "0123456789abcdef" for character in api_container_id)
+    ):
+        raise RuntimeError("manfred_candidate_stt_policy_binding_invalid")
     try:
         raw = _run_bounded_output(
             [
-                *compose,
+                "/usr/bin/docker",
+                "container",
                 "exec",
-                "-T",
-                "api",
+                api_container_id,
                 "python",
                 "-c",
                 STT_POLICY_PROBE_SCRIPT,
@@ -2100,14 +2107,6 @@ def _candidate_stt_policy_evidence(
         raise RuntimeError("manfred_candidate_stt_policy_unavailable") from exc
     if policy != EXPECTED_STT_POLICY:
         raise RuntimeError("manfred_candidate_stt_policy_invalid")
-    if (
-        IMAGE_ID_RE.fullmatch(image_id) is None
-        or len(source_revision) != 40
-        or any(character not in "0123456789abcdef" for character in source_revision)
-        or len(api_container_id) != 64
-        or any(character not in "0123456789abcdef" for character in api_container_id)
-    ):
-        raise RuntimeError("manfred_candidate_stt_policy_binding_invalid")
     return {
         "stt_policy": dict(policy),
         "stt_policy_binding": {
@@ -4142,7 +4141,6 @@ def _assert_recovered_candidate_runtime(
     ):
         raise RuntimeError("manfred_candidate_recovered_image_identity_invalid")
     stt_policy_evidence = _candidate_stt_policy_evidence(
-        compose=compose,
         environment=environment,
         image_id=str(current_images["prepared_image_id"]),
         source_revision=str(current_images["revision_label"]),
@@ -4652,7 +4650,6 @@ def _prove_candidate_with_execution_inputs(
             if final_container_images != initial_container_images:
                 raise RuntimeError("manfred_candidate_runtime_image_identity_changed")
             stt_policy_evidence = _candidate_stt_policy_evidence(
-                compose=compose,
                 environment=compose_environment,
                 image_id=image_id,
                 source_revision=image_source_revision,

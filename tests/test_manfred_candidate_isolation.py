@@ -9,6 +9,7 @@ import os
 import signal
 import socket
 import stat
+import subprocess
 from email.message import Message
 from pathlib import Path
 
@@ -1149,7 +1150,7 @@ def test_candidate_runner_and_registry_share_exact_environment_key_contract() ->
     assert runner.ALLOWED_ENV_KEYS == candidate_registry.CANDIDATE_ENV_KEYS
 
 
-def test_candidate_stt_policy_probe_is_image_internal_bound_and_secret_free(
+def test_candidate_stt_policy_probe_is_exact_container_bound_and_secret_free(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[list[str]] = []
@@ -1163,7 +1164,6 @@ def test_candidate_stt_policy_probe_is_image_internal_bound_and_secret_free(
 
     monkeypatch.setattr(runner, "_run_bounded_output", fake_run)
     evidence = runner._candidate_stt_policy_evidence(
-        compose=["docker", "compose", "--project-name", PROJECT],
         environment={"PATH": "/usr/bin"},
         image_id=IMAGE_ID,
         source_revision=COMMIT,
@@ -1185,13 +1185,10 @@ def test_candidate_stt_policy_probe_is_image_internal_bound_and_secret_free(
     }
     assert calls == [
         [
-            "docker",
-            "compose",
-            "--project-name",
-            PROJECT,
+            "/usr/bin/docker",
+            "container",
             "exec",
-            "-T",
-            "api",
+            "c" * 64,
             "python",
             "-c",
             runner.STT_POLICY_PROBE_SCRIPT,
@@ -1201,6 +1198,77 @@ def test_candidate_stt_policy_probe_is_image_internal_bound_and_secret_free(
     assert "token" not in serialized.lower()
     assert "password" not in serialized.lower()
     assert "secret" not in serialized.lower()
+
+
+@pytest.mark.parametrize(
+    "api_container_id",
+    [
+        "",
+        "c" * 63,
+        "c" * 65,
+        "C" * 64,
+        "g" * 64,
+    ],
+)
+def test_candidate_stt_policy_probe_rejects_wrong_container_id_before_docker(
+    monkeypatch: pytest.MonkeyPatch,
+    api_container_id: str,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "_run_bounded_output",
+        lambda *_args, **_kwargs: pytest.fail(
+            "invalid container binding must fail before docker"
+        ),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="^manfred_candidate_stt_policy_binding_invalid$",
+    ):
+        runner._candidate_stt_policy_evidence(
+            environment={},
+            image_id=IMAGE_ID,
+            source_revision=COMMIT,
+            api_container_id=api_container_id,
+        )
+
+
+def test_candidate_stt_policy_probe_never_follows_replacement_container(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inspected_container_id = "c" * 64
+    replacement_container_id = "d" * 64
+    calls: list[list[str]] = []
+
+    def fake_run(
+        argv: list[str],
+        **_kwargs: object,
+    ) -> bytes:
+        calls.append(argv)
+        assert argv[:4] == [
+            "/usr/bin/docker",
+            "container",
+            "exec",
+            inspected_container_id,
+        ]
+        assert replacement_container_id not in argv
+        raise subprocess.CalledProcessError(returncode=1, cmd=argv)
+
+    monkeypatch.setattr(runner, "_run_bounded_output", fake_run)
+
+    with pytest.raises(
+        RuntimeError,
+        match="^manfred_candidate_stt_policy_unavailable$",
+    ):
+        runner._candidate_stt_policy_evidence(
+            environment={},
+            image_id=IMAGE_ID,
+            source_revision=COMMIT,
+            api_container_id=inspected_container_id,
+        )
+
+    assert len(calls) == 1
 
 
 @pytest.mark.parametrize(
@@ -1235,7 +1303,6 @@ def test_candidate_stt_policy_probe_rejects_nonexact_or_secret_bearing_payload(
         match="^manfred_candidate_stt_policy_invalid$",
     ):
         runner._candidate_stt_policy_evidence(
-            compose=["docker", "compose"],
             environment={},
             image_id=IMAGE_ID,
             source_revision=COMMIT,
