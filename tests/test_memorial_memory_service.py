@@ -57,6 +57,269 @@ class _FakeMemoryRuntime:
         return rows
 
 
+def test_seed_memorial_source_memories_repairs_fresh_store_from_existing_manifest(
+    monkeypatch,
+) -> None:
+    manifest: dict[str, object] = {"processed_keys": []}
+
+    def load_manifest(_slug: str) -> dict[str, object]:
+        return dict(manifest)
+
+    def save_manifest(_slug: str, payload: dict[str, object]) -> None:
+        manifest.clear()
+        manifest.update(payload)
+
+    monkeypatch.setattr(memorial_memory, "_load_seed_manifest", load_manifest)
+    monkeypatch.setattr(memorial_memory, "_save_seed_manifest", save_manifest)
+    payload = {
+        "memory_cards": [
+            {
+                "public": True,
+                "title": "Gerechtigkeit",
+                "body": "Tatsachen, Verantwortung und Fairness gehoeren zusammen.",
+            }
+        ]
+    }
+
+    first_runtime = _FakeMemoryRuntime()
+    first = memorial_memory.seed_memorial_source_memories(
+        memory_runtime=first_runtime,
+        principal_id="memorial:manfred",
+        memorial_slug="manfred",
+        memorial_payload=payload,
+        reviewer="test",
+    )
+    fresh_runtime = _FakeMemoryRuntime()
+    repaired = memorial_memory.seed_memorial_source_memories(
+        memory_runtime=fresh_runtime,
+        principal_id="memorial:manfred",
+        memorial_slug="manfred",
+        memorial_payload=payload,
+        reviewer="test",
+    )
+    manifest["processed_keys"] = []
+    replayed = memorial_memory.seed_memorial_source_memories(
+        memory_runtime=fresh_runtime,
+        principal_id="memorial:manfred",
+        memorial_slug="manfred",
+        memorial_payload=payload,
+        reviewer="test",
+    )
+
+    assert first["created"] == 1
+    assert repaired["created"] == 1
+    assert repaired["public_approval_keys"] == first["public_approval_keys"]
+    assert replayed["created"] == 0
+    assert replayed["public_approval_keys"] == first["public_approval_keys"]
+    assert len(fresh_runtime.created_items) == 1
+    stored = fresh_runtime.created_items[0]
+    assert stored["fact_json"]["public_approved"] is True
+    assert (
+        stored["fact_json"]["public_approval_key"]
+        == repaired["public_approval_keys"][0]
+    )
+    assert (
+        stored["provenance_json"]["public_approval_key"]
+        == repaired["public_approval_keys"][0]
+    )
+    retrieved = memorial_memory.retrieve_memorial_memory_items(
+        memory_runtime=fresh_runtime,
+        principal_id="memorial:manfred",
+        question="Gerechtigkeit Verantwortung Fairness",
+        public_only=True,
+        public_approval_keys=repaired["public_approval_keys"],
+    )
+    assert len(retrieved) == 1
+    assert retrieved[0].summary.startswith("Gerechtigkeit:")
+
+
+def test_seed_memorial_source_memories_ignores_malformed_legacy_provenance(
+    monkeypatch,
+) -> None:
+    runtime = _FakeMemoryRuntime()
+    runtime.created_items.append(
+        {
+            "principal_id": "memorial:manfred",
+            "category": "legacy",
+            "summary": "Malformed legacy row",
+            "fact_json": {},
+            "provenance_json": ["not", "a", "mapping"],
+        }
+    )
+    monkeypatch.setattr(
+        memorial_memory,
+        "_load_seed_manifest",
+        lambda _slug: {"processed_keys": []},
+    )
+    monkeypatch.setattr(
+        memorial_memory,
+        "_save_seed_manifest",
+        lambda _slug, _payload: None,
+    )
+
+    result = memorial_memory.seed_memorial_source_memories(
+        memory_runtime=runtime,
+        principal_id="memorial:manfred",
+        memorial_slug="manfred",
+        memorial_payload={
+            "suggested_prompts": ["Welche Erinnerung ist freigegeben?"],
+        },
+        reviewer="test",
+    )
+
+    assert result["created"] == 1
+    assert len(runtime.created_items) == 2
+
+
+def test_seed_memorial_source_memories_fails_closed_on_incomplete_snapshot(
+    monkeypatch,
+) -> None:
+    class _OversizedMemoryRuntime(_FakeMemoryRuntime):
+        def export_principal_snapshot(
+            self,
+            *,
+            principal_id: str,
+            max_items: int,
+        ):
+            raise memorial_memory.MemoryItemSnapshotLimitExceeded(
+                principal_id=principal_id,
+                max_items=max_items,
+            )
+
+    monkeypatch.setattr(
+        memorial_memory,
+        "_load_seed_manifest",
+        lambda _slug: {"processed_keys": []},
+    )
+    runtime = _OversizedMemoryRuntime()
+
+    with pytest.raises(
+        ValueError,
+        match="memorial_seed_reconciliation_incomplete",
+    ):
+        memorial_memory.seed_memorial_source_memories(
+            memory_runtime=runtime,
+            principal_id="memorial:manfred",
+            memorial_slug="manfred",
+            memorial_payload={
+                "suggested_prompts": ["Welche Erinnerung ist freigegeben?"],
+            },
+            reviewer="test",
+        )
+
+    assert runtime.created_items == []
+
+
+def test_seed_memorial_source_memories_rotates_key_when_public_material_changes(
+    monkeypatch,
+) -> None:
+    runtime = _FakeMemoryRuntime()
+    manifest: dict[str, object] = {"processed_keys": []}
+    monkeypatch.setattr(
+        memorial_memory,
+        "_load_seed_manifest",
+        lambda _slug: dict(manifest),
+    )
+
+    def save_manifest(_slug: str, payload: dict[str, object]) -> None:
+        manifest.clear()
+        manifest.update(payload)
+
+    monkeypatch.setattr(memorial_memory, "_save_seed_manifest", save_manifest)
+    original = {
+        "memory_cards": [
+            {
+                "public": True,
+                "title": "Gerechtigkeit",
+                "body": "Tatsachen und Fairness gehoeren zusammen.",
+                "source_label": "Quelle A",
+            }
+        ]
+    }
+    corrected = {
+        "memory_cards": [
+            {
+                **original["memory_cards"][0],
+                "source_label": "Quelle B",
+            }
+        ]
+    }
+
+    first = memorial_memory.seed_memorial_source_memories(
+        memory_runtime=runtime,
+        principal_id="memorial:manfred",
+        memorial_slug="manfred",
+        memorial_payload=original,
+        reviewer="test",
+    )
+    second = memorial_memory.seed_memorial_source_memories(
+        memory_runtime=runtime,
+        principal_id="memorial:manfred",
+        memorial_slug="manfred",
+        memorial_payload=corrected,
+        reviewer="test",
+    )
+
+    assert first["created"] == 1
+    assert second["created"] == 1
+    assert first["public_approval_keys"] != second["public_approval_keys"]
+    rows = memorial_memory.retrieve_memorial_memory_items(
+        memory_runtime=runtime,
+        principal_id="memorial:manfred",
+        question="Gerechtigkeit Fairness",
+        public_only=True,
+        public_approval_keys=second["public_approval_keys"],
+    )
+    assert len(rows) == 1
+    assert rows[0].fact_json["source_label"] == "Quelle B"
+
+
+def test_seed_memorial_source_memories_rejects_conflicting_duplicate_key(
+    monkeypatch,
+) -> None:
+    runtime = _FakeMemoryRuntime()
+    manifest: dict[str, object] = {"processed_keys": []}
+    monkeypatch.setattr(
+        memorial_memory,
+        "_load_seed_manifest",
+        lambda _slug: dict(manifest),
+    )
+
+    def save_manifest(_slug: str, payload: dict[str, object]) -> None:
+        manifest.clear()
+        manifest.update(payload)
+
+    monkeypatch.setattr(memorial_memory, "_save_seed_manifest", save_manifest)
+    payload = {
+        "suggested_prompts": ["Welche Erinnerung ist freigegeben?"],
+    }
+    first = memorial_memory.seed_memorial_source_memories(
+        memory_runtime=runtime,
+        principal_id="memorial:manfred",
+        memorial_slug="manfred",
+        memorial_payload=payload,
+        reviewer="test",
+    )
+    conflicting = dict(runtime.created_items[0])
+    conflicting["summary"] = "CONFLICTING_DUPLICATE_SENTINEL"
+    runtime.created_items.append(conflicting)
+
+    with pytest.raises(
+        ValueError,
+        match="memorial_seed_reconciliation_mismatch",
+    ):
+        memorial_memory.seed_memorial_source_memories(
+            memory_runtime=runtime,
+            principal_id="memorial:manfred",
+            memorial_slug="manfred",
+            memorial_payload=payload,
+            reviewer="test",
+        )
+
+    assert first["created"] == 1
+    assert len(runtime.created_items) == 2
+
+
 def _hold_memorial_storage_lock(archive_root: str, acquired, release) -> None:
     memorial_memory._ARCHIVE_ROOT = Path(archive_root)
     with memorial_memory._memorial_storage_lock("manfred"):

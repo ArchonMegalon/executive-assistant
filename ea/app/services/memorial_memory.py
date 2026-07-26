@@ -1122,8 +1122,50 @@ def seed_memorial_source_memories(
     private_profile: dict[str, object] | None = None,
     reviewer: str = 'memorial-source-seed',
 ) -> dict[str, object]:
+    with _MAIL_MANIFEST_LOCK:
+        return _seed_memorial_source_memories_locked(
+            memory_runtime=memory_runtime,
+            principal_id=principal_id,
+            memorial_slug=memorial_slug,
+            memorial_payload=memorial_payload,
+            private_profile=private_profile,
+            reviewer=reviewer,
+        )
+
+
+def _seed_memorial_source_memories_locked(
+    *,
+    memory_runtime: MemoryRuntimeService,
+    principal_id: str,
+    memorial_slug: str,
+    memorial_payload: dict[str, object],
+    private_profile: dict[str, object] | None,
+    reviewer: str,
+) -> dict[str, object]:
     slug = _safe_slug(memorial_slug)
     processed = {str(item) for item in (_load_seed_manifest(slug).get('processed_keys') or []) if str(item).strip()}
+    try:
+        stored_rows = memory_runtime.export_principal_snapshot(
+            principal_id=principal_id,
+            max_items=_LOCAL_SNAPSHOT_MAX_MEMORY_ITEMS,
+        )
+    except MemoryItemSnapshotLimitExceeded as exc:
+        raise ValueError('memorial_seed_reconciliation_incomplete') from exc
+    stored_seed_rows: dict[str, list[object]] = {}
+    for item in stored_rows:
+        raw_provenance = getattr(item, 'provenance_json', {})
+        if not isinstance(raw_provenance, dict):
+            continue
+        provenance = dict(raw_provenance)
+        if (
+            _normalize_text(provenance.get('source_type')).lower()
+            != 'memorial_seed'
+            or _normalize_text(provenance.get('memorial_slug')) != slug
+        ):
+            continue
+        stored_seed_key = _normalize_text(provenance.get('seed_key'))
+        if stored_seed_key:
+            stored_seed_rows.setdefault(stored_seed_key, []).append(item)
     created_keys: list[str] = []
     current_public_approval_keys: set[str] = set()
     created_count = 0
@@ -1137,34 +1179,71 @@ def seed_memorial_source_memories(
         public_approved: bool = False,
     ) -> None:
         nonlocal created_count
+        seed_contract = {
+            'category': category,
+            'summary': summary,
+            'fact_json': dict(fact_json),
+            'public_approved': bool(public_approved),
+        }
+        seed_contract_sha256 = hashlib.sha256(
+            json.dumps(
+                seed_contract,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(',', ':'),
+                allow_nan=False,
+            ).encode('utf-8')
+        ).hexdigest()
+        seed_key = f'{seed_key}:v3:{seed_contract_sha256[:24]}'
         public_approval_key = ''
         if public_approved:
             public_approval_key = f'public_v2:{seed_key}'
             current_public_approval_keys.add(public_approval_key)
             seed_key = public_approval_key
-        if seed_key in processed:
-            return
         stored_fact = dict(fact_json)
         stored_fact['public_approved'] = bool(public_approved)
         stored_fact['public_approval_key'] = public_approval_key
-        memory_runtime.create_memory_item(
+        stored_provenance = {
+            'source_type': 'memorial_seed',
+            'memorial_slug': slug,
+            'seed_key': seed_key,
+            'public_approved': bool(public_approved),
+            'public_approval_key': public_approval_key,
+        }
+        existing_rows = list(stored_seed_rows.get(seed_key) or [])
+        if existing_rows:
+            if len(existing_rows) != 1:
+                raise ValueError('memorial_seed_reconciliation_mismatch')
+            existing = existing_rows[0]
+            existing_fact = getattr(existing, 'fact_json', {})
+            existing_provenance = getattr(existing, 'provenance_json', {})
+            if (
+                getattr(existing, 'category', '') != category
+                or getattr(existing, 'summary', '') != summary
+                or not isinstance(existing_fact, dict)
+                or dict(existing_fact) != stored_fact
+                or not isinstance(existing_provenance, dict)
+                or dict(existing_provenance) != stored_provenance
+                or getattr(existing, 'sensitivity', '') != 'private'
+                or getattr(existing, 'sharing_policy', '') != 'private'
+            ):
+                raise ValueError('memorial_seed_reconciliation_mismatch')
+            processed.add(seed_key)
+            return
+        created = memory_runtime.create_memory_item(
             principal_id=principal_id,
             category=category,
             summary=summary,
             fact_json=stored_fact,
-            provenance_json={
-                'source_type': 'memorial_seed',
-                'memorial_slug': slug,
-                'seed_key': seed_key,
-                'public_approved': bool(public_approved),
-                'public_approval_key': public_approval_key,
-            },
+            provenance_json=stored_provenance,
             confidence=0.82,
             sensitivity='private',
             sharing_policy='private',
             reviewer=reviewer,
         )
         processed.add(seed_key)
+        if created is not None:
+            stored_seed_rows.setdefault(seed_key, []).append(created)
         created_keys.append(seed_key)
         created_count += 1
 
