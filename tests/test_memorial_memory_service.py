@@ -57,6 +57,123 @@ class _FakeMemoryRuntime:
         return rows
 
 
+def test_release_questions_retrieve_faithful_approved_manfred_memories(
+    monkeypatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    manifest: dict[str, object] = {"processed_keys": []}
+    monkeypatch.setattr(
+        memorial_memory,
+        "_load_seed_manifest",
+        lambda _slug: dict(manifest),
+    )
+
+    def save_manifest(_slug: str, payload: dict[str, object]) -> None:
+        manifest.clear()
+        manifest.update(payload)
+
+    monkeypatch.setattr(memorial_memory, "_save_seed_manifest", save_manifest)
+    runtime = _FakeMemoryRuntime()
+    payload = json.loads(
+        (
+            Path(__file__).resolve().parents[1]
+            / "memorial_data"
+            / "public_memorials"
+            / "manfred"
+            / "memorial.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    fairness_lines = public_memorials._memorial_memory_context_lines(
+        slug="manfred",
+        payload=payload,
+        private_profile={},
+        question="Was war dir bei Gerechtigkeit wichtig?",
+        memory_runtime=runtime,
+    )
+    chess_lines = public_memorials._memorial_memory_context_lines(
+        slug="manfred",
+        payload=payload,
+        private_profile={},
+        question="Was ist die freigegebene Erinnerung zu Schach und Familie?",
+        memory_runtime=runtime,
+    )
+    ai_lines = public_memorials._memorial_memory_context_lines(
+        slug="manfred",
+        payload=payload,
+        private_profile={},
+        question="Was dachtest du über KI?",
+        memory_runtime=runtime,
+    )
+    fairness_answer = public_memorials._memorial_chat_answer(
+        payload,
+        "Was war dir bei Gerechtigkeit wichtig?",
+        {},
+        "ea-gemini-flash",
+        slug="manfred",
+        memory_runtime=runtime,
+    )
+    chess_answer = public_memorials._memorial_chat_answer(
+        payload,
+        "Was ist die freigegebene Erinnerung zu Schach und Familie?",
+        {},
+        "ea-gemini-flash",
+        slug="manfred",
+        memory_runtime=runtime,
+    )
+    ai_answer = public_memorials._memorial_chat_answer(
+        payload,
+        "Was dachtest du über KI?",
+        {},
+        "ea-gemini-flash",
+        slug="manfred",
+        memory_runtime=runtime,
+    )
+
+    assert fairness_lines
+    assert all(
+        token in fairness_lines[0]
+        for token in ("Opferschutz", "Diskriminierung", "Rechtslage")
+    )
+    assert any(
+        all(token in line for token in ("Schach", "Familie", "bleibt"))
+        for line in chess_lines
+    )
+    assert ai_lines
+    assert all(
+        token in ai_lines[0]
+        for token in ("Falschinformationen", "Autoritaetsglauben")
+    )
+    assert fairness_answer["public_memory_used"] is True
+    assert "Opferschutz" in fairness_answer["answer"]
+    assert chess_answer["public_memory_used"] is True
+    assert all(
+        token in chess_answer["answer"]
+        for token in ("Schach", "Familie", "bleibt")
+    )
+    assert ai_answer["public_memory_used"] is True
+    assert "KI" in ai_answer["answer"]
+    assert "Falschinformationen" in ai_answer["answer"]
+    assert all(
+        item["fact_json"]["public_approved"] is True
+        and item["fact_json"]["public_approval_key"]
+        for item in runtime.created_items
+    )
+
+
+def test_low_information_current_question_tokens_do_not_retrieve_memory() -> None:
+    assert "gegen" not in memorial_memory._tokenize(
+        "Wuerdest du dich heute dagegen impfen lassen?"
+    )
+    assert "lassen" not in memorial_memory._tokenize(
+        "Wuerdest du dich heute dagegen impfen lassen?"
+    )
+    assert "heute" not in memorial_memory._tokenize(
+        "Wuerdest du dich heute dagegen impfen lassen?"
+    )
+
+
 def test_seed_memorial_source_memories_repairs_fresh_store_from_existing_manifest(
     monkeypatch,
 ) -> None:

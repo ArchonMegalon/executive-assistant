@@ -69,7 +69,8 @@ _URL_RE = re.compile(r"https?://\S+")
 _STOPWORDS = {
     'und','oder','aber','doch','denn','eine','einer','eines','einem','einen','der','die','das','dem','des','ist','sind','war','waren',
     'mit','ohne','dass','wenn','weil','also','noch','nicht','nur','auch','wie','was','wer','wird','wurde','einerseits','andererseits',
-    'fuer','für','von','zum','zur','auf','aus','bei','als','ein','im','in','am','an','zu','es','ich','du','er','sie','wir','ihr'
+    'fuer','für','von','zum','zur','auf','aus','bei','als','ein','im','in','am','an','zu','es','ich','du','er','sie','wir','ihr',
+    'gegen','lassen','heute','morgen'
 }
 
 
@@ -151,7 +152,29 @@ def _infer_memory_axis(*, kind: str, title: str = '', body: str = '', trait: str
         return 'stylistic'
     if any(token in lowered for token in ('schach', 'familie', 'reise', 'weitergegeben', 'behalten', 'erinner')):
         return 'episodic'
-    if any(token in lowered for token in ('rechtlich', 'rechtsfrage', 'prinzip', 'pflicht', 'schuld', 'verantwortung', 'ordnung', 'anspruch')):
+    if any(
+        token in lowered
+        for token in (
+            'rechtlich',
+            'rechtsfrage',
+            'prinzip',
+            'pflicht',
+            'schuld',
+            'verantwortung',
+            'ordnung',
+            'anspruch',
+            'gerecht',
+            'opferschutz',
+            'autoritaet',
+            'behauptung',
+            'falschinformation',
+            'widerspruech',
+            'rechtslage',
+            'rechtsdurchsetzung',
+            'diskriminierung',
+            'mobbing',
+        )
+    ):
         return 'legal'
     if any(token in lowered for token in ('trocken', 'formal', 'stil', 'schriftlich', 'mail', 'quelle', 'linkbezogen')):
         return 'stylistic'

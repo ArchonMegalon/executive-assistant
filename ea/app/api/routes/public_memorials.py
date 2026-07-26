@@ -6573,6 +6573,30 @@ def _is_memorial_ooda_question(question: str) -> bool:
     return any(token in lowered for token in keywords)
 
 
+def _is_memorial_anchor_memory_question(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    if not lowered or not any(
+        token in lowered
+        for token in ("schach", "chess", "schachbrett", "schachspiel")
+    ):
+        return False
+    return any(
+        token in lowered
+        for token in (
+            "erinner",
+            "freigegeben",
+            "belegt",
+            "quelle",
+            "familie",
+            "damals",
+            "bedeutet",
+            "bedeutete",
+            "geblieben",
+            "bleiben sollte",
+        )
+    )
+
+
 def _is_memorial_live_interaction_question(question: str) -> bool:
     lowered = _text(question, "").lower()
     if not lowered:
@@ -6609,7 +6633,26 @@ def _is_memorial_live_interaction_question(question: str) -> bool:
         )
     ):
         return True
-    if any(token in lowered for token in ("schach", "zug", "rochade", "schachmatt", "matt")):
+    if any(
+        token in lowered
+        for token in (
+            "spiel mit mir",
+            "spiel gegen mich",
+            "spielen wir",
+            "dein zug",
+            "mein zug",
+            "du bist dran",
+            "ich bin dran",
+            "welchen zug",
+            "was ziehst du",
+            "zieh ",
+            "ziehe ",
+            "rochade",
+            "schachmatt",
+            "matt setzen",
+            "schachstellung",
+        )
+    ):
         return True
     if (
         any(token in lowered for token in ("antwort", "reagier", "reagiere", "sag was", "sag etwas"))
@@ -7010,6 +7053,8 @@ def _is_memorial_identity_question(question: str) -> bool:
 def _is_memorial_transcript_relationship_question(question: str) -> bool:
     lowered = _text(question, "").lower()
     if not lowered:
+        return False
+    if _is_memorial_anchor_memory_question(question):
         return False
     if any(token in lowered for token in ("mail", "email", "e-mail", "familienmail", "familienmails", "schriftlich", "schreibstil")):
         return False
@@ -7535,6 +7580,36 @@ def _is_memorial_values_question(question: str) -> bool:
     )
 
 
+def _is_memorial_ai_topic_question(question: str) -> bool:
+    lowered = _normalize_memorial_transcript_text(question).lower()
+    if not lowered:
+        return False
+    if any(
+        phrase in lowered
+        for phrase in (
+            "bist du",
+            "ist das",
+            "ist dies",
+            "wer bist",
+            "are you",
+            "is this",
+            "who are you",
+        )
+    ):
+        return False
+    return bool(
+        re.search(r"\b(?:ki|ai)\b", lowered)
+        or any(
+            phrase in lowered
+            for phrase in (
+                "künstliche intelligenz",
+                "kuenstliche intelligenz",
+                "artificial intelligence",
+            )
+        )
+    )
+
+
 def _memorial_answer_has_narrowing_clarification(answer_text: str) -> bool:
     normalized_answer = _normalize_memorial_transcript_text(answer_text).lower()
     if not normalized_answer:
@@ -7579,6 +7654,22 @@ def _memorial_values_guardrail_answer_body(
         f"{grounding}Fuer mich musste man zuerst die Tatsachen sauber trennen und die Sache rechtlich ordnen. "
         "Gerecht war etwas fuer mich erst dann, wenn Prinzip, Verantwortung und Fairness zusammenpassen. "
         "Bequemlichkeit war kein Massstab; ein Weg, der das Prinzip verbiegt, war am Ende kein sauberer Weg."
+    )
+
+
+def _memorial_ai_topic_answer_body(
+    question: str,
+    *,
+    memory_lines: list[str] | None = None,
+) -> str:
+    del question
+    grounded_memory = _memorial_direct_memory_statement(memory_lines)
+    grounding = f"{grounded_memory} " if grounded_memory else ""
+    return (
+        f"{grounding}Bei KI hätte ich zuerst geprüft, was sie tatsächlich kann, "
+        "wer für Fehler verantwortlich bleibt und welche Regeln gelten. "
+        "Technik war für mich ein Werkzeug, kein Ersatz für Tatsachen und eigenes Urteil. "
+        "Nützlich ist KI nur, wenn ihre Ergebnisse überprüfbar bleiben; blind vertraut hätte ich ihr nicht."
     )
 
 
@@ -8247,6 +8338,15 @@ def _memorial_chat_fallback_answer(
             normalized_question,
             memory_lines=memory_lines,
         )
+    elif _is_memorial_ai_topic_question(normalized_question):
+        public_memory_used = bool(direct_memory_statement)
+        response_sources = ["Freigegebene Erinnerungen"] if public_memory_used else []
+        response_private_context_used = False
+        response_personal_memory_used = False
+        body = _memorial_ai_topic_answer_body(
+            normalized_question,
+            memory_lines=memory_lines,
+        )
     elif not difficult_memory_mode and _is_difficult_memory_question(normalized_question):
         public_memory_used = bool(direct_memory_statement)
         response_sources = ["Freigegebene Erinnerungen"] if public_memory_used else []
@@ -8711,11 +8811,12 @@ def _ensure_memorial_memory_seeded(
     if memory_runtime is None or not normalized_slug:
         return set()
     try:
+        public_payload = public_memorial_projection_source(payload)
         result = seed_memorial_source_memories(
             memory_runtime=memory_runtime,
             principal_id=memorial_memory_principal_id(normalized_slug, payload),
             memorial_slug=normalized_slug,
-            memorial_payload=payload,
+            memorial_payload=public_payload,
             private_profile=private_profile,
             reviewer="memorial-auto-seed",
         )
@@ -8749,10 +8850,22 @@ def _memorial_memory_context_lines(
     )
     principal_id = memorial_memory_principal_id(normalized_slug, payload)
     retrieval_question = question
-    if _is_memorial_values_question(question) or _is_memorial_current_speculation_question(question):
+    if _is_memorial_values_question(question):
         retrieval_question = (
             f"{question} Ordnung Pflicht Klarheit Recht Zustaendigkeit Tatsachen "
-            "Verantwortung Fairness Prinzip"
+            "Verantwortung Fairness Prinzip Gerechtigkeits- Opferschutz Rechtslage "
+            "Mobbing Diskriminierung"
+        )
+    elif _is_memorial_ai_topic_question(question):
+        retrieval_question = (
+            f"{question} Technik Autoritaeten Behauptungen Falschinformationen "
+            "Autoritaetsglauben Widersprueche Belege Verantwortung"
+        )
+    elif _is_memorial_current_speculation_question(question):
+        retrieval_question = (
+            f"{question} Ordnung Pflicht Klarheit Recht Zustaendigkeit Tatsachen "
+            "Verantwortung Fairness Prinzip Gerechtigkeits- Opferschutz Rechtslage "
+            "Mobbing Diskriminierung"
         )
     try:
         rows = retrieve_memorial_memory_items(
@@ -9108,6 +9221,23 @@ def _memorial_chat_answer(
             "llm_fallback_used": True,
             "fallback_reason": "memorial_values_guardrail",
         }
+    if _is_memorial_ai_topic_question(normalized_question):
+        fallback = _memorial_chat_fallback_answer(
+            payload,
+            normalized_question,
+            private_profile,
+            slug=slug or _text(payload.get("slug"), ""),
+            memory_runtime=memory_runtime,
+            personal_memory_context=personal_memory_context,
+            llm_model=requested_model,
+            fallback_reason="memorial_ai_topic_guardrail",
+            difficult_memory_mode=difficult_memory_mode,
+        )
+        fallback["llm_model"] = requested_model
+        fallback["llm_provider"] = "memorial_guardrail"
+        fallback["llm_request_model"] = requested_model
+        fallback["llm_fallback_used"] = True
+        return fallback
     if _is_memorial_live_interaction_question(normalized_question):
         requested_model = requested_model or DEFAULT_PUBLIC_MODEL
     elif "schach" in normalized_question.lower():

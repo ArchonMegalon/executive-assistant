@@ -3330,6 +3330,201 @@ def test_memorial_values_guardrail_answer_body_stays_substantive_without_context
     assert any(token in lowered for token in ("fairness", "gerecht", "verantwortung"))
 
 
+def test_memorial_chat_values_question_uses_matching_approved_profile_memory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    observed_queries: list[str] = []
+    monkeypatch.setattr(
+        public_memorials,
+        "_ensure_memorial_memory_seeded",
+        lambda **kwargs: {"public-values-key"},
+    )
+
+    def _retrieve_values_memory(**kwargs):
+        observed_queries.append(str(kwargs.get("question") or ""))
+        return [
+            SimpleNamespace(
+                item_id="approved-values-memory",
+                summary="Ausgepraegter Gerechtigkeits- und Opferschutz-Fokus",
+                fact_json={
+                    "memory_kind": "grounded_profile",
+                    "memory_axis": "legal",
+                    "trait": "Ausgepraegter Gerechtigkeits- und Opferschutz-Fokus",
+                    "evidence": (
+                        "Oeffentliche Treffer verbinden Manfred Hoza wiederholt mit "
+                        "Mobbing, Diskriminierung, Opferschutz und Kritik an "
+                        "unzureichender Rechtslage."
+                    ),
+                },
+                updated_at="2026-07-26T00:00:00Z",
+            )
+        ]
+
+    monkeypatch.setattr(
+        public_memorials,
+        "retrieve_memorial_memory_items",
+        _retrieve_values_memory,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "generate_text",
+        lambda **kwargs: pytest.fail("values guardrail should not call an upstream model"),
+    )
+    client = _client(principal_id="exec-memorial-values-approved-memory")
+
+    response = client.post(
+        f"/memorials/{slug}/chat",
+        json={"question": "Was war dir bei Gerechtigkeit wichtig?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["fallback_reason"] == "memorial_values_guardrail"
+    assert body["public_memory_used"] is True
+    assert body["sources"] == ["Freigegebene Erinnerungen"]
+    assert "opferschutz" in body["answer"].lower()
+    assert any(
+        all(token in query for token in ("Gerechtigkeits", "Opferschutz", "Rechtslage"))
+        for query in observed_queries
+    )
+
+
+def test_memorial_explicit_chess_family_memory_is_not_live_or_relationship_chat(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    question = "Was ist die freigegebene Erinnerung zu Schach und Familie?"
+    assert public_memorials._is_memorial_anchor_memory_question(question) is True
+    assert public_memorials._is_memorial_live_interaction_question(question) is False
+    assert public_memorials._is_memorial_transcript_relationship_question(question) is False
+    assert public_memorials._is_memorial_live_interaction_question(
+        "Spiel jetzt mit mir Schach."
+    ) is True
+    assert public_memorials._is_memorial_live_interaction_question(
+        "Was bedeutete Schach für dich?"
+    ) is False
+    assert public_memorials._is_memorial_live_interaction_question(
+        "Wie hast du Schach gelernt?"
+    ) is False
+    assert public_memorials._is_memorial_transcript_relationship_question(
+        "Wie bist du mit der Familienkrise umgegangen?"
+    ) is True
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_memory_context_lines",
+        lambda **kwargs: [
+            "[Erinnerung] Ein wichtiger Erinnerungsanker ist der Wunsch, "
+            "dass das Schach in der Familie bleibt."
+        ],
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "generate_text",
+        lambda **kwargs: pytest.fail("approved anchor memory should not call an upstream model"),
+    )
+    client = _client(principal_id="exec-memorial-explicit-anchor-memory")
+
+    response = client.post(
+        f"/memorials/{slug}/chat",
+        json={"question": question},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    lowered = body["answer"].lower()
+    assert body["fallback_reason"] == "memorial_anchor_memory_guardrail"
+    assert body["public_memory_used"] is True
+    assert body["sources"] == ["Freigegebene Erinnerungen"]
+    assert all(token in lowered for token in ("schach", "familie", "bleibt"))
+
+
+def test_memorial_chat_ai_topic_answers_directly_from_approved_profile_memory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    question = "Was dachtest du über KI?"
+    observed_queries: list[str] = []
+    assert public_memorials._is_memorial_ai_topic_question(question) is True
+    assert public_memorials._is_memorial_ai_topic_question("Bist du eine KI?") is False
+    monkeypatch.setattr(
+        public_memorials,
+        "_ensure_memorial_memory_seeded",
+        lambda **kwargs: {"public-ai-key"},
+    )
+
+    def _retrieve_ai_memory(**kwargs):
+        observed_queries.append(str(kwargs.get("question") or ""))
+        return [
+            SimpleNamespace(
+                item_id="approved-ai-values-memory",
+                summary="Skepsis gegenueber Autoritaeten und ungeprueften Behauptungen",
+                fact_json={
+                    "memory_kind": "grounded_profile",
+                    "memory_axis": "legal",
+                    "trait": "Skepsis gegenueber Autoritaeten und ungeprueften Behauptungen",
+                    "evidence": (
+                        "Die oeffentliche Quelle richtet sich gegen "
+                        "Falschinformationen und unkritischen Autoritaetsglauben."
+                    ),
+                },
+                updated_at="2026-07-26T00:00:00Z",
+            )
+        ]
+
+    monkeypatch.setattr(
+        public_memorials,
+        "retrieve_memorial_memory_items",
+        _retrieve_ai_memory,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "generate_text",
+        lambda **kwargs: pytest.fail("AI topic guardrail should not call an upstream model"),
+    )
+    client = _client(principal_id="exec-memorial-ai-topic-approved-memory")
+
+    response = client.post(
+        f"/memorials/{slug}/chat",
+        json={"question": question},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    lowered = body["answer"].lower()
+    assert body["fallback_reason"] == "memorial_ai_topic_guardrail"
+    assert body["public_memory_used"] is True
+    assert body["sources"] == ["Freigegebene Erinnerungen"]
+    assert "ki" in lowered
+    assert any(token in lowered for token in ("autoritaet", "behauptung"))
+    assert all(
+        phrase not in lowered
+        for phrase in (
+            "kann ich aus meiner erinnerung nicht",
+            "wenn du wissen willst",
+            "frag es enger",
+            "nicht der echte manfred",
+        )
+    )
+    assert any(
+        all(
+            token in query
+            for token in ("Autoritaeten", "Behauptungen", "Falschinformationen")
+        )
+        for query in observed_queries
+    )
+
+
 def test_memorial_values_guardrail_does_not_treat_gerechtigkeit_as_identity_question(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

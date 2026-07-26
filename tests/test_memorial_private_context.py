@@ -321,6 +321,31 @@ def test_public_surface_excludes_public_looking_private_overlay(
         private_root=private_root,
         slug="manfred",
     )
+    seeded: dict[str, object] = {}
+
+    def _capture_public_memory_seed(**kwargs):
+        seeded.update(kwargs)
+        return {"public_approval_keys": ["tracked-public-key"]}
+
+    monkeypatch.setattr(
+        public_memorials,
+        "seed_memorial_source_memories",
+        _capture_public_memory_seed,
+    )
+    approval_keys = public_memorials._ensure_memorial_memory_seeded(
+        slug="manfred",
+        payload=merged,
+        private_profile={},
+        memory_runtime=object(),
+    )
+    seeded_payload = dict(seeded["memorial_payload"])
+    seeded_document = json.dumps(seeded_payload, ensure_ascii=False)
+
+    assert approval_keys == {"tracked-public-key"}
+    assert seeded["principal_id"] == "memorial:test"
+    assert "TRACKED_PUBLIC_CANARY" in seeded_document
+    assert "PRIVATE_PROJECTION_CANARY" not in seeded_document
+
     monkeypatch.setattr(public_memorial_surface, "_load_memorial", lambda slug: merged)
     monkeypatch.setattr(
         public_memorial_surface,

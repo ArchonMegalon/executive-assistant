@@ -578,7 +578,8 @@ class MemorialRuntimeTests(unittest.TestCase):
             principal_id="memorial:manfred",
             question=(
                 "Was war dir wichtig? Ordnung Pflicht Klarheit Recht Zustaendigkeit "
-                "Tatsachen Verantwortung Fairness Prinzip"
+                "Tatsachen Verantwortung Fairness Prinzip Gerechtigkeits- "
+                "Opferschutz Rechtslage Mobbing Diskriminierung"
             ),
             limit=6,
             public_only=True,
@@ -605,7 +606,9 @@ class MemorialRuntimeTests(unittest.TestCase):
             principal_id="memorial:manfred",
             question=(
                 "Wuerdest du dich heute gegen Covid impfen lassen? Ordnung Pflicht "
-                "Klarheit Recht Zustaendigkeit Tatsachen Verantwortung Fairness Prinzip"
+                "Klarheit Recht Zustaendigkeit Tatsachen Verantwortung Fairness "
+                "Prinzip Gerechtigkeits- Opferschutz Rechtslage Mobbing "
+                "Diskriminierung"
             ),
             limit=6,
             public_only=True,
