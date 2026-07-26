@@ -1159,7 +1159,7 @@
     "scripts/materialize_memorial_operator_status.py": "c8ee884e1541d4158d48a83abeb529b502902b9a2864eeaf3be94de01dbfd719",
     "scripts/materialize_memorial_phrase_bank.py": "f3ed53127334e45ac1297acca6a171735decf62cf10f407faa5c5bd17d32eb71",
     "scripts/materialize_memorial_public_auto_receipts_clean.py": "fa0deb370d44964881b87a26762cf7d75f25f4871e3db0b51e115f68aa337175",
-    "scripts/materialize_memorial_public_blip_stt_proof.py": "b4163c971dc4c394b4e75e261ecd08f390efb303d95f642320cecc90c3262051",
+    "scripts/materialize_memorial_public_blip_stt_proof.py": "2202c9ac67aad69335ed6838a9db34c51e12ac3b76cd7faef2013baa4064d6fe",
     "scripts/materialize_memorial_public_gold_clean.py": "768e572f0c4a5b15936fb6facca964b0de89724c3e52c07e3cfac8917c2ebe43",
     "scripts/materialize_memorial_room_audio_attestation_packet.py": "993ca33ff061636c68460b841b94a0a22a69ff66bf2c1fd8f8971addaeea2722",
     "scripts/materialize_memorial_room_audio_receipt.py": "52c5c88fbedfaa1e1bb5e2cdc95b3b4f41861367d5430d76cc913d745427adcb",
@@ -1599,7 +1599,7 @@
     "tests/test_memorial_operator_artifacts.py": "252c1194d678b45da598cb466e9ac6033a88ac70bc4f36ed86cac6deb90eb77e",
     "tests/test_memorial_path_defaults.py": "37caa71fb36ddd61beec23a4b85958a6e3cd05c89bff6a953cbc581ed62a0c16",
     "tests/test_memorial_private_context.py": "2223778c887bb2d4bcadef26b1fb00ad557809f82ad3d40a0d96caa974f2c26d",
-    "tests/test_memorial_public_blip_stt_proof.py": "f238021d6c6f032077eab982195e56bcb9f2f30bf2ed0e9f70bbc34dc784a940",
+    "tests/test_memorial_public_blip_stt_proof.py": "7b7bc3bec9f8257b66c86d02c2b9cc9ba4f4f41007af2b1ad4a596db82f757b9",
     "tests/test_memorial_recovery_inventory.py": "f557518f71a21992045ae75d9aa4dd91fc4e82ee5a94408f087bca916582ddc9",
     "tests/test_memorial_recovery_inventory_cli.py": "b3633d80da2442b8577d62587a2013879865f4b1e761b6a88ded8c6797f8be27",
     "tests/test_memorial_release_policy.py": "10b43cbda6e520bca81b787e3269e21e54149fd695e247ab94d4fb1e44f96507",
@@ -1848,13 +1848,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "661723d26735b8874d7fb9e94d20e159d1eec619",
-  "indexed_at_timestamp": "2026-07-26T19:32:43.482644323+00:00",
+  "indexed_at_commit": "8355b2b82e13b1d9d3f532b8c7c0a21b09595dde",
+  "indexed_at_timestamp": "2026-07-26T19:48:11.135521808+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 46067,
+    "total_edges": 46448,
     "total_files": 1847,
-    "total_nodes": 29143
+    "total_nodes": 29146
   },
   "vexp_version": "2.3.1"
 }
