@@ -1741,6 +1741,62 @@ def test_memorial_theme_question_detection_and_selection_prefers_question_like_v
     assert best["transcript_text"] == "was war dir bei gerechtigkeit wichtig"
 
 
+def test_memorial_stt_policy_reports_configured_primary_and_hard_ordered_fallbacks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.delenv("EA_MEMORIAL_STT_PRIMARY_PROVIDER", raising=False)
+    assert public_memorials.memorial_stt_policy() == {
+        "primary": "blipai",
+        "fallbacks": ["cartesia", "1min.ai"],
+    }
+    with pytest.raises(
+        RuntimeError,
+        match="^memorial_stt_primary_provider_unconfigured$",
+    ):
+        public_memorials.memorial_stt_policy(require_explicit_primary=True)
+
+    monkeypatch.setenv("EA_MEMORIAL_STT_PRIMARY_PROVIDER", " BlipAI ")
+
+    assert public_memorials.memorial_stt_policy() == {
+        "primary": "blipai",
+        "fallbacks": ["cartesia", "1min.ai"],
+    }
+    assert public_memorials._memorial_primary_stt_provider() == "blipai"
+
+
+def test_memorial_transcribe_fails_closed_before_provider_on_policy_order_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi import HTTPException
+
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "memorial_stt_policy",
+        lambda: {
+            "primary": "blipai",
+            "fallbacks": ["1min.ai", "cartesia"],
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **_kwargs: pytest.fail("provider must not run under policy drift"),
+    )
+
+    with pytest.raises(HTTPException) as raised:
+        public_memorials._memorial_transcribe_audio_blob(
+            payload=_generated_wav_bytes(textish_seed="Policy order must be exact"),
+            content_type="audio/wav",
+        )
+
+    assert raised.value.status_code == 503
+    assert raised.value.detail == "speech_transcriber_policy_invalid"
+
+
 def test_memorial_transcribe_applies_shadow_stt_correction_to_effective_transcript(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

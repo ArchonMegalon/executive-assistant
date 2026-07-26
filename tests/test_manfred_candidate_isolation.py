@@ -1149,6 +1149,100 @@ def test_candidate_runner_and_registry_share_exact_environment_key_contract() ->
     assert runner.ALLOWED_ENV_KEYS == candidate_registry.CANDIDATE_ENV_KEYS
 
 
+def test_candidate_stt_policy_probe_is_image_internal_bound_and_secret_free(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[list[str]] = []
+
+    def fake_run(
+        argv: list[str],
+        **_kwargs: object,
+    ) -> bytes:
+        calls.append(argv)
+        return json.dumps(runner.EXPECTED_STT_POLICY).encode("utf-8")
+
+    monkeypatch.setattr(runner, "_run_bounded_output", fake_run)
+    evidence = runner._candidate_stt_policy_evidence(
+        compose=["docker", "compose", "--project-name", PROJECT],
+        environment={"PATH": "/usr/bin"},
+        image_id=IMAGE_ID,
+        source_revision=COMMIT,
+        api_container_id="c" * 64,
+    )
+
+    assert evidence == {
+        "stt_policy": {
+            "primary": "blipai",
+            "fallbacks": ["cartesia", "1min.ai"],
+        },
+        "stt_policy_binding": {
+            "schema": runner.STT_POLICY_BINDING_SCHEMA,
+            "probe_source": "candidate_api_container_runtime_contract",
+            "source_revision": COMMIT,
+            "image_id": IMAGE_ID,
+            "api_container_id": "c" * 64,
+        },
+    }
+    assert calls == [
+        [
+            "docker",
+            "compose",
+            "--project-name",
+            PROJECT,
+            "exec",
+            "-T",
+            "api",
+            "python",
+            "-c",
+            runner.STT_POLICY_PROBE_SCRIPT,
+        ]
+    ]
+    serialized = json.dumps(evidence, sort_keys=True)
+    assert "token" not in serialized.lower()
+    assert "password" not in serialized.lower()
+    assert "secret" not in serialized.lower()
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [
+        {"fallbacks": ["cartesia", "1min.ai"]},
+        {"primary": "cartesia", "fallbacks": ["cartesia", "1min.ai"]},
+        {"primary": "blipai", "fallbacks": ["1min.ai", "cartesia"]},
+        {
+            "primary": "blipai",
+            "fallbacks": ["cartesia", "1min.ai", "other"],
+        },
+        {
+            "primary": "blipai",
+            "fallbacks": ["cartesia", "1min.ai"],
+            "api_token": "must-never-enter-evidence",
+        },
+    ],
+)
+def test_candidate_stt_policy_probe_rejects_nonexact_or_secret_bearing_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    policy: dict[str, object],
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "_run_bounded_output",
+        lambda *_args, **_kwargs: json.dumps(policy).encode("utf-8"),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="^manfred_candidate_stt_policy_invalid$",
+    ):
+        runner._candidate_stt_policy_evidence(
+            compose=["docker", "compose"],
+            environment={},
+            image_id=IMAGE_ID,
+            source_revision=COMMIT,
+            api_container_id="c" * 64,
+        )
+
+
 def _compose_payloads(env_file: Path, env: dict[str, str]) -> tuple[dict, dict]:
     release_root = Path(env["EA_MANFRED_RELEASE_ROOT"])
     runtime_root = Path(env["EA_MANFRED_RUNTIME_ROOT"])
@@ -5051,6 +5145,16 @@ def test_recovered_runtime_rebinds_projection_compose_and_execution_evidence(
     runtime_identity = {"revision_agreement_verified": True}
     runtime_projection = {"runtime_bytes_match_prepared_projection": True}
     runtime_posture = {"running_and_healthy": True}
+    stt_policy_evidence = {
+        "stt_policy": dict(runner.EXPECTED_STT_POLICY),
+        "stt_policy_binding": {
+            "schema": runner.STT_POLICY_BINDING_SCHEMA,
+            "probe_source": "candidate_api_container_runtime_contract",
+            "source_revision": COMMIT,
+            "image_id": IMAGE_ID,
+            "api_container_id": "1" * 64,
+        },
+    }
     observed_hashes: list[str] = []
 
     monkeypatch.setattr(
@@ -5067,6 +5171,11 @@ def test_recovered_runtime_rebinds_projection_compose_and_execution_evidence(
         runner,
         "_candidate_runtime_projection_evidence",
         lambda **_kwargs: runtime_projection,
+    )
+    monkeypatch.setattr(
+        runner,
+        "_candidate_stt_policy_evidence",
+        lambda **_kwargs: stt_policy_evidence,
     )
 
     def posture(**kwargs: object) -> dict[str, object]:
@@ -5089,6 +5198,7 @@ def test_recovered_runtime_rebinds_projection_compose_and_execution_evidence(
         "runtime_projection_final": runtime_projection,
         "runtime_projection_identity_stable": True,
         "runtime_api_posture": runtime_posture,
+        **stt_policy_evidence,
     }
 
     runner._assert_recovered_candidate_runtime(

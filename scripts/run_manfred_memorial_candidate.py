@@ -143,6 +143,17 @@ CANDIDATE_COMPOSE_MAX_BYTES = 1024 * 1024
 CANDIDATE_ENV_MAX_BYTES = 1024 * 1024
 PROJECTION_RECEIPT_MAX_BYTES = 1024 * 1024
 EXECUTION_INPUT_SCHEMA = "ea.manfred_candidate_execution_inputs.v1"
+STT_POLICY_BINDING_SCHEMA = "ea.manfred_candidate_stt_policy_binding.v1"
+EXPECTED_STT_POLICY = {
+    "primary": "blipai",
+    "fallbacks": ["cartesia", "1min.ai"],
+}
+STT_POLICY_PROBE_SCRIPT = (
+    "import json;"
+    "from app.api.routes.public_memorials import memorial_stt_policy;"
+    "print(json.dumps(memorial_stt_policy(require_explicit_primary=True),"
+    "sort_keys=True,separators=(',',':')))"
+)
 CANDIDATE_COMPOSE_DOWN_TIMEOUTS = (120, 180)
 PORT_RELEASE_WAIT_SECONDS = 10.0
 PORT_RELEASE_POLL_SECONDS = 0.1
@@ -2049,6 +2060,63 @@ def _candidate_runtime_projection_evidence(
             "/data/release-authority",
         ],
         "runtime_bytes_match_prepared_projection": True,
+    }
+
+
+def _candidate_stt_policy_evidence(
+    *,
+    compose: list[str],
+    environment: dict[str, str],
+    image_id: str,
+    source_revision: str,
+    api_container_id: str,
+) -> dict[str, object]:
+    """Read the effective nonsecret STT policy from the candidate image."""
+
+    try:
+        raw = _run_bounded_output(
+            [
+                *compose,
+                "exec",
+                "-T",
+                "api",
+                "python",
+                "-c",
+                STT_POLICY_PROBE_SCRIPT,
+            ],
+            timeout=30,
+            environment=environment,
+            stdout_limit=1024,
+            stderr_limit=4096,
+            output_limit_error="manfred_candidate_stt_policy_output_too_large",
+        )
+        policy = json.loads(raw)
+    except (
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        subprocess.SubprocessError,
+    ) as exc:
+        raise RuntimeError("manfred_candidate_stt_policy_unavailable") from exc
+    if policy != EXPECTED_STT_POLICY:
+        raise RuntimeError("manfred_candidate_stt_policy_invalid")
+    if (
+        IMAGE_ID_RE.fullmatch(image_id) is None
+        or len(source_revision) != 40
+        or any(character not in "0123456789abcdef" for character in source_revision)
+        or len(api_container_id) != 64
+        or any(character not in "0123456789abcdef" for character in api_container_id)
+    ):
+        raise RuntimeError("manfred_candidate_stt_policy_binding_invalid")
+    return {
+        "stt_policy": dict(policy),
+        "stt_policy_binding": {
+            "schema": STT_POLICY_BINDING_SCHEMA,
+            "probe_source": "candidate_api_container_runtime_contract",
+            "source_revision": source_revision,
+            "image_id": image_id,
+            "api_container_id": api_container_id,
+        },
     }
 
 
@@ -4073,6 +4141,17 @@ def _assert_recovered_candidate_runtime(
         or receipt.get("candidate_container_image_identity_stable") is not True
     ):
         raise RuntimeError("manfred_candidate_recovered_image_identity_invalid")
+    stt_policy_evidence = _candidate_stt_policy_evidence(
+        compose=compose,
+        environment=environment,
+        image_id=str(current_images["prepared_image_id"]),
+        source_revision=str(current_images["revision_label"]),
+        api_container_id=str(dict(current_images["api"])["container_id"]),
+    )
+    if any(
+        receipt.get(name) != value for name, value in stt_policy_evidence.items()
+    ):
+        raise RuntimeError("manfred_candidate_recovered_stt_policy_invalid")
     runtime_identity = _candidate_runtime_version_identity(
         base_url,
         expected_commit=str(projection["projection_commit"]),
@@ -4572,6 +4651,15 @@ def _prove_candidate_with_execution_inputs(
             )
             if final_container_images != initial_container_images:
                 raise RuntimeError("manfred_candidate_runtime_image_identity_changed")
+            stt_policy_evidence = _candidate_stt_policy_evidence(
+                compose=compose,
+                environment=compose_environment,
+                image_id=image_id,
+                source_revision=image_source_revision,
+                api_container_id=str(
+                    dict(final_container_images["api"])["container_id"]
+                ),
+            )
             runtime_projection_final = _candidate_runtime_projection_evidence(
                 compose=compose,
                 environment=compose_environment,
@@ -4610,6 +4698,7 @@ def _prove_candidate_with_execution_inputs(
                 "runtime_source_revision": runtime_source_revision,
                 "runtime_authority_commit": runtime_authority_commit,
                 "runtime_revision_matches_image": True,
+                **stt_policy_evidence,
                 **projection,
                 "compose_project": project,
                 "compose_project_isolated": True,

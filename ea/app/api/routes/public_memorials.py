@@ -228,6 +228,8 @@ _MEMORIAL_REALTIME_TTS_TAIL_SILENCE_MS = 760
 _MEMORIAL_REALTIME_STREAM_YIELD_SECONDS = 0.015
 _MEMORIAL_SHADOW_STT_ALLOWED_PROVIDERS = {"blipai"}
 _MEMORIAL_STT_PRIMARY_PROVIDERS = {"blipai", "cartesia"}
+MEMORIAL_STT_FLAGSHIP_PRIMARY_PROVIDER = "blipai"
+MEMORIAL_STT_FLAGSHIP_FALLBACK_PROVIDERS = ("cartesia", "1min.ai")
 _BLIPAI_DEFAULT_STT_URL = "https://mantra-backend-app.azurewebsites.net/api/blipai/stt/transcribe"
 _CARTESIA_STT_URL = "https://api.cartesia.ai/stt"
 _CARTESIA_VERSION = "2026-03-01"
@@ -9607,14 +9609,28 @@ def _memorial_transcript_is_confident_early_accept(
 
 
 def _memorial_primary_stt_provider() -> str:
-    provider = (
-        _text(os.getenv("EA_MEMORIAL_STT_PRIMARY_PROVIDER"), "blipai")
-        .strip()
-        .lower()
-    )
-    if provider not in _MEMORIAL_STT_PRIMARY_PROVIDERS:
-        return "blipai"
+    provider = str(memorial_stt_policy()["primary"])
     return provider
+
+
+def memorial_stt_policy(*, require_explicit_primary: bool = False) -> dict[str, object]:
+    """Return the effective nonsecret primary and hard-ordered fallbacks."""
+
+    primary = (
+        _text(os.getenv("EA_MEMORIAL_STT_PRIMARY_PROVIDER")).strip().lower()
+    )
+    if not primary:
+        if require_explicit_primary:
+            raise RuntimeError("memorial_stt_primary_provider_unconfigured")
+        primary = MEMORIAL_STT_FLAGSHIP_PRIMARY_PROVIDER
+    if primary not in _MEMORIAL_STT_PRIMARY_PROVIDERS:
+        if require_explicit_primary:
+            raise RuntimeError("memorial_stt_primary_provider_invalid")
+        primary = MEMORIAL_STT_FLAGSHIP_PRIMARY_PROVIDER
+    return {
+        "primary": primary,
+        "fallbacks": list(MEMORIAL_STT_FLAGSHIP_FALLBACK_PROVIDERS),
+    }
 
 
 def _memorial_blipai_primary_stt_candidate(
@@ -12353,8 +12369,18 @@ def _memorial_transcribe_audio_blob(
             "retryable": True,
             "detail": "audio_silence",
         }
-    primary_stt_provider = _memorial_primary_stt_provider()
-    blipai_is_primary = primary_stt_provider == "blipai"
+    stt_policy = memorial_stt_policy()
+    fallback_providers = stt_policy.get("fallbacks")
+    if fallback_providers != list(MEMORIAL_STT_FLAGSHIP_FALLBACK_PROVIDERS):
+        raise HTTPException(
+            status_code=503,
+            detail="speech_transcriber_policy_invalid",
+        )
+    cartesia_provider, onemin_provider = MEMORIAL_STT_FLAGSHIP_FALLBACK_PROVIDERS
+    primary_stt_provider = str(stt_policy["primary"])
+    blipai_is_primary = (
+        primary_stt_provider == MEMORIAL_STT_FLAGSHIP_PRIMARY_PROVIDER
+    )
     if blipai_is_primary:
         blipai_stt = _memorial_shadow_stt_result(
             user_audio_payload=payload,
@@ -12406,7 +12432,10 @@ def _memorial_transcribe_audio_blob(
         upload_variants = _prioritize_memorial_transcription_variants(upload_variants)
         last_error: Exception | None = None
         transcript_candidates: list[dict[str, object]] = []
-        if cartesia_api_key and _memorial_stt_provider_cooldown_remaining("cartesia") <= 0.0:
+        if (
+            cartesia_api_key
+            and _memorial_stt_provider_cooldown_remaining(cartesia_provider) <= 0.0
+        ):
             for variant_payload, variant_content_type, _variant_extension, variant_label in upload_variants:
                 try:
                     transcribed = _cartesia_transcribe_audio(
@@ -12422,7 +12451,7 @@ def _memorial_transcribe_audio_blob(
                         raise RuntimeError(f"cartesia_known_bad_transcript:{variant_label}")
                     if _looks_like_memorial_reply_text(text):
                         raise RuntimeError(f"cartesia_reply_echo_transcript:{variant_label}")
-                    transcriber = "cartesia/ink-whisper"
+                    transcriber = f"{cartesia_provider}/ink-whisper"
                     if variant_label != "original":
                         transcriber = f"{transcriber}+{variant_label}"
                     if blipai_is_primary:
@@ -12478,7 +12507,7 @@ def _memorial_transcribe_audio_blob(
                 except Exception as exc:
                     if _memorial_should_cooldown_cartesia(str(exc)):
                         _memorial_mark_stt_provider_cooldown(
-                            "cartesia",
+                            cartesia_provider,
                             seconds=max(
                                 60.0,
                                 min(1800.0, float(os.getenv("EA_MEMORIAL_CARTESIA_ERROR_COOLDOWN_SECONDS") or "600")),
@@ -12488,11 +12517,14 @@ def _memorial_transcribe_audio_blob(
                     continue
             best_candidate = _select_best_memorial_transcription(transcript_candidates)
             if best_candidate:
-                _memorial_clear_stt_provider_cooldown("cartesia")
+                _memorial_clear_stt_provider_cooldown(cartesia_provider)
                 return {
                     "transcription_status": "transcribed",
                     "transcript_text": _repair_memorial_transcript_text(best_candidate.get("transcript_text")),
-                    "transcriber": _text(best_candidate.get("transcriber"), "cartesia/ink-whisper"),
+                    "transcriber": _text(
+                        best_candidate.get("transcriber"),
+                        f"{cartesia_provider}/ink-whisper",
+                    ),
                     "shadow_stt": dict(best_candidate.get("shadow_stt") or {}),
                     "primary_transcript_text": _repair_memorial_transcript_text(best_candidate.get("primary_transcript_text")),
                 }
@@ -12559,7 +12591,7 @@ def _memorial_transcribe_audio_blob(
                     if _looks_like_memorial_reply_text(text):
                         raise RuntimeError(f"speech_reply_echo_transcript:{variant_label}")
                     _memorial_clear_stt_key_cooldown("onemin", api_key)
-                    transcriber = "1min.ai/whisper-1"
+                    transcriber = f"{onemin_provider}/whisper-1"
                     if variant_label != "original":
                         transcriber = f"{transcriber}+{variant_label}"
                     if blipai_is_primary:
@@ -12642,7 +12674,10 @@ def _memorial_transcribe_audio_blob(
                 return {
                     "transcription_status": "transcribed",
                     "transcript_text": _repair_memorial_transcript_text(best_candidate.get("transcript_text")),
-                    "transcriber": _text(best_candidate.get("transcriber"), "1min.ai/whisper-1"),
+                    "transcriber": _text(
+                        best_candidate.get("transcriber"),
+                        f"{onemin_provider}/whisper-1",
+                    ),
                     "shadow_stt": dict(best_candidate.get("shadow_stt") or {}),
                     "primary_transcript_text": _repair_memorial_transcript_text(best_candidate.get("primary_transcript_text")),
                 }
@@ -12651,7 +12686,10 @@ def _memorial_transcribe_audio_blob(
             return {
                 "transcription_status": "transcribed",
                 "transcript_text": _repair_memorial_transcript_text(best_candidate.get("transcript_text")),
-                "transcriber": _text(best_candidate.get("transcriber"), "1min.ai/whisper-1"),
+                "transcriber": _text(
+                    best_candidate.get("transcriber"),
+                    f"{onemin_provider}/whisper-1",
+                ),
                 "shadow_stt": dict(best_candidate.get("shadow_stt") or {}),
                 "primary_transcript_text": _repair_memorial_transcript_text(best_candidate.get("primary_transcript_text")),
             }
@@ -12666,7 +12704,7 @@ def _memorial_transcribe_audio_blob(
         return {
             "transcription_status": "no_speech",
             "transcript_text": "",
-            "transcriber": "1min.ai/whisper-1",
+            "transcriber": f"{onemin_provider}/whisper-1",
             "retryable": True,
             "detail": detail,
         }

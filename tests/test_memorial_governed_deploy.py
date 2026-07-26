@@ -461,6 +461,7 @@ class FakeRunner:
         self.forward_tour_json = SAFE_TOUR
         self.rendered_candidate_reference = self.candidate_reference
         self.rendered_pull_policy = "never"
+        self.rendered_stt_primary_provider = "blipai"
         self.rendered_memorial_data_source = str(self.root / "memorial_data")
         self.rendered_memorial_runtime_source = str(
             self.root / ".runtime" / "candidate-data"
@@ -1064,6 +1065,11 @@ class FakeRunner:
                                 "image": self.rendered_candidate_reference,
                                 "pull_policy": self.rendered_pull_policy,
                                 "user": "10001:10001",
+                                "environment": {
+                                    "EA_MEMORIAL_STT_PRIMARY_PROVIDER": (
+                                        self.rendered_stt_primary_provider
+                                    )
+                                },
                                 "volumes": [
                                     {
                                         "type": "bind",
@@ -2385,6 +2391,17 @@ def _lane(
                 "runtime_source_revision": source_revision,
                 "runtime_authority_commit": source_revision,
                 "runtime_revision_matches_image": True,
+                "stt_policy": {
+                    "primary": "blipai",
+                    "fallbacks": ["cartesia", "1min.ai"],
+                },
+                "stt_policy_binding": {
+                    "schema": "ea.manfred_candidate_stt_policy_binding.v1",
+                    "probe_source": "candidate_api_container_runtime_contract",
+                    "source_revision": source_revision,
+                    "image_id": runner.candidate_image,
+                    "api_container_id": api_container_id,
+                },
                 "projection_commit": source_revision,
                 "prepared_image_locator": runner.candidate_reference,
                 "prepared_image_id": runner.candidate_image,
@@ -2939,6 +2956,15 @@ def test_candidate_projection_is_rehashed_before_promotion(
         candidate=candidate,
         source_revision="b" * 40,
     )
+    assert evidence["stt_policy"] == deploy.EXPECTED_MEMORIAL_STT_POLICY
+    assert evidence["stt_policy_binding"] == {
+        "schema": deploy.MEMORIAL_STT_POLICY_BINDING_SCHEMA,
+        "probe_source": "candidate_api_container_runtime_contract",
+        "source_revision": "b" * 40,
+        "image_id": runner.candidate_image,
+        "api_container_id": "1" * 64,
+    }
+    assert lane.receipt["stt_policy"] == deploy.EXPECTED_MEMORIAL_STT_POLICY
     assert evidence["projection"]["tree_revalidated"] is True
     assert evidence["projection"]["file_count"] == len(SPATIAL_TEST_FILES)
     assert evidence["browser"] == {
@@ -3458,6 +3484,11 @@ def test_candidate_image_must_be_explicit_safe_and_revision_bound(
             "rendered_pull_policy",
             "missing",
             "memorial_compose_pull_policy_invalid",
+        ),
+        (
+            "rendered_stt_primary_provider",
+            "cartesia",
+            "memorial_compose_stt_policy_mismatch",
         ),
     ],
 )
@@ -4220,6 +4251,40 @@ def test_preflight_rejects_candidate_origin_different_from_live_authority(
     assert not any(call[:3] == ("docker", "image", "tag") for call in runner.calls)
 
 
+def test_preflight_only_persists_exact_stt_policy_binding(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+
+    receipt = lane.deploy(preflight_only=True)
+
+    expected_policy = {
+        "primary": "blipai",
+        "fallbacks": ["cartesia", "1min.ai"],
+    }
+    expected_binding = {
+        "schema": deploy.MEMORIAL_STT_POLICY_BINDING_SCHEMA,
+        "probe_source": "candidate_api_container_runtime_contract",
+        "source_revision": "b" * 40,
+        "image_id": runner.candidate_image,
+        "api_container_id": "1" * 64,
+    }
+    assert receipt["status"] == "preflight_only_pass"
+    assert receipt["stt_policy"] == expected_policy
+    assert receipt["stt_policy_binding"] == expected_binding
+    persisted_receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
+    assert persisted_receipt["stt_policy"] == expected_policy
+    assert persisted_receipt["stt_policy_binding"] == expected_binding
+    assert not any("up" in call for call in runner.calls)
+
+
 def test_happy_path_mutates_only_redis_and_api(
     release_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -4254,6 +4319,20 @@ def test_happy_path_mutates_only_redis_and_api(
         "reference": runner.candidate_reference,
         "image_id": runner.candidate_image,
     }
+    assert receipt["stt_policy"] == {
+        "primary": "blipai",
+        "fallbacks": ["cartesia", "1min.ai"],
+    }
+    assert receipt["stt_policy_binding"] == {
+        "schema": deploy.MEMORIAL_STT_POLICY_BINDING_SCHEMA,
+        "probe_source": "candidate_api_container_runtime_contract",
+        "source_revision": "b" * 40,
+        "image_id": runner.candidate_image,
+        "api_container_id": "1" * 64,
+    }
+    persisted_receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
+    assert persisted_receipt["stt_policy"] == receipt["stt_policy"]
+    assert persisted_receipt["stt_policy_binding"] == receipt["stt_policy_binding"]
     memorial_probes = [
         probe for probe in receipt["probes"] if "/memorials/manfred" in probe["url"]
     ]
@@ -4568,6 +4647,56 @@ def test_candidate_promotion_receipt_is_explicit_private_and_non_symlink(
         hardlinked.deploy(preflight_only=True)
 
     assert not any("up" in call for call in runner.calls)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("stt_policy.primary", None),
+        ("stt_policy.primary", "cartesia"),
+        ("stt_policy.fallbacks", ["1min.ai", "cartesia"]),
+        ("stt_policy.fallbacks", ["cartesia", "1min.ai", "other"]),
+        ("stt_policy.api_token", "stt-policy-secret-sentinel"),
+        ("stt_policy_binding.source_revision", "a" * 40),
+        ("stt_policy_binding.image_id", "sha256:" + "d" * 64),
+        ("stt_policy_binding.api_container_id", "3" * 64),
+    ],
+)
+def test_preflight_rejects_unbound_or_nonflagship_stt_policy_before_mutation(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: object,
+) -> None:
+    runner = FakeRunner(release_root)
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+    path = Path(lane.candidate_receipt_value)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    path_parts = field.split(".")
+    target = payload
+    for part in path_parts[:-1]:
+        target = target[part]
+    if value is None:
+        target.pop(path_parts[-1])
+    else:
+        target[path_parts[-1]] = value
+    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    path.chmod(0o600)
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="^memorial_candidate_stt_policy_invalid$",
+    ):
+        lane.deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+    deploy_receipt = lane.receipt_path.read_text(encoding="utf-8")
+    assert "stt-policy-secret-sentinel" not in deploy_receipt
 
 
 @pytest.mark.parametrize(

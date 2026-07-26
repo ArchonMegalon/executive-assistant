@@ -220,6 +220,11 @@ CANDIDATE_STT_EXECUTION_ENV_KEYS = frozenset(
         "EA_MEMORIAL_STT_PRIMARY_PROVIDER",
     }
 )
+EXPECTED_MEMORIAL_STT_POLICY = {
+    "primary": "blipai",
+    "fallbacks": ["cartesia", "1min.ai"],
+}
+MEMORIAL_STT_POLICY_BINDING_SCHEMA = "ea.manfred_candidate_stt_policy_binding.v1"
 MIN_PASSIVE_BROWSER_QUIET_WINDOW_MS = 2_000
 UPSTREAM_EXECUTION_NOT_OBSERVED = "not_observed"
 UPSTREAM_EXECUTION_NOT_REQUESTED = "not_requested"
@@ -6001,7 +6006,10 @@ class MemorialDeployLane:
         )
 
     def _validate_compose(
-        self, *, candidate: Mapping[str, Any]
+        self,
+        *,
+        candidate: Mapping[str, Any],
+        stt_policy: Mapping[str, Any],
     ) -> list[dict[str, object]]:
         self._run(self._target_compose("config", "--quiet"))
         rendered = _json_object(
@@ -6016,6 +6024,18 @@ class MemorialDeployLane:
         api_config = dict(api_payload) if isinstance(api_payload, dict) else {}
         if str(api_config.get("image") or "") != str(candidate.get("reference") or ""):
             raise DeployError("memorial_compose_candidate_image_mismatch")
+        api_environment_value = api_config.get("environment")
+        api_environment = (
+            dict(api_environment_value)
+            if isinstance(api_environment_value, dict)
+            else {}
+        )
+        if (
+            dict(stt_policy) != EXPECTED_MEMORIAL_STT_POLICY
+            or api_environment.get("EA_MEMORIAL_STT_PRIMARY_PROVIDER")
+            != stt_policy.get("primary")
+        ):
+            raise DeployError("memorial_compose_stt_policy_mismatch")
         if str(api_config.get("pull_policy") or "").lower() != "never":
             raise DeployError("memorial_compose_pull_policy_invalid")
         if str(api_config.get("user") or "").strip() != "10001:10001":
@@ -6100,6 +6120,7 @@ class MemorialDeployLane:
             "pass",
             services=[API_SERVICE, REDIS_SERVICE],
             candidate_image=str(candidate.get("reference") or ""),
+            stt_policy=dict(stt_policy),
             pull_policy="never",
             mount_identity_count=len(target_mounts),
             mount_identity_sha256=_identity_digest(target_mounts),
@@ -8350,6 +8371,23 @@ class MemorialDeployLane:
 
         image_reference = str(candidate.get("reference") or "")
         image_id = str(candidate.get("image_id") or "")
+        stt_policy_value = payload.get("stt_policy")
+        stt_policy = (
+            dict(stt_policy_value) if isinstance(stt_policy_value, dict) else {}
+        )
+        stt_policy_binding_value = payload.get("stt_policy_binding")
+        stt_policy_binding = (
+            dict(stt_policy_binding_value)
+            if isinstance(stt_policy_binding_value, dict)
+            else {}
+        )
+        expected_stt_policy_binding = {
+            "schema": MEMORIAL_STT_POLICY_BINDING_SCHEMA,
+            "probe_source": "candidate_api_container_runtime_contract",
+            "source_revision": source_revision,
+            "image_id": image_id,
+            "api_container_id": str(candidate_api_image.get("container_id") or ""),
+        }
         try:
             voice_identity = _voice_identity(
                 voice_config_sha256=str(
@@ -9268,6 +9306,11 @@ class MemorialDeployLane:
             or payload.get("live_ea_project_unchanged") is not True
         ):
             raise DeployError("memorial_candidate_receipt_contract_invalid")
+        if (
+            stt_policy != EXPECTED_MEMORIAL_STT_POLICY
+            or stt_policy_binding != expected_stt_policy_binding
+        ):
+            raise DeployError("memorial_candidate_stt_policy_invalid")
         try:
             projection_sha256, projection_files = _candidate_projection_tree_digest(
                 expected_data_root
@@ -9342,6 +9385,8 @@ class MemorialDeployLane:
             "image_locator_revalidated": True,
             "live_ea_unchanged": True,
             "provider_calls_performed": False,
+            "stt_policy": stt_policy,
+            "stt_policy_binding": stt_policy_binding,
             "voice_release_allowed": bool(payload["voice_release_allowed"]),
             "public_evaluation_allowed": bool(
                 payload["public_evaluation_allowed"]
@@ -9502,6 +9547,8 @@ class MemorialDeployLane:
             },
         }
         self.receipt["candidate_promotion_evidence"] = evidence
+        self.receipt["stt_policy"] = stt_policy
+        self.receipt["stt_policy_binding"] = stt_policy_binding
         self._record_check("candidate_promotion_evidence", "pass")
         return evidence
 
@@ -11446,7 +11493,10 @@ class MemorialDeployLane:
             raise DeployError("memorial_candidate_public_origin_mismatch")
         candidate_promotion["live_authority_public_origin"] = public_origin
         candidate_promotion["public_origin_matches_live_authority"] = True
-        target_mounts = self._validate_compose(candidate=candidate)
+        target_mounts = self._validate_compose(
+            candidate=candidate,
+            stt_policy=dict(candidate_promotion["stt_policy"]),
+        )
         self._require_deployment_input_seal(deployment_input_seal)
         non_memorial_controls = self._capture_non_memorial_controls(
             public_origin=public_origin,
