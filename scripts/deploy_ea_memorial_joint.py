@@ -158,11 +158,15 @@ INGRESS_ROLLBACK_ENV_KEYS = frozenset(
 )
 RECOVERY_INGRESS_API_INTERPOLATION_ENV_KEYS = frozenset(
     {
+        "EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE",
         "EA_MEMORIAL_DATA_HOST_PATH",
         "EA_MEMORIAL_IMAGE",
         "EA_MEMORIAL_RUNTIME_HOST_PATH",
         "EA_MEMORIAL_TRUSTED_PROXY_CIDRS",
     }
+)
+RECOVERY_INGRESS_INERT_CARTESIA_CREDENTIAL_HOST_FILE = Path(
+    "/dev/null/ea-memorial-recovery-cartesia.json"
 )
 RECOVERY_INGRESS_INERT_DATA_HOST_PATH = Path("/dev/null/ea-memorial-recovery-data")
 RECOVERY_INGRESS_INERT_RUNTIME_HOST_PATH = Path(
@@ -3952,10 +3956,16 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             raise DeployError("joint_recovery_ingress_api_proxy_cidr_invalid")
 
         inert_paths = {
+            "EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE": (
+                RECOVERY_INGRESS_INERT_CARTESIA_CREDENTIAL_HOST_FILE
+            ),
             "EA_MEMORIAL_DATA_HOST_PATH": RECOVERY_INGRESS_INERT_DATA_HOST_PATH,
             "EA_MEMORIAL_RUNTIME_HOST_PATH": (RECOVERY_INGRESS_INERT_RUNTIME_HOST_PATH),
         }
         expected_inert_paths = {
+            "EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE": (
+                "/dev/null/ea-memorial-recovery-cartesia.json"
+            ),
             "EA_MEMORIAL_DATA_HOST_PATH": ("/dev/null/ea-memorial-recovery-data"),
             "EA_MEMORIAL_RUNTIME_HOST_PATH": ("/dev/null/ea-memorial-recovery-runtime"),
         }
@@ -3988,6 +3998,9 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 raise DeployError("joint_recovery_ingress_api_inert_path_invalid")
 
         environment = {
+            "EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE": str(
+                RECOVERY_INGRESS_INERT_CARTESIA_CREDENTIAL_HOST_FILE
+            ),
             "EA_MEMORIAL_DATA_HOST_PATH": str(RECOVERY_INGRESS_INERT_DATA_HOST_PATH),
             "EA_MEMORIAL_IMAGE": image_reference,
             "EA_MEMORIAL_RUNTIME_HOST_PATH": str(

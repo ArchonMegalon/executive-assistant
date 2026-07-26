@@ -7128,7 +7128,21 @@ def test_memorial_compose_override_is_api_only() -> None:
     assert "/app/scripts" not in raw
     assert "/app/.codex" not in raw
     assert "/app/config" not in raw
-    assert "/run/secrets" not in raw
+    cartesia_mount = (
+        "${EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE:?"
+        "set a receipt-validated protected Cartesia credential file}:"
+        "/run/secrets/ea_memorial_cartesia.json:ro"
+    )
+    cartesia_runtime_path = (
+        "EA_CARTESIA_CREDENTIALS_JSON_FILE="
+        "/run/secrets/ea_memorial_cartesia.json"
+    )
+    assert raw.count(cartesia_mount) == 1
+    assert raw.count(cartesia_runtime_path) == 1
+    assert "/run/secrets" not in raw.replace(cartesia_mount, "").replace(
+        cartesia_runtime_path,
+        "",
+    )
     assert raw.count("${EA_MEMORIAL_RUNTIME_HOST_PATH:?") == 3
     assert "\n  ea-worker:" not in raw
     assert "\n  ea-scheduler:" not in raw

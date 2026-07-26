@@ -152,6 +152,21 @@ def test_production_memorial_compose_is_image_pure_and_numeric_nonroot() -> None
     assert raw.count("${EA_MEMORIAL_DATA_HOST_PATH:?") == 1
     assert raw.count("${EA_MEMORIAL_RUNTIME_HOST_PATH:?") == 3
     assert "ea_artifacts:/data/artifacts" in raw
+    cartesia_mount = (
+        "${EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE:?"
+        "set a receipt-validated protected Cartesia credential file}:"
+        "/run/secrets/ea_memorial_cartesia.json:ro"
+    )
+    cartesia_runtime_path = (
+        "EA_CARTESIA_CREDENTIALS_JSON_FILE="
+        "/run/secrets/ea_memorial_cartesia.json"
+    )
+    assert raw.count(cartesia_mount) == 1
+    assert raw.count(cartesia_runtime_path) == 1
+    raw_without_cartesia_mount = raw.replace(cartesia_mount, "").replace(
+        cartesia_runtime_path,
+        "",
+    )
     for forbidden in (
         "/app/app",
         "/app/scripts",
@@ -161,7 +176,7 @@ def test_production_memorial_compose_is_image_pure_and_numeric_nonroot() -> None
         "./ea/",
         "./scripts/",
     ):
-        assert forbidden not in raw
+        assert forbidden not in raw_without_cartesia_mount
     for required_binding in (
         "EA_DEPLOY_IMAGE_ID",
         "EA_MEMORIAL_PROVIDER_VOICE_ID_SHA256",

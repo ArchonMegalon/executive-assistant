@@ -76,6 +76,7 @@ PRODUCTION_PUBLIC_OPENAPI_RETIREMENT_KEYS = {
     "status_code",
 }
 RECOVERY_INGRESS_SUPPLEMENTAL_ENV_KEYS = {
+    "EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE",
     "EA_MEMORIAL_DATA_HOST_PATH",
     "EA_MEMORIAL_IMAGE",
     "EA_MEMORIAL_RUNTIME_HOST_PATH",
@@ -1352,6 +1353,7 @@ def test_recovery_ingress_api_interpolation_is_exact_inert_and_ambient_safe(
         "EA_API_TOKEN": "ambient-api-secret",
         "EA_CF_TUNNEL_TOKEN": "ambient-tunnel-secret",
         "EA_MEMORIAL_DATA_HOST_PATH": "/ambient/data",
+        "EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE": "/ambient/cartesia.json",
         "EA_MEMORIAL_IMAGE": "ea-runtime:ambient",
         "EA_MEMORIAL_RUNTIME_HOST_PATH": "/ambient/runtime",
         "EA_MEMORIAL_TRUSTED_PROXY_CIDRS": "198.51.100.0/24",
@@ -1364,6 +1366,9 @@ def test_recovery_ingress_api_interpolation_is_exact_inert_and_ambient_safe(
     assert set(supplemental) == RECOVERY_INGRESS_SUPPLEMENTAL_ENV_KEYS
     assert set(supplemental) == set(joint.RECOVERY_INGRESS_API_INTERPOLATION_ENV_KEYS)
     assert supplemental == {
+        "EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE": str(
+            joint.RECOVERY_INGRESS_INERT_CARTESIA_CREDENTIAL_HOST_FILE
+        ),
         "EA_MEMORIAL_DATA_HOST_PATH": str(joint.RECOVERY_INGRESS_INERT_DATA_HOST_PATH),
         "EA_MEMORIAL_IMAGE": previous["image_reference"],
         "EA_MEMORIAL_RUNTIME_HOST_PATH": str(
@@ -1376,12 +1381,12 @@ def test_recovery_ingress_api_interpolation_is_exact_inert_and_ambient_safe(
     assert all(
         Path(value).is_absolute()
         for key, value in supplemental.items()
-        if key.endswith("_HOST_PATH")
+        if key.endswith(("_HOST_FILE", "_HOST_PATH"))
     )
     assert all(
         Path(value).parent == Path("/dev/null")
         for key, value in supplemental.items()
-        if key.endswith("_HOST_PATH")
+        if key.endswith(("_HOST_FILE", "_HOST_PATH"))
     )
 
     recovery_ingress = lane._build_ingress_lane(
