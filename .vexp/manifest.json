@@ -541,7 +541,7 @@
     "ea/app/services/memorial_archive_registry.py": "e3ffc19bc430fa8a38d9e589e57ea10e3de27f1a31e633e285904fb8349a5d17",
     "ea/app/services/memorial_chatlab_integration.py": "ff79e79920a22e5631379fd2eff9fa01787236e1b786b5253b209d8454759c82",
     "ea/app/services/memorial_family_contributions.py": "fecfb741cf470c969ed174df52581f1c1ea278330e18db3671461e261dcf93c7",
-    "ea/app/services/memorial_memory.py": "9fcc9104538388f04d8ab563abbcc0aae404e5f3c6071c728de344459d85b005",
+    "ea/app/services/memorial_memory.py": "3ca7b7917cd48430dddd96266bf8eef31dac262396af8466971e88b3bc33d453",
     "ea/app/services/memorial_narration_cast_resolution.py": "e21a04eedf068cec3e511fab138f42d7cc9836c65726a4fec9f899a1580e9aea",
     "ea/app/services/memorial_narration_work_package.py": "217812640639418a04a542652d4d497604f8c6c15c3c13f00a3be72a344b0e3d",
     "ea/app/services/memorial_openvoice.py": "fe80a3085319d0ca8909f1417f300e6986b53d7133767d6b98b458ddb042baac",
@@ -1590,7 +1590,7 @@
     "tests/test_memorial_joggai_provider_contracts.py": "c3296ddc605f566bb3542d6ae753dff6ecf7485d250d0b76bdfe0f8663b6c402",
     "tests/test_memorial_live_conversation_contracts.py": "7bb28933a893c598d5bfaa134678bacadcd9a8c080b862b8b5924834cf065702",
     "tests/test_memorial_memory_room.py": "0e62ad6426cdc59b601bc07076911560d70e16afec27e30941f92dd3a9372089",
-    "tests/test_memorial_memory_service.py": "5137e44b62dc5873ff01b5e5891323eff4f1a47405971ef4a06ff02f7887cc89",
+    "tests/test_memorial_memory_service.py": "51462bcf151c0ee85d25c340f7b74a39e21f104bb6274e0165a713d84a814a90",
     "tests/test_memorial_openvoice_voicewave.py": "584911083ba3f2382e29d270a991829b9d29db17c9fb8a00e456e89e9cc364d4",
     "tests/test_memorial_operator_artifacts.py": "252c1194d678b45da598cb466e9ac6033a88ac70bc4f36ed86cac6deb90eb77e",
     "tests/test_memorial_path_defaults.py": "37caa71fb36ddd61beec23a4b85958a6e3cd05c89bff6a953cbc581ed62a0c16",
@@ -1842,13 +1842,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "318b3b6e214f107a324c906f573a11d88a189016",
-  "indexed_at_timestamp": "2026-07-26T09:19:12.215613057+00:00",
+  "indexed_at_commit": "9eca6856000968b737311776558c08fd5c399c7d",
+  "indexed_at_timestamp": "2026-07-26T09:33:29.777857705+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 45999,
+    "total_edges": 46001,
     "total_files": 1841,
-    "total_nodes": 28927
+    "total_nodes": 28928
   },
   "vexp_version": "2.3.1"
 }

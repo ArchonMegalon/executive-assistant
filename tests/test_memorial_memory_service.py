@@ -320,6 +320,61 @@ def test_seed_memorial_source_memories_rejects_conflicting_duplicate_key(
     assert len(runtime.created_items) == 2
 
 
+def test_seed_memorial_source_memories_uses_exact_store_when_manifest_is_unwritable(
+    monkeypatch,
+) -> None:
+    runtime = _FakeMemoryRuntime()
+    monkeypatch.setattr(
+        memorial_memory,
+        "_load_seed_manifest",
+        lambda _slug: {"processed_keys": []},
+    )
+
+    def fail_save(_slug: str, _payload: dict[str, object]) -> None:
+        raise PermissionError("read-only candidate mount")
+
+    monkeypatch.setattr(memorial_memory, "_save_seed_manifest", fail_save)
+    payload = {
+        "memory_cards": [
+            {
+                "public": True,
+                "title": "Gerechtigkeit",
+                "body": "Tatsachen, Verantwortung und Fairness gehoeren zusammen.",
+            }
+        ]
+    }
+
+    first = memorial_memory.seed_memorial_source_memories(
+        memory_runtime=runtime,
+        principal_id="memorial:manfred",
+        memorial_slug="manfred",
+        memorial_payload=payload,
+        reviewer="test",
+    )
+    replayed = memorial_memory.seed_memorial_source_memories(
+        memory_runtime=runtime,
+        principal_id="memorial:manfred",
+        memorial_slug="manfred",
+        memorial_payload=payload,
+        reviewer="test",
+    )
+    rows = memorial_memory.retrieve_memorial_memory_items(
+        memory_runtime=runtime,
+        principal_id="memorial:manfred",
+        question="Gerechtigkeit Verantwortung Fairness",
+        public_only=True,
+        public_approval_keys=replayed["public_approval_keys"],
+    )
+
+    assert first["created"] == 1
+    assert first["manifest_persisted"] is False
+    assert replayed["created"] == 0
+    assert replayed["manifest_persisted"] is False
+    assert replayed["public_approval_keys"] == first["public_approval_keys"]
+    assert len(runtime.created_items) == 1
+    assert len(rows) == 1
+
+
 def _hold_memorial_storage_lock(archive_root: str, acquired, release) -> None:
     memorial_memory._ARCHIVE_ROOT = Path(archive_root)
     with memorial_memory._memorial_storage_lock("manfred"):

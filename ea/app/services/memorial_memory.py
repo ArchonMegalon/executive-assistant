@@ -1437,13 +1437,17 @@ def _seed_memorial_source_memories_locked(
                 public_approved=_source_item_is_public(note),
             )
 
-    _save_seed_manifest(
-        slug,
-        {
-            'processed_keys': sorted(processed),
-            'public_approval_keys': sorted(current_public_approval_keys),
-        },
-    )
+    manifest_persisted = True
+    try:
+        _save_seed_manifest(
+            slug,
+            {
+                'processed_keys': sorted(processed),
+                'public_approval_keys': sorted(current_public_approval_keys),
+            },
+        )
+    except (OSError, ValueError):
+        manifest_persisted = False
     return {
         'memorial_slug': slug,
         'principal_id': principal_id,
@@ -1451,6 +1455,7 @@ def _seed_memorial_source_memories_locked(
         'created_keys': created_keys[:100],
         'processed_total': len(processed),
         'public_approval_keys': sorted(current_public_approval_keys),
+        'manifest_persisted': manifest_persisted,
     }
 
 
