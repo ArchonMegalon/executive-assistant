@@ -1224,7 +1224,7 @@
     "scripts/prepare_memorial_unmixr_refresh_packet.py": "56c45ff89add848fbd5bd6c32faf047b50ee04802275aed205e001caaa28aba6",
     "scripts/prepare_memorial_vidboard_avatar_packet.py": "8ace0263cfe3560e7bf9fae3f2041c65a7fbcdfe3987b4df034477f3096c185d",
     "scripts/probe_poppy_ai_browseract_publish.py": "6c3f74d0d771f69adf50bd4414568d731b0bc00e8056d5fa174ba0a89fb0155c",
-    "scripts/probe_poppy_ai_provider.py": "f486f31046e547275e798811627f0987ce8853f00f2be50a80e8caa6133a7ba6",
+    "scripts/probe_poppy_ai_provider.py": "beed57405d6efac387456a0dc3b93155fd826e0a406ad9523cac343ac43250cf",
     "scripts/probe_vocallab_provider.py": "49750feb84f2d753dab21f72ecc50a2cdb9bb731dfff6be82f56ad9c17d47d4d",
     "scripts/process_emailit_delivery_outbox.py": "6acd43177d78a98c491cfd492a461c4e38d3a1e310de130ff4794b26c0f650f1",
     "scripts/process_whatsapp_web_session_actions.py": "ed39b1eac9b22a4311670aec4befee98e3060c26136d71d7359626b7e6a7eda2",
@@ -1688,6 +1688,7 @@
     "tests/test_proactive_ooda_telegram_approval.py": "cdef543f6e50ad83d47103204ae2ecdbc6d921f30227dd4f7c5ea9dacf73bdf9",
     "tests/test_proactive_signal_discovery.py": "9452e006eb307bcfb8bc61f808cbe4445b7a93f980a40e6176fcf682903111af",
     "tests/test_proactive_telegram_binding.py": "7a3e3d473dfd7cace54dacd062da59f07689f20f660bcfa2f4fd42b388abb3a2",
+    "tests/test_probe_poppy_ai_provider.py": "6fb071007933dbabd1cd15b5a0a10007c3121f49be411f325bd5de8f4617a34d",
     "tests/test_process_whatsapp_web_session_actions.py": "67568e9d10a894158cc91b8e09059eeb4e983eb55366a460da3aa4d13737402f",
     "tests/test_product_browser_journeys.py": "4738d09a3edbc7ac440c841c1907e9a6d6b0db6580ded6d2fda3b520a547e398",
     "tests/test_product_entitlement_contracts.py": "cbef4ceceacc79d567752bd8d68c782e4b6dd0b957489e010e7bd5f871f0a85b",
@@ -1842,13 +1843,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "0881e23fb7f1d73f79fc05458f848de92b8a9c03",
-  "indexed_at_timestamp": "2026-07-26T15:31:09.499265344+00:00",
+  "indexed_at_commit": "faf141a56c9cc9e0aa9985873a9020a295e175a2",
+  "indexed_at_timestamp": "2026-07-26T17:56:21.444859873+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 46033,
-    "total_files": 1841,
-    "total_nodes": 28958
+    "total_edges": 46023,
+    "total_files": 1842,
+    "total_nodes": 28961
   },
   "vexp_version": "2.3.1"
 }

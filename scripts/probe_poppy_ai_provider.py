@@ -172,15 +172,21 @@ def main() -> int:
         client_json = {}
     client_payload = unwrap_clerk_object(client_json)
 
-    sign_in_status, sign_in_body, _sign_in_headers = http_request(
-        f"https://{frontend_api_host}/v1/client/sign_ins",
-        method="POST",
-        payload={
-            "strategy": "password",
-            "identifier": env_value("POPPY_LOGIN_EMAIL", "BROWSERACT_USERNAME"),
-            "password": env_value("BROWSERACT_PASSWORD") or "",
-        },
-    )
+    poppy_login_email = env_value("POPPY_LOGIN_EMAIL")
+    poppy_login_password = env_value("POPPY_LOGIN_PASSWORD")
+    poppy_password_probe_configured = bool(poppy_login_email and poppy_login_password)
+    if poppy_password_probe_configured:
+        sign_in_status, sign_in_body, _sign_in_headers = http_request(
+            f"https://{frontend_api_host}/v1/client/sign_ins",
+            method="POST",
+            payload={
+                "strategy": "password",
+                "identifier": poppy_login_email,
+                "password": poppy_login_password,
+            },
+        )
+    else:
+        sign_in_status, sign_in_body, _sign_in_headers = 0, "", {}
     try:
         sign_in_json = json.loads(sign_in_body or "{}")
     except json.JSONDecodeError:
@@ -257,6 +263,7 @@ def main() -> int:
         "sign_in_probe": {
             "url": f"https://{frontend_api_host}/v1/client/sign_ins",
             "status_code": sign_in_status,
+            "credentials_configured": poppy_password_probe_configured,
             "supported_identifiers": supported_identifiers,
             "supported_first_factors": factor_strategies,
             "password_factor_available": "password" in {value.lower() for value in factor_strategies},
@@ -288,12 +295,21 @@ def main() -> int:
                 "BrowserAct account is reachable and workflow inventory is enumerable. The live Clerk auth posture "
                 "still exposes Google/ticket factors without a password factor, but a host headful Chromium lane "
                 "under xvfb-run now proves an authenticated Poppy session on the onboarding surface."
+                if authenticated_session_proven
+                else (
+                    "Poppy marketing, Clerk login, and client surfaces are reachable, but no authenticated "
+                    "session receipt is present. Runtime and release use remain unverified."
+                )
             ),
         },
         "boundaries": [
             "inventory_only",
             "provider_reachable",
-            "authenticated_session_proven_host_headful_only",
+            (
+                "authenticated_session_proven_host_headful_only"
+                if authenticated_session_proven
+                else "authenticated_session_unproven"
+            ),
             "browseract_seeded_but_not_published_for_poppy",
             "no_runtime_enablement",
             "no_product_truth",
