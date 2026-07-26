@@ -32,6 +32,9 @@ REQUIRED_ROOM_CHECK_IDS = [
     "normal_spoken_turn_confirmed",
     "interruption_behavior_confirmed",
     "retry_path_confirmed",
+    "likeness_accepted",
+    "warmth_accepted",
+    "pronunciation_accepted",
 ]
 ROOM_AUDIO_RECEIPT_CONTRACT = "ea.memorial_room_audio_public_origin"
 ROOM_AUDIO_RECEIPT_CONTRACT_VERSION = 2

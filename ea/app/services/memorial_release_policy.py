@@ -206,6 +206,9 @@ MANFRED_VOICE_PUBLIC_EVALUATION_MANUAL_CHECK_IDS = (
     "normal_spoken_turn_confirmed",
     "interruption_behavior_confirmed",
     "retry_path_confirmed",
+    "likeness_accepted",
+    "warmth_accepted",
+    "pronunciation_accepted",
 )
 PUBLIC_EVALUATION_AUTHORIZATION_REF_SHA256_SEMANTICS = (
     "sha256_utf8_pseudonymous_public_evaluation_authorization_reference_v1"

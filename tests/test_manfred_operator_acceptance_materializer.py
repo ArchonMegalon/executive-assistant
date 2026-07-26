@@ -130,6 +130,9 @@ def test_materializes_exact_private_source_image_origin_and_voice_bound_receipt(
         "normal_spoken_turn_confirmed",
         "interruption_behavior_confirmed",
         "retry_path_confirmed",
+        "likeness_accepted",
+        "warmth_accepted",
+        "pronunciation_accepted",
     ),
 )
 def test_each_named_human_confirmation_is_individually_required(

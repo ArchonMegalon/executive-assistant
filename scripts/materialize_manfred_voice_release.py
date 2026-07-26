@@ -74,6 +74,9 @@ ROOM_AND_SPOKEN_TURN_CHECK_IDS = (
     "normal_spoken_turn_confirmed",
     "interruption_behavior_confirmed",
     "retry_path_confirmed",
+    "likeness_accepted",
+    "warmth_accepted",
+    "pronunciation_accepted",
 )
 
 READINESS_EVIDENCE_KEYS = frozenset(

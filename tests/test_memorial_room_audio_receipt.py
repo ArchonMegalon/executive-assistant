@@ -46,6 +46,9 @@ def _complete_private_room_args(module, *, review_session):
         normal_spoken_turn_confirmed=True,
         interruption_behavior_confirmed=True,
         retry_path_confirmed=True,
+        likeness_accepted=True,
+        warmth_accepted=True,
+        pronunciation_accepted=True,
         review_session=review_session,
     )
 
@@ -152,6 +155,9 @@ def test_room_audio_receipt_fails_closed_until_every_manual_check_is_present(mon
         normal_spoken_turn_confirmed=False,
         interruption_behavior_confirmed=False,
         retry_path_confirmed=False,
+        likeness_accepted=False,
+        warmth_accepted=False,
+        pronunciation_accepted=False,
     )
 
     receipt = module.build_receipt(args)
@@ -166,6 +172,9 @@ def test_room_audio_receipt_fails_closed_until_every_manual_check_is_present(mon
     assert "normal_spoken_turn_confirmed_missing" in receipt["failed_codes"]
     assert "interruption_behavior_confirmed_missing" in receipt["failed_codes"]
     assert "retry_path_confirmed_missing" in receipt["failed_codes"]
+    assert "likeness_accepted_missing" in receipt["failed_codes"]
+    assert "warmth_accepted_missing" in receipt["failed_codes"]
+    assert "pronunciation_accepted_missing" in receipt["failed_codes"]
 
 
 def test_room_audio_receipt_passes_for_complete_public_origin_check(monkeypatch) -> None:
@@ -207,6 +216,9 @@ def test_room_audio_receipt_passes_for_complete_public_origin_check(monkeypatch)
         normal_spoken_turn_confirmed=True,
         interruption_behavior_confirmed=True,
         retry_path_confirmed=True,
+        likeness_accepted=True,
+        warmth_accepted=True,
+        pronunciation_accepted=True,
     )
 
     receipt = module.build_receipt(args)
@@ -227,7 +239,21 @@ def test_room_audio_receipt_passes_for_complete_public_origin_check(monkeypatch)
     assert receipt["checks"]["normal_spoken_turn_confirmed"] is True
     assert receipt["checks"]["interruption_behavior_confirmed"] is True
     assert receipt["checks"]["retry_path_confirmed"] is True
-    assert "normal_spoken_turn_confirmed" in receipt["check_requirements"]
+    assert receipt["checks"]["likeness_accepted"] is True
+    assert receipt["checks"]["warmth_accepted"] is True
+    assert receipt["checks"]["pronunciation_accepted"] is True
+    assert set(receipt["check_requirements"]) == set(
+        module.ROOM_AUDIO_CHECK_REQUIREMENTS
+    )
+    assert "recognizable likeness of Manfred" in receipt[
+        "check_requirements"
+    ]["likeness_accepted"]
+    assert "warm and emotionally appropriate" in receipt[
+        "check_requirements"
+    ]["warmth_accepted"]
+    assert "names, places, and ordinary German words" in receipt[
+        "check_requirements"
+    ]["pronunciation_accepted"]
 
 
 def test_private_room_receipt_propagates_auth_but_exposes_only_safe_binding(
@@ -376,6 +402,9 @@ def test_room_audio_receipt_rejects_placeholder_room_review_labels(monkeypatch) 
         normal_spoken_turn_confirmed=True,
         interruption_behavior_confirmed=True,
         retry_path_confirmed=True,
+        likeness_accepted=True,
+        warmth_accepted=True,
+        pronunciation_accepted=True,
     )
 
     receipt = module.build_receipt(args)
@@ -416,6 +445,9 @@ def test_room_audio_receipt_requires_manual_attestation(monkeypatch) -> None:
         normal_spoken_turn_confirmed=True,
         interruption_behavior_confirmed=True,
         retry_path_confirmed=True,
+        likeness_accepted=True,
+        warmth_accepted=True,
+        pronunciation_accepted=True,
     )
 
     receipt = module.build_receipt(args)

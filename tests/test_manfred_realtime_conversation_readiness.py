@@ -26,6 +26,9 @@ ROOM_CHECK_IDS = [
     "normal_spoken_turn_confirmed",
     "interruption_behavior_confirmed",
     "retry_path_confirmed",
+    "likeness_accepted",
+    "warmth_accepted",
+    "pronunciation_accepted",
 ]
 
 
@@ -986,10 +989,15 @@ def test_manfred_realtime_room_audio_accepts_canonical_manual_contract(
             normal_spoken_turn_confirmed=True,
             interruption_behavior_confirmed=True,
             retry_path_confirmed=True,
+            likeness_accepted=True,
+            warmth_accepted=True,
+            pronunciation_accepted=True,
             review_session=None,
         )
     )
 
+    assert materializer.REQUIRED_ROOM_CHECK_IDS == ROOM_CHECK_IDS
+    assert list(producer.ROOM_AUDIO_CHECK_REQUIREMENTS) == ROOM_CHECK_IDS
     assert materializer._room_audio_receipt_is_authoritative(
         room_receipt
     )

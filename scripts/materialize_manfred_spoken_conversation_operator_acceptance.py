@@ -43,8 +43,8 @@ from scripts.materialize_manfred_voice_release import (  # noqa: E402
 
 OPERATOR_ACCEPTANCE_CONFIRMATION = (
     "I reviewed Manfred's bound synthetic spoken conversation on the phase-1 "
-    "live private-review surface and confirm all nine room and spoken-turn "
-    "checks."
+    "live private-review surface and confirm every required room and "
+    "spoken-turn check."
 )
 
 

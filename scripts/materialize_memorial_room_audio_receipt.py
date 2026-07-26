@@ -52,6 +52,9 @@ ROOM_AUDIO_CHECK_REQUIREMENTS = {
     "normal_spoken_turn_confirmed": "A normal spoken question completed as microphone capture, STT, answer, TTS, and playback.",
     "interruption_behavior_confirmed": "Intentional interruption or barge-in behavior was observed and was not harsh or confusing.",
     "retry_path_confirmed": "The tester observed a clear retry/recovery path after an acoustic or turn-taking problem.",
+    "likeness_accepted": "The human tester accepted the synthetic voice as a recognizable likeness of Manfred for this memorial review.",
+    "warmth_accepted": "The human tester accepted the delivery as warm and emotionally appropriate for the memorial conversation.",
+    "pronunciation_accepted": "The human tester accepted the pronunciation of names, places, and ordinary German words as clear and natural.",
 }
 
 
@@ -371,6 +374,9 @@ def main() -> int:
     parser.add_argument("--normal-spoken-turn-confirmed", action="store_true")
     parser.add_argument("--interruption-behavior-confirmed", action="store_true")
     parser.add_argument("--retry-path-confirmed", action="store_true")
+    parser.add_argument("--likeness-accepted", action="store_true")
+    parser.add_argument("--warmth-accepted", action="store_true")
+    parser.add_argument("--pronunciation-accepted", action="store_true")
     args = parser.parse_args()
 
     review_cookie_file = str(args.review_session_cookie_file or "").strip()

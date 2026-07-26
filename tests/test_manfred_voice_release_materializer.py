@@ -42,6 +42,27 @@ def test_hosted_clone_empty_reference_aggregate_is_canonical() -> None:
     assert reference_aggregate_sha256([]) == hashlib.sha256(b"[]").hexdigest()
 
 
+def test_release_requires_all_room_spoken_turn_and_voice_quality_checks(
+    modules: tuple[ModuleType, ModuleType],
+) -> None:
+    release, _authority = modules
+
+    assert release.ROOM_AND_SPOKEN_TURN_CHECK_IDS == (
+        "actual_device_checked",
+        "actual_speaker_checked",
+        "first_syllable_not_clipped",
+        "intelligibility_confirmed",
+        "answer_text_fallback_visible",
+        "no_internet_search_confirmed",
+        "normal_spoken_turn_confirmed",
+        "interruption_behavior_confirmed",
+        "retry_path_confirmed",
+        "likeness_accepted",
+        "warmth_accepted",
+        "pronunciation_accepted",
+    )
+
+
 def _module(path: Path, name: str) -> ModuleType:
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec is not None and spec.loader is not None
