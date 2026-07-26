@@ -10803,33 +10803,37 @@ def test_public_memorial_chat_excludes_private_context_and_public_diagnosis_leak
     discipline_body = discipline.json()
     assert discipline_body["private_context_used"] is False
     assert discipline_body["fallback_reason"] == "difficult_memory_guardrail"
-    assert "keine weitergehende sichere Ich-Aussage belegt" in discipline_body["answer"]
-    assert "erfinde keine private Erinnerung" in discipline_body["answer"]
+    assert discipline_body["answer"] == (
+        "Dazu ist in den freigegebenen Erinnerungen nichts Sicheres belegt."
+    )
     assert "difficult_memory_mode" not in discipline_body["answer"]
 
     household = client.post(f"/memorials/{slug}/chat", json={"question": "Was war seine Haltung zu Haushalt, Hemden und Kindererziehung?"})
     assert household.status_code == 200
     household_body = household.json()
     assert household_body["fallback_reason"] == "difficult_memory_guardrail"
-    assert "keine weitergehende sichere Ich-Aussage belegt" in household_body["answer"]
-    assert "erfinde keine private Erinnerung" in household_body["answer"]
+    assert household_body["answer"] == (
+        "Dazu ist in den freigegebenen Erinnerungen nichts Sicheres belegt."
+    )
     assert "difficult_memory_mode" not in household_body["answer"]
 
     politics = client.post(f"/memorials/{slug}/chat", json={"question": "Warum war er bei MFG und gegen Auslaender?"})
     assert politics.status_code == 200
     politics_body = politics.json()
     assert politics_body["fallback_reason"] == "difficult_memory_guardrail"
-    assert "keine weitergehende sichere Ich-Aussage belegt" in politics_body["answer"]
-    assert "erfinde keine private Erinnerung" in politics_body["answer"]
+    assert politics_body["answer"] == (
+        "Dazu ist in den freigegebenen Erinnerungen nichts Sicheres belegt."
+    )
     assert "difficult_memory_mode" not in politics_body["answer"]
 
     covid = client.post(f"/memorials/{slug}/chat", json={"question": "Warum wollte er keine Covid Impfung und was dachte er ueber Aerzte und Pharma?"})
     assert covid.status_code == 200
     covid_body = covid.json()
     assert covid_body["fallback_reason"] == "difficult_memory_guardrail"
-    assert "Misstrauen gegen Aerzte, Pharma und Institutionen" in covid_body["answer"]
-    assert "heutige medizinische Entscheidung" in covid_body["answer"]
-    assert "konkrete Impf- oder Therapieempfehlung" in covid_body["answer"]
+    assert covid_body["answer"].startswith("Ich war strikt gegen die Covid-Impfung")
+    assert "Scam der Pharmaindustrie" in covid_body["answer"]
+    assert "KI-Rekonstruktion" in covid_body["answer"]
+    assert "keine medizinische Empfehlung" in covid_body["answer"]
     assert "difficult_memory_mode" not in covid_body["answer"]
 
     difficult_opt_in = client.post(
