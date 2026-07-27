@@ -81,6 +81,11 @@ HOST_RESOURCE_VOLATILE_KEYS = {
     "triggered_thresholds",
     "usage_percent",
 }
+LIVE_HOST_CAPACITY_VOLATILE_KEYS = {
+    "host_root_available_bytes",
+    "host_root_available_gb",
+    "host_root_usage_percent",
+}
 JUNIT_VOLATILE_ATTRIBUTES = {"hostname", "time", "timestamp"}
 PYTEST_TERMINAL_DURATION_RE = re.compile(r"(?<=\bin )\d+(?:\.\d+)?s\b")
 LIVE_RECEIPT_FOLLOWTHROUGH_REPAIR_ACTION = "repair_proactive_operator_runtime_posture"
@@ -198,6 +203,7 @@ def _normalize(value: Any, *, _path: tuple[str, ...] = ()) -> Any:
                 or key_str.endswith("_updated_at")
                 or key_str.endswith("_observed_at")
                 or key_str.endswith("_age_seconds")
+                or key_str in LIVE_HOST_CAPACITY_VOLATILE_KEYS
                 or (
                     _path
                     and _path[-1] == "host_resource_guard"

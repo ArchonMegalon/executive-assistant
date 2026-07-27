@@ -225,6 +225,12 @@ def vscode_processes(rows: list[ProcessRow]) -> tuple[set[int], list[ProcessRow]
     return extension_tree | file_watcher_roots, extension_roots
 
 
+def codex_processes(rows: list[ProcessRow]) -> set[int]:
+    """Return every Codex process tree that must share the fleet cgroup."""
+    roots = {row.pid for row in rows if row.comm == "codex"}
+    return _descendants(roots, rows)
+
+
 def vscode_runaway_signal(roots: list[ProcessRow]) -> signal.Signals | None:
     largest_rss = max((row.rss_kib for row in roots), default=0)
     if largest_rss >= VSCODE_KILL_RSS_KIB:
@@ -251,6 +257,13 @@ def _ensure_controllers(*, dry_run: bool) -> None:
         _write(path, controller, dry_run=dry_run)
 
 
+def _assign_processes(profile: str, pids: set[int], *, dry_run: bool) -> None:
+    target = CGROUP_ROOT / profile / "cgroup.procs"
+    for pid in sorted(pids):
+        if Path(f"/proc/{pid}").exists() or dry_run:
+            _write(target, pid, dry_run=dry_run)
+
+
 def apply_profiles(rows: list[ProcessRow], *, dry_run: bool) -> tuple[set[int], list[ProcessRow]]:
     _ensure_controllers(dry_run=dry_run)
     for name, limits in PROFILES.items():
@@ -261,10 +274,8 @@ def apply_profiles(rows: list[ProcessRow], *, dry_run: bool) -> tuple[set[int], 
             _write(group / setting, value, dry_run=dry_run)
 
     vscode_pids, extension_roots = vscode_processes(rows)
-    target = CGROUP_ROOT / "host-vscode-guard" / "cgroup.procs"
-    for pid in sorted(vscode_pids):
-        if Path(f"/proc/{pid}").exists():
-            _write(target, pid, dry_run=dry_run)
+    _assign_processes("host-vscode-guard", vscode_pids, dry_run=dry_run)
+    _assign_processes("host-codex-fleet-lowprio", codex_processes(rows), dry_run=dry_run)
     return vscode_pids, extension_roots
 
 
@@ -390,6 +401,12 @@ def _self_test() -> None:
         Snapshot(**{**base, "mem_available": GIB, "swap_free": GIB, "memory_some_avg10": 4.0})
     ) == "critical"
     assert pressure_level(Snapshot(**{**base, "mem_available": 512 * MIB})) == "emergency"
+    processes = [
+        ProcessRow(100, 1, 1024, "codex", "/opt/codex/bin/codex"),
+        ProcessRow(101, 100, 2048, "node", "node mcp-server.js"),
+        ProcessRow(102, 1, 1024, "python3", "python3 worker.py --label codex"),
+    ]
+    assert codex_processes(processes) == {100, 101}
     print("host-resource-guard self-test: ok")
 
 
@@ -407,6 +424,7 @@ def main() -> int:
         parser.error("must run as root unless --dry-run is used")
 
     rows = _process_rows()
+    codex_pids = codex_processes(rows)
     if args.status:
         vscode_pids, extension_roots = vscode_processes(rows)
     else:
@@ -450,6 +468,7 @@ def main() -> int:
         "source": "live:/proc/meminfo+/proc/pressure+cgroup-v2",
         "snapshot": {**asdict(current), "swap_used_pct": round(current.swap_used_pct, 2)},
         "cgroups": groups,
+        "codex_pids": sorted(codex_pids),
         "vscode_pids": sorted(vscode_pids),
         "vscode_extension_rss_mib": [row.rss_kib // 1024 for row in extension_roots],
     }

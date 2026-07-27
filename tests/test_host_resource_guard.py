@@ -57,6 +57,28 @@ def test_vscode_selection_excludes_pty_and_terminal_children() -> None:
     assert [row.pid for row in roots] == [10]
 
 
+def test_apply_profiles_assigns_entire_codex_tree(monkeypatch) -> None:
+    rows = [
+        guard.ProcessRow(100, 1, 100, "codex", "/opt/codex/bin/codex"),
+        guard.ProcessRow(101, 100, 100, "node", "node mcp-server.js"),
+        guard.ProcessRow(102, 1, 100, "python3", "python3 worker.py --label codex"),
+    ]
+    writes: list[tuple[Path, int | str, bool]] = []
+
+    def record_write(path: Path, value: int | str, *, dry_run: bool) -> bool:
+        writes.append((path, value, dry_run))
+        return True
+
+    monkeypatch.setattr(guard, "_write", record_write)
+    guard.apply_profiles(rows, dry_run=True)
+
+    target = guard.CGROUP_ROOT / "host-codex-fleet-lowprio" / "cgroup.procs"
+    assert [(path, value) for path, value, _ in writes if path == target] == [
+        (target, 100),
+        (target, 101),
+    ]
+
+
 def test_vscode_runaway_cutoff_handles_preexisting_charges() -> None:
     normal = [guard.ProcessRow(10, 1, 512 * 1024, "MainThread", "extension host")]
     terminate = [guard.ProcessRow(10, 1, 4 * guard.GIB // 1024, "MainThread", "extension host")]

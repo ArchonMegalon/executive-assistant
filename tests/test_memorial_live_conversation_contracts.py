@@ -6126,6 +6126,8 @@ def test_memorial_realtime_ready_declares_current_fallback_and_live_audio_target
     assert ready["audio_transport"] == "ea_websocket_audio_turn"
     assert ready["turn_timing"] == "buffered_audio_turn"
     assert ready["provider"] == "ea_memorial_turn"
+    assert ready["fallback_provider"] == "ea_memorial_turn"
+    assert ready["fallback_transport"] == "ea_websocket_audio_turn"
     assert ready["native_realtime_available"] is False
     assert "openai" not in json.dumps(ready).lower()
 
@@ -10431,7 +10433,13 @@ def test_memorial_gemini_live_websocket_streams_pcm_to_upstream(
 
     with client.websocket_connect(f"/memorials/{slug}/realtime?personal_memory=1") as websocket:
         ready = websocket.receive_json()
+        assert ready["mode"] == "memorial_realtime_voice"
+        assert ready["audio_transport"] == "gemini_live_websocket_pcm"
+        assert ready["turn_timing"] == "streaming_audio_server_vad"
         assert ready["provider"] == "gemini_live"
+        assert ready["native_realtime_available"] is False
+        assert ready["gemini_live_transport_available"] is True
+        assert ready["output_audio_provider"] == public_memorials.MANFRED_TTS_PROVIDER
         websocket.send_json(
             {
                 "type": "user_audio_start",
@@ -10488,6 +10496,137 @@ def test_memorial_gemini_live_websocket_streams_pcm_to_upstream(
     assert admission_index < listening_index < transcript_index
     assert any(message.get("type") == "transcript" and "Hallo Manfred" in message.get("text", "") for message in messages)
     assert any(message.get("type") == "audio_chunk" and message.get("content_type") == "audio/pcm;rate=24000" for message in messages)
+    assert any(message.get("type") == "turn_complete" for message in messages)
+
+
+def test_memorial_websocket_without_gemini_streams_grounded_clone_tts_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    for name in list(os.environ):
+        if name.startswith("GOOGLE_API_KEY_FALLBACK_"):
+            monkeypatch.delenv(name, raising=False)
+    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "EA_GEMINI_API_KEY", "EA_GOOGLE_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_OAUTH", "0")
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(public_memorials, "_require_voice_consent", lambda *args, **kwargs: None)
+
+    async def _unexpected_gemini_connect(*args, **kwargs):
+        seen["gemini_connect_called"] = True
+        raise AssertionError("Gemini must not be contacted in spoken-turn fallback mode")
+
+    monkeypatch.setattr(public_memorials, "websockets", SimpleNamespace(connect=_unexpected_gemini_connect))
+    assert public_memorials._gemini_live_available() is False
+
+    def _fake_transcribe(*, payload: bytes, content_type: str) -> dict[str, object]:
+        seen["stt_payload"] = payload
+        seen["stt_content_type"] = content_type
+        return {
+            "transcription_status": "transcribed",
+            "transcript_text": "Was hast du über deine Jugend erzählt?",
+            "transcriber": "deterministic-test-stt",
+        }
+
+    monkeypatch.setattr(public_memorials, "_memorial_transcribe_audio_blob", _fake_transcribe)
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_chat_answer",
+        lambda *args, **kwargs: {
+            "answer": "Ich habe erzählt, dass meine Jugend von Familie und Arbeit geprägt war.",
+            "sources": [{"label": "Interview Audio", "url": "https://youtube.example/interview"}],
+            "llm_model": "deterministic-test-model",
+            "llm_provider": "deterministic-test-provider",
+            "llm_fallback_used": False,
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_voice_config",
+        lambda slug: {
+            "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "live-unmixr-id",
+            "voice_profile_ready": True,
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_tts_plugin_options",
+        lambda *, payload, voice_profile_ready: {
+            public_memorials.UNMIXR_TTS_PLUGIN_ID: {
+                "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+                "tts_plugin_enabled": True,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_resolve_server_tts_plugin",
+        lambda *, payload, options: (
+            public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            options[public_memorials.UNMIXR_TTS_PLUGIN_ID],
+        ),
+    )
+
+    def _fake_render(**kwargs):
+        seen["tts_text"] = kwargs["text"]
+        seen["tts_plugin"] = kwargs["selected_plugin"]
+        return b"deterministic-clone-audio", "audio/wav"
+
+    monkeypatch.setattr(public_memorials, "_render_memorial_tts_audio", _fake_render)
+    client = _client(principal_id="exec-memorial-live-no-gemini-fallback")
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime") as websocket:
+        ready = websocket.receive_json()
+        assert ready["mode"] == "spoken_turn_fallback"
+        assert ready["audio_transport"] == "ea_websocket_audio_turn"
+        assert ready["turn_timing"] == "buffered_audio_turn"
+        assert ready["provider"] == "ea_memorial_turn"
+        assert ready["fallback_provider"] == "ea_memorial_turn"
+        assert ready["fallback_transport"] == "ea_websocket_audio_turn"
+        assert ready["native_realtime_available"] is False
+
+        websocket.send_json(
+            {
+                "type": "user_audio_start",
+                "turn_id": "turn_no_gemini",
+                "content_type": "audio/pcm;rate=16000",
+                "transport": "gemini_live",
+            }
+        )
+        websocket.send_bytes(_pcm16_speech_bytes(samples=3200))
+        websocket.send_json({"type": "user_audio_end", "turn_id": "turn_no_gemini"})
+        messages = []
+        for _ in range(16):
+            message = websocket.receive_json()
+            messages.append(message)
+            if message.get("type") in {"turn_complete", "error"}:
+                break
+
+    assert seen["stt_content_type"] == "audio/wav"
+    assert bytes(seen["stt_payload"]).startswith(b"RIFF")
+    assert "gemini_connect_called" not in seen
+    assert seen["tts_plugin"] == public_memorials.UNMIXR_TTS_PLUGIN_ID
+    assert "Jugend" in str(seen["tts_text"])
+    assert any(
+        message.get("type") == "transcript"
+        and message.get("text") == "Was hast du über deine Jugend erzählt?"
+        for message in messages
+    )
+    answer = next(message for message in messages if message.get("type") == "answer")
+    assert answer["sources"] == [{"label": "Interview Audio", "url": "https://youtube.example/interview"}]
+    assert any(
+        message.get("type") == "audio_chunk" and message.get("content_type") == "audio/wav"
+        for message in messages
+    )
+    assert any(
+        message.get("type") == "audio_complete" and message.get("content_type") == "audio/wav"
+        for message in messages
+    )
     assert any(message.get("type") == "turn_complete" for message in messages)
 
 

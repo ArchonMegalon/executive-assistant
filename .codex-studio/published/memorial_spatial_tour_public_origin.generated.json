@@ -7,8 +7,8 @@
   "gold_claim_allowed": false,
   "head_semantics": "source_state",
   "provider_calls_performed": false,
-  "source_git_head": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
-  "source_state_fingerprint": "362cc24a424ad0f930637202232846f2d3bf4186fadffe6820be3b41133ae663",
+  "source_git_head": "4ffe7353bec945c1519f4c366c532b9affc2a7bf",
+  "source_state_fingerprint": "42bf3387b617cf7510bf015e0ac52ffd33c9d314a3c5dc19518cccf0dd842da3",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "source_worktree_dirty": true,
   "status": "blocked"

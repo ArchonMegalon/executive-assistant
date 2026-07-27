@@ -1,13 +1,13 @@
 {
   "contract_name": "ea.memorial_stt_provider_benchmark",
-  "generated_at": "2026-07-22T14:31:06Z",
+  "generated_at": "2026-07-27T10:24:23Z",
   "generated_by": "scripts/benchmark_memorial_stt_providers.py",
-  "source_git_head": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
+  "source_git_head": "67ddbc3451ef50f3548401de660561bd51f2a390",
   "head_semantics": "source_state",
-  "source_state_fingerprint": "362cc24a424ad0f930637202232846f2d3bf4186fadffe6820be3b41133ae663",
+  "source_state_fingerprint": "4ce5c69c3ae2f006338119c49bc6ba0a15f1314145a7f4147d12c82fde2bf765",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "captured_candidate_binding": {},
-  "status": "blocked",
+  "status": "pass",
   "scoring": {
     "pass_rule": "usable transcript + required tokens present + token_f1 >= sample min + WER <= sample max",
     "raw_provider_transcript_scored": true,
@@ -25,8 +25,8 @@
   "availability": {
     "providers": {
       "full_runtime": {
-        "configured": false,
-        "credential_source": "none"
+        "configured": true,
+        "credential_source": "default_credential_file"
       },
       "shadow": {
         "configured": true,
@@ -42,7 +42,7 @@
       "file_count": 2,
       "loaded_count": 443,
       "provider_families": {
-        "cartesia": false,
+        "cartesia": true,
         "onemin": true,
         "blipai_shadow": true
       }
@@ -57,6 +57,17 @@
   },
   "provider_ranking": [
     {
+      "provider": "full_runtime",
+      "passed_samples": 4,
+      "sample_count": 4,
+      "scored_samples": 4,
+      "intent_correct_samples": 4,
+      "avg_token_f1": 1.0,
+      "avg_wer": 0.0,
+      "avg_latency_ms": 307.2,
+      "production_eligible": true
+    },
+    {
       "provider": "onemin_sample",
       "passed_samples": 2,
       "sample_count": 4,
@@ -64,18 +75,7 @@
       "intent_correct_samples": 2,
       "avg_token_f1": 0.9445,
       "avg_wer": 0.0556,
-      "avg_latency_ms": 2642.2,
-      "production_eligible": false
-    },
-    {
-      "provider": "full_runtime",
-      "passed_samples": 2,
-      "sample_count": 4,
-      "scored_samples": 4,
-      "intent_correct_samples": 2,
-      "avg_token_f1": 0.9445,
-      "avg_wer": 0.0556,
-      "avg_latency_ms": 2830.5,
+      "avg_latency_ms": 2856.1,
       "production_eligible": false
     },
     {
@@ -86,7 +86,7 @@
       "intent_correct_samples": 0,
       "avg_token_f1": 0.0,
       "avg_wer": 1.0,
-      "avg_latency_ms": 828.4,
+      "avg_latency_ms": 862.9,
       "production_eligible": false
     }
   ],
@@ -196,7 +196,7 @@
           "code": "provider_http_error",
           "detail_sha256": "3dd56c119406f43e14cf9ad117fa7e288547b0b13b6d4ea2aee17a5d45916993"
         },
-        "ms": 828.4,
+        "ms": 862.9,
         "wer": 1.0,
         "token_f1": 0.0,
         "min_token_f1": 0.65,
@@ -223,7 +223,7 @@
       },
       "onemin_sample": {
         "status": "ok",
-        "ms": 2802.4,
+        "ms": 2306.7,
         "wer": 0.0,
         "token_f1": 1.0,
         "min_token_f1": 0.65,
@@ -327,7 +327,7 @@
       },
       "full_runtime": {
         "status": "transcribed",
-        "ms": 6724.9,
+        "ms": 605.4,
         "wer": 0.0,
         "token_f1": 1.0,
         "min_token_f1": 0.65,
@@ -350,8 +350,8 @@
         "provider_evidence_failed_codes": [],
         "scored_text_source": "primary_transcript_text",
         "transcriber": {
-          "family": "unknown",
-          "identifier_sha256": "c3987baec6689fb560d28b210e435b46d73ccb9ba829d04055623be407790041"
+          "family": "cartesia",
+          "identifier_sha256": "6e40259d3b564bc9230f166b59a7d60c97d9c5cc58e5b0685c74ba07b7f10d0d"
         },
         "text_mode": "redacted"
       },
@@ -390,7 +390,7 @@
       },
       "onemin_sample": {
         "status": "ok",
-        "ms": 2286.0,
+        "ms": 3015.5,
         "wer": 0.0,
         "token_f1": 1.0,
         "min_token_f1": 0.65,
@@ -483,20 +483,20 @@
       },
       "full_runtime": {
         "status": "transcribed",
-        "ms": 2382.4,
-        "wer": 0.1111,
-        "token_f1": 0.8889,
+        "ms": 318.3,
+        "wer": 0.0,
+        "token_f1": 1.0,
         "min_token_f1": 0.55,
         "max_wer": 0.55,
         "expected_text_chars": 43,
         "actual_text_chars": 43,
         "required_token_count": 2,
-        "intent_correct": false,
+        "intent_correct": true,
         "usable": true,
-        "passed": false,
+        "passed": true,
         "text_redacted": true,
         "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
-        "actual_text_sha256": "fa84ea621e8902472b29c592ce20469d3b3d31743c2bbd5a234e3dba145b969a",
+        "actual_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
         "required_token_sha256": [
           "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
           "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
@@ -505,8 +505,8 @@
         "provider_evidence_failed_codes": [],
         "scored_text_source": "primary_transcript_text",
         "transcriber": {
-          "family": "unknown",
-          "identifier_sha256": "c3987baec6689fb560d28b210e435b46d73ccb9ba829d04055623be407790041"
+          "family": "cartesia",
+          "identifier_sha256": "6e40259d3b564bc9230f166b59a7d60c97d9c5cc58e5b0685c74ba07b7f10d0d"
         },
         "text_mode": "redacted"
       },
@@ -544,7 +544,7 @@
       },
       "onemin_sample": {
         "status": "ok",
-        "ms": 3210.6,
+        "ms": 3134.2,
         "wer": 0.1111,
         "token_f1": 0.8889,
         "min_token_f1": 0.55,
@@ -647,20 +647,20 @@
       },
       "full_runtime": {
         "status": "transcribed",
-        "ms": 2214.4,
-        "wer": 0.1111,
-        "token_f1": 0.8889,
+        "ms": 304.9,
+        "wer": 0.0,
+        "token_f1": 1.0,
         "min_token_f1": 0.55,
         "max_wer": 0.55,
         "expected_text_chars": 43,
         "actual_text_chars": 43,
         "required_token_count": 2,
-        "intent_correct": false,
+        "intent_correct": true,
         "usable": true,
-        "passed": false,
+        "passed": true,
         "text_redacted": true,
         "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
-        "actual_text_sha256": "fa84ea621e8902472b29c592ce20469d3b3d31743c2bbd5a234e3dba145b969a",
+        "actual_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
         "required_token_sha256": [
           "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
           "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
@@ -669,8 +669,8 @@
         "provider_evidence_failed_codes": [],
         "scored_text_source": "primary_transcript_text",
         "transcriber": {
-          "family": "unknown",
-          "identifier_sha256": "c3987baec6689fb560d28b210e435b46d73ccb9ba829d04055623be407790041"
+          "family": "cartesia",
+          "identifier_sha256": "6e40259d3b564bc9230f166b59a7d60c97d9c5cc58e5b0685c74ba07b7f10d0d"
         },
         "text_mode": "redacted"
       },
@@ -708,7 +708,7 @@
       },
       "onemin_sample": {
         "status": "ok",
-        "ms": 2269.9,
+        "ms": 2968.1,
         "wer": 0.1111,
         "token_f1": 0.8889,
         "min_token_f1": 0.55,

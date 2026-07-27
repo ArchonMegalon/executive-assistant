@@ -207,6 +207,32 @@ def test_generated_release_artifact_normalizer_ignores_live_whatsapp_qr_timestam
     assert module._normalize(before) == module._normalize(after)
 
 
+def test_generated_release_artifact_normalizer_ignores_live_host_capacity_not_pressure_state() -> None:
+    module = _load_module()
+    before = {
+        "status": "ready",
+        "probe": {
+            "host_root_available_bytes": 20_000_000_000,
+            "host_root_available_gb": 18.63,
+            "host_root_usage_percent": 97.3,
+            "host_disk_pressure_detected": False,
+        },
+    }
+    after = {
+        "status": "ready",
+        "probe": {
+            "host_root_available_bytes": 19_999_000_000,
+            "host_root_available_gb": 18.62,
+            "host_root_usage_percent": 97.4,
+            "host_disk_pressure_detected": False,
+        },
+    }
+
+    assert module._normalize(before) == module._normalize(after)
+    after["probe"]["host_disk_pressure_detected"] = True
+    assert module._normalize(before) != module._normalize(after)
+
+
 def test_generated_release_artifact_normalizer_preserves_semantic_status_drift() -> None:
     module = _load_module()
 

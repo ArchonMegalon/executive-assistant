@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.telegram_video_delivery_live_receipt",
-  "generated_at": "2026-07-22T14:29:12Z",
+  "generated_at": "2026-07-27T10:22:51Z",
   "generated_by": "scripts/materialize_telegram_video_delivery_live_receipt.py",
-  "source_git_head": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
+  "source_git_head": "67ddbc3451ef50f3548401de660561bd51f2a390",
   "head_semantics": "source_state",
   "output_path": ".codex-studio/published/telegram_video_delivery_live.generated.json",
   "status": "blocked",

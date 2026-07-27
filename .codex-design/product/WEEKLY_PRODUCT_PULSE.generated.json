@@ -1,40 +1,47 @@
 {
   "contract_name": "ea.weekly_product_pulse",
   "contract_version": 1,
-  "generated_at": "2026-07-22T14:03:42Z",
-  "as_of": "2026-07-22",
+  "generated_at": "2026-07-27T10:24:37Z",
+  "as_of": "2026-07-27",
   "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
   "release_truth_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
   "release_truth_provenance": {
-    "source_path": "/home/tibor/.local/share/ea-releases/ea-main-495a9c39-20260721/.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-    "resolved_path": "/home/tibor/.local/share/ea-releases/ea-main-495a9c39-20260721/.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
+    "source_path": "/docker/EA/.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
+    "resolved_path": "/docker/EA/.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
     "present": true,
-    "size_bytes": 7179,
-    "mtime_utc": "2026-07-22T14:00:26Z",
-    "sha256": "fc3f85c0f7002c5df582272080335173bdf93ce746f08aad7ac23b49491c3c95",
-    "git_repo_root": "/home/tibor/.local/share/ea-releases/ea-main-495a9c39-20260721",
-    "git_head": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
-    "git_branch": "main",
+    "size_bytes": 7561,
+    "mtime_utc": "2026-07-27T10:24:37Z",
+    "sha256": "1b4219bb56d229347976d073bbcb58f01b831252f01616396ea9d0919a4fb469",
+    "git_repo_root": "/docker/EA",
+    "git_head": "67ddbc3451ef50f3548401de660561bd51f2a390",
+    "git_branch": "codex/audiobook-source-to-performance-20260719",
     "repo_relative_path": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
   },
   "release_authority_source": ".codex-studio/published/release_manifest.generated.json",
   "release_authority_provenance": {
-    "source_path": "/home/tibor/.local/share/ea-releases/ea-main-495a9c39-20260721/.codex-studio/published/release_manifest.generated.json",
-    "resolved_path": "/home/tibor/.local/share/ea-releases/ea-main-495a9c39-20260721/.codex-studio/published/release_manifest.generated.json",
+    "source_path": "/docker/EA/.codex-studio/published/release_manifest.generated.json",
+    "resolved_path": "/docker/EA/.codex-studio/published/release_manifest.generated.json",
     "present": true,
-    "size_bytes": 7802,
-    "mtime_utc": "2026-07-22T14:03:35Z",
-    "sha256": "02ba7e1f106b5cf2fa202adedfb73d97af197ee2fd256bc487fb98245c685e63",
-    "git_repo_root": "/home/tibor/.local/share/ea-releases/ea-main-495a9c39-20260721",
-    "git_head": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
-    "git_branch": "main",
+    "size_bytes": 6020,
+    "mtime_utc": "2026-07-27T10:24:30Z",
+    "sha256": "0df2122120455a3bf96b63b92e340d2185d78cd80bd674be72e2da74f35caa88",
+    "git_repo_root": "/docker/EA",
+    "git_head": "67ddbc3451ef50f3548401de660561bd51f2a390",
+    "git_branch": "codex/audiobook-source-to-performance-20260719",
     "repo_relative_path": ".codex-studio/published/release_manifest.generated.json"
   },
   "journey_gate_source": "ea/_completion/fleet/JOURNEY_GATES.generated.json",
   "journey_gate_provenance": {
-    "source_path": "/home/tibor/.local/share/ea-releases/ea-manfred-main-integration-20260714/ea/_completion/fleet/JOURNEY_GATES.generated.json",
-    "resolved_path": "/home/tibor/.local/share/ea-releases/ea-manfred-main-integration-20260714/ea/_completion/fleet/JOURNEY_GATES.generated.json",
-    "present": false
+    "source_path": "/docker/EA/ea/_completion/fleet/JOURNEY_GATES.generated.json",
+    "resolved_path": "/docker/EA/ea/_completion/fleet/JOURNEY_GATES.generated.json",
+    "present": true,
+    "size_bytes": 363,
+    "mtime_utc": "2026-06-22T15:09:08Z",
+    "sha256": "393e73411e5727539027135dc54ae70e43d3c9220cd0be9ba01df19a26350678",
+    "git_repo_root": "/docker/EA",
+    "git_head": "67ddbc3451ef50f3548401de660561bd51f2a390",
+    "git_branch": "codex/audiobook-source-to-performance-20260719",
+    "repo_relative_path": "ea/_completion/fleet/JOURNEY_GATES.generated.json"
   },
   "summary": "Executive Assistant is blocked on flagship release truth: the machine-readable flagship receipt is blocked, the fleet journey gate is ready, and 0 journey(s) still block wider claims.",
   "active_wave": "EA flagship receipt closeout",
@@ -99,14 +106,14 @@
     {
       "decision_id": "2026-04-10-focus-ea-flagship-receipt-closeout",
       "action": "focus_shift",
-      "reason": "Keep the weekly pulse anchored to the EA flagship receipt and fleet journey truth. The receipt is blocked, journey gates are ready, and the ready share is 95%.",
+      "reason": "Keep the weekly pulse anchored to the EA flagship receipt and fleet journey truth. The receipt is blocked, journey gates are ready, and the ready share is 100%.",
       "cited_signals": [
         "flagship_receipt_status=blocked",
         "journey_gate_state=ready",
         "journey_gate_blocked_count=0",
-        "journey_gate_ready_count=0",
-        "journey_gate_total_count=0",
-        "ready_share=95"
+        "journey_gate_ready_count=6",
+        "journey_gate_total_count=6",
+        "ready_share=100"
       ]
     },
     {
@@ -125,7 +132,7 @@
   "supporting_signals": {
     "current_recommended_wave": "EA flagship receipt closeout",
     "overall_progress_percent": 95,
-    "registry_completion_percent": 95,
+    "registry_completion_percent": 100,
     "progress_metric_note": "overall_progress_percent is capped below 100 while release_health is blocked; registry_completion_percent records journey registry completion separately.",
     "phase_label": "Preview-only flagship closeout",
     "history_snapshot_count": 1,
@@ -134,18 +141,23 @@
     "provider_route_stewardship": {
       "default_status": "EA routes are governed by local truth surfaces.",
       "canary_status": "Browser execution proof is still missing; cross-host journey coverage remains blocked.",
-      "review_due": "2026-07-29T14:03:42Z",
+      "review_due": "2026-08-03T10:24:37Z",
       "next_decision": "Publish browser execution proof, then re-materialize the weekly pulse and release receipt."
     },
     "release_authority_state": "blocked",
     "release_authority_issues": [
+      "tracking_branch_missing",
+      "source_remote_ref_missing",
+      "source_remote_ref_commit_sha_missing",
+      "source_remote_ref_evidence_invalid",
+      "source_commit_not_reachable_from_remote_ref",
       "deployment_id_local_fallback",
       "dirty_worktree"
     ],
     "journey_gate_source": "ea/_completion/fleet/JOURNEY_GATES.generated.json",
-    "journey_gate_git_head": "",
+    "journey_gate_git_head": "67ddbc3451ef50f3548401de660561bd51f2a390",
     "flagship_release_receipt_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-    "flagship_release_receipt_git_head": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
+    "flagship_release_receipt_git_head": "67ddbc3451ef50f3548401de660561bd51f2a390",
     "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
     "release_pipeline_source": ".codex-design/product/RELEASE_PIPELINE.md",
     "governor_loop_source": ".codex-design/product/PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md",
@@ -213,14 +225,14 @@
       {
         "decision_id": "2026-04-10-focus-ea-flagship-receipt-closeout",
         "action": "focus_shift",
-        "reason": "Keep the weekly pulse anchored to the EA flagship receipt and fleet journey truth. The receipt is blocked, journey gates are ready, and the ready share is 95%.",
+        "reason": "Keep the weekly pulse anchored to the EA flagship receipt and fleet journey truth. The receipt is blocked, journey gates are ready, and the ready share is 100%.",
         "cited_signals": [
           "flagship_receipt_status=blocked",
           "journey_gate_state=ready",
           "journey_gate_blocked_count=0",
-          "journey_gate_ready_count=0",
-          "journey_gate_total_count=0",
-          "ready_share=95"
+          "journey_gate_ready_count=6",
+          "journey_gate_total_count=6",
+          "ready_share=100"
         ]
       },
       {

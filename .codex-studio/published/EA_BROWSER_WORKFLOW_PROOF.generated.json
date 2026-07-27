@@ -4,48 +4,48 @@
   "surface": "browser_workflow_proof",
   "version": 3,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-22T14:29:10Z",
+  "generated_at": "2026-07-27T10:51:20Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
-  "run_id": "d7abf75a26ce481f9b78c309f3c23b79",
+  "run_id": "d988e6e951254551adad32688753e7e2",
   "trust_model": "local_unsigned_process_evidence",
   "environment_policy": {
     "name": "ea.browser_workflow_proof.hermetic",
     "version": 1
   },
-  "source_revision": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
-  "source_tree": "6c6c13ef498df2e74fbd7fd2ba997862a231342c",
+  "source_revision": "4ffe7353bec945c1519f4c366c532b9affc2a7bf",
+  "source_tree": "fa57afd5402a5525e2df6ea161cd198990e1e062",
   "source_worktree_dirty": true,
   "source_state_samples": [
     {
       "stage": "before_tests",
-      "revision": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
-      "tree": "6c6c13ef498df2e74fbd7fd2ba997862a231342c",
+      "revision": "4ffe7353bec945c1519f4c366c532b9affc2a7bf",
+      "tree": "fa57afd5402a5525e2df6ea161cd198990e1e062",
       "dirty": true
     },
     {
       "stage": "after_source",
-      "revision": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
-      "tree": "6c6c13ef498df2e74fbd7fd2ba997862a231342c",
+      "revision": "4ffe7353bec945c1519f4c366c532b9affc2a7bf",
+      "tree": "fa57afd5402a5525e2df6ea161cd198990e1e062",
       "dirty": true
     },
     {
       "stage": "after_browser",
-      "revision": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
-      "tree": "6c6c13ef498df2e74fbd7fd2ba997862a231342c",
+      "revision": "4ffe7353bec945c1519f4c366c532b9affc2a7bf",
+      "tree": "fa57afd5402a5525e2df6ea161cd198990e1e062",
       "dirty": true
     },
     {
       "stage": "before_publish",
-      "revision": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
-      "tree": "6c6c13ef498df2e74fbd7fd2ba997862a231342c",
+      "revision": "4ffe7353bec945c1519f4c366c532b9affc2a7bf",
+      "tree": "fa57afd5402a5525e2df6ea161cd198990e1e062",
       "dirty": true
     }
   ],
   "snapshot": {
     "archive_format": "git_archive_tar",
     "read_only": false,
-    "source_revision": "3aa52edd8119e588da610a9cee0d1a38bc4f04c5",
-    "source_tree": "6c6c13ef498df2e74fbd7fd2ba997862a231342c",
+    "source_revision": "4ffe7353bec945c1519f4c366c532b9affc2a7bf",
+    "source_tree": "fa57afd5402a5525e2df6ea161cd198990e1e062",
     "seal_algorithm": "sha256-content-posix-stat-v1",
     "read_only_enforcement": "owner_mode_bits_plus_content_stat_seal_and_inotify_watch",
     "seal_samples": [],

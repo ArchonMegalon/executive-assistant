@@ -26747,6 +26747,11 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             "audio_transport": "ea_websocket_audio_turn",
             "turn_timing": "buffered_audio_turn",
             "native_realtime_available": False,
+            "fallback_provider": "ea_memorial_turn",
+            "fallback_transport": "ea_websocket_audio_turn",
+            "redesign_target": "native_speech_to_speech_live_audio",
+            "gemini_live_transport_available": False,
+            "output_audio_provider": MANFRED_TTS_PROVIDER,
         }
     await websocket.send_json(ready_payload)
     current_voice_ab_variant = _voice_ab_variant_from_request(websocket=websocket)
