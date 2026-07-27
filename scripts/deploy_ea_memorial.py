@@ -4274,9 +4274,8 @@ class MemorialDeployLane:
                     )
                 external_layer_names.append(prior_file.name)
         observed_layer_names = tuple(path.name for path in prior_files)
-        canonical_in_root_topology = (
-            prior_root == self.root
-            and not external_layer_names
+        canonical_release_topology = (
+            not external_layer_names
             and observed_layer_names == TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER
             and all(
                 path == prior_root / basename
@@ -4320,7 +4319,7 @@ class MemorialDeployLane:
             return
         if (
             TRUSTED_EXTERNAL_BRIDGE_ONLY_LAYERS.intersection(observed_layer_names)
-            and not canonical_in_root_topology
+            and not canonical_release_topology
         ):
             raise DeployError("forward_canonical_layer_topology_invalid")
 
@@ -4378,7 +4377,27 @@ class MemorialDeployLane:
 
         if not prior_memorial_layer_replaced:
             release_files.append(MEMORIAL_COMPOSE_FILE)
-        if canonical_in_root_topology:
+        if canonical_release_topology:
+            prior_environment_files = [
+                prior_root / EA_RUNTIME_ENV_DIRECTORY / EA_RUNTIME_ENV_FILE
+            ]
+            if (prior_root / ".env.local").is_file():
+                prior_environment_files.append(
+                    prior_root
+                    / EA_RUNTIME_ENV_DIRECTORY
+                    / EA_RUNTIME_LOCAL_ENV_FILE
+                )
+            prior_environment_file_names = tuple(
+                path.as_posix() for path in prior_environment_files
+            )
+            if (
+                self._prior_compose_environment_files
+                != prior_environment_file_names
+                or self._prior_compose_environment_file_label
+                != ",".join(prior_environment_file_names)
+            ):
+                raise DeployError("forward_canonical_environment_label_invalid")
+
             release_environment_files = [
                 self.root / EA_RUNTIME_ENV_DIRECTORY / EA_RUNTIME_ENV_FILE
             ]
@@ -4391,13 +4410,6 @@ class MemorialDeployLane:
             release_environment_file_names = tuple(
                 path.as_posix() for path in release_environment_files
             )
-            if (
-                self._prior_compose_environment_files
-                != release_environment_file_names
-                or self._prior_compose_environment_file_label
-                != ",".join(release_environment_file_names)
-            ):
-                raise DeployError("forward_canonical_environment_label_invalid")
             self.target_compose_environment_files = (
                 release_environment_file_names
             )

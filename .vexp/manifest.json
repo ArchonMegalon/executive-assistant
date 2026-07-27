@@ -1026,6 +1026,7 @@
     "memorial_archive/manfred/public/manfred-source-disclosure/source.md": "ed3160e8078a94c9431ed689a87e35d320c947fbc0e1374b17be9260d9305626",
     "memorial_archive/manfred/review/manfred-voice-consent-public-note/manifest.json": "f4e4cc82d6f425c893349d7f81567b640aec8ee6b077a2f25fec881c5221b715",
     "memorial_archive/manfred/review/manfred-voice-consent-public-note/source.md": "1e63553bc9190fd88b6e825768bb8c76346dc8b04b50240eec9820f566e57c4b",
+    "memorial_data/public_memorials/manfred/archive_registry.json": "74328107d767d0821772d5daf83877999603c47eec3dc80a017240d8f8044bc2",
     "scripts/__init__.py": "0b7d57344000246940b766f59add76d3345cdbbfa97d07b37d442b0691ee9a11",
     "scripts/activate_whatsapp_web_session.py": "41adc0c681b4cab920a609b7c34e4da7779e0d7f44364ec8004bd6de21518eb6",
     "scripts/analyze_nonverbia_custom_project.py": "12a901f339e2e757632c38fcb8a8286155ee9fc18af7f6d6234a9eb68be8cea0",
@@ -1102,7 +1103,7 @@
     "scripts/db_status.sh": "63f643d2b232f81ab3eca748df989f42589eeb766ad8a56c670203e254af9d25",
     "scripts/deploy.sh": "8b58844ecc348b6f65d6a547065070d4abdb92d8f64166db0253662b3472129b",
     "scripts/deploy_ea_audiobook_runtime.py": "6f64088eb42451da3c067f084a351e09528c018348e21322e015f141b40051ee",
-    "scripts/deploy_ea_memorial.py": "74287ecafebc48973d8d542e4ee3211d82308a20bebd078fd7f80a196c2690f9",
+    "scripts/deploy_ea_memorial.py": "e970353f674a1150e9863c4dc4fb30b896fe2ffa95204816de8bc6ff84e9c6bb",
     "scripts/deploy_ea_memorial_joint.py": "1a7b9ffffd9b55242623d378d0d12946a05cc0cc6c4b2e9fb72cba0ff1fa5973",
     "scripts/deploy_proactive_ooda_runtime.sh": "fc1f50168a7a69870a59234cfd03859bf7a6b2aa2649b11a2b38e899b28a079f",
     "scripts/diff_openapi.sh": "3e9259551ce0a3ed922cc1f3078c78bec125f0e5112db768cbb9e36aeef51f97",
@@ -1590,7 +1591,7 @@
     "tests/test_memorial_flagship_preflight.py": "1afdcab2209b829c7662f86dcb059b1913adf40b9273e877248f83c780d0f063",
     "tests/test_memorial_fliplink_publisher.py": "31bec15e989f4d9c4e771f2369e885a3e9919e50b69686bcdc09d1fa53f38a76",
     "tests/test_memorial_gold_readiness.py": "c7e78944308a88d4f2ad513dd3413dea5a7e1e3badeefe5316addc6826567715",
-    "tests/test_memorial_governed_deploy.py": "07ea54dc3fa22ebf4fbcbc9bb790aaa5f0ae8817a30b731ef3941601ff5d068f",
+    "tests/test_memorial_governed_deploy.py": "188f0541be558533f388ab530edcbfe243aa70a035203a4e215e459448e76aa6",
     "tests/test_memorial_helper_path_defaults.py": "2ba8a09bb6a582c7539c05100ba31d3122e8dca4e99af6f3dc2125002b9371a4",
     "tests/test_memorial_joggai_asset_receipts.py": "a75f2e0f6d6007360f8fd6d60ea34c2fcbd2e8b1c91faa5d0bf77557f3904429",
     "tests/test_memorial_joggai_provider_contracts.py": "c3296ddc605f566bb3542d6ae753dff6ecf7485d250d0b76bdfe0f8663b6c402",
@@ -1850,13 +1851,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "2db2a1efbca2fba53efdafb471f19c012acc5f91",
-  "indexed_at_timestamp": "2026-07-27T11:43:30.239349630+00:00",
+  "indexed_at_commit": "ded8c87b37c00bed618ab3fd1daf3502a502e77b",
+  "indexed_at_timestamp": "2026-07-27T12:14:30.960369210+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 46516,
-    "total_files": 1849,
-    "total_nodes": 29191
+    "total_edges": 46526,
+    "total_files": 1850,
+    "total_nodes": 29202
   },
   "vexp_version": "2.3.1"
 }
