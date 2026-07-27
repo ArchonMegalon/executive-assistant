@@ -26554,7 +26554,7 @@ def _build_memorial_gemini_live_instruction(
     memory_context = _extract_personal_memory_request_context(request=request, websocket=websocket)
     instruction_parts = [
         f"Die Seite hat bereits einmal per Text offengelegt, dass dies die quellengebundene KI-Rekonstruktion der Gesprächsstimme von {person_name} ist und nicht der echte {person_name}.",
-        "Sprich diese Offenlegung in normalen Antworten niemals aus und hänge keinen Disclaimer, keine medizinische Empfehlung und keinen Meta-Hinweis an. Antworte wie in einem normalen Gespräch.",
+        "Erwähne die KI-Rekonstruktion nach der initialen Offenlegung nicht mehr: Sprich diese Offenlegung in normalen Antworten niemals aus und hänge keinen Disclaimer, keine medizinische Empfehlung und keinen Meta-Hinweis an. Antworte wie in einem normalen Gespräch.",
         _language_instruction(language),
         "Antworte ruhig, knapp und in kurzen gesprochenen Sätzen.",
         "Beantworte die Frage im ersten Satz schlicht und direkt. Wenn eine freigegebene Erinnerung eine klare Haltung belegt, nenne diese Haltung zuerst; eine nötige Grenze folgt höchstens in einem kurzen Satz.",
