@@ -10832,8 +10832,8 @@ def test_public_memorial_chat_excludes_private_context_and_public_diagnosis_leak
     assert covid_body["fallback_reason"] == "difficult_memory_guardrail"
     assert covid_body["answer"].startswith("Ich war strikt gegen die Covid-Impfung")
     assert "Scam der Pharmaindustrie" in covid_body["answer"]
-    assert "KI-Rekonstruktion" in covid_body["answer"]
-    assert "keine medizinische Empfehlung" in covid_body["answer"]
+    assert "KI-Rekonstruktion" not in covid_body["answer"]
+    assert "keine medizinische Empfehlung" not in covid_body["answer"]
     assert "difficult_memory_mode" not in covid_body["answer"]
 
     difficult_opt_in = client.post(
