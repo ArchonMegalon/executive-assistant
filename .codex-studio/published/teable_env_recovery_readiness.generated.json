@@ -37,12 +37,12 @@
   "command_surface_ready": true,
   "contract_name": "ea.teable_env_recovery_readiness.v1",
   "fresh_host_drill_receipt_mirrored": false,
-  "generated_at": "2026-07-27T10:51:21Z",
+  "generated_at": "2026-07-27T10:53:42Z",
   "generated_by": "scripts/materialize_teable_env_recovery_readiness.py",
   "head_semantics": "source_state",
   "issues": [],
   "next_action": "run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
-  "output_path": "/tmp/ea-release-verify.IwX62F/.codex-studio/published/teable_env_recovery_readiness.generated.json",
+  "output_path": "/tmp/ea-release-verify.8GJuzq/.codex-studio/published/teable_env_recovery_readiness.generated.json",
   "required_next_receipts": [
     "fresh_host_teable_recovery_drill_receipt"
   ],
@@ -57,7 +57,7 @@
     "readme": "README.md",
     "sync_script": "scripts/sync_env_to_teable.py"
   },
-  "source_git_head": "4ffe7353bec945c1519f4c366c532b9affc2a7bf",
+  "source_git_head": "4747646399598ed083acbf1a39ea430d245f9925",
   "source_state_fingerprint": "42bf3387b617cf7510bf015e0ac52ffd33c9d314a3c5dc19518cccf0dd842da3",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_audit",
