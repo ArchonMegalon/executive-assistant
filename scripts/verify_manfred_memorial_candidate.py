@@ -2409,6 +2409,9 @@ def _verify_voice_provider_boundary(
     *,
     voice_release_expectation: Mapping[str, object] | None,
     request_fn: Callable[..., tuple[int, bytes, dict[str, str]]] = _request,
+    wait_seconds: int = 0,
+    sleep_fn: Callable[[float], None] = time.sleep,
+    monotonic_fn: Callable[[], float] = time.monotonic,
 ) -> dict[str, object]:
     expectation = _validated_voice_release_expectation(voice_release_expectation)
     if expectation is None:
@@ -2435,24 +2438,34 @@ def _verify_voice_provider_boundary(
             ),
         }
 
-    status, body, headers = request_fn(
-        base_url,
-        "/memorials/manfred/speech-synthesize",
-        method="POST",
-        payload={},
-        expected={400},
-    )
-    released = _json_body(
-        body,
-        path="/memorials/manfred/speech-synthesize",
-    )
-    if (
-        status != 400
-        or str(released.get("detail") or "") != "tts_text_missing"
-        or str(headers.get("x-ea-source-revision") or "")
-        != expectation["source_revision"]
-    ):
-        raise RuntimeError("candidate_voice_release_authorization_boundary_invalid")
+    deadline = monotonic_fn() + max(0, int(wait_seconds))
+    while True:
+        try:
+            status, body, headers = request_fn(
+                base_url,
+                "/memorials/manfred/speech-synthesize",
+                method="POST",
+                payload={},
+                expected={400},
+            )
+            released = _json_body(
+                body,
+                path="/memorials/manfred/speech-synthesize",
+            )
+            if (
+                status == 400
+                and str(released.get("detail") or "") == "tts_text_missing"
+                and str(headers.get("x-ea-source-revision") or "")
+                == expectation["source_revision"]
+            ):
+                break
+        except (RuntimeError, urllib.error.URLError):
+            pass
+        if monotonic_fn() >= deadline:
+            raise RuntimeError(
+                "candidate_voice_release_authorization_boundary_invalid"
+            )
+        sleep_fn(0.25)
     mode = (
         "signed_voice_release_authorized"
         if expectation["access_mode"] == VOICE_ACCESS_MODE_PUBLIC_RELEASE
@@ -2631,6 +2644,7 @@ def verify_candidate(
     voice_release_verification = _verify_voice_provider_boundary(
         base_url,
         voice_release_expectation=voice_release_expectation,
+        wait_seconds=wait_seconds,
     )
     if voice_release_expectation is None:
         checks.append("voice_provider_boundary_blocked")
