@@ -48,6 +48,24 @@ def test_generated_release_artifact_normalizer_ignores_host_runner_execution_fie
     assert module._normalize(head) == module._normalize(hosted)
 
 
+def test_generated_release_artifact_normalizer_ignores_checkout_local_output_paths() -> None:
+    module = _load_module()
+    first = {
+        "status": "ready",
+        "output_path": "/tmp/release-a/.codex-studio/published/readiness.json",
+        "canonical_output_path": "/tmp/release-a/.codex-studio/published/readiness.json",
+    }
+    second = {
+        "status": "ready",
+        "output_path": "/tmp/release-b/.codex-studio/published/readiness.json",
+        "canonical_output_path": "/tmp/release-b/.codex-studio/published/readiness.json",
+    }
+
+    assert module._normalize(first) == module._normalize(second)
+    second["status"] = "blocked"
+    assert module._normalize(first) != module._normalize(second)
+
+
 def test_generated_release_artifact_normalizer_ignores_raw_junit_timing_not_outcomes() -> None:
     module = _load_module()
     before = {

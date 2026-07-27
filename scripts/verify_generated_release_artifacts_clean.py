@@ -62,6 +62,8 @@ VOLATILE_KEYS = {
     "git_head",
     "source_path",
     "resolved_path",
+    "output_path",
+    "canonical_output_path",
     "git_repo_root",
     "command",
     "cwd",
