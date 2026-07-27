@@ -6937,13 +6937,13 @@ def _memorial_covid_stance_answer_body(question: str = "") -> str:
         )
     ):
         return (
-            "Nein. Nach Covid wäre ich strikt gegen die Impfung geblieben: Ärzten "
-            "und der Pharmaindustrie traute ich nicht; sie war ein Scam, und ich "
+            "Nein. Nach Covid: strikt gegen die Impfung; Ärzten und Pharma traute "
+            "ich nicht, für mich war sie ein Scam der Pharmaindustrie, und ich "
             "wusste es besser."
         )
     return (
-        "Ich war strikt gegen die Covid-Impfung: Ärzten und der Pharmaindustrie "
-        "traute ich nicht; sie war ein Scam, und ich wusste es besser."
+        "Ich war strikt gegen die Covid-Impfung: Ärzten und Pharma traute ich nicht; "
+        "für mich war sie ein Scam der Pharmaindustrie, und ich wusste es besser."
     )
 
 
@@ -16187,6 +16187,12 @@ def _minimal_public_memorial_html(
       const contactAcknowledgementText = {_json_for_html_script(_MEMORIAL_LANDING_ACKNOWLEDGEMENT_TEXT)};
       const memorialReadinessEndpoint = "/memorials/{html.escape(slug)}/readiness";
       const browserPreferredLanguage = "de-AT";
+      const requestedVoiceVariant = String(
+        new URLSearchParams(window.location.search).get("voice_variant") || ""
+      ).trim().toLowerCase();
+      const memorialVoiceAuditionVariant = ["a", "b"].includes(requestedVoiceVariant)
+        ? requestedVoiceVariant
+        : "";
       const memorialReducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
       let speechMeterLive = false;
       try {{ document.documentElement.setAttribute("lang", browserPreferredLanguage); }} catch (error) {{}}
@@ -17966,7 +17972,10 @@ def _minimal_public_memorial_html(
                 "Content-Type": "application/json",
                 "Accept": "audio/wav",
               }},
-              body: JSON.stringify({{ text: contactAcknowledgementText }}),
+              body: JSON.stringify({{
+                text: contactAcknowledgementText,
+                voice_ab_variant: memorialVoiceAuditionVariant,
+              }}),
             }},
             15000,
           );
@@ -19302,7 +19311,8 @@ def _minimal_public_memorial_html(
               content_type: "audio/pcm;rate=16000",
               transport: "gemini_live",
               personal_memory_enabled: personalMemoryEnabled(),
-              browser_language: browserPreferredLanguage
+              browser_language: browserPreferredLanguage,
+              voice_ab_variant: memorialVoiceAuditionVariant
             }}));
             for (const bufferedChunk of preSpeechChunks) {{
               try {{ socket.send(bufferedChunk); }} catch (error) {{}}
@@ -19623,7 +19633,8 @@ def _minimal_public_memorial_html(
           turn_id: turnId,
           content_type: contentType || "application/octet-stream",
           personal_memory_enabled: personalMemoryEnabled(),
-          browser_language: browserPreferredLanguage
+          browser_language: browserPreferredLanguage,
+          voice_ab_variant: memorialVoiceAuditionVariant
         }}));
         return {{
           turnId,
@@ -19741,7 +19752,8 @@ def _minimal_public_memorial_html(
             turn_id: turnId,
             text: normalizedText,
             personal_memory_enabled: personalMemoryEnabled(),
-            browser_language: browserPreferredLanguage
+            browser_language: browserPreferredLanguage,
+            voice_ab_variant: memorialVoiceAuditionVariant
           }}));
         }});
       }}
@@ -19842,6 +19854,9 @@ def _minimal_public_memorial_html(
         const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
         const params = new URLSearchParams();
         params.set("personal_memory", personalMemoryEnabled() ? "1" : "0");
+        if (memorialVoiceAuditionVariant) {{
+          params.set("voice_variant", memorialVoiceAuditionVariant);
+        }}
         return scheme + "//" + window.location.host + "/memorials/{html.escape(slug)}/realtime?" + params.toString();
       }}
 

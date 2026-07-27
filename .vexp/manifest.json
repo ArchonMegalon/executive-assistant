@@ -1564,7 +1564,7 @@
     "tests/test_manfred_capacity_remediation.py": "fcc8002ed4ec827cd5bc1bceb365deba9feeec27fbede85cc8ca81ca7aaaac8b",
     "tests/test_manfred_image_builder_cache.py": "3046c178e879e8b294b48d6f20b3fef428003d9e647ac8a5feb32cb6606089f9",
     "tests/test_manfred_joint_deploy.py": "cc1068e445fc2d3c9c94a685f0318354a8b1f903f291f29dc404f29c1eec995e",
-    "tests/test_manfred_memorial_deployment_contract.py": "9b486c96115f53306ea66a5bd9056e8d2999cf8ee470b32953201d0ae0bee139",
+    "tests/test_manfred_memorial_deployment_contract.py": "4104b313f7751b55add04953a7cb707480c24153e1056841eba4b213f9bdb7fb",
     "tests/test_manfred_operator_acceptance_materializer.py": "ece60960f68b727257ed13d2a2c63599e3ab25a29b7bda183f9a38403c98bf4a",
     "tests/test_manfred_realtime_conversation_readiness.py": "6865e5c63e936eb22d30c76140fa3ace47671e21d24da15f2c5946886e169a7b",
     "tests/test_manfred_spatial_candidate_browser.py": "3c363ac41b9730912b88ca63b9d9bfa1fd34b28413cad4960c3feb3045509335",
@@ -1850,8 +1850,8 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "56adb832c0c26c2e427e888ed402f0c4eb8274d6",
-  "indexed_at_timestamp": "2026-07-27T07:18:19.527509612+00:00",
+  "indexed_at_commit": "d270158cd9e85b36b040811923218c81a7cd5597",
+  "indexed_at_timestamp": "2026-07-27T08:23:55.650466362+00:00",
   "schema_version": 3,
   "stats": {
     "total_edges": 46515,

@@ -2706,6 +2706,22 @@ def test_manfred_public_page_uses_scoped_talk_only_minimal_theme() -> None:
         "if (memorialPagePrewarmEnabled) void primeMemorialLanding();"
         in conversation_only_html
     )
+    assert (
+        'new URLSearchParams(window.location.search).get("voice_variant")'
+        in conversation_only_html
+    )
+    assert (
+        'const memorialVoiceAuditionVariant = ["a", "b"].includes(requestedVoiceVariant)'
+        in conversation_only_html
+    )
+    assert (
+        'params.set("voice_variant", memorialVoiceAuditionVariant);'
+        in conversation_only_html
+    )
+    assert conversation_only_html.count(
+        "voice_ab_variant: memorialVoiceAuditionVariant"
+    ) == 4
+    assert "tts_plugin_voice_id" not in conversation_only_html
     rendered_contract = candidate_verify.verify_conversation_only_page_html(
         conversation_only_html.encode("utf-8")
     )
