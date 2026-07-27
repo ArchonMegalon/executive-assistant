@@ -2674,6 +2674,19 @@ def test_manfred_public_page_uses_scoped_talk_only_minimal_theme() -> None:
     assert 'role === "assistant" ? "Freddy" : "Du"' in conversation_only_html
     assert "KI-Begleiter" not in conversation_only_html
     assert "ist nicht Manfred und spricht nicht für ihn" in conversation_only_html
+    assert conversation_only_html.count('id="memorial-conversation-disclosure"') == 1
+    assert (
+        conversation_only_html.count(
+            "KI-Rekonstruktion auf der Grundlage freigegebener Erinnerungen und Quellen"
+        )
+        == 1
+    )
+    disclosure_tag = conversation_only_html.split(
+        'id="memorial-conversation-disclosure"',
+        1,
+    )[1].split("</p>", 1)[0]
+    assert "aria-live" not in disclosure_tag
+    assert "role=" not in disclosure_tag
     assert (
         'id="memorial-speech-note" hidden inert aria-hidden="true"'
         in conversation_only_html

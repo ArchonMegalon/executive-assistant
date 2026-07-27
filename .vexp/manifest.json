@@ -1564,7 +1564,7 @@
     "tests/test_manfred_capacity_remediation.py": "fcc8002ed4ec827cd5bc1bceb365deba9feeec27fbede85cc8ca81ca7aaaac8b",
     "tests/test_manfred_image_builder_cache.py": "3046c178e879e8b294b48d6f20b3fef428003d9e647ac8a5feb32cb6606089f9",
     "tests/test_manfred_joint_deploy.py": "cc1068e445fc2d3c9c94a685f0318354a8b1f903f291f29dc404f29c1eec995e",
-    "tests/test_manfred_memorial_deployment_contract.py": "52f9d4989a01e3ab3fbd393e60b1fcb0ec6552dd0b1de841c71c843692ab08cc",
+    "tests/test_manfred_memorial_deployment_contract.py": "9b486c96115f53306ea66a5bd9056e8d2999cf8ee470b32953201d0ae0bee139",
     "tests/test_manfred_operator_acceptance_materializer.py": "ece60960f68b727257ed13d2a2c63599e3ab25a29b7bda183f9a38403c98bf4a",
     "tests/test_manfred_realtime_conversation_readiness.py": "6865e5c63e936eb22d30c76140fa3ace47671e21d24da15f2c5946886e169a7b",
     "tests/test_manfred_spatial_candidate_browser.py": "3c363ac41b9730912b88ca63b9d9bfa1fd34b28413cad4960c3feb3045509335",
@@ -1594,7 +1594,7 @@
     "tests/test_memorial_helper_path_defaults.py": "2ba8a09bb6a582c7539c05100ba31d3122e8dca4e99af6f3dc2125002b9371a4",
     "tests/test_memorial_joggai_asset_receipts.py": "a75f2e0f6d6007360f8fd6d60ea34c2fcbd2e8b1c91faa5d0bf77557f3904429",
     "tests/test_memorial_joggai_provider_contracts.py": "c3296ddc605f566bb3542d6ae753dff6ecf7485d250d0b76bdfe0f8663b6c402",
-    "tests/test_memorial_live_conversation_contracts.py": "bcd142dbf51044d59882c9a4882a283aa39b4b703515129f3f8c8280c3a4af42",
+    "tests/test_memorial_live_conversation_contracts.py": "04c9f73ce9030695b6cceafd729b617ccafa411c596c0b15a53570f4e483b7ab",
     "tests/test_memorial_memory_room.py": "0e62ad6426cdc59b601bc07076911560d70e16afec27e30941f92dd3a9372089",
     "tests/test_memorial_memory_service.py": "93cf3f32c95a40f541060c4d6cc0a16a505e5ef0ad0d8fe0dc4be854ac7320bd",
     "tests/test_memorial_openvoice_voicewave.py": "584911083ba3f2382e29d270a991829b9d29db17c9fb8a00e456e89e9cc364d4",
@@ -1850,13 +1850,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "7b95792101bd978cde5919972e24ae5f39f1a1e0",
-  "indexed_at_timestamp": "2026-07-27T04:46:33.195732278+00:00",
+  "indexed_at_commit": "56adb832c0c26c2e427e888ed402f0c4eb8274d6",
+  "indexed_at_timestamp": "2026-07-27T07:18:19.527509612+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 46480,
+    "total_edges": 46515,
     "total_files": 1849,
-    "total_nodes": 29182
+    "total_nodes": 29184
   },
   "vexp_version": "2.3.1"
 }

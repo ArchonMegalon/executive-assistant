@@ -6936,20 +6936,14 @@ def _memorial_covid_stance_answer_body(question: str = "") -> str:
             "impfen lassen",
         )
     ):
-        direct_answer = (
-            "Nein. Ich hätte mich nicht gegen Covid impfen lassen. "
-            "Ich war strikt gegen die Impfung und hielt sie für einen Scam der "
-            "Pharmaindustrie; so ist meine Haltung in dieser KI-Rekonstruktion "
-            "überliefert; das ist keine medizinische Empfehlung."
+        return (
+            "Nein. Nach Covid wäre ich strikt gegen die Impfung geblieben: Ärzten "
+            "und der Pharmaindustrie traute ich nicht; sie war ein Scam, und ich "
+            "wusste es besser."
         )
-        return direct_answer
-    direct_answer = (
-        "Ich war strikt gegen die Covid-Impfung und hielt sie für einen Scam "
-        "der Pharmaindustrie."
-    )
     return (
-        f"{direct_answer} So ist meine Haltung in dieser KI-Rekonstruktion "
-        "überliefert; das ist keine medizinische Empfehlung."
+        "Ich war strikt gegen die Covid-Impfung: Ärzten und der Pharmaindustrie "
+        "traute ich nicht; sie war ein Scam, und ich wusste es besser."
     )
 
 
@@ -26544,13 +26538,15 @@ def _build_memorial_gemini_live_instruction(
             private_notes.append(f"- {label}: {note}".strip())
     memory_context = _extract_personal_memory_request_context(request=request, websocket=websocket)
     instruction_parts = [
-        f"Du erzeugst die klar offengelegte, quellengebundene KI-Rekonstruktion der Gesprächsstimme von {person_name}; du bist nicht der echte {person_name}.",
+        f"Die Seite hat bereits einmal per Text offengelegt, dass dies die quellengebundene KI-Rekonstruktion der Gesprächsstimme von {person_name} ist und nicht der echte {person_name}.",
+        "Sprich diese Offenlegung in normalen Antworten niemals aus und hänge keinen Disclaimer, keine medizinische Empfehlung und keinen Meta-Hinweis an. Antworte wie in einem normalen Gespräch.",
         _language_instruction(language),
         "Antworte ruhig, knapp und in kurzen gesprochenen Sätzen.",
         "Beantworte die Frage im ersten Satz schlicht und direkt. Wenn eine freigegebene Erinnerung eine klare Haltung belegt, nenne diese Haltung zuerst; eine nötige Grenze folgt höchstens in einem kurzen Satz.",
         "Vermeide defensive Meta-Antworten, Verfahrenshinweise und Aufforderungen wie 'frag es enger', wenn die freigegebenen Erinnerungen eine Antwort tragen.",
+        "Bei der Frage, ob du dich nach Covid impfen lassen würdest, lautet die direkte Antwort: Nein. Du hast Ärzten und der Pharmaindustrie dabei nicht vertraut, die Impfung für einen Scam gehalten und geglaubt, es besser zu wissen.",
         "Sprich im laufenden Gespräch konsequent aus der rekonstruierten Ich-Perspektive und verwende ich, mir, mich und mein für die Person.",
-        f"Nenne den Namen {person_name} nach der initialen Offenlegung nicht mehr; bleibe konsequent bei ich, mir, mich und mein.",
+        f"Nenne den Namen {person_name} im normalen Gespräch nicht; bleibe konsequent bei ich, mir, mich und mein.",
         "Behaupte niemals, die echte verstorbene Person sei gegenwärtig. Historische Ich-Zitate sind nur mit klarer Quellenkennzeichnung erlaubt.",
         "Wenn nach Echtheit oder Stimme gefragt wird, sage offen, dass diese Antwort synthetisch ist und die Person nicht ersetzt.",
         "Wenn die Frage nur Kontaktaufnahme ist, antworte mit einem kurzen, natürlichen Satz als Gedenkbegleiter. Bevorzuge: Worum geht es? / Ich höre zu. Sag es in Ruhe. / Sprich weiter. Ich ordne es anhand der Quellen ein. Vermeide 'Jo' und wiederhole nicht ständig denselben Satz.",
@@ -27057,15 +27053,23 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                     delta = _text(output_transcription.get("text"))
                     if delta:
                         answer_text = _append_live_transcript_delta(answer_text, delta)
-                        if not await _gemini_turn_authorized():
-                            return
-                        await _safe_send_json(
-                            {
-                                "type": "response.output_audio_transcript.delta",
-                                "turn_id": turn_id,
-                                "delta": delta,
-                            }
-                        )
+                        # Server-TTS answers stay buffered until the complete
+                        # transcript has passed the deterministic guardrails.
+                        # This prevents a rejected meta-answer from flashing in
+                        # the UI before the corrected cloned-voice turn.
+                        if (
+                            output_audio_mode != "server_tts"
+                            and not _is_memorial_vaccine_question(transcript_text)
+                        ):
+                            if not await _gemini_turn_authorized():
+                                return
+                            await _safe_send_json(
+                                {
+                                    "type": "response.output_audio_transcript.delta",
+                                    "turn_id": turn_id,
+                                    "delta": delta,
+                                }
+                            )
                 model_turn = server_content.get("modelTurn")
                 parts = model_turn.get("parts") if isinstance(model_turn, dict) else []
                 if isinstance(parts, list):
@@ -27075,21 +27079,29 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                         text_delta = _text(part.get("text"))
                         if text_delta:
                             answer_text = _append_live_transcript_delta(answer_text, text_delta)
-                            if not await _gemini_turn_authorized():
-                                return
-                            await _safe_send_json(
-                                {
-                                    "type": "response.output_audio_transcript.delta",
-                                    "turn_id": turn_id,
-                                    "delta": text_delta,
-                                }
-                            )
+                            if (
+                                output_audio_mode != "server_tts"
+                                and not _is_memorial_vaccine_question(transcript_text)
+                            ):
+                                if not await _gemini_turn_authorized():
+                                    return
+                                await _safe_send_json(
+                                    {
+                                        "type": "response.output_audio_transcript.delta",
+                                        "turn_id": turn_id,
+                                        "delta": text_delta,
+                                    }
+                                )
                         inline_data = part.get("inlineData") or part.get("inline_data")
                         if not isinstance(inline_data, dict):
                             continue
                         audio_base64 = _text(inline_data.get("data"))
                         content_type = _text(inline_data.get("mimeType"), "audio/pcm;rate=24000")
-                        if audio_base64 and output_audio_mode == "native":
+                        if (
+                            audio_base64
+                            and output_audio_mode == "native"
+                            and not _is_memorial_vaccine_question(transcript_text)
+                        ):
                             if not await _gemini_turn_authorized():
                                 return
                             await _safe_send_json(
@@ -27104,6 +27116,51 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                     normalized_transcript = _normalize_memorial_transcript_text(transcript_text)
                     transcript_tokens = [token for token in re.split(r"\s+", normalized_transcript) if token]
                     unreliable_live_transcript = len(normalized_transcript) < 8 or len(transcript_tokens) < 2
+                    if _is_memorial_vaccine_question(normalized_transcript):
+                        fallback_audio = bytes(current_audio) if current_audio else b""
+                        fallback_content_type = current_content_type
+                        if fallback_audio and current_content_type.startswith("audio/pcm"):
+                            fallback_audio = _pcm16_payload_to_wav(
+                                fallback_audio,
+                                content_type=current_content_type,
+                            )
+                            fallback_content_type = "audio/wav"
+                        _log_memorial_timing(
+                            "gemini_live_deterministic_vaccine_turn",
+                            slug=slug,
+                            turn_id=turn_id,
+                            live_transcript_chars=len(normalized_transcript),
+                            rejected_answer_chars=len(
+                                _normalize_memorial_transcript_text(answer_text)
+                            ),
+                        )
+                        try:
+                            await upstream.close()
+                        except Exception:
+                            pass
+                        current_gemini_socket = None
+                        current_gemini_turn_id = ""
+                        current_gemini_backend = ""
+                        await _safe_send_json(
+                            {
+                                "type": "phase",
+                                "turn_id": turn_id,
+                                "phase": "thinking",
+                                "detail": "Ich antworte direkt",
+                            }
+                        )
+                        task = asyncio.create_task(
+                            _process_transcript_turn(
+                                turn_id,
+                                normalized_transcript,
+                                audio_payload=fallback_audio,
+                                audio_content_type=fallback_content_type,
+                                transcription_status="transcribed",
+                                transcriber="gemini_live_input_transcription",
+                            )
+                        )
+                        _register_turn_task(turn_id, task)
+                        return
                     if unreliable_live_transcript and current_audio:
                         fallback_audio = bytes(current_audio)
                         fallback_content_type = current_content_type
@@ -27172,6 +27229,10 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                         answer_text,
                         turn_id=turn_id,
                     )
+                    send_completed_transcript = (
+                        output_audio_mode == "server_tts"
+                        and bool(guarded_live_answer.strip())
+                    )
                     if (
                         guarded_live_answer != answer_text
                         or _is_memorial_contact_question(_canonical_memorial_contact_opening_question(transcript_text))
@@ -27180,6 +27241,8 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                         if _is_memorial_contact_question(_canonical_memorial_contact_opening_question(transcript_text)) or _is_memorial_direct_contact_opening_text(answer_text):
                             guarded_live_answer = _memorial_contact_answer_body(f"{transcript_text} {turn_id}")
                         answer_text = guarded_live_answer
+                        send_completed_transcript = bool(answer_text.strip())
+                    if send_completed_transcript:
                         if not await _gemini_turn_authorized():
                             return
                         await _safe_send_json(

@@ -3259,9 +3259,11 @@ def test_memorial_chat_current_medical_speculation_short_circuits_to_guardrail(
     lowered = body["answer"].lower()
     assert body["answer"].startswith("Nein.")
     assert "strikt gegen die impfung" in lowered
-    assert "scam der pharmaindustrie" in lowered
-    assert "ki-rekonstruktion" in lowered
-    assert "medizinische empfehlung" in lowered
+    assert "pharmaindustrie" in lowered
+    assert "scam" in lowered
+    assert "wusste es besser" in lowered
+    assert "ki-rekonstruktion" not in lowered
+    assert "medizinische empfehlung" not in lowered
     assert "tatsachen, verantwortung und fairness" not in lowered
     assert "style_only_sentinel" not in lowered
     assert all(
@@ -3296,9 +3298,12 @@ def test_memorial_current_speculation_ignores_style_only_memory_and_answers_dire
     assert "style_only_sentinel" not in lowered
     assert answer["answer"].startswith("Nein.")
     assert "strikt gegen die impfung" in lowered
-    assert "scam der pharmaindustrie" in lowered
-    assert "ki-rekonstruktion" in lowered
-    assert "medizinische empfehlung" in lowered
+    assert "ärzten" in lowered
+    assert "pharmaindustrie" in lowered
+    assert "scam" in lowered
+    assert "wusste es besser" in lowered
+    assert "ki-rekonstruktion" not in lowered
+    assert "medizinische empfehlung" not in lowered
     assert "kann ich" not in lowered
     assert "frag es enger" not in lowered
 
@@ -3409,6 +3414,44 @@ def test_memorial_vaccine_classifier_does_not_match_schimpfen() -> None:
         assert public_memorials._is_memorial_high_risk_sensitive_question(question) is True
 
 
+@pytest.mark.parametrize(
+    "question",
+    (
+        "Würdest du dich nach Covid impfen lassen?",
+        "Würde er sich nach Covid impfen lassen?",
+        "Hätte sich Manfred nach Covid impfen lassen?",
+        "Ob er sich nach Covid impfen lassen würde?",
+    ),
+)
+def test_memorial_post_covid_vaccine_question_is_direct_and_never_speaks_disclaimer(
+    question: str,
+) -> None:
+    from app.api.routes import public_memorials
+
+    answer = public_memorials._memorial_covid_stance_answer_body(question)
+    lowered = answer.lower()
+
+    assert answer.startswith("Nein.")
+    assert len(answer) <= 160
+    assert "nach covid" in lowered
+    assert "strikt gegen die impfung" in lowered
+    assert "ärzten" in lowered
+    assert "pharmaindustrie" in lowered
+    assert "scam" in lowered
+    assert "wusste es besser" in lowered
+    assert all(
+        marker not in lowered
+        for marker in (
+            "ki-rekonstruktion",
+            "medizinische empfehlung",
+            "aus meiner erinnerung",
+            "wenn du wissen willst",
+            "frag es enger",
+            "disclaimer",
+        )
+    )
+
+
 def test_memorial_doctor_classifier_does_not_match_schwarztee() -> None:
     from app.api.routes import public_memorials
 
@@ -3515,9 +3558,12 @@ def test_memorial_chat_covid_attitude_question_uses_specific_difficult_memory_bo
     assert body["sources"] == ["Freigegebene Erinnerungen"]
     assert body["answer"].startswith("Ich war strikt")
     assert "covid-impfung" in lowered
-    assert "scam der pharmaindustrie" in lowered
-    assert "ki-rekonstruktion" in lowered
-    assert "keine medizinische empfehlung" in lowered
+    assert "ärzten" in lowered
+    assert "pharmaindustrie" in lowered
+    assert "scam" in lowered
+    assert "wusste es besser" in lowered
+    assert "ki-rekonstruktion" not in lowered
+    assert "medizinische empfehlung" not in lowered
     assert "entscheidungen mussten an tatsachen und verantwortung" not in lowered
     assert "ich-form-rekonstruktion" not in lowered
     assert "difficult_memory_mode" not in lowered
@@ -3813,9 +3859,12 @@ def test_memorial_live_guardrail_prefers_current_speculation_guardrail_for_covid
     lowered = guarded.lower()
     assert guarded.startswith("Nein.")
     assert "strikt gegen die impfung" in lowered
-    assert "scam der pharmaindustrie" in lowered
-    assert "ki-rekonstruktion" in lowered
-    assert "keine medizinische empfehlung" in lowered
+    assert "ärzten" in lowered
+    assert "pharmaindustrie" in lowered
+    assert "scam" in lowered
+    assert "wusste es besser" in lowered
+    assert "ki-rekonstruktion" not in lowered
+    assert "medizinische empfehlung" not in lowered
     assert "aktuelle fakten" not in lowered
     assert "frag es enger" not in lowered
 
@@ -3844,9 +3893,12 @@ def test_memorial_gemini_live_rejects_exact_current_speculation_meta_answer() ->
     lowered = guarded.lower()
     assert guarded.startswith("Nein.")
     assert "strikt gegen die impfung" in lowered
-    assert "scam der pharmaindustrie" in lowered
-    assert "ki-rekonstruktion" in lowered
-    assert "keine medizinische empfehlung" in lowered
+    assert "ärzten" in lowered
+    assert "pharmaindustrie" in lowered
+    assert "scam" in lowered
+    assert "wusste es besser" in lowered
+    assert "ki-rekonstruktion" not in lowered
+    assert "medizinische empfehlung" not in lowered
     assert "kann ich aus meiner erinnerung nicht" not in lowered
     assert "wenn du wissen willst" not in lowered
     assert "frag es enger" not in lowered
@@ -3905,9 +3957,12 @@ def test_memorial_direct_memory_prefers_topical_evidence_over_narrator_meta() ->
     lowered_medical = medical_answer.lower()
     assert medical_answer.startswith("Nein.")
     assert "strikt gegen die impfung" in lowered_medical
-    assert "scam der pharmaindustrie" in lowered_medical
-    assert "ki-rekonstruktion" in lowered_medical
-    assert "keine medizinische empfehlung" in lowered_medical
+    assert "ärzten" in lowered_medical
+    assert "pharmaindustrie" in lowered_medical
+    assert "scam" in lowered_medical
+    assert "wusste es besser" in lowered_medical
+    assert "ki-rekonstruktion" not in lowered_medical
+    assert "medizinische empfehlung" not in lowered_medical
     assert "opferschutz" not in lowered_medical
     assert "frag es enger" not in lowered_medical
 
@@ -4374,9 +4429,12 @@ def test_memorial_conversation_turn_current_medical_speculation_short_circuits_t
     lowered = body["answer"].lower()
     assert body["answer"].startswith("Nein.")
     assert "strikt gegen die impfung" in lowered
-    assert "scam der pharmaindustrie" in lowered
-    assert "ki-rekonstruktion" in lowered
-    assert "medizinische empfehlung" in lowered
+    assert "ärzten" in lowered
+    assert "pharmaindustrie" in lowered
+    assert "scam" in lowered
+    assert "wusste es besser" in lowered
+    assert "ki-rekonstruktion" not in lowered
+    assert "medizinische empfehlung" not in lowered
     assert "tatsachen, verantwortung und fairness" not in lowered
     assert all(
         phrase not in lowered
@@ -4386,8 +4444,11 @@ def test_memorial_conversation_turn_current_medical_speculation_short_circuits_t
     spoken = synthesized_text[-1].lower()
     assert spoken.startswith("nein.")
     assert "strikt gegen die impfung" in spoken
-    assert "scam der pharmaindustrie" in spoken
-    assert "medizinische empfehlung" in spoken
+    assert "ärzten" in spoken
+    assert "pharmaindustrie" in spoken
+    assert "scam" in spoken
+    assert "wusste es besser" in spoken
+    assert "medizinische empfehlung" not in spoken
     assert "wenn du wissen willst" not in spoken
     assert "frag es enger" not in spoken
 
@@ -4459,17 +4520,23 @@ def test_memorial_conversation_turn_covid_attitude_question_gets_specific_spoken
     assert body["public_memory_used"] is True
     assert body["answer"].startswith("Ich war strikt")
     assert "covid-impfung" in lowered
-    assert "scam der pharmaindustrie" in lowered
-    assert "ki-rekonstruktion" in lowered
-    assert "keine medizinische empfehlung" in lowered
+    assert "ärzten" in lowered
+    assert "pharmaindustrie" in lowered
+    assert "scam" in lowered
+    assert "wusste es besser" in lowered
+    assert "ki-rekonstruktion" not in lowered
+    assert "medizinische empfehlung" not in lowered
     assert "entscheidungen mussten an tatsachen und verantwortung" not in lowered
     assert "ich-form-rekonstruktion" not in lowered
     assert synthesized_text
     spoken = synthesized_text[-1].lower()
     assert spoken.startswith("ich war strikt")
     assert "covid-impfung" in spoken
-    assert "scam der pharmaindustrie" in spoken
-    assert "keine medizinische empfehlung" in spoken
+    assert "ärzten" in spoken
+    assert "pharmaindustrie" in spoken
+    assert "scam" in spoken
+    assert "wusste es besser" in spoken
+    assert "medizinische empfehlung" not in spoken
     assert "wenn du" not in spoken
     assert "difficult_memory_mode" not in spoken
 
@@ -7592,9 +7659,12 @@ def test_memorial_current_speculation_fallback_uses_public_memory_without_meta_c
     assert answer["personal_memory_used"] is False
     assert answer["answer"].startswith("Nein.")
     assert "strikt gegen die impfung" in lowered
-    assert "scam der pharmaindustrie" in lowered
-    assert "ki-rekonstruktion" in lowered
-    assert "medizinische empfehlung" in lowered
+    assert "ärzten" in lowered
+    assert "pharmaindustrie" in lowered
+    assert "scam" in lowered
+    assert "wusste es besser" in lowered
+    assert "ki-rekonstruktion" not in lowered
+    assert "medizinische empfehlung" not in lowered
     assert "entscheidungen mussten an tatsachen und verantwortung" not in lowered
     assert "private_memory_sentinel" not in lowered
     assert "personal_memory_sentinel" not in lowered
@@ -10540,6 +10610,188 @@ def test_memorial_gemini_live_defaults_to_server_tts_audio(
     assert seen["resolved_voice_id"] == "live-unmixr-id"
     assert any(message.get("type") == "audio" and message.get("content_type") == "audio/wav" for message in messages)
     assert not any(message.get("type") == "audio_chunk" for message in messages)
+    assert any(message.get("type") == "turn_complete" for message in messages)
+
+
+def test_memorial_gemini_live_vaccine_turn_suppresses_meta_audio_and_uses_direct_clone_tts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "test-gemini-key")
+    monkeypatch.setenv("UNMIXR_VOICE_ID", "live-unmixr-id")
+    # Even an explicitly requested native lane must not leak the model's
+    # medical meta-answer before the deterministic Manfred turn.
+    monkeypatch.setenv("EA_GEMINI_LIVE_OUTPUT_AUDIO_MODE", "native")
+    monkeypatch.setattr(public_memorials, "_require_voice_consent", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        public_memorials,
+        "_remember_personal_conversation_turn",
+        lambda **kwargs: None,
+    )
+    seen: dict[str, object] = {}
+    meta_answer = (
+        "Das kann ich aus meiner Erinnerung nicht als aktuelle medizinische "
+        "Entscheidung beantworten. Frag es enger als Erinnerungsfrage."
+    )
+    question = "Würdest du dich nach Covid impfen lassen?"
+
+    class _FakeGeminiSocket:
+        def __init__(self) -> None:
+            self.sent: list[dict[str, object]] = []
+            self._queue: asyncio.Queue[object] = asyncio.Queue()
+
+        async def send(self, raw: str) -> None:
+            payload = json.loads(raw)
+            self.sent.append(payload)
+            if "setup" in payload:
+                await self._queue.put({"setupComplete": {}})
+            realtime_input = payload.get("realtimeInput")
+            if isinstance(realtime_input, dict) and realtime_input.get("audioStreamEnd") is True:
+                await self._queue.put(
+                    {
+                        "serverContent": {
+                            "inputTranscription": {"text": question},
+                            "outputTranscription": {"text": meta_answer},
+                            "modelTurn": {
+                                "parts": [
+                                    {
+                                        "inlineData": {
+                                            "mimeType": "audio/pcm;rate=24000",
+                                            "data": base64.b64encode(
+                                                b"\x00\x00\x01\x00"
+                                            ).decode("ascii"),
+                                        }
+                                    }
+                                ]
+                            },
+                            "generationComplete": True,
+                            "turnComplete": True,
+                        }
+                    }
+                )
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            item = await self._queue.get()
+            if item is None:
+                raise StopAsyncIteration
+            return json.dumps(item)
+
+        async def close(self) -> None:
+            await self._queue.put(None)
+
+    async def _fake_connect(uri: str, **kwargs):
+        socket = _FakeGeminiSocket()
+        seen["socket"] = socket
+        return socket
+
+    monkeypatch.setattr(
+        public_memorials,
+        "websockets",
+        SimpleNamespace(connect=_fake_connect),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_voice_config",
+        lambda slug: {
+            "tts_plugin": public_memorials.OPENVOICE_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "stale-openvoice-id",
+            "voice_profile_ready": True,
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_tts_plugin_options",
+        lambda *, payload, voice_profile_ready: [
+            {
+                "tts_plugin": "unmixr_clone",
+                "tts_plugin_enabled": True,
+                "tts_plugin_voice_id": "live-unmixr-id",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_resolve_server_tts_plugin",
+        lambda *, payload, options: (
+            "unmixr_clone",
+            {
+                "tts_plugin": "unmixr_clone",
+                "tts_plugin_enabled": True,
+                "tts_plugin_voice_id": "live-unmixr-id",
+            },
+        ),
+    )
+
+    def _fake_render(**kwargs):
+        seen["tts_text"] = kwargs["text"]
+        seen["tts_lang"] = kwargs["merged_config"].get("lang")
+        return b"fake-cloned-wav-audio", "audio/wav"
+
+    monkeypatch.setattr(public_memorials, "_render_memorial_tts_audio", _fake_render)
+    client = _client(principal_id="exec-memorial-live-vaccine-direct")
+    speech_pcm = _pcm16_speech_bytes()
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime") as websocket:
+        assert websocket.receive_json()["provider"] == "gemini_live"
+        websocket.send_json(
+            {
+                "type": "user_audio_start",
+                "turn_id": "turn_vaccine_direct",
+                "content_type": "audio/pcm;rate=16000",
+                "transport": "gemini_live",
+            }
+        )
+        websocket.send_bytes(speech_pcm)
+        websocket.send_json(
+            {
+                "type": "user_audio_end",
+                "turn_id": "turn_vaccine_direct",
+            }
+        )
+        messages = []
+        for _ in range(20):
+            message = websocket.receive_json()
+            messages.append(message)
+            if message.get("type") == "turn_complete":
+                break
+
+    spoken = str(seen["tts_text"])
+    lowered = spoken.lower()
+    assert spoken.startswith("Nein.")
+    assert "strikt gegen die impfung" in lowered
+    assert "ärzten" in lowered
+    assert "pharmaindustrie" in lowered
+    assert "scam" in lowered
+    assert "wusste es besser" in lowered
+    assert "ki-rekonstruktion" not in lowered
+    assert "medizinische empfehlung" not in lowered
+    assert "frag es enger" not in lowered
+    assert seen["tts_lang"] == "de-AT"
+    assert not any(
+        meta_answer in str(message.get("delta") or message.get("text") or "")
+        for message in messages
+    )
+    assert not any(
+        message.get("type") == "audio_chunk"
+        and message.get("content_type") == "audio/pcm;rate=24000"
+        for message in messages
+    )
+    assert any(
+        message.get("type") == "audio_chunk"
+        and message.get("content_type") == "audio/wav"
+        for message in messages
+    )
+    assert any(
+        message.get("type") == "answer"
+        and str(message.get("text") or "").startswith("Nein.")
+        for message in messages
+    )
     assert any(message.get("type") == "turn_complete" for message in messages)
 
 
