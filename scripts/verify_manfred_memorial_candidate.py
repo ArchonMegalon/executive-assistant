@@ -1780,11 +1780,26 @@ def audit_browser_surface(
                         "candidate_browser_page_prewarm_payload_invalid"
                     ) from exc
                 if (
-                    warmup_payloads[0] != {"reason": "page_load"}
+                    warmup_payloads[0]
+                    not in (
+                        {"reason": "page_load"},
+                        {
+                            "reason": "page_load",
+                            "personal_memory_enabled": False,
+                        },
+                    )
                     or any(
                         payload
                         not in (
+                            {
+                                "reason": "page_load",
+                                "personal_memory_enabled": False,
+                            },
                             {"reason": "page_load"},
+                            {
+                                "reason": "voice_stale_retry",
+                                "personal_memory_enabled": False,
+                            },
                             {"reason": "voice_stale_retry"},
                         )
                         for payload in warmup_payloads
@@ -1792,10 +1807,23 @@ def audit_browser_surface(
                     or any(payload != {} for payload in status_payloads)
                     or len(synthesis_payloads) != 1
                     or synthesis_payloads[0]
-                    != {"text": PAGE_PREWARM_ACKNOWLEDGEMENT_TEXT}
+                    not in (
+                        {
+                            "text": PAGE_PREWARM_ACKNOWLEDGEMENT_TEXT,
+                            "voice_ab_variant": "",
+                        },
+                        {
+                            "text": PAGE_PREWARM_ACKNOWLEDGEMENT_TEXT,
+                            "voice_ab_variant": "",
+                            "personal_memory_enabled": False,
+                        },
+                    )
                 ):
                     raise RuntimeError(
-                        "candidate_browser_page_prewarm_payload_invalid"
+                        "candidate_browser_page_prewarm_payload_invalid:"
+                        f"warmup={warmup_payloads!r}:"
+                        f"status={status_payloads!r}:"
+                        f"synthesis={synthesis_payloads!r}"
                     )
                 synthesis_responses = [
                     response_record
