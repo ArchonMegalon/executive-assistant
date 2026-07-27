@@ -1066,6 +1066,7 @@
     "scripts/build_ea_sendr_campaign_packet.py": "a4b13e6c89fdebaf7763fc063282da1850ed49fd04f47209a196d90e678d8b94",
     "scripts/build_manfred_memorial_image.py": "c24228023c26396f9ab71d9f6e358dc7d3d76e1ce71ff3446a42f3b5d19b3eae",
     "scripts/capture_blipai_browseract_session.py": "a57c0da769efbf3995f014251a327a8fd16e548534ed367f7fbd0e1728aa8e69",
+    "scripts/capture_blipai_protected_password_session.py": "112b9f2af0f16a15c45ba2c819b805e3ba69e0701489f5437671bbd96d97eee7",
     "scripts/capture_poppy_provider_receipts.py": "a0614951a48952e56efe004bcbc644f3bacf21607e33d091cffe88853c9e8407",
     "scripts/capture_vidboard_provider_receipts.py": "0bb6f143d38a9df3dfb2f8dd9eda797cacf6e61f2a3afecc916e846b966b8bda",
     "scripts/check_docs_links.py": "e3c0d27670f88a88c70e818df9d4623b03276f8bf8cb0c930b3c9206245a19eb",
@@ -1441,6 +1442,7 @@
     "tests/test_browseract_template_service_worker.py": "6996aa3a10c74e091f7e3861b04d6d47ef83f70a5860af0ed14c6181736aa294",
     "tests/test_browseract_template_worker.py": "f24227e308ce7c80fce6d61dc6b78f58f1a294a4b8ce04ecb4736d225d4f2b76",
     "tests/test_capture_blipai_browseract_session.py": "283a2e9e4222d05d98bd64005047c11b7ffae85dadb02f1b9743aa4519def2f0",
+    "tests/test_capture_blipai_protected_password_session.py": "ee8a399bea5a34916b2280c21e1a57c06e7c61923ace3d9b815bd98f0b34217a",
     "tests/test_capture_vidboard_provider_receipts.py": "e232e36d4a13f5c384405e0c5e83bbb9556bdc54528c48d95299dd1a1c024cd3",
     "tests/test_channel_runtime_postgres_integration.py": "286cafe0d56b8bd3b4657ad0d427f1863c2e38614d2cdf84030b3cddf2fb001c",
     "tests/test_channel_runtime_repositories.py": "5db3ae9ffdb6891b9892459d2b7bcd70741c47490e427b0b570db3c8920ee160",
@@ -1848,13 +1850,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "8355b2b82e13b1d9d3f532b8c7c0a21b09595dde",
-  "indexed_at_timestamp": "2026-07-26T19:48:11.135521808+00:00",
+  "indexed_at_commit": "7b95792101bd978cde5919972e24ae5f39f1a1e0",
+  "indexed_at_timestamp": "2026-07-27T04:46:33.195732278+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 46448,
-    "total_files": 1847,
-    "total_nodes": 29146
+    "total_edges": 46480,
+    "total_files": 1849,
+    "total_nodes": 29182
   },
   "vexp_version": "2.3.1"
 }
