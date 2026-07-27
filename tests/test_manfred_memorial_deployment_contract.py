@@ -2673,11 +2673,12 @@ def test_manfred_public_page_uses_scoped_talk_only_minimal_theme() -> None:
     assert 'placeholder="Was möchtest du fragen?"' in conversation_only_html
     assert 'role === "assistant" ? "Freddy" : "Du"' in conversation_only_html
     assert "KI-Begleiter" not in conversation_only_html
-    assert "ist nicht Manfred und spricht nicht für ihn" in conversation_only_html
+    assert "Du sprichst mit einer KI-Version von Manfred." in conversation_only_html
+    assert "dein Mikrofon startet erst nach deinem Klick." in conversation_only_html
     assert conversation_only_html.count('id="memorial-conversation-disclosure"') == 1
     assert (
         conversation_only_html.count(
-            "KI-Rekonstruktion auf der Grundlage freigegebener Erinnerungen und Quellen"
+            "Du sprichst mit einer KI-Version von Manfred."
         )
         == 1
     )

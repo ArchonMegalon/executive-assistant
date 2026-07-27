@@ -725,6 +725,8 @@ def test_memorial_chat_contract_is_transparent_and_never_claims_to_be_manfred() 
     assert "Du bist nicht der echte Manfred" in instruction
     assert "rekonstruierten Ich-Perspektive" in instruction
     assert "ich, mir, mich und mein" in instruction
+    assert "Sprich dabei grundsätzlich in der Gegenwart" in instruction
+    assert "'ich bin', 'ich denke', 'ich mag' und 'ich halte'" in instruction
     assert "Nenne den Namen Manfred nach der initialen Offenlegung nicht mehr" in instruction
     answer = public_memorials._enforce_memorial_narrator_boundary(
         "Ich bin Manfred. Ich bin wirklich hier.",
@@ -738,6 +740,8 @@ def test_memorial_chat_contract_is_transparent_and_never_claims_to_be_manfred() 
         slug="manfred"
     )
     assert "rekonstruierten Ich-Perspektive" in realtime_instruction
+    assert "Sprich grundsätzlich in der Gegenwart" in realtime_instruction
+    assert "ich bin, ich denke, ich mag und ich halte" in realtime_instruction
     assert "nicht der echte Manfred" in realtime_instruction
     assert "nach der initialen Offenlegung nicht mehr" in realtime_instruction
 
