@@ -234,12 +234,10 @@ HOSTED_CLONE_BACKUP_CANDIDATE_FIELDS = frozenset(
         "voice_label",
     }
 )
-HOSTED_CLONE_PRONUNCIATION_DICT = {
-    "Klar": "Klaar",
-    "Ordne": "Ord-ne",
-    "klar": "klaar",
-    "ordne": "ord-ne",
-}
+# The current Manfred clone is clearer without phonetic word rewrites.  Keep
+# this exact and fail closed: candidate projections may not silently re-enable
+# the former "klaar"/"ord-ne" substitutions.
+HOSTED_CLONE_PRONUNCIATION_DICT: dict[str, str] = {}
 HOSTED_CLONE_PLACEHOLDER_ID_PATHS = frozenset(
     {
         ("tts_plugin_voice_id",),

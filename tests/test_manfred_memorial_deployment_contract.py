@@ -432,7 +432,12 @@ def test_hosted_clone_config_rejects_secret_or_raw_provider_id_fields(
     [
         [],
         {"ordne": "ord-ne"},
-        {},
+        {
+            "Klar": "Klaar",
+            "Ordne": "Ord-ne",
+            "klar": "klaar",
+            "ordne": "ord-ne",
+        },
         {"": "ord-ne"},
         {"ordne": " "},
         {"x" * 65: "ord-ne"},
@@ -442,7 +447,7 @@ def test_hosted_clone_config_rejects_secret_or_raw_provider_id_fields(
     ids=(
         "not-an-object",
         "incomplete-ordne-pair",
-        "empty",
+        "retired-unnatural-rewrites",
         "empty-term",
         "blank-pronunciation",
         "term-too-long",
