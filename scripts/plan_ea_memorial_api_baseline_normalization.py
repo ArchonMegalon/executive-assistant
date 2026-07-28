@@ -33,6 +33,22 @@ PLAN_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
 UTC_MILLISECOND_PATTERN = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$"
 )
+BASELINE_LAYOUT_SPLIT = "split"
+BASELINE_LAYOUT_COLOCATED_LEGACY_ENV = "colocated-legacy-env"
+BASELINE_LAYOUTS = frozenset(
+    {BASELINE_LAYOUT_SPLIT, BASELINE_LAYOUT_COLOCATED_LEGACY_ENV}
+)
+SPLIT_BASELINE_CONDITION = "exact_split_compose_label_baseline"
+COLOCATED_LEGACY_ENV_CONDITION = (
+    "exact_colocated_canonical_compose_legacy_environment_label_baseline"
+)
+COLOCATED_LEGACY_COMPOSE_FILES = (
+    "docker-compose.yml",
+    "docker-compose.prod.yml",
+    "docker-compose.whatsapp-web-session.yml",
+    "docker-compose.memorial.yml",
+    "docker-compose.cloudflared.yml",
+)
 
 TOP_LEVEL_KEYS = frozenset(
     {
@@ -218,6 +234,7 @@ def build_plan(
     expected_revision: str,
     expected_image_reference: str,
     expected_image_id: str,
+    baseline_layout: str = BASELINE_LAYOUT_SPLIT,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     """Build a plan from explicit assertions without touching their targets."""
@@ -232,16 +249,28 @@ def build_plan(
     environment_root = _absolute_normal_path(
         trusted_environment_root, label="trusted_environment_root"
     )
-    if recorded_root == external_root:
+    if baseline_layout not in BASELINE_LAYOUTS:
+        raise PlanError("baseline_layout_invalid")
+    colocated_legacy = baseline_layout == BASELINE_LAYOUT_COLOCATED_LEGACY_ENV
+    if recorded_root == external_root and not colocated_legacy:
         raise PlanError("split_label_roots_must_differ")
+    if recorded_root != external_root and colocated_legacy:
+        raise PlanError("colocated_label_roots_must_match")
     if recorded_root == environment_root:
         raise PlanError("recorded_and_trusted_environment_roots_must_differ")
     external_files = [
-        external_root / "docker-compose.yml",
-        external_root / "docker-compose.memorial.yml",
+        external_root / name
+        for name in (
+            COLOCATED_LEGACY_COMPOSE_FILES
+            if colocated_legacy
+            else ("docker-compose.yml", "docker-compose.memorial.yml")
+        )
     ]
     environment_files = [environment_root / ".env", environment_root / ".env.local"]
-    if any(_is_within(path, recorded_root) for path in external_files):
+    if (
+        not colocated_legacy
+        and any(_is_within(path, recorded_root) for path in external_files)
+    ):
         raise PlanError("external_config_files_inside_recorded_root")
     if any(_is_within(path, recorded_root) for path in environment_files):
         raise PlanError("trusted_environment_files_inside_recorded_root")
@@ -265,9 +294,17 @@ def build_plan(
         "service_scope": ["ea-api"],
         "ingress_mutation_scope": [],
         "activation_condition": {
-            "condition": "exact_split_compose_label_baseline",
+            "condition": (
+                COLOCATED_LEGACY_ENV_CONDITION
+                if colocated_legacy
+                else SPLIT_BASELINE_CONDITION
+            ),
             "recorded_working_dir": str(recorded_root),
-            "recorded_environment_expectation": "missing",
+            "recorded_environment_expectation": (
+                "legacy_private_file_present_unread"
+                if colocated_legacy
+                else "missing"
+            ),
             "external_config_root": str(external_root),
             "ordered_external_config_files": [
                 str(path) for path in external_files
@@ -390,9 +427,20 @@ def validate_plan_payload(payload: Mapping[str, Any]) -> None:
         )
     except (TypeError, ValueError) as exc:
         raise PlanError("plan_path_binding_invalid") from exc
+    condition = activation.get("condition")
+    colocated_legacy = condition == COLOCATED_LEGACY_ENV_CONDITION
+    if condition not in {
+        SPLIT_BASELINE_CONDITION,
+        COLOCATED_LEGACY_ENV_CONDITION,
+    }:
+        raise PlanError("plan_authority_invariant_invalid")
     expected_external_files = [
-        str(external_root / "docker-compose.yml"),
-        str(external_root / "docker-compose.memorial.yml"),
+        str(external_root / name)
+        for name in (
+            COLOCATED_LEGACY_COMPOSE_FILES
+            if colocated_legacy
+            else ("docker-compose.yml", "docker-compose.memorial.yml")
+        )
     ]
     expected_environment_files = [
         {
@@ -428,18 +476,31 @@ def validate_plan_payload(payload: Mapping[str, Any]) -> None:
         or not _is_canonical_utc_millisecond_timestamp(
             payload.get("generated_at")
         )
-        or activation.get("condition") != "exact_split_compose_label_baseline"
-        or activation.get("recorded_environment_expectation") != "missing"
+        or activation.get("recorded_environment_expectation")
+        != (
+            "legacy_private_file_present_unread"
+            if colocated_legacy
+            else "missing"
+        )
         or activation.get("verification_status") != "required_unverified"
-        or recorded_root == external_root
+        or (
+            recorded_root != external_root
+            if colocated_legacy
+            else recorded_root == external_root
+        )
         or recorded_root == environment_root
         or any(
             _is_within(path, recorded_root)
             for path in (
-                external_root / "docker-compose.yml",
-                external_root / "docker-compose.memorial.yml",
                 environment_root / ".env",
                 environment_root / ".env.local",
+            )
+        )
+        or (
+            not colocated_legacy
+            and any(
+                _is_within(external_root / name, recorded_root)
+                for name in ("docker-compose.yml", "docker-compose.memorial.yml")
             )
         )
         or activation.get("ordered_external_config_files")
@@ -566,6 +627,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--expected-revision", required=True)
     parser.add_argument("--expected-image-reference", required=True)
     parser.add_argument("--expected-image-id", required=True)
+    parser.add_argument(
+        "--baseline-layout",
+        choices=sorted(BASELINE_LAYOUTS),
+        default=BASELINE_LAYOUT_SPLIT,
+    )
     parser.add_argument("--output", required=True, type=Path)
     return parser.parse_args(argv)
 
@@ -581,6 +647,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             expected_revision=args.expected_revision,
             expected_image_reference=args.expected_image_reference,
             expected_image_id=args.expected_image_id,
+            baseline_layout=args.baseline_layout,
         )
         _write_private_plan(args.output, plan)
     except (OSError, PlanError) as exc:

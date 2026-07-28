@@ -179,6 +179,35 @@ def test_plan_encodes_only_the_exact_split_label_shape(tmp_path: Path) -> None:
     }
 
 
+def test_plan_encodes_exact_colocated_legacy_environment_shape(
+    tmp_path: Path,
+) -> None:
+    recorded = tmp_path / "recorded"
+    trusted = tmp_path / "trusted"
+
+    payload = _plan(
+        tmp_path,
+        recorded_working_dir=str(recorded),
+        external_config_root=str(recorded),
+        trusted_environment_root=str(trusted),
+        baseline_layout=planner.BASELINE_LAYOUT_COLOCATED_LEGACY_ENV,
+    )
+    activation = payload["activation_condition"]
+
+    assert activation["condition"] == planner.COLOCATED_LEGACY_ENV_CONDITION
+    assert (
+        activation["recorded_environment_expectation"]
+        == "legacy_private_file_present_unread"
+    )
+    assert activation["recorded_working_dir"] == str(recorded)
+    assert activation["external_config_root"] == str(recorded)
+    assert activation["ordered_external_config_files"] == [
+        str(recorded / name)
+        for name in planner.COLOCATED_LEGACY_COMPOSE_FILES
+    ]
+    planner.validate_plan_payload(payload)
+
+
 @pytest.mark.parametrize(
     ("section", "key", "value"),
     [

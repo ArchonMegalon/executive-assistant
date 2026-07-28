@@ -13,6 +13,7 @@ import pytest
 
 from scripts import deploy_ea_memorial as deploy
 from scripts import execute_ea_memorial_api_baseline_normalization as normalization
+from scripts import plan_ea_memorial_api_baseline_normalization as planner
 
 
 REVISION = "1" * 40
@@ -486,6 +487,119 @@ def test_live_bundle_environment_names_reject_malformed_entries(
         deploy.DeployError, match="normalization_live_environment_invalid"
     ):
         lane._live_bundle_environment_names({"api_raw": inspection})
+
+
+def _colocated_legacy_plan(
+    recorded: Path,
+    trusted: Path,
+) -> dict[str, Any]:
+    return planner.build_plan(
+        plan_id="colocated-legacy-plan-001",
+        recorded_working_dir=str(recorded),
+        external_config_root=str(recorded),
+        trusted_environment_root=str(trusted),
+        expected_revision=REVISION,
+        expected_image_reference="ea-runtime:memorial-main-111111111111",
+        expected_image_id=IMAGE_ID,
+        baseline_layout=planner.BASELINE_LAYOUT_COLOCATED_LEGACY_ENV,
+        generated_at="2026-07-21T12:00:00.000Z",
+    )
+
+
+def _colocated_legacy_api(recorded: Path) -> dict[str, Any]:
+    inspection = _live_api_render_input()
+    config = inspection["Config"]
+    config["Labels"] = {
+        "com.docker.compose.project": normalization.PROJECT_NAME,
+        "com.docker.compose.service": normalization.API_SERVICE,
+        "com.docker.compose.project.working_dir": str(recorded),
+        "com.docker.compose.project.config_files": ",".join(
+            str(recorded / name)
+            for name in planner.COLOCATED_LEGACY_COMPOSE_FILES
+        ),
+        "com.docker.compose.project.environment_file": str(recorded / ".env"),
+        normalization.CONFIG_HASH_LABEL: CONFIG_HASH,
+    }
+    inspection["Image"] = IMAGE_ID
+    inspection["State"] = {
+        "Running": True,
+        "Restarting": False,
+        "Health": {"Status": "healthy"},
+    }
+    return inspection
+
+
+def test_live_validator_accepts_exact_colocated_legacy_environment_shape(
+    lane_factory: Callable[..., normalization.ApiBaselineNormalizationLane],
+    tmp_path: Path,
+) -> None:
+    recorded = tmp_path / "recorded"
+    trusted = tmp_path / "trusted"
+    recorded.mkdir(mode=0o700)
+    trusted.mkdir(mode=0o700)
+    legacy_environment = recorded / ".env"
+    legacy_environment.write_text("PRIVATE=value\n", encoding="utf-8")
+    legacy_environment.chmod(0o600)
+    lane = lane_factory()
+    lane._run_git = lambda *_args, **_kwargs: subprocess.CompletedProcess(
+        ["git"], 0, "", ""
+    )
+    lane._inspect_image_optional = lambda _reference: {
+        "Id": IMAGE_ID,
+        "Config": {
+            "Labels": {
+                normalization.REVISION_LABEL: REVISION,
+            }
+        },
+    }
+
+    evidence = lane._validate_live_split_baseline(
+        plan=_colocated_legacy_plan(recorded, trusted),
+        repository={"head": "8" * 40},
+        api_raw=_colocated_legacy_api(recorded),
+    )
+
+    assert evidence["baseline_condition"] == (
+        planner.COLOCATED_LEGACY_ENV_CONDITION
+    )
+    assert evidence["recorded_environment_evidence"] == {
+        "device": legacy_environment.stat().st_dev,
+        "inode": legacy_environment.stat().st_ino,
+        "mode": "0600",
+        "mtime_ns": legacy_environment.stat().st_mtime_ns,
+        "size_bytes": legacy_environment.stat().st_size,
+    }
+    assert evidence["ordered_external_config_files"] == [
+        str(recorded / name)
+        for name in planner.COLOCATED_LEGACY_COMPOSE_FILES
+    ]
+
+
+def test_live_validator_rejects_non_private_colocated_legacy_environment(
+    lane_factory: Callable[..., normalization.ApiBaselineNormalizationLane],
+    tmp_path: Path,
+) -> None:
+    recorded = tmp_path / "recorded"
+    trusted = tmp_path / "trusted"
+    recorded.mkdir(mode=0o700)
+    trusted.mkdir(mode=0o700)
+    legacy_environment = recorded / ".env"
+    legacy_environment.write_text("PRIVATE=value\n", encoding="utf-8")
+    legacy_environment.chmod(0o640)
+    lane = lane_factory()
+    lane._run_git = lambda *_args, **_kwargs: subprocess.CompletedProcess(
+        ["git"], 0, "", ""
+    )
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="normalization_recorded_environment_untrusted",
+    ):
+        lane._validate_live_split_baseline(
+            plan=_colocated_legacy_plan(recorded, trusted),
+            repository={"head": "8" * 40},
+            api_raw=_colocated_legacy_api(recorded),
+        )
 
 
 def test_live_bundle_render_environment_fails_closed_on_mount_or_source_drift(

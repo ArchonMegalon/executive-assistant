@@ -80,7 +80,10 @@ try:
         runtime_comparison_report,
     )
     from scripts.plan_ea_memorial_api_baseline_normalization import (
+        COLOCATED_LEGACY_COMPOSE_FILES,
+        COLOCATED_LEGACY_ENV_CONDITION,
         PlanError,
+        SPLIT_BASELINE_CONDITION,
         validate_plan_payload,
     )
 except ModuleNotFoundError:  # pragma: no cover - direct script execution
@@ -136,7 +139,10 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
         runtime_comparison_report,
     )
     from plan_ea_memorial_api_baseline_normalization import (  # type: ignore[no-redef]
+        COLOCATED_LEGACY_COMPOSE_FILES,
+        COLOCATED_LEGACY_ENV_CONDITION,
         PlanError,
+        SPLIT_BASELINE_CONDITION,
         validate_plan_payload,
     )
 
@@ -166,6 +172,7 @@ ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 TRANSACTION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$")
 MAX_PRIVATE_JSON_BYTES = 2 * 1024 * 1024
 MAX_DOCKER_JSON_BYTES = 32 * 1024 * 1024
+MAX_LEGACY_ENV_LABEL_FILE_BYTES = 2 * 1024 * 1024
 DOCKER_TRANSPORT_ENV = frozenset(
     {
         "DOCKER_CERT_PATH",
@@ -1700,6 +1707,41 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             raise DeployError("normalization_live_source_revision_invalid")
         return matches[0]
 
+    @staticmethod
+    def _legacy_environment_label_evidence(path: Path) -> dict[str, object]:
+        selected = _normal_absolute_path(
+            path,
+            reason="normalization_recorded_environment_path_invalid",
+        )
+        try:
+            parent = selected.parent.lstat()
+            observed = selected.lstat()
+        except OSError as exc:
+            raise DeployError(
+                "normalization_recorded_environment_unavailable"
+            ) from exc
+        if (
+            not stat.S_ISDIR(parent.st_mode)
+            or stat.S_ISLNK(parent.st_mode)
+            or parent.st_uid != os.geteuid()
+            or stat.S_IMODE(parent.st_mode) & 0o022
+            or not stat.S_ISREG(observed.st_mode)
+            or stat.S_ISLNK(observed.st_mode)
+            or observed.st_uid != os.geteuid()
+            or observed.st_nlink != 1
+            or stat.S_IMODE(observed.st_mode) != 0o600
+            or observed.st_size <= 0
+            or observed.st_size > MAX_LEGACY_ENV_LABEL_FILE_BYTES
+        ):
+            raise DeployError("normalization_recorded_environment_untrusted")
+        return {
+            "device": int(observed.st_dev),
+            "inode": int(observed.st_ino),
+            "mode": "0600",
+            "mtime_ns": int(observed.st_mtime_ns),
+            "size_bytes": int(observed.st_size),
+        }
+
     def _validate_live_split_baseline(
         self,
         *,
@@ -1711,6 +1753,7 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
         source = plan.get("source_requirements")
         if not isinstance(activation, Mapping) or not isinstance(source, Mapping):
             raise DeployError("normalization_plan_invalid")
+        condition = str(activation.get("condition") or "")
         expected_revision = str(source.get("expected_revision") or "")
         expected_image_id = str(source.get("expected_image_id") or "")
         expected_image_reference = str(source.get("expected_image_reference") or "")
@@ -1751,8 +1794,35 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             reason="normalization_recorded_working_dir_invalid",
         )
         external_files = list(activation.get("ordered_external_config_files") or [])
-        if len(external_files) != 2 or any(
-            not isinstance(item, str) for item in external_files
+        external_root = _normal_absolute_path(
+            activation.get("external_config_root"),
+            reason="normalization_external_config_root_invalid",
+        )
+        if condition == SPLIT_BASELINE_CONDITION:
+            expected_external_files = [
+                str(external_root / "docker-compose.yml"),
+                str(external_root / "docker-compose.memorial.yml"),
+            ]
+            layout_valid = (
+                recorded_root != external_root
+                and activation.get("recorded_environment_expectation") == "missing"
+            )
+        elif condition == COLOCATED_LEGACY_ENV_CONDITION:
+            expected_external_files = [
+                str(external_root / name)
+                for name in COLOCATED_LEGACY_COMPOSE_FILES
+            ]
+            layout_valid = (
+                recorded_root == external_root
+                and activation.get("recorded_environment_expectation")
+                == "legacy_private_file_present_unread"
+            )
+        else:
+            raise DeployError("normalization_baseline_condition_invalid")
+        if (
+            not layout_valid
+            or external_files != expected_external_files
+            or any(not isinstance(item, str) for item in external_files)
         ):
             raise DeployError("normalization_external_compose_labels_invalid")
         expected_environment_label = str(recorded_root / ".env")
@@ -1773,12 +1843,20 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             != expected_revision
         ):
             raise DeployError("normalization_live_split_baseline_mismatch")
-        # The historical Compose paths are evidence only.  Never open their
-        # mutable bytes.  Only prove the recorded environment entry is absent.
-        self._require_path_entry_absent(
-            recorded_root / ".env",
-            reason="normalization_recorded_environment_not_absent",
-        )
+        # Historical Compose paths are label evidence only; never open their
+        # mutable bytes. Split baselines require the old environment path to be
+        # absent. The co-located legacy baseline admits only a private regular
+        # file and records metadata so any concurrent change fails revalidation.
+        recorded_environment_evidence: dict[str, object] = {}
+        if condition == SPLIT_BASELINE_CONDITION:
+            self._require_path_entry_absent(
+                recorded_root / ".env",
+                reason="normalization_recorded_environment_not_absent",
+            )
+        else:
+            recorded_environment_evidence = (
+                self._legacy_environment_label_evidence(recorded_root / ".env")
+            )
         image = self._inspect_image_optional(expected_image_reference)
         if image is None:
             raise DeployError("normalization_expected_image_missing")
@@ -1798,8 +1876,10 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             "expected_revision": expected_revision,
             "expected_image_id": expected_image_id,
             "expected_image_reference": expected_image_reference,
+            "baseline_condition": condition,
             "recorded_working_dir": str(recorded_root),
             "recorded_environment_label": expected_environment_label,
+            "recorded_environment_evidence": recorded_environment_evidence,
             "ordered_external_config_files": external_files,
         }
 
