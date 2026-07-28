@@ -318,6 +318,32 @@ def test_base_compose_gives_pocket_sync_a_writable_durable_archive() -> None:
         assert expected_volume in volumes, service_name
 
 
+def test_deploy_verifies_the_effective_pocket_archive_host_root() -> None:
+    deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
+    runtime_gates = (ROOT / "scripts" / "runtime_hard_exit_gates.sh").read_text(
+        encoding="utf-8"
+    )
+
+    resolve_root = (
+        'pocket_audio_archive_host_root="$(normalize_origin_like '
+        '"$(effective_value EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT)")"'
+    )
+    export_root = (
+        'export EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT="${pocket_audio_archive_host_root}"'
+    )
+    assert resolve_root in deploy
+    assert export_root in deploy
+    assert deploy.index(resolve_root) < deploy.index(export_root)
+    assert (
+        "pocket_audio_archive_args+=(--archive-root "
+        '"${EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT}")'
+    ) in runtime_gates
+    assert (
+        '"${PYTHON_BIN}" scripts/verify_pocket_audio_archive.py '
+        '"${pocket_audio_archive_args[@]}"'
+    ) in runtime_gates
+
+
 def test_base_compose_loads_optional_local_env_for_provider_runtime_only() -> None:
     compose = _load_yaml(ROOT / "docker-compose.yml")
     services = compose.get("services") or {}

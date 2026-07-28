@@ -65,4 +65,8 @@ if mode_enabled "MEMORIAL"; then
   "${PYTHON_BIN}" scripts/verify_memorial_runtime_overlay.py --pretty
   PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_project_mode_runtime.py --mode memorial
 fi
-"${PYTHON_BIN}" scripts/verify_pocket_audio_archive.py
+pocket_audio_archive_args=()
+if [[ -n "${EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT:-}" ]]; then
+  pocket_audio_archive_args+=(--archive-root "${EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT}")
+fi
+"${PYTHON_BIN}" scripts/verify_pocket_audio_archive.py "${pocket_audio_archive_args[@]}"

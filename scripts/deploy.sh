@@ -387,6 +387,11 @@ ensure_runtime_readable_file_projection "ONEMIN_DIRECT_API_KEYS_JSON_FILE"
 "${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_whatsapp_callback_secret_runtime_projection.py" \
   --generate-missing >/dev/null
 ensure_runtime_writable_dir_projection "EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT" "./data/pocket-ai-audio"
+pocket_audio_archive_host_root="$(normalize_origin_like "$(effective_value EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT)")"
+if [[ -z "${pocket_audio_archive_host_root}" ]]; then
+  pocket_audio_archive_host_root="./data/pocket-ai-audio"
+fi
+export EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT="${pocket_audio_archive_host_root}"
 
 public_origin_line="$(grep -E '^(EA_PUBLIC_APP_BASE_URL|PROPERTYQUARRY_PUBLIC_BASE_URL)=' "${APP_ROOT}/.env" | tail -n1 || true)"
 public_origin_source="EA_PUBLIC_APP_BASE_URL"

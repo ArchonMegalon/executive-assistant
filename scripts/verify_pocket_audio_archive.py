@@ -6,13 +6,15 @@ import json
 import os
 from pathlib import Path
 import subprocess
-import sys
 from typing import Any
 
 
 ARCHIVED_STATUSES = {"archived", "already_archived"}
 DISMISSED_STATUSES = {"dismissed"}
-COMPLETION_EVENTS = ("pocket_recording_backfill_completed", "pocket_recording_sync_completed")
+COMPLETION_EVENTS = (
+    "pocket_recording_backfill_completed",
+    "pocket_recording_sync_completed",
+)
 DEFAULT_ARCHIVE_ROOT = Path(__file__).resolve().parents[1] / "data" / "pocket-ai-audio"
 
 
@@ -71,7 +73,11 @@ def summarize_archive_metadata(archive_root: Path) -> dict[str, Any]:
             "latest_archived_at": "",
         }
 
-    metadata_paths = [path for path in _find_archive_files(archive_root) if path.suffix.lower() == ".json"]
+    metadata_paths = [
+        path
+        for path in _find_archive_files(archive_root)
+        if path.suffix.lower() == ".json"
+    ]
 
     return {
         "metadata_record_total": len(metadata_paths),
@@ -101,18 +107,35 @@ def build_receipt(
     db_probe_error: str = "",
 ) -> dict[str, Any]:
     latest = latest_rows(index_rows)
-    archived_rows = [row for row in latest if str(row.get("archive_status") or "").strip() in ARCHIVED_STATUSES]
-    dismissed_rows = [row for row in latest if str(row.get("archive_status") or "").strip() in DISMISSED_STATUSES]
-    failed_rows = [row for row in latest if str(row.get("archive_status") or "").strip() == "failed"]
+    archived_rows = [
+        row
+        for row in latest
+        if str(row.get("archive_status") or "").strip() in ARCHIVED_STATUSES
+    ]
+    dismissed_rows = [
+        row
+        for row in latest
+        if str(row.get("archive_status") or "").strip() in DISMISSED_STATUSES
+    ]
+    failed_rows = [
+        row
+        for row in latest
+        if str(row.get("archive_status") or "").strip() == "failed"
+    ]
     missing_transcript_rows = [
         row
         for row in latest
         if str(row.get("archive_status") or "").strip() not in DISMISSED_STATUSES
         and _int_value(row.get("transcript_length")) <= 0
     ]
-    archived_missing_path = [row for row in archived_rows if not str(row.get("archive_path") or "").strip()]
+    archived_missing_path = [
+        row for row in archived_rows if not str(row.get("archive_path") or "").strip()
+    ]
     archived_missing_audio = [
-        row for row in archived_rows if str(row.get("archive_path") or "").strip() and not Path(str(row["archive_path"])).is_file()
+        row
+        for row in archived_rows
+        if str(row.get("archive_path") or "").strip()
+        and not Path(str(row["archive_path"])).is_file()
     ]
     archived_missing_metadata = []
     for row in archived_rows:
@@ -120,7 +143,11 @@ def build_receipt(
         if archive_path and not Path(archive_path).with_suffix(".json").is_file():
             archived_missing_metadata.append(row)
 
-    backfills = [row for row in completion_rows if str(row.get("event_type") or "") == "pocket_recording_backfill_completed"]
+    backfills = [
+        row
+        for row in completion_rows
+        if str(row.get("event_type") or "") == "pocket_recording_backfill_completed"
+    ]
     latest_backfill = backfills[0] if backfills else {}
     latest_completion = completion_rows[0] if completion_rows else {}
     file_summary = summarize_archive_files(archive_root)
@@ -128,7 +155,8 @@ def build_receipt(
     inactive_no_archive_data = (
         not latest
         and not completion_rows
-        and not file_summary["archive_root_exists"]
+        and int(file_summary["audio_file_total"]) == 0
+        and int(file_summary["metadata_json_total"]) == 0
     )
 
     inferred_filesystem_backfill = False
@@ -138,8 +166,10 @@ def build_receipt(
         and not latest
         and file_summary["archive_root_exists"]
         and int(file_summary["audio_file_total"]) > 0
-        and int(file_summary["audio_file_total"]) == int(file_summary["metadata_json_total"])
-        and int(metadata_summary["metadata_record_total"]) == int(file_summary["metadata_json_total"])
+        and int(file_summary["audio_file_total"])
+        == int(file_summary["metadata_json_total"])
+        and int(metadata_summary["metadata_record_total"])
+        == int(file_summary["metadata_json_total"])
     ):
         inferred_filesystem_backfill = True
         latest_backfill = {
@@ -168,7 +198,8 @@ def build_receipt(
         and not archived_missing_metadata
         and not missing_transcript_rows
         and latest_completion
-        and str(latest_completion.get("event_type") or "").strip() == "pocket_recording_sync_completed"
+        and str(latest_completion.get("event_type") or "").strip()
+        == "pocket_recording_sync_completed"
         and not _bool_value(latest_completion.get("scan_truncated"))
         and _int_value(latest_completion.get("failed_total")) == 0
         and _int_value(latest_completion.get("archive_failed_total")) == 0
@@ -198,18 +229,31 @@ def build_receipt(
         if _bool_value(latest_backfill.get("scan_truncated")):
             failures.append("latest_backfill_scan_truncated")
         if _int_value(latest_backfill.get("failed_total")):
-            failures.append(f"latest_backfill_failed_total:{latest_backfill.get('failed_total')}")
+            failures.append(
+                f"latest_backfill_failed_total:{latest_backfill.get('failed_total')}"
+            )
         if _int_value(latest_backfill.get("archive_failed_total")):
-            failures.append(f"latest_backfill_archive_failed_total:{latest_backfill.get('archive_failed_total')}")
-        teable_index_status = str(latest_backfill.get("teable_index_status") or "").strip()
+            failures.append(
+                f"latest_backfill_archive_failed_total:{latest_backfill.get('archive_failed_total')}"
+            )
+        teable_index_status = str(
+            latest_backfill.get("teable_index_status") or ""
+        ).strip()
         if teable_index_status not in {"synced", "filesystem_only"}:
-            failures.append(f"latest_backfill_teable_status:{latest_backfill.get('teable_index_status') or 'missing'}")
-        if teable_index_status != "filesystem_only" and not _bool_value(latest_backfill.get("teable_index_sync_attempted")):
+            failures.append(
+                f"latest_backfill_teable_status:{latest_backfill.get('teable_index_status') or 'missing'}"
+            )
+        if teable_index_status != "filesystem_only" and not _bool_value(
+            latest_backfill.get("teable_index_sync_attempted")
+        ):
             failures.append("latest_backfill_teable_sync_not_attempted")
-        expected_teable_rows = _int_value(latest_backfill.get("archived_total")) + _int_value(
-            latest_backfill.get("archive_dismissed_total")
-        )
-        if _int_value(latest_backfill.get("teable_index_row_total")) != expected_teable_rows:
+        expected_teable_rows = _int_value(
+            latest_backfill.get("archived_total")
+        ) + _int_value(latest_backfill.get("archive_dismissed_total"))
+        if (
+            _int_value(latest_backfill.get("teable_index_row_total"))
+            != expected_teable_rows
+        ):
             failures.append(
                 "latest_backfill_teable_row_total_mismatch:"
                 f"{latest_backfill.get('teable_index_row_total')}!={expected_teable_rows}"
@@ -218,24 +262,41 @@ def build_receipt(
         if _bool_value(latest_completion.get("scan_truncated")):
             failures.append("latest_completion_scan_truncated")
         if _int_value(latest_completion.get("failed_total")):
-            failures.append(f"latest_completion_failed_total:{latest_completion.get('failed_total')}")
+            failures.append(
+                f"latest_completion_failed_total:{latest_completion.get('failed_total')}"
+            )
         if _int_value(latest_completion.get("archive_failed_total")):
-            failures.append(f"latest_completion_archive_failed_total:{latest_completion.get('archive_failed_total')}")
+            failures.append(
+                f"latest_completion_archive_failed_total:{latest_completion.get('archive_failed_total')}"
+            )
         if str(latest_completion.get("teable_index_status") or "").strip() == "blocked":
             failures.append(
                 "latest_completion_teable_blocked:"
-                + _compact_failure(str(latest_completion.get("teable_index_blocked_reason") or "unknown"))
+                + _compact_failure(
+                    str(
+                        latest_completion.get("teable_index_blocked_reason")
+                        or "unknown"
+                    )
+                )
             )
     if failed_rows:
         failures.append(f"latest_index_failed_archive_rows:{len(failed_rows)}")
     if archived_missing_path:
-        failures.append(f"archived_rows_missing_archive_path:{len(archived_missing_path)}")
+        failures.append(
+            f"archived_rows_missing_archive_path:{len(archived_missing_path)}"
+        )
     if archived_missing_audio:
-        failures.append(f"archived_rows_missing_audio_file:{len(archived_missing_audio)}")
+        failures.append(
+            f"archived_rows_missing_audio_file:{len(archived_missing_audio)}"
+        )
     if archived_missing_metadata:
-        failures.append(f"archived_rows_missing_metadata_file:{len(archived_missing_metadata)}")
+        failures.append(
+            f"archived_rows_missing_metadata_file:{len(archived_missing_metadata)}"
+        )
     if missing_transcript_rows:
-        failures.append(f"non_dismissed_rows_missing_transcript:{len(missing_transcript_rows)}")
+        failures.append(
+            f"non_dismissed_rows_missing_transcript:{len(missing_transcript_rows)}"
+        )
 
     return {
         "contract_name": "ea.verify_pocket_audio_archive",
@@ -247,8 +308,7 @@ def build_receipt(
         "evidence_mode": (
             "inactive_no_archive_data"
             if inactive_no_archive_data
-            else
-            "filesystem_archive_scan"
+            else "filesystem_archive_scan"
             if inferred_filesystem_backfill
             else "sync_index_inferred_backfill"
             if inferred_sync_backfill
@@ -259,10 +319,14 @@ def build_receipt(
             "latest_archived_total": len(archived_rows),
             "latest_dismissed_total": len(dismissed_rows),
             "latest_failed_total": len(failed_rows),
-            "latest_non_dismissed_missing_transcript_total": len(missing_transcript_rows),
+            "latest_non_dismissed_missing_transcript_total": len(
+                missing_transcript_rows
+            ),
             "latest_archived_missing_path_total": len(archived_missing_path),
             "latest_archived_missing_audio_file_total": len(archived_missing_audio),
-            "latest_archived_missing_metadata_file_total": len(archived_missing_metadata),
+            "latest_archived_missing_metadata_file_total": len(
+                archived_missing_metadata
+            ),
         },
         "latest_backfill": {
             key: latest_backfill.get(key)
@@ -301,7 +365,9 @@ def build_receipt(
     }
 
 
-def _run_psql_json(*, container: str, user: str, database: str, sql: str) -> list[dict[str, Any]]:
+def _run_psql_json(
+    *, container: str, user: str, database: str, sql: str
+) -> list[dict[str, Any]]:
     command = [
         "docker",
         "exec",
@@ -316,7 +382,9 @@ def _run_psql_json(*, container: str, user: str, database: str, sql: str) -> lis
         "-c",
         sql,
     ]
-    result = subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    result = subprocess.run(
+        command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    )
     text = result.stdout.strip()
     if not text:
         return []
@@ -324,7 +392,9 @@ def _run_psql_json(*, container: str, user: str, database: str, sql: str) -> lis
     return list(payload or []) if isinstance(payload, list) else []
 
 
-def load_index_rows(*, container: str, user: str, database: str) -> list[dict[str, Any]]:
+def load_index_rows(
+    *, container: str, user: str, database: str
+) -> list[dict[str, Any]]:
     return _run_psql_json(
         container=container,
         user=user,
@@ -346,7 +416,9 @@ FROM (
     )
 
 
-def load_completion_rows(*, container: str, user: str, database: str) -> list[dict[str, Any]]:
+def load_completion_rows(
+    *, container: str, user: str, database: str
+) -> list[dict[str, Any]]:
     event_list = ",".join(f"'{event}'" for event in COMPLETION_EVENTS)
     return _run_psql_json(
         container=container,
@@ -377,20 +449,35 @@ FROM (
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Verify Pocket AI audio archive, transcript index, and Teable sync gate.")
+    parser = argparse.ArgumentParser(
+        description="Verify Pocket AI audio archive, transcript index, and Teable sync gate."
+    )
     parser.add_argument(
         "--archive-root",
         type=Path,
-        default=Path(os.environ.get("EA_POCKET_AUDIO_ARCHIVE_ROOT") or DEFAULT_ARCHIVE_ROOT),
+        default=Path(
+            os.environ.get("EA_POCKET_AUDIO_ARCHIVE_ROOT") or DEFAULT_ARCHIVE_ROOT
+        ),
     )
-    parser.add_argument("--postgres-container", default=os.environ.get("EA_POSTGRES_CONTAINER") or "ea-db")
-    parser.add_argument("--postgres-user", default=os.environ.get("POSTGRES_USER") or "postgres")
-    parser.add_argument("--postgres-db", default=os.environ.get("POSTGRES_DB") or "ea_smoke_runtime")
+    parser.add_argument(
+        "--postgres-container",
+        default=os.environ.get("EA_POSTGRES_CONTAINER") or "ea-db",
+    )
+    parser.add_argument(
+        "--postgres-user", default=os.environ.get("POSTGRES_USER") or "postgres"
+    )
+    parser.add_argument(
+        "--postgres-db", default=os.environ.get("POSTGRES_DB") or "ea_smoke_runtime"
+    )
     args = parser.parse_args()
 
     db_probe_error = ""
     try:
-        index_rows = load_index_rows(container=args.postgres_container, user=args.postgres_user, database=args.postgres_db)
+        index_rows = load_index_rows(
+            container=args.postgres_container,
+            user=args.postgres_user,
+            database=args.postgres_db,
+        )
         completion_rows = load_completion_rows(
             container=args.postgres_container,
             user=args.postgres_user,

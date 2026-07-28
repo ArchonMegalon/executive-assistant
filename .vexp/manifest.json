@@ -1107,7 +1107,7 @@
     "scripts/db_retention.sh": "2adf6fb18c9a7dbc7adb2bfb01540186e2c4676adcd3c3cc478e68110137834a",
     "scripts/db_size.sh": "e837d6409b5854c873828a97f93a2257a2a20ca312b1cb6c9b8670b21ce408e5",
     "scripts/db_status.sh": "63f643d2b232f81ab3eca748df989f42589eeb766ad8a56c670203e254af9d25",
-    "scripts/deploy.sh": "25ab9c0a6589dbc1c12eb85978b554a3b2bd0f5e56b60bd7beb00876dd97d425",
+    "scripts/deploy.sh": "4377634ba44ccc6c30fba3881841b804c65d0bd8b528650d16ea5491e8aa915b",
     "scripts/deploy_ea_audiobook_runtime.py": "6f64088eb42451da3c067f084a351e09528c018348e21322e015f141b40051ee",
     "scripts/deploy_ea_memorial.py": "e970353f674a1150e9863c4dc4fb30b896fe2ffa95204816de8bc6ff84e9c6bb",
     "scripts/deploy_ea_memorial_joint.py": "1a7b9ffffd9b55242623d378d0d12946a05cc0cc6c4b2e9fb72cba0ff1fa5973",
@@ -1276,7 +1276,7 @@
     "scripts/run_magicfit_provider_bakeoff.py": "1a9f5c966e39bef9ecdeb991b7c7a2de0404fa41e1179209661918f0e875bf09",
     "scripts/run_manfred_memorial_candidate.py": "7668b01e611e97a9af87ae4f02d5a7a4bbbc4a709afd0166b16afba443fc4e0a",
     "scripts/run_proactive_ooda.py": "ae931841dddd08757fea46a46fc78d83f7577ad685137197c5d4f57a9d84741d",
-    "scripts/runtime_hard_exit_gates.sh": "c0c230eebcee976b430f8b23a616cf6d68d0e0f61feb7ec6698b6f78d89f7a90",
+    "scripts/runtime_hard_exit_gates.sh": "f6677e86a18ec37f2aafc4ae2405ae01367439ddf72cbb99ecba47860a8a6e2a",
     "scripts/send_crezlo_property_tour_results_email.py": "dde06d653f449759a2c24897161c870c51ef678f4e5f3a90ac4b39faa03097dd",
     "scripts/send_whatsapp_web_session_live_test.py": "697e732f1eb91e95e3eb68deb7b7b1f102255e7c7fdd920ad5d57c08cf0f083c",
     "scripts/smoke_api.sh": "efbda1c17b8d8875d484cef3b1e32669309baeebc1891b1d7b0a98e8b10c0047",
@@ -1361,7 +1361,7 @@
     "scripts/verify_operator_action_required_digest.py": "1558df7575d8f744ff88d6305de2731206ff2862b29c9c586f824118a4c4a050",
     "scripts/verify_origin_humanizer_quality.py": "a98b986a95daaf93bdc41ba05daa114b469c3e55f057af50fab8eeeedcd44724",
     "scripts/verify_origin_m4b_provider_import.py": "4cfdedb4ccf0621a9cdc5944ddc0b412a192e3e66bddf6bd83a47284281adf64",
-    "scripts/verify_pocket_audio_archive.py": "9b70d97cbca9d1776161a3a49b3905a148cea1b3a86921b66fc1e8e9d2e8044a",
+    "scripts/verify_pocket_audio_archive.py": "3b07eb7969e4d29867928075ca5d31430dca6b5cec376655c36b1fb7ddb60be9",
     "scripts/verify_pocket_audio_archive_receipt.py": "5d51deea4ca8e7e354a76a4707044e27dd970c212af66e4bcdceb5e96c37335b",
     "scripts/verify_poppy_session.py": "3eb73788a96294ba968f3f01a29d98dc4f73bb089b629819f36433534dfcb856",
     "scripts/verify_preference_teable_sync.py": "b8b397e79f8fd87e5092f35f59b5342438ac27afa15f530ca366acc2828dc760",
@@ -1497,7 +1497,7 @@
     "tests/test_compose_portable_storage_defaults.py": "29651a201bbac6862eba6009fa204bcfe43390b789ecafe67746d502c50467a6",
     "tests/test_continuous_improvement_goal_posture.py": "a9e0a9859a500fb01324ca32f42d100132cdac53bd2b2a652934fb9313975a77",
     "tests/test_crezlo_email_runtime_defaults.py": "e0f72bb694c5bd82c7660eae441779b3965c81eac2ff69f69639a17424c52d06",
-    "tests/test_deployment_contracts.py": "faac593219d4b1f21dfe87f04b9feb4147ec0a0caec51db1caa91067bb6013dc",
+    "tests/test_deployment_contracts.py": "d076e95c13de92c4b54c35972bc958122033a003b700c71245385ddd73690043",
     "tests/test_design_mirror_bundle_contracts.py": "54ebbfb48b84edc0a5bb80ca1b90f2baf2df62dd30d169a8803951f3f882a6a9",
     "tests/test_di_container.py": "d0725ef67f804e324eb8d7f8ac0ff9f9d9974423f77dcf428e9159ef028e885f",
     "tests/test_docs_and_verifier_path_portability.py": "7041e44b34d2ce71c0dee311df5e639078dcfebd47be1a543acac11ce9a21f55",
@@ -1681,7 +1681,7 @@
     "tests/test_plan_scope_contracts.py": "a58839c0e5e6ea1c466e866933ab421d1df457d2ec1fb8faf06bbbf3768e7334",
     "tests/test_planner.py": "b6107ab4240535e14b748818f4ed8fa2adb32b137745db8285793144ba3967b9",
     "tests/test_planner_edge_cases.py": "123a825af77ffba4f0d21a46fa874f10c7d2883b31baf2d8cbb14b4a040cae23",
-    "tests/test_pocket_audio_archive_gate.py": "48b16d10ddbe9fb8788f011ddc38d63c67e483e5bc3324dfd90f4b589f28827c",
+    "tests/test_pocket_audio_archive_gate.py": "8016b01e0e6974df29ccd73e92d1be0e5b619496e95c0ce41b73cfaf6adbfcdd",
     "tests/test_pocket_audio_archive_receipt.py": "a22d60269bdc0ea4b3286f821c04a1b47da2b229b96dc7f7db64b4ec373b5c86",
     "tests/test_policy.py": "1f43cd1697a29e14d9f343633b041d0c60214a584b1e013f36d487f75a2e4e94",
     "tests/test_policy_scope_contracts.py": "cdde4e7a576a3cb094ced2c6b0ca841207fc8b7fec24a0160cab18d3b8708a05",
@@ -1879,13 +1879,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "d9e1b5c53fa817da83a19e22e7c7482466bb6ade",
-  "indexed_at_timestamp": "2026-07-28T18:31:14.505488420+00:00",
+  "indexed_at_commit": "3a8585c67d35659a3a1d2105e42dc4d76e8980a9",
+  "indexed_at_timestamp": "2026-07-28T18:43:25.018025552+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 47218,
+    "total_edges": 47102,
     "total_files": 1878,
-    "total_nodes": 29578
+    "total_nodes": 29581
   },
   "vexp_version": "2.3.1"
 }
