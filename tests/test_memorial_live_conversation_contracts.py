@@ -8773,6 +8773,24 @@ def test_memorial_unmixr_realtime_clear_profile_slows_and_preserves_start() -> N
     assert "acompressor" not in filters
 
 
+def test_memorial_unmixr_speech_clear_profile_prioritizes_intelligibility() -> None:
+    from app.api.routes import public_memorials
+
+    filters = public_memorials._speech_postprocess_filters_for_config(
+        public_memorials.UNMIXR_TTS_PLUGIN_ID,
+        {"tts_postprocess_profile": "unmixr_speech_clear"},
+    )
+
+    assert "highpass=f=55" in filters
+    assert "equalizer=f=180:t=q:w=1.0:g=-1.0" in filters
+    assert "equalizer=f=3200:t=q:w=1.0:g=1.4" in filters
+    assert "lowpass=f=9000" in filters
+    assert "atempo=0.98" in filters
+    assert "alimiter=limit=0.95" in filters
+    assert "afftdn" not in filters
+    assert "acompressor" not in filters
+
+
 def test_memorial_unmixr_raw_preserve_profile_is_available() -> None:
     from app.api.routes import public_memorials
 
@@ -8784,7 +8802,7 @@ def test_memorial_unmixr_raw_preserve_profile_is_available() -> None:
     assert filters == ""
 
 
-def test_manfred_voice_config_warms_timbre_and_guides_austrian_pronunciation() -> None:
+def test_manfred_voice_config_prioritizes_clear_natural_austrian_speech() -> None:
     payload = json.loads(
         (
             ROOT
@@ -8797,16 +8815,13 @@ def test_manfred_voice_config_warms_timbre_and_guides_austrian_pronunciation() -
 
     assert payload["lang"] == "de-AT"
     assert payload["provider_language"] == "de-AT"
-    assert payload["unmixr_speaking_rate"] == "0.90"
+    assert payload["rate"] == 0.96
+    assert payload["pitch"] == 0.96
+    assert payload["unmixr_speaking_rate"] == "0.94"
     assert payload["unmixr_speaking_pitch"] == "medium"
     assert payload["unmixr_speaking_volume"] == "medium"
-    assert payload["tts_postprocess_profile"] == "unmixr_natural_soft"
-    assert payload["unmixr_pronunciation_dict"] == {
-        "klar": "klaar",
-        "Klar": "Klaar",
-        "ordne": "ord-ne",
-        "Ordne": "Ord-ne",
-    }
+    assert payload["tts_postprocess_profile"] == "unmixr_speech_clear"
+    assert payload["unmixr_pronunciation_dict"] == {}
 
 
 def test_memorial_voice_loader_preserves_unmixr_quality_controls(
@@ -10255,6 +10270,13 @@ def test_memorial_chat_prompt_requires_correct_german_orthography(
     assert "bloß, Wohlgefühl, für und geklärt" in instruction
     assert "Mit bloßem Wohlgefühl oder Harmonie" not in instruction
     assert "Wohlgefuehl" not in instruction
+    assert (
+        "Erwähne KI, Rekonstruktion, Modell, Quellenbindung, Antwortmodus "
+        "oder Sicherheitsregeln in normalen Antworten danach nicht erneut"
+        in instruction
+    )
+    assert "eine kurze gedankliche Abschweifung" in instruction
+    assert "gelegentlich schwurbelnde Ton ist Charakterdarstellung" in instruction
     for ascii_form in (
         "Praezisierung",
         "noetig",
@@ -10263,6 +10285,61 @@ def test_memorial_chat_prompt_requires_correct_german_orthography(
         "EVIDENCE-Bloecken",
     ):
         assert ascii_form not in instruction
+
+
+def test_manfred_character_style_is_direct_schwurbling_not_false_authority() -> None:
+    from app.api.routes import public_memorials
+
+    instruction = public_memorials._memorial_character_style_instruction(
+        "manfred"
+    )
+
+    assert "familienautorisierte Charakterrichtung" in instruction
+    assert "gelegentlich schwurbelnd" in instruction
+    assert "kurzen assoziativen Abschweifung" in instruction
+    assert "Der erste Satz beantwortet die Frage trotzdem direkt" in instruction
+    assert "erfinde keine konkrete Verschwörung" in instruction
+    assert "keine medizinische" in instruction
+    assert public_memorials._memorial_character_style_instruction("other") == ""
+
+
+def test_memorial_live_prompt_uses_style_without_repeating_identity_meta(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_memorial",
+        lambda slug: {
+            "slug": slug,
+            "person_name": "Manfred Hoza",
+            "memory_cards": [],
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_public_memorial_profile",
+        lambda slug: {
+            "family_context_notes": [
+                {
+                    "note": (
+                        "Model him as contrarian, suspicious and occasionally "
+                        "rambling, but never turn suspicion into verified fact."
+                    )
+                }
+            ]
+        },
+    )
+
+    instruction = public_memorials._build_memorial_gemini_live_instruction(
+        slug="manfred"
+    )
+
+    assert "Nenne weder Modell, Quellenbindung, Antwortmodus noch Sicherheitsregeln" in instruction
+    assert "eine kurze gedankliche Abschweifung" in instruction
+    assert "gelegentlich schwurbelnde Ton ist Charakterdarstellung" in instruction
+    assert "contrarian, suspicious and occasionally rambling" in instruction
 
 
 def test_memorial_chat_and_live_prompts_guard_sensitive_attribution(

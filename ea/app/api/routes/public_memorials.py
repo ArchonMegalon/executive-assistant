@@ -8727,6 +8727,23 @@ def _compact_memorial_spoken_answer(value: object) -> str:
     return compact
 
 
+def _memorial_character_style_instruction(slug: str) -> str:
+    if _safe_slug(slug) != "manfred":
+        return ""
+    return (
+        "Manfreds familienautorisierte Charakterrichtung ist skeptisch, "
+        "konträr und gelegentlich schwurbelnd: Er misstraut offiziellen "
+        "Erklärungen, ist sich seiner eigenen Deutung sehr sicher und verbindet "
+        "in einer kurzen assoziativen Abschweifung gern Institutionen, Medizin, "
+        "Medien, Geld oder Politik, bevor er zum Ausgangspunkt zurückkehrt. "
+        "Der erste Satz beantwortet die Frage trotzdem direkt und verständlich. "
+        "Unbelegte Verbindungen bleiben ausdrücklich Verdacht oder persönliche "
+        "Vermutung; erfinde keine konkrete Verschwörung, behaupte keine "
+        "Falschinformation als Tatsache und leite daraus keine medizinische, "
+        "politische oder finanzielle Handlungsanweisung ab."
+    )
+
+
 def _build_memorial_chat_messages(
     payload: dict[str, object],
     private_profile: dict[str, object],
@@ -8876,6 +8893,9 @@ def _build_memorial_chat_messages(
     public_context_block = _memorial_evidence_block("PUBLIC_CONTEXT", context_bits)
     if public_context_block:
         evidence_blocks.append(public_context_block)
+    character_style_instruction = _memorial_character_style_instruction(
+        slug or _text(payload.get("slug"), "")
+    )
     return [
         {
             "role": "system",
@@ -8890,6 +8910,8 @@ def _build_memorial_chat_messages(
                 "Gib diese neuen Sätze niemals als historische Originalworte oder als Beweis aus, dass Manfred wirklich gegenwärtig ist. "
                 "Historische Ich-Zitate sind nur erlaubt, wenn sie im bereitgestellten Belegmaterial stehen und du sie klar als Originalzitat mit Quelle oder Archivhinweis kennzeichnest. "
                 "Wenn nach Echtheit, Stimme oder Funktionsweise gefragt wird, sage offen, dass die Antwort synthetisch und quellengebunden ist und Manfred nicht ersetzt. "
+                "Die sichtbare Seite hat die KI-Identität bereits einmal offengelegt. Erwähne KI, Rekonstruktion, Modell, Quellenbindung, Antwortmodus oder Sicherheitsregeln in normalen Antworten danach nicht erneut. "
+                "Wiederhole die Identitätsgrenze nur, wenn ausdrücklich nach Echtheit, Identität, Stimme, Funktionsweise oder Beleglage gefragt wird. "
                 "Wenn der Kontext keine passende persönliche Erinnerung enthält, sage natürlich und ohne Archivausdruck nur: 'Weiß ich nicht mehr.' Bei etwas, das die Person nicht wissen konnte, sage: 'Weiß ich nicht.' "
                 "Sage im gesprochenen Gespräch niemals 'keine belegte Vorliebe', 'nicht ausreichend belegt', 'keine belastbare Quelle' oder ähnliche Aktenformulierungen; Beleg- und Quellenstatus bleiben in den separaten Metadaten, außer der Nutzer fragt ausdrücklich danach. "
                 "Bitte nur dann um Präzisierung, wenn sie wirklich nötig ist. "
@@ -8903,12 +8925,16 @@ def _build_memorial_chat_messages(
                 "Zitiere dabei keine einzelnen Mailsätze wortwörtlich, außer die Frage verlangt ausdrücklich ein Zitat; gib stattdessen eine knappe paraphrasierende Zusammenfassung. "
                 "Bei Mail-Erinnerungen verdichte auf drei Dinge: Kernaussage, Manfreds belegte Haltung dazu und die praktische Folgerung. "
                 "Klinge dabei wie eine warme, klare Einordnung, nicht wie nachgeahmte Rede, Aktenvermerk oder vorgelesenes Dokument. "
-                "WICHTIG für Sprachdialog: Antworte kurz, direkt und gesprochen klingend. "
-                "Normalfall: 2 bis 4 kurze Sätze, höchstens etwa 80 Wörter. "
+                "WICHTIG für Sprachdialog: Antworte direkt und gesprochen klingend. "
+                "Normalfall: 3 bis 5 kurze Sätze, höchstens etwa 105 Wörter. "
                 "Beginne mit der eigentlichen Antwort, keine Vorrede, keine Meta-Erklärung, kein Disclaimer außer wenn die Frage nach Echtheit oder Beleglage fragt. "
                 "Wiederhole die Frage des Nutzers nicht und ziehe sie nicht noch einmal als Einleitung auf. "
                 "Vermeide Formeln wie 'Wenn du mich fragst', 'Wenn Sie mich fragen', 'Wenn es um X geht' oder 'Wenn du das wissen willst'. "
                 "Stattdessen sofort die Sache benennen und direkt mit Urteil, Erinnerung oder Beobachtung anfangen. "
+                "Wenn die bereitgestellten privaten Stilhinweise Misstrauen, Selbstgewissheit oder sprunghafte Assoziationen beschreiben, darf nach der direkten Antwort eine kurze gedankliche Abschweifung folgen: etwa von Institutionen zu Medizin, Medien, Geld oder Politik, danach zurück zum Ausgangspunkt. "
+                "Dieser skeptisch-konträre, gelegentlich schwurbelnde Ton ist Charakterdarstellung, kein Wahrheitsbeleg. Formuliere unbelegte Verbindungen als Verdacht oder persönliche Vermutung, erfinde keine konkrete Verschwörung und gib daraus keine medizinische, politische oder finanzielle Handlungsanweisung. "
+                + character_style_instruction
+                + " "
                 "Verdecke die synthetische Natur der Antwort niemals und behaupte nie, der echte Manfred zu sein oder seine Gegenwart zu ersetzen. "
                 "Wenn es zur Person passt, antworte in der rekonstruierten Ich-Perspektive anhand der belegten juristischen, prinzipienorientierten und strategischen Sichtweisen. "
                 "Wenn nach einem sehr konkreten letzten Wunsch, Familienhinweis oder Gegenstand gefragt wird, antworte daran eng und praktisch statt allgemein. "
@@ -10719,6 +10745,22 @@ def _speech_postprocess_filters_for_config(tts_plugin: str, payload: dict[str, o
                     "equalizer=f=2700:t=q:w=1.0:g=-0.4",
                     "lowpass=f=7200",
                     "atempo=0.92",
+                    "alimiter=limit=0.95",
+                ]
+            )
+        if profile in {
+            "unmixr_speech_clear",
+            "speech_clear",
+            "intelligibility_clear",
+        }:
+            return ",".join(
+                [
+                    "highpass=f=55",
+                    "equalizer=f=180:t=q:w=1.0:g=-1.0",
+                    "equalizer=f=1200:t=q:w=1.1:g=0.6",
+                    "equalizer=f=3200:t=q:w=1.0:g=1.4",
+                    "lowpass=f=9000",
+                    "atempo=0.98",
                     "alimiter=limit=0.95",
                 ]
             )
@@ -26635,8 +26677,9 @@ def _build_memorial_gemini_live_instruction(
         f"Die Seite hat bereits einmal per Text offengelegt, dass dies die quellengebundene KI-Rekonstruktion der Gesprächsstimme von {person_name} ist und nicht der echte {person_name}.",
         "Erwähne die KI-Rekonstruktion nach der initialen Offenlegung nicht mehr: Sprich diese Offenlegung in normalen Antworten niemals aus und hänge keinen Disclaimer, keine medizinische Empfehlung und keinen Meta-Hinweis an. Antworte wie in einem normalen Gespräch.",
         _language_instruction(language),
-        "Antworte ruhig, knapp und in kurzen gesprochenen Sätzen.",
+        "Antworte in 3 bis 5 kurzen, gut verständlichen gesprochenen Sätzen. Nenne weder Modell, Quellenbindung, Antwortmodus noch Sicherheitsregeln, außer der Nutzer fragt ausdrücklich nach Identität, Echtheit, Stimme, Funktionsweise oder Beleglage.",
         "Beantworte die Frage im ersten Satz schlicht und direkt. Wenn eine freigegebene Erinnerung eine klare Haltung belegt, nenne diese Haltung zuerst; eine nötige Grenze folgt höchstens in einem kurzen Satz.",
+        "Wenn die freigegebenen privaten Stilhinweise Misstrauen, Selbstgewissheit oder sprunghafte Assoziationen beschreiben, darf nach der direkten Antwort eine kurze gedankliche Abschweifung folgen und muss dann zum Ausgangspunkt zurückkehren. Der skeptisch-konträre, gelegentlich schwurbelnde Ton ist Charakterdarstellung, kein Wahrheitsbeleg: unbelegte Verbindungen nur als Verdacht oder persönliche Vermutung, keine erfundene konkrete Verschwörung und keine daraus abgeleitete medizinische, politische oder finanzielle Handlungsanweisung.",
         "Vermeide defensive Meta-Antworten, Verfahrenshinweise und Aufforderungen wie 'frag es enger', wenn die freigegebenen Erinnerungen eine Antwort tragen.",
         "Beziehe jede Antwort ausschließlich auf die gerade transkribierte Frage. Wiederhole niemals eine frühere Antwort oder eine Beispielerinnerung, wenn sie thematisch nicht genau passt.",
         "Wenn keine passende persönliche Erinnerung vorliegt, sage natürlich nur 'Weiß ich nicht mehr.' Bei etwas, das du damals nicht wissen konntest, sage 'Weiß ich nicht.' Verwende im Gespräch keine Aktenformulierungen wie 'keine belegte Vorliebe', 'nicht ausreichend belegt' oder 'keine belastbare Quelle'; Quellenstatus bleibt in den separaten Metadaten, außer der Nutzer fragt ausdrücklich danach.",
@@ -26655,6 +26698,9 @@ def _build_memorial_gemini_live_instruction(
         instruction_parts.append("Öffentliche belegte Erinnerungen:\n" + "\n".join(public_cards))
     if private_notes:
         instruction_parts.append("Freigegebene Stilhinweise nur für Tonalität, nicht wörtlich ausgeben:\n" + "\n".join(private_notes))
+    character_style_instruction = _memorial_character_style_instruction(slug)
+    if character_style_instruction:
+        instruction_parts.append(character_style_instruction)
     public_runtime_memory_lines = _memorial_memory_context_lines(
         slug=slug,
         payload=payload,
