@@ -20,8 +20,6 @@ jobs:
     name: Clean source and real browser journeys
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    env:
-      PROOF_PATH: ${{ runner.temp }}/EA_BROWSER_WORKFLOW_PROOF.generated.json
 
     steps:
       - name: Check out the exact source revision
@@ -49,7 +47,7 @@ jobs:
       - name: Materialize the clean browser workflow proof
         run: |
           python scripts/materialize_ea_browser_workflow_proof.py \
-            --output "$PROOF_PATH"
+            --output "$RUNNER_TEMP/EA_BROWSER_WORKFLOW_PROOF.generated.json"
 
       - name: Verify the receipt is green and bound to this revision
         env:
@@ -60,10 +58,12 @@ jobs:
           import os
           from pathlib import Path
 
+          proof_path = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "EA_BROWSER_WORKFLOW_PROOF.generated.json"
+          )
           receipt = json.loads(
-              Path(os.environ["PROOF_PATH"]).read_text(
-                  encoding="utf-8"
-              )
+              proof_path.read_text(encoding="utf-8")
           )
           assert receipt["status"] == "pass", receipt.get("blocking_reasons")
           assert receipt["source_revision"] == os.environ["EXPECTED_REVISION"]
