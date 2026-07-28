@@ -14435,12 +14435,15 @@ def _minimal_public_memorial_html(
         )
     elif public_voice_evaluation_allowed:
         voice_guidance = (
-            "Du sprichst mit einer KI-Version von Manfred. Die Stimme ist in Testphase; "
+            "Du sprichst mit einer KI-Version von Manfred. "
+            "Diese KI ist nicht Manfred und spricht nicht für ihn. "
+            "Die Stimme ist in Testphase; "
             "dein Mikrofon startet erst nach deinem Klick."
         )
     elif voice_access_blocked:
         voice_guidance = (
             "Du schreibst mit einer KI-Version von Manfred. "
+            "Diese KI ist nicht Manfred und spricht nicht für ihn. "
             + (
                 "Sprechen ist derzeit nicht verfügbar."
                 if conversation_only
@@ -14449,12 +14452,16 @@ def _minimal_public_memorial_html(
         )
     elif conversation_only:
         voice_guidance = (
-            "Du sprichst mit einer KI-Version von Manfred. Die Stimme ist synthetisch; "
+            "Du sprichst mit einer KI-Version von Manfred. "
+            "Diese KI ist nicht Manfred und spricht nicht für ihn. "
+            "Die Stimme ist synthetisch; "
             "dein Mikrofon startet erst nach deinem Klick."
         )
     else:
         voice_guidance = (
-            "Du sprichst mit einer KI-Version von Manfred. Die Stimme ist synthetisch; "
+            "Du sprichst mit einer KI-Version von Manfred. "
+            "Diese KI ist nicht Manfred und spricht nicht für ihn. "
+            "Die Stimme ist synthetisch; "
             "dein Mikrofon startet erst nach deinem Klick. Du kannst jederzeit schreiben."
         )
     conversation_processing_guidance = (
