@@ -20,6 +20,8 @@ jobs:
     name: Clean source and real browser journeys
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      PROOF_PATH: ${{ runner.temp }}/EA_BROWSER_WORKFLOW_PROOF.generated.json
 
     steps:
       - name: Check out the exact source revision
@@ -46,9 +48,8 @@ jobs:
 
       - name: Materialize the clean browser workflow proof
         run: |
-          mkdir -p proof
           python scripts/materialize_ea_browser_workflow_proof.py \
-            --output proof/EA_BROWSER_WORKFLOW_PROOF.generated.json
+            --output "$PROOF_PATH"
 
       - name: Verify the receipt is green and bound to this revision
         env:
@@ -60,7 +61,7 @@ jobs:
           from pathlib import Path
 
           receipt = json.loads(
-              Path("proof/EA_BROWSER_WORKFLOW_PROOF.generated.json").read_text(
+              Path(os.environ["PROOF_PATH"]).read_text(
                   encoding="utf-8"
               )
           )
@@ -76,6 +77,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ea-browser-workflow-proof-${{ github.run_id }}
-          path: proof/EA_BROWSER_WORKFLOW_PROOF.generated.json
+          path: ${{ runner.temp }}/EA_BROWSER_WORKFLOW_PROOF.generated.json
           if-no-files-found: error
           retention-days: 14
