@@ -1724,6 +1724,7 @@
     "tests/test_product_entitlement_contracts.py": "cbef4ceceacc79d567752bd8d68c782e4b6dd0b957489e010e7bd5f871f0a85b",
     "tests/test_product_extractors.py": "12cd5b3d91a3edf8845dc57797139e0244acb723352ce871e7891f1695aac19c",
     "tests/test_product_projection_contracts.py": "1f494086f06387ac145bf2104feae24e354c75d890d1d63d71dedf00949c5481",
+    "tests/test_product_release_authority_projection.py": "87c218f51cdd29ab1e0cbef7ef610a80e0beb5d72debe6ea0310511556f22d0c",
     "tests/test_product_service_script_path_portability.py": "6a063bb29097b3722b4721dc32288919730dbf04385f4e167f6be84e9d5eaefb",
     "tests/test_product_support_contracts.py": "ae3cb3a0fc10159aa8798cd80e72ce4eecf6a5fb2d8e4c2028f58c8672950ad3",
     "tests/test_project_mode_manifests.py": "d9ccced4c1a82a1dc36ec3dd8048ca15a1c4ac4f58796858e9503b560daaafaf",
@@ -1878,13 +1879,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "646a9a2c0e2c13b9f73a46a7ccd15598c997cc8e",
-  "indexed_at_timestamp": "2026-07-28T18:19:27.812953428+00:00",
+  "indexed_at_commit": "d9e1b5c53fa817da83a19e22e7c7482466bb6ade",
+  "indexed_at_timestamp": "2026-07-28T18:31:14.505488420+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 47066,
-    "total_files": 1877,
-    "total_nodes": 29576
+    "total_edges": 47218,
+    "total_files": 1878,
+    "total_nodes": 29578
   },
   "vexp_version": "2.3.1"
 }

@@ -27122,6 +27122,18 @@ class ProductService:
                 "branch": str(status_payload.get("branch") or "").strip(),
                 "tracking_branch": str(status_payload.get("tracking_branch") or "").strip(),
                 "commit_sha": str(status_payload.get("commit_sha") or "").strip(),
+                "source_remote_ref": str(
+                    status_payload.get("source_remote_ref") or ""
+                ).strip(),
+                "source_remote_ref_commit_sha": str(
+                    status_payload.get("source_remote_ref_commit_sha") or ""
+                ).strip(),
+                "source_remote_ref_evidence": str(
+                    status_payload.get("source_remote_ref_evidence") or ""
+                ).strip(),
+                "source_commit_reachable_from_remote_ref": bool(
+                    status_payload.get("source_commit_reachable_from_remote_ref")
+                ),
                 "dirty_worktree": bool(status_payload.get("dirty_worktree")),
                 "source_worktree_dirty": bool(status_payload.get("source_worktree_dirty", status_payload.get("dirty_worktree"))),
                 "source_dirty_count": int(status_payload.get("source_dirty_count") or 0),
@@ -27219,6 +27231,18 @@ class ProductService:
                 "branch": str(status_payload.get("branch") or "").strip(),
                 "tracking_branch": str(status_payload.get("tracking_branch") or "").strip(),
                 "commit_sha": str(status_payload.get("commit_sha") or "").strip(),
+                "source_remote_ref": str(
+                    status_payload.get("source_remote_ref") or ""
+                ).strip(),
+                "source_remote_ref_commit_sha": str(
+                    status_payload.get("source_remote_ref_commit_sha") or ""
+                ).strip(),
+                "source_remote_ref_evidence": str(
+                    status_payload.get("source_remote_ref_evidence") or ""
+                ).strip(),
+                "source_commit_reachable_from_remote_ref": bool(
+                    status_payload.get("source_commit_reachable_from_remote_ref")
+                ),
                 "dirty_worktree": bool(status_payload.get("dirty_worktree")),
                 "source_worktree_dirty": bool(status_payload.get("source_worktree_dirty", status_payload.get("dirty_worktree"))),
                 "source_dirty_count": int(status_payload.get("source_dirty_count") or 0),
@@ -27291,6 +27315,10 @@ class ProductService:
                 "branch": "",
                 "tracking_branch": "",
                 "commit_sha": "",
+                "source_remote_ref": "",
+                "source_remote_ref_commit_sha": "",
+                "source_remote_ref_evidence": "",
+                "source_commit_reachable_from_remote_ref": False,
                 "dirty_worktree": False,
                 "source_worktree_dirty": False,
                 "source_dirty_count": 0,
