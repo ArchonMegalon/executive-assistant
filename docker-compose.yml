@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: ea/Dockerfile
+      args:
+        EA_SOURCE_REVISION: ${EA_SOURCE_REVISION:-}
     image: ea-teable-relay:latest
     container_name: ea-teable-relay
     restart: unless-stopped
@@ -44,6 +46,8 @@ services:
     build:
       context: .
       dockerfile: ea/Dockerfile
+      args:
+        EA_SOURCE_REVISION: ${EA_SOURCE_REVISION:-}
     image: ea-runtime:latest
     container_name: ea-api
     entrypoint: ["/bin/sh", "-ec", "umask 0007; exec /usr/local/bin/docker-entrypoint.sh \"$@\"", "--"]
@@ -347,6 +351,8 @@ services:
     build:
       context: .
       dockerfile: ea/Dockerfile
+      args:
+        EA_SOURCE_REVISION: ${EA_SOURCE_REVISION:-}
     image: ea-runtime:latest
     container_name: ea-worker
     entrypoint: ["/bin/sh", "-ec", "umask 0007; exec /usr/local/bin/docker-entrypoint.sh \"$@\"", "--"]
@@ -478,6 +484,8 @@ services:
     build:
       context: .
       dockerfile: ea/Dockerfile
+      args:
+        EA_SOURCE_REVISION: ${EA_SOURCE_REVISION:-}
     image: ea-runtime:latest
     container_name: ea-scheduler
     entrypoint: ["/bin/sh", "-ec", "umask 0007; exec /usr/local/bin/docker-entrypoint.sh \"$@\"", "--"]

@@ -519,12 +519,26 @@ EOF
   exit 5
 fi
 
+deploy_commit_sha="$(git -C "${APP_ROOT}" rev-parse HEAD 2>/dev/null || true)"
+if [[ ! "${deploy_commit_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Refusing to deploy without a valid 40-character lowercase Git commit revision." >&2
+  exit 5
+fi
+if [[ -n "${EA_SOURCE_REVISION:-}" && "${EA_SOURCE_REVISION}" != "${deploy_commit_sha}" ]]; then
+  cat >&2 <<EOF
+Refusing to deploy with conflicting EA_SOURCE_REVISION.
+
+Declared revision: ${EA_SOURCE_REVISION}
+Checked-out revision: ${deploy_commit_sha}
+
+The runtime image must be built from and attest the exact checked-out release commit.
+EOF
+  exit 5
+fi
+export EA_SOURCE_REVISION="${deploy_commit_sha}"
+
 if [[ -z "${EA_DEPLOYMENT_ID:-${DEPLOYMENT_ID:-${RENDER_GIT_COMMIT:-}}}" ]]; then
-  deploy_commit_sha="$(git -C "${APP_ROOT}" rev-parse HEAD 2>/dev/null || true)"
   deploy_commit_fragment="${deploy_commit_sha:0:12}"
-  if [[ -z "${deploy_commit_fragment}" ]]; then
-    deploy_commit_fragment="unknowncommit"
-  fi
   EA_DEPLOYMENT_ID="deploy-$(date -u +%Y%m%dT%H%M%SZ)-${deploy_commit_fragment}"
   export EA_DEPLOYMENT_ID
   export EA_DEPLOYMENT_ID_SOURCE="deploy_script_generated"

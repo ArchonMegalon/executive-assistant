@@ -595,8 +595,6 @@ def test_docs_describe_operator_socket_proxy_boundary() -> None:
 def test_docs_describe_release_authority_runtime_verifier() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
-    smoke_help = (ROOT / "scripts/smoke_help.sh").read_text(encoding="utf-8")
-
     assert "make verify-release-authority-runtime" in readme
     assert "make verify-release-authority-runtime-authoritative" in readme
     assert "/health/release-authority" in readme
@@ -623,9 +621,9 @@ def test_docs_describe_memorial_runtime_overlay_verifier() -> None:
 
     assert "deploy-ea-memorial:" in makefile
     deploy_alias = makefile.split("deploy-ea-memorial:", 1)[1].split("\n\n", 1)[0]
-    joint_deploy = makefile.split("deploy-ea-memorial-joint:\n", 1)[1].split(
-        "\n\n", 1
-    )[0]
+    joint_deploy = makefile.split("deploy-ea-memorial-joint:\n", 1)[1].split("\n\n", 1)[
+        0
+    ]
     assert "verify-memorial-deploy-readiness:" in makefile
     assert "scripts/verify_memorial_deploy_readiness.py --pretty" in makefile
     assert "deploy-ea-memorial-joint" in deploy_alias
@@ -1062,7 +1060,9 @@ def test_cloudflared_tunnel_is_only_available_via_override() -> None:
 def test_cloudflared_tunnel_uses_stable_least_privilege_proxy_identity() -> None:
     base_compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     base_payload = yaml.safe_load(base_compose)
-    tunnel_override = (ROOT / "docker-compose.cloudflared.yml").read_text(encoding="utf-8")
+    tunnel_override = (ROOT / "docker-compose.cloudflared.yml").read_text(
+        encoding="utf-8"
+    )
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -1135,14 +1135,24 @@ def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:
         in deploy
     )
     assert 'compose logs --tail 200 "${FAILURE_LOG_SERVICES[@]}"' in deploy
-    assert 'Refusing to deploy with DATABASE_URL pointed at the isolated smoke database.' in deploy
-    assert 'public_origin_line="$(grep -E \'^(EA_PUBLIC_APP_BASE_URL|PROPERTYQUARRY_PUBLIC_BASE_URL)=' in deploy
-    assert 'Refusing to deploy without a public runtime origin.' in deploy
-    assert 'Refusing to deploy from a source-dirty git worktree.' in deploy
-    assert 'from source_state_head import source_worktree_metadata' in deploy
-    assert 'EA_DEPLOY_ALLOW_DIRTY_WORKTREE' not in deploy
-    assert 'Refusing to deploy from a detached or untracked Git worktree.' in deploy
-    assert 'export EA_DEPLOYMENT_ID="deploy-$(date -u +%Y%m%dT%H%M%SZ)-${deploy_commit_fragment}"' in deploy
+    assert (
+        "Refusing to deploy with DATABASE_URL pointed at the isolated smoke database."
+        in deploy
+    )
+    assert (
+        "public_origin_line=\"$(grep -E '^(EA_PUBLIC_APP_BASE_URL|PROPERTYQUARRY_PUBLIC_BASE_URL)="
+        in deploy
+    )
+    assert "Refusing to deploy without a public runtime origin." in deploy
+    assert "Refusing to deploy from a source-dirty git worktree." in deploy
+    assert "from source_state_head import source_worktree_metadata" in deploy
+    assert "EA_DEPLOY_ALLOW_DIRTY_WORKTREE" not in deploy
+    assert "Refusing to deploy from a detached or untracked Git worktree." in deploy
+    deployment_assignment = (
+        'EA_DEPLOYMENT_ID="deploy-$(date -u +%Y%m%dT%H%M%SZ)-${deploy_commit_fragment}"'
+    )
+    assert deployment_assignment in deploy
+    assert deploy.index(deployment_assignment) < deploy.index("export EA_DEPLOYMENT_ID")
     assert 'export EA_DEPLOYMENT_ID_SOURCE="deploy_script_generated"' in deploy
     assert (
         'export EA_DEPLOYMENT_ID_SOURCE="${EA_DEPLOYMENT_ID_SOURCE:-ea_deploy_id_env}"'
@@ -1963,7 +1973,6 @@ def test_proactive_ooda_gold_acceptance_scripts_help_and_wiring() -> None:
 
 def test_postgres_contract_and_fastestvpn_helpers_support_standalone_paths() -> None:
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
-    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
     postgres_script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(
         encoding="utf-8"
     )
@@ -2828,9 +2837,6 @@ def test_session_status_transition_api_is_documented_and_guarded() -> None:
     ).read_text(encoding="utf-8")
     ledger_repo = (ROOT / "ea/app/repositories/ledger.py").read_text(encoding="utf-8")
     ledger_postgres = (ROOT / "ea/app/repositories/ledger_postgres.py").read_text(
-        encoding="utf-8"
-    )
-    orchestrator = (ROOT / "ea/app/services/orchestrator.py").read_text(
         encoding="utf-8"
     )
     approval_pause_service = (

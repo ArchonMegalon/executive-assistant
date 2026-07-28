@@ -16,9 +16,7 @@ class _ComposeLoader(yaml.SafeLoader):
     pass
 
 
-def _construct_compose_override(
-    loader: yaml.SafeLoader, node: yaml.Node
-) -> object:
+def _construct_compose_override(loader: yaml.SafeLoader, node: yaml.Node) -> object:
     if isinstance(node, yaml.SequenceNode):
         return loader.construct_sequence(node)
     if isinstance(node, yaml.MappingNode):
@@ -86,6 +84,44 @@ reset_scalar: !reset retained
     }
 
 
+def test_runtime_builds_bind_the_exact_deploy_source_revision() -> None:
+    compose = _load_yaml(ROOT / "docker-compose.yml")
+    services = compose.get("services") or {}
+    expected_build_services = {
+        "ea-teable-relay",
+        "ea-api",
+        "ea-worker",
+        "ea-scheduler",
+    }
+    actual_build_services = {
+        str(service_name)
+        for service_name, raw_service in services.items()
+        if isinstance(raw_service, dict)
+        and isinstance(raw_service.get("build"), dict)
+        and raw_service["build"].get("dockerfile") == "ea/Dockerfile"
+    }
+
+    assert actual_build_services == expected_build_services
+    for service_name in expected_build_services:
+        build = services[service_name]["build"]
+        assert build["args"] == {
+            "EA_SOURCE_REVISION": "${EA_SOURCE_REVISION:-}",
+        }
+
+    deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
+    resolve_revision = 'deploy_commit_sha="$(git -C "${APP_ROOT}" rev-parse HEAD'
+    bind_revision = 'export EA_SOURCE_REVISION="${deploy_commit_sha}"'
+    compose_build = 'compose build "${build_services[@]}"'
+    assert resolve_revision in deploy
+    assert '[[ ! "${deploy_commit_sha}" =~ ^[0-9a-f]{40}$ ]]' in deploy
+    assert (
+        '[[ -n "${EA_SOURCE_REVISION:-}" && "${EA_SOURCE_REVISION}" '
+        '!= "${deploy_commit_sha}" ]]'
+    ) in deploy
+    assert deploy.index(resolve_revision) < deploy.index(bind_revision)
+    assert deploy.index(bind_revision) < deploy.index(compose_build)
+
+
 def test_base_compose_omits_host_docker_control_for_core_services() -> None:
     compose = _load_yaml(ROOT / "docker-compose.yml")
     services = compose.get("services") or {}
@@ -112,9 +148,7 @@ def test_base_compose_keeps_core_runtime_ports_loopback_only() -> None:
         assert all(item.startswith("127.0.0.1:") for item in ports), service_name
 
 
-def test_base_compose_binds_token_auth_to_server_identity_on_loopback_api() -> (
-    None
-):
+def test_base_compose_binds_token_auth_to_server_identity_on_loopback_api() -> None:
     compose = _load_yaml(ROOT / "docker-compose.yml")
     services = compose.get("services") or {}
     service = services.get("ea-api") or {}
@@ -297,9 +331,7 @@ def test_base_compose_loads_optional_local_env_for_provider_runtime_only() -> No
             "required": False,
         } in env_files, service_name
         assert ".env" not in env_files, service_name
-        assert {"path": ".env.local", "required": False} not in env_files, (
-            service_name
-        )
+        assert {"path": ".env.local", "required": False} not in env_files, service_name
 
     for service_name in (
         "ea-teable-relay",
@@ -478,7 +510,9 @@ def test_overlay_compose_pins_third_party_runtime_images_by_digest() -> None:
     )
 
 
-def test_ea_runtime_preserves_tour_publication_volume_and_isolates_tunnel_network() -> None:
+def test_ea_runtime_preserves_tour_publication_volume_and_isolates_tunnel_network() -> (
+    None
+):
     compose = _load_yaml(ROOT / "docker-compose.yml")
     services = compose.get("services") or {}
     volumes = compose.get("volumes") or {}
@@ -491,9 +525,7 @@ def test_ea_runtime_preserves_tour_publication_volume_and_isolates_tunnel_networ
     for service_name in ("ea-api", "ea-worker", "ea-responses-proxy"):
         service_volumes = [
             str(item)
-            for item in list(
-                (services.get(service_name) or {}).get("volumes") or []
-            )
+            for item in list((services.get(service_name) or {}).get("volumes") or [])
         ]
         assert "ea_public_tours:/data/public_property_tours" in service_volumes
     cloudflared = _load_yaml(ROOT / "docker-compose.cloudflared.yml")
@@ -718,7 +750,7 @@ def test_voicewave_override_does_not_restore_host_docker_access() -> None:
 def test_fastestvpn_override_mounts_only_runtime_compose_inputs() -> None:
     compose = _load_yaml(ROOT / "docker-compose.fastestvpn.yml")
     services = compose.get("services") or {}
-    base_services = (_load_yaml(ROOT / "docker-compose.yml").get("services") or {})
+    base_services = _load_yaml(ROOT / "docker-compose.yml").get("services") or {}
     proxy = services.get("ea-docker-socket-proxy") or {}
     proxy_volumes = [str(item) for item in list(proxy.get("volumes") or [])]
     assert str(proxy.get("image", "")).startswith(
@@ -2567,8 +2599,8 @@ def test_deploy_script_materializes_release_manifest_after_health() -> None:
     assert 'mode="$(stat -c \'%a\' "${resolved_path}" 2>/dev/null || true)"' in deploy
     assert 'if [[ "${mode}" == "1777" ]]; then' in deploy
     assert (
-        'scripts/materialize_whatsapp_callback_secret_runtime_projection.py" >/dev/null'
-        in deploy
+        'scripts/materialize_whatsapp_callback_secret_runtime_projection.py" \\\n'
+        "  --generate-missing >/dev/null" in deploy
     )
     assert 'setfacl -m u:10001:r "${resolved_path}"' in deploy
     assert 'chmod a+r,go-w "${resolved_path}"' in deploy
@@ -2617,10 +2649,11 @@ def test_deploy_script_materializes_release_manifest_after_health() -> None:
     )
     assert "EA_DEPLOY_ALLOW_DIRTY_WORKTREE" not in deploy
     assert "Refusing to deploy from a detached or untracked Git worktree." in deploy
-    assert (
-        'export EA_DEPLOYMENT_ID="deploy-$(date -u +%Y%m%dT%H%M%SZ)-${deploy_commit_fragment}"'
-        in deploy
+    deployment_assignment = (
+        'EA_DEPLOYMENT_ID="deploy-$(date -u +%Y%m%dT%H%M%SZ)-${deploy_commit_fragment}"'
     )
+    assert deployment_assignment in deploy
+    assert deploy.index(deployment_assignment) < deploy.index("export EA_DEPLOYMENT_ID")
     assert 'EA_DEPLOY_COMPOSE_FILES="${compose_files_csv}" \\' in deploy
     assert 'EA_DEPLOY_COMPOSE_OVERRIDES="${compose_overrides_csv}" \\' in deploy
     assert 'export EA_DEPLOY_BRANCH="${deploy_branch}"' in deploy

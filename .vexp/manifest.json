@@ -1107,7 +1107,7 @@
     "scripts/db_retention.sh": "2adf6fb18c9a7dbc7adb2bfb01540186e2c4676adcd3c3cc478e68110137834a",
     "scripts/db_size.sh": "e837d6409b5854c873828a97f93a2257a2a20ca312b1cb6c9b8670b21ce408e5",
     "scripts/db_status.sh": "63f643d2b232f81ab3eca748df989f42589eeb766ad8a56c670203e254af9d25",
-    "scripts/deploy.sh": "e92c32365fc3cc596b817e4e3e418f69a6e99430e47275dabd3e2b0efb9ff50c",
+    "scripts/deploy.sh": "25ab9c0a6589dbc1c12eb85978b554a3b2bd0f5e56b60bd7beb00876dd97d425",
     "scripts/deploy_ea_audiobook_runtime.py": "6f64088eb42451da3c067f084a351e09528c018348e21322e015f141b40051ee",
     "scripts/deploy_ea_memorial.py": "e970353f674a1150e9863c4dc4fb30b896fe2ffa95204816de8bc6ff84e9c6bb",
     "scripts/deploy_ea_memorial_joint.py": "1a7b9ffffd9b55242623d378d0d12946a05cc0cc6c4b2e9fb72cba0ff1fa5973",
@@ -1281,7 +1281,7 @@
     "scripts/send_whatsapp_web_session_live_test.py": "697e732f1eb91e95e3eb68deb7b7b1f102255e7c7fdd920ad5d57c08cf0f083c",
     "scripts/smoke_api.sh": "efbda1c17b8d8875d484cef3b1e32669309baeebc1891b1d7b0a98e8b10c0047",
     "scripts/smoke_api_principal.sh": "f61031ad631c9ee196ab933d53d38708a946ef776cb603c307f63996d28919d8",
-    "scripts/smoke_api_runtime.sh": "c8a3a271fae9a00cc051227a1f39d1d27494cdd799e9ca512e39dfec5f900900",
+    "scripts/smoke_api_runtime.sh": "7e2f332425738c0f52cc877614d8a5079a21ceb0c574ba593af38f545418848f",
     "scripts/smoke_help.sh": "f13c8ea8fc52beb419bb102e2016c66a529a3ecb0c9ff0d42adab12face25ac9",
     "scripts/smoke_postgres.sh": "5e702694f870693c9a47246132daae2de144e57c0a7dd8f6ab825e25643845c1",
     "scripts/smoke_property_postgres.sh": "9b6ba7faddc86a5372579adef52f883b331cf3eb02fc18eeea9988d8ab4ba90f",
@@ -1497,7 +1497,7 @@
     "tests/test_compose_portable_storage_defaults.py": "29651a201bbac6862eba6009fa204bcfe43390b789ecafe67746d502c50467a6",
     "tests/test_continuous_improvement_goal_posture.py": "a9e0a9859a500fb01324ca32f42d100132cdac53bd2b2a652934fb9313975a77",
     "tests/test_crezlo_email_runtime_defaults.py": "e0f72bb694c5bd82c7660eae441779b3965c81eac2ff69f69639a17424c52d06",
-    "tests/test_deployment_contracts.py": "97f9b5bb0bf29c8d0fe2c7697f1549c07c811ca6bea6b7db682cb5ed45fabf01",
+    "tests/test_deployment_contracts.py": "faac593219d4b1f21dfe87f04b9feb4147ec0a0caec51db1caa91067bb6013dc",
     "tests/test_design_mirror_bundle_contracts.py": "54ebbfb48b84edc0a5bb80ca1b90f2baf2df62dd30d169a8803951f3f882a6a9",
     "tests/test_di_container.py": "d0725ef67f804e324eb8d7f8ac0ff9f9d9974423f77dcf428e9159ef028e885f",
     "tests/test_docs_and_verifier_path_portability.py": "7041e44b34d2ce71c0dee311df5e639078dcfebd47be1a543acac11ce9a21f55",
@@ -1670,7 +1670,7 @@
     "tests/test_operator_action_required_dedupe_proof.py": "d44ac47b3ae411c677233cfa4970294367927cca56ce647fbb71dc0439514a3b",
     "tests/test_operator_action_required_digest.py": "00cd9a7eb83cb7ababa982d47e7cee510daecd316bca00b90fee5727182289f2",
     "tests/test_operator_bootstrap_flow.py": "d32cef28f9fb8ad613f820ab365678201bd5cb2445fa4648b3840334110f6e59",
-    "tests/test_operator_contracts.py": "25cda37e5af075fcabeeaa6c3cff8af02b15f9783beb15baae178f2a28792eb5",
+    "tests/test_operator_contracts.py": "fed2bb16d0ae36c841fccbd028144fdeba3190f95e51455904a71393c9ed4b5c",
     "tests/test_operator_profile_bootstrap_atomic.py": "cafd9ab90e575d613d3640124daa7787e6f337629c5585c1af9d9495f1011265",
     "tests/test_origin_humanizer_quality.py": "0700de5d8ad3ae2f4e7b1acfee1f33fbf384ea33cdd7845908d43b5d90199b9d",
     "tests/test_origin_m4b_provider_import_gate.py": "09400382a016969e67ff0eeb33be5581e15ecd45d70f6808ffd54a6ecb7f5361",
@@ -1878,13 +1878,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "94151ec813533113b98f634f0bf35b3eb917734f",
-  "indexed_at_timestamp": "2026-07-28T18:04:58.058761494+00:00",
+  "indexed_at_commit": "646a9a2c0e2c13b9f73a46a7ccd15598c997cc8e",
+  "indexed_at_timestamp": "2026-07-28T18:19:27.812953428+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 47217,
+    "total_edges": 47066,
     "total_files": 1877,
-    "total_nodes": 29572
+    "total_nodes": 29576
   },
   "vexp_version": "2.3.1"
 }
