@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.project_modes",
-  "generated_at": "2026-07-27T10:22:49Z",
+  "generated_at": "2026-07-28T12:25:37Z",
   "generated_by": "scripts/materialize_project_mode_manifests.py",
-  "source_git_head": "67ddbc3451ef50f3548401de660561bd51f2a390",
+  "source_git_head": "04bffc660484fd6252407dc9891568ce3417e698",
   "head_semantics": "source_state",
   "modes": [
     {
@@ -27,10 +27,15 @@
     {
       "key": "MEMORIAL",
       "status": "separate_risk_zone",
+      "public_voice_gold_status": "public_origin_voice_gold_blocked",
+      "flagship_experience_gold_status": "flagship_experience_gold_blocked",
       "public_gold_status": "public_origin_gold_blocked",
+      "public_gold_status_semantics": "legacy_alias_of_flagship_experience_gold_status",
       "claim_labels": {
         "local": "Memorial local release candidate",
-        "public": "Memorial public-origin gold"
+        "public_voice": "Memorial public-origin voice gold",
+        "flagship": "Memorial flagship experience gold",
+        "public": "Memorial flagship experience gold"
       },
       "purpose": "Manfred memorial pages and realtime voice from local memories/conversation sources only. No internet search for Manfred.",
       "route_prefixes": [
@@ -45,6 +50,17 @@
         ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json"
       ],
       "local_release_gate": ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
+      "public_voice_gold_gates": [
+        ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+        ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+        ".codex-studio/published/memorial_room_audio_public_origin.generated.json"
+      ],
+      "flagship_experience_gold_gates": [
+        ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+        ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+        ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+        ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json"
+      ],
       "public_gold_gates": [
         ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
         ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",

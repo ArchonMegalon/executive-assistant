@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.show_surface_manifest",
-  "generated_at": "2026-07-27T10:22:49Z",
+  "generated_at": "2026-07-28T12:25:37Z",
   "generated_by": "scripts/materialize_project_mode_manifests.py",
-  "source_git_head": "67ddbc3451ef50f3548401de660561bd51f2a390",
+  "source_git_head": "04bffc660484fd6252407dc9891568ce3417e698",
   "head_semantics": "source_state",
   "demo_mode": "ea_core",
   "allowed_surfaces": [
@@ -44,6 +44,7 @@
   "operator_notes": [
     "EA core demos must show the office loop first: morning memo, decision queue, commitments, approvals.",
     "Memorial, provider lab, Chummer release control, and property surfaces require explicit separate demo mode.",
-    "Use separate labels: EA receipt-set gold, Memorial local release candidate, and Memorial public-origin gold."
+    "Use separate labels: EA receipt-set gold, Memorial local release candidate, Memorial public-origin voice gold, and Memorial flagship experience gold.",
+    "Spatial-tour proof belongs to Memorial flagship experience gold; it does not block the narrower public-origin voice-gold label."
   ]
 }

@@ -1,79 +1,63 @@
 {
   "contract_name": "ea.memorial_operator_status",
   "generated_by": "scripts/materialize_memorial_operator_status.py",
-  "source_git_head": "4ffe7353bec945c1519f4c366c532b9affc2a7bf",
+  "source_git_head": "04bffc660484fd6252407dc9891568ce3417e698",
   "head_semantics": "source_state",
-  "source_worktree_dirty": true,
-  "source_dirty_count": 1,
-  "source_dirty_files": [
-    ".venv"
-  ],
+  "source_worktree_dirty": false,
+  "source_dirty_count": 0,
+  "source_dirty_files": [],
   "source_dirty_omitted_count": 0,
-  "source_dirty_status_sha256": "c04daa34add4001b1a808ae5342841a3fa3e687ec4b86fac76513e84e168b304",
+  "source_dirty_status_sha256": "",
   "source_dirty_summary": {
-    "status": "dirty",
-    "total_count": 1,
-    "visible_count": 1,
+    "status": "clean",
+    "total_count": 0,
+    "visible_count": 0,
     "omitted_count": 0,
-    "category_count": 1,
-    "categories": [
-      {
-        "category": "other",
-        "visible_count": 1,
-        "sample_files": [
-          ".venv"
-        ]
-      }
-    ],
-    "recommended_first_action": "review_and_commit_or_stash_source_groups_before_clean_receipts",
-    "operator_hint": "Start with api_routes/services/scripts/deploy_runtime groups; generated-only receipt changes do not explain clean-clone proof failures."
+    "category_count": 0,
+    "categories": [],
+    "recommended_first_action": "none",
+    "operator_hint": "Source worktree is clean for clean-clone receipt refresh."
   },
   "source_dirty_verifier": {
     "contract_name": "ea.source_dirty_groups_verifier.v1",
     "status": "pass",
     "issues": [],
-    "source_dirty_status": "dirty",
-    "source_dirty_count": 1,
-    "category_count": 1,
+    "source_dirty_status": "clean",
+    "source_dirty_count": 0,
+    "category_count": 0,
     "priority_group_count": 0
   },
   "source_cleanup": {
-    "status": "blocked",
-    "source_worktree_dirty": true,
-    "source_dirty_count": 1,
+    "status": "ready",
+    "source_worktree_dirty": false,
+    "source_dirty_count": 0,
     "source_dirty_omitted_count": 0,
-    "source_dirty_status_sha256": "c04daa34add4001b1a808ae5342841a3fa3e687ec4b86fac76513e84e168b304",
-    "summary_status": "dirty",
-    "category_count": 1,
-    "top_categories": [
-      {
-        "category": "other",
-        "visible_count": 1,
-        "drilldown_command": "scripts/inspect_source_dirty_groups.py --category other --limit 20"
-      }
-    ],
-    "category_drilldown_commands": [
-      "scripts/inspect_source_dirty_groups.py --category other --limit 20"
-    ],
+    "source_dirty_status_sha256": "",
+    "summary_status": "clean",
+    "category_count": 0,
+    "top_categories": [],
+    "category_drilldown_commands": [],
     "handoff_commands": [
       "git status --short",
-      "scripts/inspect_source_dirty_groups.py --list-categories",
-      "scripts/inspect_source_dirty_groups.py --category other --limit 20"
+      "scripts/inspect_source_dirty_groups.py --list-categories"
     ],
     "verifier_status": "pass",
     "verifier_issues": [],
-    "next_action": "commit_or_stash_source_changes_before_clean_receipts",
-    "next_command": "scripts/inspect_source_dirty_groups.py --list-categories"
+    "next_action": "",
+    "next_command": ""
   },
   "slug": "manfred",
   "status": "blocked",
-  "current_label": "Memorial public-origin gold: blocked",
+  "current_label": "Memorial flagship experience gold: blocked",
+  "public_voice_gold": "blocked",
+  "flagship_experience_gold": "blocked",
+  "legacy_public_gold_semantics": "alias_of_flagship_experience_gold",
   "local_release_candidate": "blocked",
   "public_voice_receipt": "missing_or_blocked",
   "public_browser_receipt": "missing_or_blocked",
   "public_browser_meaningful_receipt": "pass",
   "public_runtime_mode": "blocked",
-  "public_origin_access": "missing",
+  "public_origin_access": "pass",
   "memorial_surface_contract": "pass",
   "room_audio_receipt": "missing_or_blocked",
   "public_spatial_tour_receipt": "missing_or_blocked",
@@ -157,6 +141,8 @@
           "spatial_public_origin_schema_invalid",
           "spatial_public_origin_status_not_pass",
           "spatial_public_origin_generated_at_invalid",
+          "spatial_public_origin_source_head_mismatch",
+          "spatial_public_origin_source_fingerprint_mismatch",
           "spatial_public_origin_source_worktree_dirty",
           "spatial_public_origin_https_origin_invalid",
           "spatial_public_origin_runtime_revision_mismatch",
@@ -187,27 +173,16 @@
           "receipt_set_public_browser_source_fingerprint_missing",
           "receipt_set_room_audio_runtime_revision_missing_or_invalid",
           "receipt_set_room_audio_source_fingerprint_missing",
+          "receipt_set_meaningful_browser_runtime_revision_missing_or_invalid",
+          "receipt_set_meaningful_browser_source_fingerprint_missing",
           "receipt_set_spatial_tour_slug_missing",
           "receipt_set_spatial_tour_origin_missing_or_invalid",
-          "receipt_set_spatial_tour_runtime_revision_missing_or_invalid",
-          "receipt_set_meaningful_browser_runtime_revision_missing_or_invalid",
-          "receipt_set_meaningful_browser_source_fingerprint_missing"
+          "receipt_set_spatial_tour_runtime_revision_missing_or_invalid"
         ],
         "next_action": "refresh_memorial_public_auto_receipts_clean",
         "code": "receipt_set_binding",
         "component": "Public receipt-set binding",
         "next_command": "make materialize-memorial-public-auto-receipts-clean"
-      },
-      {
-        "key": "source_worktree",
-        "code": "source_worktree",
-        "label": "Source worktree",
-        "component": "Source worktree",
-        "issues": [
-          "source_worktree_dirty"
-        ],
-        "next_action": "commit_or_stash_source_changes_before_clean_receipts",
-        "next_command": "scripts/inspect_source_dirty_groups.py --list-categories"
       },
       {
         "key": "public_runtime_mode",
@@ -246,7 +221,6 @@
       "room_audio_receipt",
       "public_spatial_tour_receipt",
       "receipt_set_binding",
-      "source_worktree",
       "public_runtime_mode",
       "release_authority"
     ],
@@ -258,15 +232,15 @@
       "make materialize-memorial-room-audio-gold-clean",
       "make materialize-memorial-public-auto-receipts-clean",
       "make materialize-memorial-public-auto-receipts-clean",
-      "scripts/inspect_source_dirty_groups.py --list-categories",
       "make deploy-ea-memorial",
       "python3 scripts/verify_release_authority.py --pretty"
     ],
-    "blocked_count": 10
+    "blocked_count": 9
   },
   "operator_notes": [
-    "Use labels only: Memorial local release candidate / Memorial public-origin gold: blocked|pass.",
-    "Public-origin gold requires voice, browser, room, and exact-byte 3D-tour receipts at the current clean source state and public origin.",
+    "Use labels only: Memorial local release candidate / Memorial public-origin voice gold: blocked|pass / Memorial flagship experience gold: blocked|pass.",
+    "Public-origin voice gold requires voice, browser, meaningful-turn, and signed room evidence at the current clean source state and public origin; it does not require the spatial tour.",
+    "Memorial flagship experience gold additionally requires the exact-byte 3D-tour receipt.",
     "The public 3D-tour receipt must bind the pinned PropertyQuarry authority/package, polished v5 candidate-browser interactions, deploy receipt, and all 16 GET/HEAD public route observations; status-only or candidate-only evidence cannot pass.",
     "If public_runtime_mode is blocked, the configured public origin is not currently deployed in MEMORIAL mode; use make deploy-ea-memorial before treating public memorial routes as publishable.",
     "If release_authority.status is blocked while public_runtime_mode is blocked, clear release authority first; memorial deploy claims must not be refreshed from a dirty tree or stale deploy context.",
@@ -311,12 +285,194 @@
   },
   "readiness": {
     "status": "blocked",
-    "current_head": "4ffe7353bec945c1519f4c366c532b9affc2a7bf",
+    "current_head": "04bffc660484fd6252407dc9891568ce3417e698",
     "claim_labels": {
       "ea_receipt_set": "EA receipt-set gold",
       "memorial_local": "Memorial local release candidate",
-      "memorial_public": "Memorial public-origin gold"
+      "memorial_public_voice": "Memorial public-origin voice gold",
+      "memorial_flagship": "Memorial flagship experience gold",
+      "memorial_public": "Memorial flagship experience gold"
     },
+    "public_voice_gold_status": "blocked",
+    "public_voice_gold_claim_allowed": false,
+    "public_voice_gold_issues": [
+      "receipt_stale_relative_to_current_head",
+      "public_runtime_source_revision_missing_or_invalid",
+      "browser_contract_version_invalid",
+      "browser_receipt_stale_relative_to_current_head",
+      "browser_runtime_source_revision_missing_or_invalid",
+      "room_receipt_status_not_pass",
+      "room_receipt_stale_relative_to_current_head",
+      "room_receipt_generated_from_dirty_worktree",
+      "room_runtime_source_revision_missing_or_invalid",
+      "room_manual_attestation_id_missing",
+      "room_manual_attestation_signed_at_missing",
+      "room_interruption_behavior_confirmed_missing",
+      "room_normal_spoken_turn_confirmed_missing",
+      "room_retry_path_confirmed_missing",
+      "receipt_set_public_voice_runtime_revision_missing_or_invalid",
+      "receipt_set_public_voice_source_fingerprint_missing",
+      "receipt_set_public_browser_runtime_revision_missing_or_invalid",
+      "receipt_set_public_browser_source_fingerprint_missing",
+      "receipt_set_room_audio_runtime_revision_missing_or_invalid",
+      "receipt_set_room_audio_source_fingerprint_missing",
+      "receipt_set_meaningful_browser_runtime_revision_missing_or_invalid",
+      "receipt_set_meaningful_browser_source_fingerprint_missing"
+    ],
+    "public_voice_receipt_set_binding_issues": [
+      "receipt_set_public_voice_runtime_revision_missing_or_invalid",
+      "receipt_set_public_voice_source_fingerprint_missing",
+      "receipt_set_public_browser_runtime_revision_missing_or_invalid",
+      "receipt_set_public_browser_source_fingerprint_missing",
+      "receipt_set_room_audio_runtime_revision_missing_or_invalid",
+      "receipt_set_room_audio_source_fingerprint_missing",
+      "receipt_set_meaningful_browser_runtime_revision_missing_or_invalid",
+      "receipt_set_meaningful_browser_source_fingerprint_missing"
+    ],
+    "public_voice_blocker_summary": {
+      "blocked_components": [
+        {
+          "key": "public_voice_receipt",
+          "label": "Public voice receipt",
+          "issues": [
+            "receipt_stale_relative_to_current_head",
+            "public_runtime_source_revision_missing_or_invalid"
+          ],
+          "next_action": "refresh_public_memorial_voice_receipt",
+          "code": "public_voice_receipt",
+          "component": "Public voice receipt",
+          "next_command": "make materialize-memorial-public-auto-receipts-clean"
+        },
+        {
+          "key": "public_browser_receipt",
+          "label": "Public browser receipt",
+          "issues": [
+            "browser_contract_version_invalid",
+            "browser_receipt_stale_relative_to_current_head",
+            "browser_runtime_source_revision_missing_or_invalid"
+          ],
+          "next_action": "refresh_public_memorial_browser_receipt",
+          "code": "public_browser_receipt",
+          "component": "Public browser receipt",
+          "next_command": "make materialize-memorial-public-auto-receipts-clean"
+        },
+        {
+          "key": "meaningful_browser_receipt",
+          "label": "Meaningful browser receipt",
+          "issues": [
+            "browser_contract_version_invalid",
+            "browser_receipt_stale_relative_to_current_head",
+            "browser_runtime_source_revision_missing_or_invalid"
+          ],
+          "next_action": "refresh_meaningful_memorial_browser_receipt",
+          "code": "meaningful_browser_receipt",
+          "component": "Meaningful browser receipt",
+          "next_command": "make materialize-memorial-public-auto-receipts-clean"
+        },
+        {
+          "key": "room_audio_receipt",
+          "label": "Room audio receipt",
+          "issues": [
+            "room_receipt_status_not_pass",
+            "room_receipt_stale_relative_to_current_head",
+            "room_receipt_generated_from_dirty_worktree",
+            "room_runtime_source_revision_missing_or_invalid",
+            "room_manual_attestation_id_missing",
+            "room_manual_attestation_signed_at_missing",
+            "room_interruption_behavior_confirmed_missing",
+            "room_normal_spoken_turn_confirmed_missing",
+            "room_retry_path_confirmed_missing"
+          ],
+          "next_action": "collect_real_room_audio_attestation",
+          "code": "room_audio_receipt",
+          "component": "Room audio receipt",
+          "next_command": "make materialize-memorial-room-audio-gold-clean"
+        },
+        {
+          "key": "receipt_set_binding",
+          "label": "Public receipt-set binding",
+          "issues": [
+            "receipt_set_public_voice_runtime_revision_missing_or_invalid",
+            "receipt_set_public_voice_source_fingerprint_missing",
+            "receipt_set_public_browser_runtime_revision_missing_or_invalid",
+            "receipt_set_public_browser_source_fingerprint_missing",
+            "receipt_set_room_audio_runtime_revision_missing_or_invalid",
+            "receipt_set_room_audio_source_fingerprint_missing",
+            "receipt_set_meaningful_browser_runtime_revision_missing_or_invalid",
+            "receipt_set_meaningful_browser_source_fingerprint_missing"
+          ],
+          "next_action": "refresh_memorial_public_auto_receipts_clean",
+          "code": "receipt_set_binding",
+          "component": "Public receipt-set binding",
+          "next_command": "make materialize-memorial-public-auto-receipts-clean"
+        }
+      ],
+      "blocked_component_keys": [
+        "public_voice_receipt",
+        "public_browser_receipt",
+        "meaningful_browser_receipt",
+        "room_audio_receipt",
+        "receipt_set_binding"
+      ],
+      "blocked_commands": [
+        "make materialize-memorial-public-auto-receipts-clean",
+        "make materialize-memorial-public-auto-receipts-clean",
+        "make materialize-memorial-public-auto-receipts-clean",
+        "make materialize-memorial-room-audio-gold-clean",
+        "make materialize-memorial-public-auto-receipts-clean"
+      ],
+      "blocked_count": 5
+    },
+    "public_voice_next_action": "refresh_memorial_public_auto_receipts_clean",
+    "public_voice_next_command": "make materialize-memorial-public-auto-receipts-clean",
+    "flagship_experience_gold_status": "blocked",
+    "flagship_experience_gold_claim_allowed": false,
+    "flagship_experience_gold_issues": [
+      "receipt_stale_relative_to_current_head",
+      "public_runtime_source_revision_missing_or_invalid",
+      "browser_contract_version_invalid",
+      "browser_receipt_stale_relative_to_current_head",
+      "browser_runtime_source_revision_missing_or_invalid",
+      "room_receipt_status_not_pass",
+      "room_receipt_stale_relative_to_current_head",
+      "room_receipt_generated_from_dirty_worktree",
+      "room_runtime_source_revision_missing_or_invalid",
+      "room_manual_attestation_id_missing",
+      "room_manual_attestation_signed_at_missing",
+      "room_interruption_behavior_confirmed_missing",
+      "room_normal_spoken_turn_confirmed_missing",
+      "room_retry_path_confirmed_missing",
+      "receipt_set_public_voice_runtime_revision_missing_or_invalid",
+      "receipt_set_public_voice_source_fingerprint_missing",
+      "receipt_set_public_browser_runtime_revision_missing_or_invalid",
+      "receipt_set_public_browser_source_fingerprint_missing",
+      "receipt_set_room_audio_runtime_revision_missing_or_invalid",
+      "receipt_set_room_audio_source_fingerprint_missing",
+      "receipt_set_meaningful_browser_runtime_revision_missing_or_invalid",
+      "receipt_set_meaningful_browser_source_fingerprint_missing",
+      "spatial_public_origin_schema_invalid",
+      "spatial_public_origin_status_not_pass",
+      "spatial_public_origin_generated_at_invalid",
+      "spatial_public_origin_source_head_mismatch",
+      "spatial_public_origin_source_fingerprint_mismatch",
+      "spatial_public_origin_source_worktree_dirty",
+      "spatial_public_origin_https_origin_invalid",
+      "spatial_public_origin_runtime_revision_mismatch",
+      "spatial_public_origin_slug_invalid",
+      "spatial_public_origin_provider_boundary_invalid",
+      "spatial_public_origin_gold_claim_invalid",
+      "spatial_public_origin_checks_invalid",
+      "spatial_public_origin_authority_invalid",
+      "spatial_public_origin_package_invalid",
+      "spatial_package_files_invalid",
+      "spatial_public_origin_tour_manifest_mismatch",
+      "spatial_candidate_browser_schema_invalid",
+      "public_spatial_tour_schema_invalid",
+      "spatial_public_origin_deploy_binding_invalid",
+      "receipt_set_spatial_tour_slug_missing",
+      "receipt_set_spatial_tour_origin_missing_or_invalid",
+      "receipt_set_spatial_tour_runtime_revision_missing_or_invalid"
+    ],
     "local_release_receipt": ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
     "local_release_issues": [
       "receipt_stale_relative_to_current_head"
@@ -359,6 +515,8 @@
       "spatial_public_origin_schema_invalid",
       "spatial_public_origin_status_not_pass",
       "spatial_public_origin_generated_at_invalid",
+      "spatial_public_origin_source_head_mismatch",
+      "spatial_public_origin_source_fingerprint_mismatch",
       "spatial_public_origin_source_worktree_dirty",
       "spatial_public_origin_https_origin_invalid",
       "spatial_public_origin_runtime_revision_mismatch",
@@ -381,11 +539,11 @@
       "receipt_set_public_browser_source_fingerprint_missing",
       "receipt_set_room_audio_runtime_revision_missing_or_invalid",
       "receipt_set_room_audio_source_fingerprint_missing",
+      "receipt_set_meaningful_browser_runtime_revision_missing_or_invalid",
+      "receipt_set_meaningful_browser_source_fingerprint_missing",
       "receipt_set_spatial_tour_slug_missing",
       "receipt_set_spatial_tour_origin_missing_or_invalid",
-      "receipt_set_spatial_tour_runtime_revision_missing_or_invalid",
-      "receipt_set_meaningful_browser_runtime_revision_missing_or_invalid",
-      "receipt_set_meaningful_browser_source_fingerprint_missing"
+      "receipt_set_spatial_tour_runtime_revision_missing_or_invalid"
     ],
     "receipt_set_runtime_source_revision": "",
     "blocker_summary": {
@@ -465,6 +623,8 @@
             "spatial_public_origin_schema_invalid",
             "spatial_public_origin_status_not_pass",
             "spatial_public_origin_generated_at_invalid",
+            "spatial_public_origin_source_head_mismatch",
+            "spatial_public_origin_source_fingerprint_mismatch",
             "spatial_public_origin_source_worktree_dirty",
             "spatial_public_origin_https_origin_invalid",
             "spatial_public_origin_runtime_revision_mismatch",
@@ -495,27 +655,16 @@
             "receipt_set_public_browser_source_fingerprint_missing",
             "receipt_set_room_audio_runtime_revision_missing_or_invalid",
             "receipt_set_room_audio_source_fingerprint_missing",
+            "receipt_set_meaningful_browser_runtime_revision_missing_or_invalid",
+            "receipt_set_meaningful_browser_source_fingerprint_missing",
             "receipt_set_spatial_tour_slug_missing",
             "receipt_set_spatial_tour_origin_missing_or_invalid",
-            "receipt_set_spatial_tour_runtime_revision_missing_or_invalid",
-            "receipt_set_meaningful_browser_runtime_revision_missing_or_invalid",
-            "receipt_set_meaningful_browser_source_fingerprint_missing"
+            "receipt_set_spatial_tour_runtime_revision_missing_or_invalid"
           ],
           "next_action": "refresh_memorial_public_auto_receipts_clean",
           "code": "receipt_set_binding",
           "component": "Public receipt-set binding",
           "next_command": "make materialize-memorial-public-auto-receipts-clean"
-        },
-        {
-          "key": "source_worktree",
-          "code": "source_worktree",
-          "label": "Source worktree",
-          "component": "Source worktree",
-          "issues": [
-            "source_worktree_dirty"
-          ],
-          "next_action": "commit_or_stash_source_changes_before_clean_receipts",
-          "next_command": "scripts/inspect_source_dirty_groups.py --list-categories"
         }
       ],
       "blocked_component_keys": [
@@ -525,8 +674,7 @@
         "meaningful_browser_receipt",
         "room_audio_receipt",
         "public_spatial_tour_receipt",
-        "receipt_set_binding",
-        "source_worktree"
+        "receipt_set_binding"
       ],
       "blocked_commands": [
         "make materialize-memorial-public-voice-gold",
@@ -535,74 +683,54 @@
         "make materialize-memorial-public-auto-receipts-clean",
         "make materialize-memorial-room-audio-gold-clean",
         "make materialize-memorial-public-auto-receipts-clean",
-        "make materialize-memorial-public-auto-receipts-clean",
-        "scripts/inspect_source_dirty_groups.py --list-categories"
+        "make materialize-memorial-public-auto-receipts-clean"
       ],
-      "blocked_count": 8
+      "blocked_count": 7
     },
-    "next_action": "commit_or_stash_source_changes_before_clean_receipts",
-    "next_command": "scripts/inspect_source_dirty_groups.py --list-categories",
-    "source_worktree_dirty": true,
-    "source_dirty_count": 1,
-    "source_dirty_files": [
-      ".venv"
-    ],
+    "next_action": "refresh_memorial_public_auto_receipts_clean",
+    "next_command": "make materialize-memorial-public-auto-receipts-clean",
+    "source_worktree_dirty": false,
+    "source_dirty_count": 0,
+    "source_dirty_files": [],
     "source_dirty_omitted_count": 0,
-    "source_dirty_status_sha256": "c04daa34add4001b1a808ae5342841a3fa3e687ec4b86fac76513e84e168b304",
+    "source_dirty_status_sha256": "",
     "source_dirty_summary": {
-      "status": "dirty",
-      "total_count": 1,
-      "visible_count": 1,
+      "status": "clean",
+      "total_count": 0,
+      "visible_count": 0,
       "omitted_count": 0,
-      "category_count": 1,
-      "categories": [
-        {
-          "category": "other",
-          "visible_count": 1,
-          "sample_files": [
-            ".venv"
-          ]
-        }
-      ],
-      "recommended_first_action": "review_and_commit_or_stash_source_groups_before_clean_receipts",
-      "operator_hint": "Start with api_routes/services/scripts/deploy_runtime groups; generated-only receipt changes do not explain clean-clone proof failures."
+      "category_count": 0,
+      "categories": [],
+      "recommended_first_action": "none",
+      "operator_hint": "Source worktree is clean for clean-clone receipt refresh."
     },
     "source_dirty_verifier": {
       "contract_name": "ea.source_dirty_groups_verifier.v1",
       "status": "pass",
       "issues": [],
-      "source_dirty_status": "dirty",
-      "source_dirty_count": 1,
-      "category_count": 1,
+      "source_dirty_status": "clean",
+      "source_dirty_count": 0,
+      "category_count": 0,
       "priority_group_count": 0
     },
     "source_cleanup": {
-      "status": "blocked",
-      "source_worktree_dirty": true,
-      "source_dirty_count": 1,
+      "status": "ready",
+      "source_worktree_dirty": false,
+      "source_dirty_count": 0,
       "source_dirty_omitted_count": 0,
-      "source_dirty_status_sha256": "c04daa34add4001b1a808ae5342841a3fa3e687ec4b86fac76513e84e168b304",
-      "summary_status": "dirty",
-      "category_count": 1,
-      "top_categories": [
-        {
-          "category": "other",
-          "visible_count": 1,
-          "drilldown_command": "scripts/inspect_source_dirty_groups.py --category other --limit 20"
-        }
-      ],
-      "category_drilldown_commands": [
-        "scripts/inspect_source_dirty_groups.py --category other --limit 20"
-      ],
+      "source_dirty_status_sha256": "",
+      "summary_status": "clean",
+      "category_count": 0,
+      "top_categories": [],
+      "category_drilldown_commands": [],
       "handoff_commands": [
         "git status --short",
-        "scripts/inspect_source_dirty_groups.py --list-categories",
-        "scripts/inspect_source_dirty_groups.py --category other --limit 20"
+        "scripts/inspect_source_dirty_groups.py --list-categories"
       ],
       "verifier_status": "pass",
       "verifier_issues": [],
-      "next_action": "commit_or_stash_source_changes_before_clean_receipts",
-      "next_command": "scripts/inspect_source_dirty_groups.py --list-categories"
+      "next_action": "",
+      "next_command": ""
     },
     "gold_thresholds": {
       "direct_tts_f1_min": 0.92,
@@ -612,6 +740,7 @@
       "browser_first_answer_ms_max": 4500.0
     },
     "memorial_voice_gold_claim_allowed": false,
+    "memorial_voice_gold_claim_semantics": "legacy_alias_of_public_voice_gold_claim_allowed",
     "labels": {
       "local_receipt": "Memorial voice release-candidate proof",
       "public_receipt": "Memorial public voice provenance proof",
@@ -622,7 +751,7 @@
     }
   },
   "evidence_heads": {
-    "whole_project_map": "4ffe7353bec945c1519f4c366c532b9affc2a7bf",
+    "whole_project_map": "04bffc660484fd6252407dc9891568ce3417e698",
     "public_voice_receipt": "e739be479a4e9e7c2b364259d7a8b15e9d9318e6",
     "public_browser_receipt": "e739be479a4e9e7c2b364259d7a8b15e9d9318e6",
     "public_meaningful_browser_receipt": "65f80831660870d44a2150960ff5ade4aa4f6455",
@@ -671,15 +800,16 @@
     "reason": "public_origin_not_deployed_in_memorial_mode"
   },
   "public_origin_access_detail": {
-    "status": "missing",
-    "base_url": "",
-    "source_key": "",
-    "page_status_code": 0,
-    "manifest_status_code": 0,
-    "page_probe_url": "",
-    "manifest_probe_url": "",
-    "next_action": "configure_public_memorial_origin",
-    "reason": "public_origin_missing"
+    "status": "pass",
+    "base_url": "https://myexternalbrain.com",
+    "source_key": "EA_PUBLIC_APP_BASE_URL",
+    "page_status_code": 200,
+    "manifest_status_code": 200,
+    "page_probe_url": "https://myexternalbrain.com/memorials/manfred",
+    "manifest_probe_url": "https://myexternalbrain.com/memorials/manfred.json",
+    "page_detail": "<!doctype html>\n<html lang=\"de-AT\">\n  <head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n    <title>Erin",
+    "manifest_detail": "{\"slug\":\"manfred\",\"person_name\":\"Manfred Hoza\",\"title\":\"Erinnerungen an Manfred Hoza\",\"subtitle\":\"Eine ruhige Seite für Erinnerungen, belegte Gedanken und öffen",
+    "next_action": "maintain_public_memorial_origin_access"
   },
   "memorial_surface_contract_detail": {
     "status": "pass",
@@ -820,6 +950,8 @@
       "spatial_public_origin_schema_invalid",
       "spatial_public_origin_status_not_pass",
       "spatial_public_origin_generated_at_invalid",
+      "spatial_public_origin_source_head_mismatch",
+      "spatial_public_origin_source_fingerprint_mismatch",
       "spatial_public_origin_source_worktree_dirty",
       "spatial_public_origin_https_origin_invalid",
       "spatial_public_origin_runtime_revision_mismatch",
@@ -1144,15 +1276,13 @@
     "gold_claim_allowed": false,
     "blocking_planes": [
       "ea_release_control",
-      "fleet_journey_gates",
       "design_surface",
-      "chummer_core_rules",
       "chummer_desktop_ui",
       "chummer_hub_public_web",
-      "mobile_and_second_device",
       "media_factory_publication",
       "telegram_video_delivery",
       "memorial_public_origin_gold",
+      "memorial_flagship_experience_gold",
       "ltd_provider_lanes"
     ]
   }
