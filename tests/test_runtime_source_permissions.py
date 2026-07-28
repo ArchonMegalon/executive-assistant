@@ -26,6 +26,14 @@ def _runtime_tree(tmp_path: Path) -> tuple[Path, Path]:
     launcher.write_text("#!/usr/bin/env sh\n", encoding="utf-8")
     compose_file = root / "docker-compose.whatsapp-web-session.yml"
     compose_file.write_text("services: {}\n", encoding="utf-8")
+    design = root / ".codex-design"
+    design.mkdir()
+    design_receipt = design / "product.generated.json"
+    design_receipt.write_text("{}\n", encoding="utf-8")
+    studio = root / ".codex-studio"
+    studio.mkdir()
+    studio_receipt = studio / "runtime.generated.json"
+    studio_receipt.write_text("{}\n", encoding="utf-8")
     root.chmod(0o755)
     source.parent.chmod(0o755)
     source.chmod(0o755)
@@ -33,6 +41,10 @@ def _runtime_tree(tmp_path: Path) -> tuple[Path, Path]:
     module.chmod(0o644)
     launcher.chmod(0o755)
     compose_file.chmod(0o644)
+    design.chmod(0o755)
+    design_receipt.chmod(0o644)
+    studio.chmod(0o755)
+    studio_receipt.chmod(0o644)
     return root, module
 
 
@@ -49,8 +61,10 @@ def test_runtime_source_tree_passes_without_reading_contents(tmp_path: Path) -> 
         "ea/app",
         "scripts",
         "docker-compose.whatsapp-web-session.yml",
+        ".codex-design",
+        ".codex-studio",
     ]
-    assert receipt["release_files_scanned"] == 3
+    assert receipt["release_files_scanned"] == 5
     assert receipt["file_contents_read"] is False
     assert receipt["secrets_included"] is False
 
@@ -146,6 +160,21 @@ def test_runtime_source_repair_covers_required_root_compose_file(
 
     assert repaired == 1
     assert stat.S_IMODE(compose_file.stat().st_mode) == 0o644
+    assert receipt["status"] == "pass"
+
+
+def test_runtime_source_repair_covers_read_only_release_evidence(
+    tmp_path: Path,
+) -> None:
+    root, _module = _runtime_tree(tmp_path)
+    receipt_file = root / ".codex-studio" / "runtime.generated.json"
+    receipt_file.chmod(0o600)
+
+    repaired = verifier.repair_runtime_source_permissions(root)
+    receipt = verifier.verify_runtime_source_tree(root)
+
+    assert repaired == 1
+    assert stat.S_IMODE(receipt_file.stat().st_mode) == 0o644
     assert receipt["status"] == "pass"
 
 

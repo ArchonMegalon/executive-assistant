@@ -36,7 +36,7 @@ except ImportError:
 
 ROOT = Path(__file__).resolve().parents[1]
 SERVICE = "ea-runtime-source"
-CONTRACT_NAME = "ea.runtime_source_permissions.v4"
+CONTRACT_NAME = "ea.runtime_source_permissions.v5"
 RUNTIME_MOUNT_DIRECTORIES = (".", "ea")
 DEFAULT_SOURCE_BINDINGS = (
     ("ea/app", "/app/app"),
@@ -45,6 +45,8 @@ DEFAULT_SOURCE_BINDINGS = (
         "docker-compose.whatsapp-web-session.yml",
         "/app/docker-compose.whatsapp-web-session.yml",
     ),
+    (".codex-design", "/app/.codex-design"),
+    (".codex-studio", "/app/.codex-studio"),
 )
 
 
