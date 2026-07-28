@@ -979,14 +979,18 @@ def test_support_fix_verification_flow_in_real_browser(page: Page, product_brows
     assert page.evaluate("() => window.matchMedia('(prefers-reduced-motion: reduce)').matches") is True
     assert page.get_by_role("main").count() == 1
     assert page.get_by_role("heading", name="Support and recovery", exact=True).count() == 1
+    mobile_nav = page.locator(".ea-mobile-nav")
+    assert mobile_nav.is_visible()
+    assert mobile_nav.locator('[aria-current="page"]').count() == 1
+    _assert_visual_baseline(page, "support-mobile-page.png", full_page=False)
     horizontal_overflow = page.evaluate(
         "() => document.documentElement.scrollWidth - document.documentElement.clientWidth"
     )
     assert horizontal_overflow <= 1
     page.keyboard.press("Tab")
-    assert page.evaluate(
-        "() => document.activeElement?.matches('a, button, input, select, textarea, [tabindex]:not([tabindex=\"-1\"])')"
-    ) is True
+    assert page.evaluate("() => document.activeElement?.classList.contains('skip-link')") is True
+    page.keyboard.press("Enter")
+    assert page.evaluate("() => document.activeElement?.id") == "workspace-content"
 
     next_action_row = page.locator(".object-row", has_text="Next action")
     with page.expect_response(lambda value: "/app/actions/support/fix-verification/request" in value.url and value.request.method == "POST") as request_response:
@@ -1030,6 +1034,12 @@ def test_support_fix_verification_flow_in_real_browser(page: Page, product_brows
     assert "Support verification is confirmed on the current channel." in page.content()
     assert "Recipient opened the workspace link attached to the verification request." in page.content()
     assert "Recipient explicitly confirmed the fix from the support verification link." in page.content()
+
+    mobile_nav.get_by_role("link", name="Queue", exact=True).click()
+    page.wait_for_url(f"{base_url}/app/queue")
+    page.wait_for_load_state("networkidle")
+    assert page.get_by_role("heading", name="Queue", exact=True).count() == 1
+    assert page.locator('.ea-mobile-nav a[aria-current="page"]').inner_text() == "Queue"
 
 
 def test_commitment_candidate_can_be_edited_before_accept_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:

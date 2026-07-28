@@ -16,8 +16,8 @@
       --line: #ded6c8;
       --line-strong: #b9ad9a;
       --text: #191714;
-      --text-soft: #6c675f;
-      --text-dim: #958e83;
+      --text-soft: #625d55;
+      --text-dim: #756f66;
       --accent: #bd8b2f;
       --accent-soft: rgba(189, 139, 47, 0.13);
       --accent-strong: #9f7424;
@@ -37,6 +37,7 @@
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; }
+    html { scroll-padding-top: 24px; }
     body {
       background:
         radial-gradient(circle at top right, rgba(189, 139, 47, 0.12), transparent 30rem),
@@ -48,6 +49,24 @@
       text-rendering: optimizeLegibility;
     }
     a { color: inherit; text-decoration: none; }
+    .skip-link {
+      position: fixed;
+      top: 10px;
+      left: 12px;
+      z-index: 100;
+      padding: 10px 14px;
+      border: 1px solid var(--accent);
+      border-radius: 10px;
+      background: var(--panel);
+      color: var(--text);
+      font-weight: 650;
+      box-shadow: var(--shadow);
+      transform: translateY(calc(-100% - 18px));
+      transition: transform var(--ease-emphasis);
+    }
+    .skip-link:focus {
+      transform: translateY(0);
+    }
     .wrap { width: min(var(--max), calc(100vw - 40px)); margin: 0 auto; }
     .topbar {
       position: sticky;
@@ -131,7 +150,7 @@
     .nav a:hover { color: var(--text); }
     .actions { display: flex; gap: 10px; align-items: center; }
     .btn {
-      min-height: 40px;
+      min-height: 44px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -458,9 +477,15 @@
       background: var(--bg);
     }
     .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      overscroll-behavior: contain;
       border-right: 1px solid rgba(185, 173, 154, 0.72);
       background: linear-gradient(180deg, rgba(253, 249, 241, 0.98), rgba(246, 243, 238, 0.98));
       padding: 18px 14px;
+      scrollbar-width: thin;
     }
     .sidebar .brand { padding: 0 8px 14px; }
     .workspace-card {
@@ -496,6 +521,7 @@
       grid-template-columns: 18px 1fr;
       align-items: center;
       gap: 10px;
+      min-height: 44px;
       padding: 10px 12px;
       border-radius: 10px;
       color: var(--text-soft);
@@ -523,6 +549,9 @@
     }
     .console-main {
       padding: 22px;
+    }
+    .ea-mobile-nav {
+      display: none;
     }
     .console-topbar {
       display: flex;
@@ -1039,6 +1068,59 @@
       .summary-strip { grid-template-columns: 1fr; }
       .console { grid-template-columns: 1fr; }
       .sidebar { display: none; }
+      .console-main {
+        padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+      }
+      .ea-mobile-nav {
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        bottom: max(12px, env(safe-area-inset-bottom, 0px));
+        z-index: 60;
+        display: flex;
+        gap: 6px;
+        padding: 8px;
+        overflow-x: auto;
+        overscroll-behavior-inline: contain;
+        scrollbar-width: none;
+        border: 1px solid rgba(185, 173, 154, 0.78);
+        border-radius: 18px;
+        background: rgba(255, 253, 248, 0.94);
+        backdrop-filter: blur(16px);
+        box-shadow: 0 16px 44px rgba(38, 32, 22, 0.18);
+      }
+      .ea-mobile-nav::-webkit-scrollbar {
+        display: none;
+      }
+      .ea-mobile-nav a {
+        flex: 1 0 auto;
+        min-width: 82px;
+        min-height: 48px;
+        display: grid;
+        place-items: center;
+        padding: 8px 10px;
+        border: 1px solid transparent;
+        border-radius: 12px;
+        color: var(--text-soft);
+        font-size: 12px;
+        font-weight: 620;
+        line-height: 1.2;
+        text-align: center;
+        white-space: nowrap;
+        transition: border-color var(--ease), background var(--ease), color var(--ease), transform var(--ease);
+      }
+      .ea-mobile-nav a:hover {
+        border-color: var(--line);
+        color: var(--text);
+      }
+      .ea-mobile-nav a:active {
+        transform: translateY(1px);
+      }
+      .ea-mobile-nav a.active {
+        border-color: rgba(189, 139, 47, 0.32);
+        background: var(--accent-soft);
+        color: var(--text);
+      }
       .pq-shell {
         grid-template-columns: 1fr;
       }
@@ -1094,6 +1176,10 @@
         align-items: flex-start;
       }
       main, .console-main { padding-top: 24px; }
+      .console-main {
+        padding-right: 14px;
+        padding-left: 14px;
+      }
       .pq-appbar-row,
       .pq-topbar {
         align-items: flex-start;
@@ -1225,8 +1311,9 @@
 </style>
 </head>
 <body>
+  <a class="skip-link" href="#workspace-content">Skip to workspace</a>
   <div class="console">
-    <aside class="sidebar">
+    <aside class="sidebar" aria-label="Workspace navigation">
       <div class="brand">
         <span class="brand-mark">{{ brand.mark }}</span>
         <span>{{ brand.name }}</span>
@@ -1238,17 +1325,17 @@
       </div>
       {% for group in nav_groups %}
       <div class="group-label">{{ group.label }}</div>
-      <div class="nav-list">
+      <nav class="nav-list" aria-label="{{ group.label }}">
         {% for item in group["items"] %}
-        <a class="nav-item {% if current_nav == item.key %}active{% endif %}" href="{{ item.href }}">
+        <a class="nav-item {% if current_nav == item.key %}active{% endif %}" href="{{ item.href }}"{% if current_nav == item.key %} aria-current="page"{% endif %}>
           <span class="dot"></span>
           <span>{{ item.label }}</span>
         </a>
         {% endfor %}
-      </div>
+      </nav>
       {% endfor %}
     </aside>
-    <main class="console-main">
+    <main class="console-main" id="workspace-content" tabindex="-1">
       <div class="console-topbar">
         <div class="console-title">
           <div class="context">{{ workspace_context_label or 'What changed, what needs review, what may slip next' }}</div>
@@ -1264,5 +1351,12 @@
 
     </main>
   </div>
+  <nav class="ea-mobile-nav" aria-label="Workspace navigation">
+    {% for group in nav_groups %}
+      {% for item in group["items"] %}
+      <a class="{% if current_nav == item.key %}active{% endif %}" href="{{ item.href }}"{% if current_nav == item.key %} aria-current="page"{% endif %}>{{ item.label }}</a>
+      {% endfor %}
+    {% endfor %}
+  </nav>
 </body>
 </html>

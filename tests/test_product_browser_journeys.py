@@ -21,6 +21,10 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert "Send board materials" in today.text
     assert "Approve reply to Sofia N." in today.text
     assert "Sofia N." in today.text
+    assert 'class="skip-link" href="#workspace-content"' in today.text
+    assert 'class="console-main" id="workspace-content" tabindex="-1"' in today.text
+    assert 'class="ea-mobile-nav" aria-label="Workspace navigation"' in today.text
+    assert 'aria-current="page"' in today.text
 
     queue = client.get("/app/queue")
     assert queue.status_code == 200

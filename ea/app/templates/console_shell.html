@@ -208,6 +208,9 @@
     border-bottom: 1px solid var(--line);
     transition: transform 180ms ease;
   }
+  .console-row > div:first-child {
+    min-width: 0;
+  }
   .console-row:hover {
     transform: translateX(2px);
   }
@@ -225,6 +228,16 @@
   .console-row span {
     color: var(--text-dim);
     font-size: 13px;
+    line-height: 1.45;
+  }
+  .console-row-title {
+    color: inherit;
+    text-decoration: none;
+    text-underline-offset: 3px;
+  }
+  .console-row-title:hover {
+    text-decoration: underline;
+    text-decoration-color: var(--accent);
   }
   .console-tag {
     white-space: nowrap;
@@ -244,15 +257,23 @@
     flex-wrap: wrap;
     justify-content: flex-end;
   }
+  .console-row-actions form {
+    margin: 0;
+  }
   .console-action {
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     border: 1px solid var(--line);
     border-radius: 999px;
     background: var(--panel);
     color: var(--text);
     font: inherit;
     font-size: 12px;
-    padding: 6px 10px;
+    padding: 8px 12px;
     cursor: pointer;
+    touch-action: manipulation;
     transition: transform 180ms ease, border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
     box-shadow: 0 8px 20px rgba(38, 32, 22, 0.06);
   }
@@ -261,6 +282,29 @@
     border-color: rgba(189, 139, 47, 0.32);
     background: var(--panel-2);
     box-shadow: 0 14px 28px rgba(38, 32, 22, 0.1);
+  }
+  .console-action.primary {
+    border-color: rgba(189, 139, 47, 0.32);
+    background: var(--accent-soft);
+  }
+  .console-action.danger {
+    border-color: rgba(166, 83, 71, 0.28);
+    background: rgba(166, 83, 71, 0.07);
+    color: var(--danger);
+  }
+  .console-action.danger:hover {
+    border-color: rgba(166, 83, 71, 0.5);
+    background: rgba(166, 83, 71, 0.12);
+  }
+  .console-action:active {
+    transform: translateY(0);
+  }
+  .console-action:disabled {
+    cursor: not-allowed;
+    filter: grayscale(0.2);
+    opacity: 0.58;
+    transform: none;
+    box-shadow: none;
   }
   .console-panel:hover,
   .console-focus:hover,
@@ -529,6 +573,7 @@
   .console-form textarea,
   .console-form select {
     width: 100%;
+    min-height: 44px;
     border: 1px solid var(--line);
     border-radius: 12px;
     background: var(--panel);
@@ -691,6 +736,9 @@
       width: 100%;
       justify-content: flex-start;
     }
+    .console-action {
+      min-height: 44px;
+    }
     .console-tag {
       white-space: normal;
     }
@@ -799,7 +847,7 @@
   <div class="console-row">
     <div>
       {% if href %}
-      <strong><a href="{{ href }}" style="color: inherit; text-decoration: none;">{{ title }}</a></strong>
+      <strong><a class="console-row-title" href="{{ href }}">{{ title }}</a></strong>
       {% else %}
       <strong>{{ title }}</strong>
       {% endif %}
@@ -808,45 +856,45 @@
     <div class="console-row-actions">
       {% if action_href %}
       {% if action_method == 'get' %}
-      <a class="console-action" href="{{ action_href }}">{{ action_label }}</a>
+      <a class="console-action {% if action_label|lower in ['drop', 'reject', 'delete', 'remove', 'revoke'] %}danger{% else %}primary{% endif %}" href="{{ action_href }}">{{ action_label }}</a>
       {% else %}
       <form method="post" action="{{ action_href }}">
         {% if action_value %}<input type="hidden" name="action" value="{{ action_value }}">{% endif %}
         {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
-        <button class="console-action" type="submit">{{ action_label }}</button>
+        <button class="console-action {% if action_label|lower in ['drop', 'reject', 'delete', 'remove', 'revoke'] %}danger{% else %}primary{% endif %}" type="submit">{{ action_label }}</button>
       </form>
       {% endif %}
       {% endif %}
       {% if secondary_action_href %}
       {% if secondary_action_method == 'get' %}
-      <a class="console-action" href="{{ secondary_action_href }}">{{ secondary_action_label }}</a>
+      <a class="console-action {% if secondary_action_label|lower in ['drop', 'reject', 'delete', 'remove', 'revoke'] %}danger{% endif %}" href="{{ secondary_action_href }}">{{ secondary_action_label }}</a>
       {% else %}
       <form method="post" action="{{ secondary_action_href }}">
         {% if secondary_action_value %}<input type="hidden" name="action" value="{{ secondary_action_value }}">{% endif %}
         {% if secondary_return_to %}<input type="hidden" name="return_to" value="{{ secondary_return_to }}">{% endif %}
-        <button class="console-action" type="submit">{{ secondary_action_label }}</button>
+        <button class="console-action {% if secondary_action_label|lower in ['drop', 'reject', 'delete', 'remove', 'revoke'] %}danger{% endif %}" type="submit">{{ secondary_action_label }}</button>
       </form>
       {% endif %}
       {% endif %}
       {% if tertiary_action_href %}
       {% if tertiary_action_method == 'get' %}
-      <a class="console-action" href="{{ tertiary_action_href }}">{{ tertiary_action_label }}</a>
+      <a class="console-action {% if tertiary_action_label|lower in ['drop', 'reject', 'delete', 'remove', 'revoke'] %}danger{% endif %}" href="{{ tertiary_action_href }}">{{ tertiary_action_label }}</a>
       {% else %}
       <form method="post" action="{{ tertiary_action_href }}">
         {% if tertiary_action_value %}<input type="hidden" name="action" value="{{ tertiary_action_value }}">{% endif %}
         {% if tertiary_return_to %}<input type="hidden" name="return_to" value="{{ tertiary_return_to }}">{% endif %}
-        <button class="console-action" type="submit">{{ tertiary_action_label }}</button>
+        <button class="console-action {% if tertiary_action_label|lower in ['drop', 'reject', 'delete', 'remove', 'revoke'] %}danger{% endif %}" type="submit">{{ tertiary_action_label }}</button>
       </form>
       {% endif %}
       {% endif %}
       {% if quaternary_action_href %}
       {% if quaternary_action_method == 'get' %}
-      <a class="console-action" href="{{ quaternary_action_href }}">{{ quaternary_action_label }}</a>
+      <a class="console-action {% if quaternary_action_label|lower in ['drop', 'reject', 'delete', 'remove', 'revoke'] %}danger{% endif %}" href="{{ quaternary_action_href }}">{{ quaternary_action_label }}</a>
       {% else %}
       <form method="post" action="{{ quaternary_action_href }}">
         {% if quaternary_action_value %}<input type="hidden" name="action" value="{{ quaternary_action_value }}">{% endif %}
         {% if quaternary_return_to %}<input type="hidden" name="return_to" value="{{ quaternary_return_to }}">{% endif %}
-        <button class="console-action" type="submit">{{ quaternary_action_label }}</button>
+        <button class="console-action {% if quaternary_action_label|lower in ['drop', 'reject', 'delete', 'remove', 'revoke'] %}danger{% endif %}" type="submit">{{ quaternary_action_label }}</button>
       </form>
       {% endif %}
       {% endif %}
