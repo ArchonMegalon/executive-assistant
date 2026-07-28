@@ -1440,6 +1440,10 @@ def test_memorial_browser_voice_warmup_failure_stays_minimal_and_exposes_recover
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         conversation = page.locator("#memorial-conversation")
+        page.wait_for_function(
+            "() => document.getElementById('memorial-conversation')?.disabled === false",
+            timeout=7000,
+        )
         assert conversation.is_enabled()
         assert conversation.inner_text().strip() == "Gespräch beginnen"
         assert conversation.get_attribute("aria-label") == "Gespräch beginnen"

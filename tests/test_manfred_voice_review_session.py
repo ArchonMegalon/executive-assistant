@@ -734,6 +734,11 @@ def test_cookie_authenticated_page_is_preview_but_anonymous_page_is_unchanged(
             cookie=(
                 f"{public_memorials._MEMORIAL_VOICE_REVIEW_COOKIE}={session}"
             ),
+            extra_headers=[
+                (b"sec-fetch-site", b"same-origin"),
+                (b"sec-fetch-mode", b"navigate"),
+                (b"sec-fetch-dest", b"document"),
+            ],
         ),
     )
     preview_html = preview.body.decode("utf-8")

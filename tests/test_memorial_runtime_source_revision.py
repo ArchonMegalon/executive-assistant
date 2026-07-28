@@ -289,6 +289,9 @@ def _room_args() -> argparse.Namespace:
         normal_spoken_turn_confirmed=True,
         interruption_behavior_confirmed=True,
         retry_path_confirmed=True,
+        likeness_accepted=True,
+        warmth_accepted=True,
+        pronunciation_accepted=True,
     )
 
 

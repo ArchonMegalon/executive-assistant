@@ -781,6 +781,7 @@ def test_runner_main_emits_teable_sync_result_when_enabled(tmp_path, monkeypatch
             "--state-path",
             str(tmp_path / "state.json"),
             "--armed-send",
+            "--no-host-resource-guard",
             "--no-action-required-delivery-only",
             "--skip-observation-source",
             "--skip-workspace-source",

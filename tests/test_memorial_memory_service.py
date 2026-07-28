@@ -178,14 +178,19 @@ def test_release_questions_retrieve_faithful_approved_manfred_memories(
     assert "Falschinformationen" in ai_answer["answer"]
     assert medical_answer["public_memory_used"] is True
     assert medical_answer["sources"] == ["Freigegebene Erinnerungen"]
-    assert "Opferschutz" in medical_answer["answer"]
-    assert "aktuelle Fakten und aerztlichen Rat" in medical_answer["answer"]
+    assert medical_answer["answer"].startswith("Nein.")
+    assert "strikt gegen die Impfung" in medical_answer["answer"]
+    assert "Pharmaindustrie" in medical_answer["answer"]
     for public_answer in (fairness_public_answer, medical_public_answer):
         lowered = str(public_answer["answer"]).lower()
-        assert "opferschutz" in lowered
         assert "ki-rekonstruktion" not in lowered
         assert "nicht der echte manfred" not in lowered
         assert "frag es enger" not in lowered
+    assert "opferschutz" in str(fairness_public_answer["answer"]).lower()
+    medical_public_text = str(medical_public_answer["answer"]).lower()
+    assert medical_public_text.startswith("nein.")
+    assert "strikt gegen die impfung" in medical_public_text
+    assert "pharmaindustrie" in medical_public_text
     assert all(
         item["fact_json"]["public_approved"] is True
         and item["fact_json"]["public_approval_key"]

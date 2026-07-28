@@ -33,7 +33,8 @@ def test_refresh_packet_default_segments_follow_private_profile_root(
 
     segments = module.default_segment_paths("manfred")
 
-    assert len(segments) == 3
+    assert len(segments) == 1
+    assert segments[0].name == "manfred-unmixr-osq-1438-1478-v2.wav"
     assert all(path.is_relative_to(tmp_path / "manfred") for path in segments)
     assert all(not path.is_absolute() for path in module.DEFAULT_SEGMENT_RELATIVE_PATHS)
     assert "/docker/" + "EA" not in "\n".join(module.DEFAULT_SEGMENTS)

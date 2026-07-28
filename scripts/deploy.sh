@@ -371,6 +371,10 @@ fi
 echo "Preparing isolated EA runtime environment files."
 "${PYTHON_BIN}" "${APP_ROOT}/scripts/prepare_ea_runtime_env.py" --root "${APP_ROOT}"
 
+echo "Verifying bind-mounted EA application source permissions."
+"${PYTHON_BIN}" "${APP_ROOT}/scripts/verify_ea_runtime_source_permissions.py" \
+  --root "${APP_ROOT}" --repair >/dev/null
+
 if [[ -n "${TEABLE_API_KEY:-}" ]]; then
   proactive_teable_base_id="$(normalize_origin_like "$(effective_value EA_ENV_TEABLE_BASE_ID)")"
   if [[ -n "${proactive_teable_base_id}" ]]; then

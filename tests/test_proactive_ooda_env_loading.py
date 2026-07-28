@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from app.services.proactive_ooda_safe_work import build_safe_work_result
 from app.services.proactive_ooda_service import JsonOodaStateStore, ProactiveOodaService, build_run_receipt
 from app.services.proactive_ooda_stage_packets import build_stage_packets
@@ -13,6 +15,12 @@ from app.services.proactive_signal_discovery import observation_row_to_signal
 
 import scripts.run_proactive_ooda as runner
 import scripts.verify_proactive_ooda as verifier
+
+
+@pytest.fixture(autouse=True)
+def _isolate_host_resource_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep unrelated OODA policy tests independent of host disk utilization."""
+    monkeypatch.setenv("EA_PROACTIVE_OODA_HOST_RESOURCE_GUARD", "false")
 
 
 def test_env_example_includes_pending_approval_projection_tables() -> None:
@@ -484,6 +492,7 @@ def test_runner_main_sends_safe_work_preview_to_telegram(tmp_path, monkeypatch, 
             "--safe-work-result-dir",
             str(tmp_path / "results"),
             "--armed-send",
+            "--no-host-resource-guard",
             "--skip-observation-source",
             "--skip-workspace-source",
         ],
@@ -492,7 +501,8 @@ def test_runner_main_sends_safe_work_preview_to_telegram(tmp_path, monkeypatch, 
     assert runner.main() == 0
 
     captured = capsys.readouterr()
-    assert sent and sent[0][0] == "exec"
+    assert sent, captured.out
+    assert sent[0][0] == "exec"
     assert sent[0][2] is not None
     assert "Recommendation: Vendor A - https://example.test/vendor-a" in sent[0][1]
     assert "Open: https://example.test/approve/vendor-a" in sent[0][1]

@@ -288,6 +288,9 @@ def _prepare_real_compose(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     callback_secret = compose_root / "callback.secret"
     callback_secret.write_text("static-render-callback-secret\n", encoding="utf-8")
     callback_secret.chmod(0o600)
+    cartesia_credential = compose_root / "cartesia-credential.json"
+    cartesia_credential.write_text("{}\n", encoding="utf-8")
+    cartesia_credential.chmod(0o600)
 
     environment = dict(os.environ)
     environment.update(
@@ -316,6 +319,9 @@ def _prepare_real_compose(tmp_path: Path) -> tuple[Path, dict[str, str]]:
             "EA_MEMORIAL_TRUSTED_PROXY_CIDRS": "172.16.0.0/12",
             "EA_MEMORIAL_DATA_HOST_PATH": str(memorial_data),
             "EA_MEMORIAL_RUNTIME_HOST_PATH": str(memorial_runtime),
+            "EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE": str(
+                cartesia_credential
+            ),
         }
     )
     return compose_root, environment

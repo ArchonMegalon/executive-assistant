@@ -149,6 +149,9 @@ def _render_effective_compose(
     if docker is None:
         pytest.skip("Docker Compose is unavailable")
     tmp_path.mkdir(parents=True, exist_ok=True)
+    cartesia_credential = tmp_path.parent / "cartesia-credential.json"
+    cartesia_credential.write_text("{}\n", encoding="utf-8")
+    cartesia_credential.chmod(0o600)
     synthetic_env = tmp_path / "vocallab-synthetic.env"
     synthetic_env.write_text(
         "\n".join(
@@ -164,6 +167,8 @@ def _render_effective_compose(
                 "EA_MEMORIAL_TRUSTED_PROXY_CIDRS=172.31.254.2/32",
                 "EA_MEMORIAL_DATA_HOST_PATH=/tmp/ea-memorial-data",
                 "EA_MEMORIAL_RUNTIME_HOST_PATH=/tmp/ea-memorial-runtime",
+                "EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE="
+                + str(cartesia_credential),
             )
         )
         + "\n",

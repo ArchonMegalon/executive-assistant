@@ -1437,10 +1437,11 @@ def test_public_memorial_speech_synthesize_sanitizes_openvoice_backed_tts_plugin
         {
             "text": "Ich bin da.",
             "voice_id": "runtime-unmixr-voice",
-            "lang": "de-AT",
+            "lang": "de",
             "speaking_rate": "0.90",
             "speaking_pitch": "",
             "speaking_volume": "",
+            "account_slot": None,
         }
     ]
     assert blocked_plugin.encode("utf-8") not in response.content

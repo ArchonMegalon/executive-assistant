@@ -14477,15 +14477,16 @@ def _minimal_public_memorial_html(
         )
     elif public_voice_evaluation_allowed:
         voice_guidance = (
-            "Du sprichst mit einer KI-Version von Manfred. "
-            "Diese KI ist nicht Manfred und spricht nicht für ihn. "
-            "Die Stimme ist in Testphase; "
-            "dein Mikrofon startet erst nach deinem Klick."
+            "Öffentliche Testphase. Diese KI-Rekonstruktion antwortet auf der Grundlage "
+            "freigegebener Erinnerungen und Quellen aus der Ich-Perspektive. Sie ist "
+            "nicht Manfred und spricht nicht für ihn. Die künstliche Stimme wird noch "
+            "geprüft. Dein Mikrofon und deine Audioeingabe werden erst nach "
+            "„Gespräch beginnen“ verarbeitet."
         )
     elif voice_access_blocked:
         voice_guidance = (
-            "Du schreibst mit einer KI-Version von Manfred. "
-            "Diese KI ist nicht Manfred und spricht nicht für ihn. "
+            "Du schreibst mit einer KI-Rekonstruktion von Manfred. "
+            "Sie ist nicht Manfred und spricht nicht für ihn. "
             + (
                 "Sprechen ist derzeit nicht verfügbar."
                 if conversation_only
@@ -14494,15 +14495,15 @@ def _minimal_public_memorial_html(
         )
     elif conversation_only:
         voice_guidance = (
-            "Du sprichst mit einer KI-Version von Manfred. "
-            "Diese KI ist nicht Manfred und spricht nicht für ihn. "
-            "Die Stimme ist synthetisch; "
-            "dein Mikrofon startet erst nach deinem Klick."
+            "Du sprichst mit einer KI-Rekonstruktion von Manfred. "
+            "Sie ist nicht Manfred und spricht nicht für ihn. "
+            "Die Stimme ist künstlich erzeugt. "
+            "Dein Mikrofon überträgt Audio erst nach „Gespräch beginnen“."
         )
     else:
         voice_guidance = (
-            "Du sprichst mit einer KI-Version von Manfred. "
-            "Diese KI ist nicht Manfred und spricht nicht für ihn. "
+            "Du sprichst mit einer KI-Rekonstruktion von Manfred. "
+            "Sie ist nicht Manfred und spricht nicht für ihn. "
             "Die Stimme ist synthetisch; "
             "dein Mikrofon startet erst nach deinem Klick. Du kannst jederzeit schreiben."
         )
