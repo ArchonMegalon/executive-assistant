@@ -202,8 +202,11 @@ def test_plan_encodes_exact_colocated_legacy_environment_shape(
     assert activation["recorded_working_dir"] == str(recorded)
     assert activation["external_config_root"] == str(recorded)
     assert activation["ordered_external_config_files"] == [
-        str(recorded / name)
-        for name in planner.COLOCATED_LEGACY_COMPOSE_FILES
+        str(recorded / "docker-compose.yml"),
+        str(recorded / "docker-compose.prod.yml"),
+        str(recorded / "docker-compose.memorial.yml"),
+        str(recorded / "docker-compose.whatsapp-web-session.yml"),
+        str(recorded / "docker-compose.cloudflared.yml"),
     ]
     planner.validate_plan_payload(payload)
 

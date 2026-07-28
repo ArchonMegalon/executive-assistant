@@ -45,8 +45,8 @@ COLOCATED_LEGACY_ENV_CONDITION = (
 COLOCATED_LEGACY_COMPOSE_FILES = (
     "docker-compose.yml",
     "docker-compose.prod.yml",
-    "docker-compose.whatsapp-web-session.yml",
     "docker-compose.memorial.yml",
+    "docker-compose.whatsapp-web-session.yml",
     "docker-compose.cloudflared.yml",
 )
 
