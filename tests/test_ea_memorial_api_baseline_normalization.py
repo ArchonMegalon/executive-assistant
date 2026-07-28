@@ -23,7 +23,9 @@ MANIFEST_SHA256 = "4" * 64
 PLAN_SHA256 = "5" * 64
 
 
-def _live_api_render_input() -> dict[str, Any]:
+def _live_api_render_input(
+    credential_source: str = "/srv/memorial/provider-secrets/cartesia.json",
+) -> dict[str, Any]:
     return {
         "Config": {
             "Image": "ea-runtime:memorial-main-111111111111",
@@ -61,6 +63,12 @@ def _live_api_render_input() -> dict[str, Any]:
                     "state",
                 )
             ],
+            {
+                "Type": "bind",
+                "Source": credential_source,
+                "Destination": normalization.CARTESIA_CREDENTIAL_CONTAINER_PATH,
+                "RW": False,
+            },
         ],
     }
 
@@ -425,9 +433,13 @@ def test_constructor_skips_release_env_and_sanitizes_process_environment(
 
 def test_live_bundle_render_environment_is_exact_and_excludes_runtime_secret(
     lane_factory: Callable[..., normalization.ApiBaselineNormalizationLane],
+    tmp_path: Path,
 ) -> None:
     lane = lane_factory()
-    inspection = _live_api_render_input()
+    credential = tmp_path / "cartesia.json"
+    credential.write_text('{"token":"private"}\n', encoding="utf-8")
+    credential.chmod(0o440)
+    inspection = _live_api_render_input(str(credential))
     image_reference = str(inspection["Config"]["Image"])
 
     rendered = lane._live_bundle_render_environment(
@@ -441,6 +453,7 @@ def test_live_bundle_render_environment_is_exact_and_excludes_runtime_secret(
     assert set(rendered) == normalization.BASELINE_RENDER_ENV_KEYS
     assert rendered == {
         "EA_MEMORIAL_DATA_HOST_PATH": "/srv/memorial/release",
+        "EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE": str(credential),
         "EA_MEMORIAL_IMAGE": image_reference,
         "EA_MEMORIAL_RUNTIME_HOST_PATH": "/srv/memorial/runtime",
         "EA_MEMORIAL_TRUSTED_PROXY_CIDRS": ("172.30.0.0/16,127.0.0.1/32"),
@@ -506,8 +519,11 @@ def _colocated_legacy_plan(
     )
 
 
-def _colocated_legacy_api(recorded: Path) -> dict[str, Any]:
-    inspection = _live_api_render_input()
+def _colocated_legacy_api(
+    recorded: Path,
+    credential_source: Path,
+) -> dict[str, Any]:
+    inspection = _live_api_render_input(str(credential_source))
     config = inspection["Config"]
     config["Labels"] = {
         "com.docker.compose.project": normalization.PROJECT_NAME,
@@ -540,6 +556,9 @@ def test_live_validator_accepts_exact_colocated_legacy_environment_shape(
     legacy_environment = recorded / ".env"
     legacy_environment.write_text("PRIVATE=value\n", encoding="utf-8")
     legacy_environment.chmod(0o600)
+    credential = recorded / "cartesia.json"
+    credential.write_text('{"token":"private"}\n', encoding="utf-8")
+    credential.chmod(0o440)
     lane = lane_factory()
     lane._run_git = lambda *_args, **_kwargs: subprocess.CompletedProcess(
         ["git"], 0, "", ""
@@ -556,7 +575,7 @@ def test_live_validator_accepts_exact_colocated_legacy_environment_shape(
     evidence = lane._validate_live_split_baseline(
         plan=_colocated_legacy_plan(recorded, trusted),
         repository={"head": "8" * 40},
-        api_raw=_colocated_legacy_api(recorded),
+        api_raw=_colocated_legacy_api(recorded, credential),
     )
 
     assert evidence["baseline_condition"] == (
@@ -586,6 +605,9 @@ def test_live_validator_rejects_non_private_colocated_legacy_environment(
     legacy_environment = recorded / ".env"
     legacy_environment.write_text("PRIVATE=value\n", encoding="utf-8")
     legacy_environment.chmod(0o640)
+    credential = recorded / "cartesia.json"
+    credential.write_text('{"token":"private"}\n', encoding="utf-8")
+    credential.chmod(0o440)
     lane = lane_factory()
     lane._run_git = lambda *_args, **_kwargs: subprocess.CompletedProcess(
         ["git"], 0, "", ""
@@ -598,15 +620,19 @@ def test_live_validator_rejects_non_private_colocated_legacy_environment(
         lane._validate_live_split_baseline(
             plan=_colocated_legacy_plan(recorded, trusted),
             repository={"head": "8" * 40},
-            api_raw=_colocated_legacy_api(recorded),
+            api_raw=_colocated_legacy_api(recorded, credential),
         )
 
 
 def test_live_bundle_render_environment_fails_closed_on_mount_or_source_drift(
     lane_factory: Callable[..., normalization.ApiBaselineNormalizationLane],
+    tmp_path: Path,
 ) -> None:
     lane = lane_factory()
-    inspection = _live_api_render_input()
+    credential = tmp_path / "cartesia.json"
+    credential.write_text('{"token":"private"}\n', encoding="utf-8")
+    credential.chmod(0o440)
+    inspection = _live_api_render_input(str(credential))
     image_reference = str(inspection["Config"]["Image"])
     inspection["Mounts"] = list(inspection["Mounts"])[1:]
 
@@ -621,7 +647,7 @@ def test_live_bundle_render_environment_fails_closed_on_mount_or_source_drift(
             }
         )
 
-    inspection = _live_api_render_input()
+    inspection = _live_api_render_input(str(credential))
     with pytest.raises(
         deploy.DeployError,
         match="normalization_live_render_environment_invalid",
@@ -635,16 +661,56 @@ def test_live_bundle_render_environment_fails_closed_on_mount_or_source_drift(
         )
 
 
+@pytest.mark.parametrize("drift", ["missing", "writable", "untrusted_source"])
+def test_cartesia_credential_render_mount_fails_closed(
+    lane_factory: Callable[..., normalization.ApiBaselineNormalizationLane],
+    tmp_path: Path,
+    drift: str,
+) -> None:
+    lane = lane_factory()
+    credential = tmp_path / "cartesia.json"
+    credential.write_text('{"token":"private"}\n', encoding="utf-8")
+    credential.chmod(0o440)
+    inspection = _live_api_render_input(str(credential))
+    if drift == "missing":
+        inspection["Mounts"] = [
+            mount
+            for mount in inspection["Mounts"]
+            if mount["Destination"]
+            != normalization.CARTESIA_CREDENTIAL_CONTAINER_PATH
+        ]
+        reason = "normalization_cartesia_credential_mount_invalid"
+    elif drift == "writable":
+        inspection["Mounts"][-1]["RW"] = True
+        reason = "normalization_cartesia_credential_mount_invalid"
+    else:
+        credential.chmod(0o640)
+        reason = "normalization_cartesia_credential_source_untrusted"
+
+    with pytest.raises(deploy.DeployError, match=reason):
+        lane._live_bundle_render_environment(
+            {
+                "api_raw": inspection,
+                "expected_revision": REVISION,
+                "expected_image_reference": str(inspection["Config"]["Image"]),
+            }
+        )
+
+
 @pytest.mark.parametrize(
     "drift",
     ["none", "render_value", "environment_name"],
 )
 def test_fresh_preparation_seals_live_render_inputs_and_rechecks_drift(
     lane_factory: Callable[..., normalization.ApiBaselineNormalizationLane],
+    tmp_path: Path,
     drift: str,
 ) -> None:
     lane = lane_factory()
-    before_api = _live_api_render_input()
+    credential = tmp_path / "cartesia.json"
+    credential.write_text('{"token":"private"}\n', encoding="utf-8")
+    credential.chmod(0o440)
+    before_api = _live_api_render_input(str(credential))
     after_api = json.loads(json.dumps(before_api))
     if drift == "render_value":
         after_api["Config"]["Env"] = [

@@ -173,6 +173,9 @@ TRANSACTION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$")
 MAX_PRIVATE_JSON_BYTES = 2 * 1024 * 1024
 MAX_DOCKER_JSON_BYTES = 32 * 1024 * 1024
 MAX_LEGACY_ENV_LABEL_FILE_BYTES = 2 * 1024 * 1024
+MAX_PROVIDER_CREDENTIAL_FILE_BYTES = 1024 * 1024
+CARTESIA_CREDENTIAL_CONTAINER_PATH = "/run/secrets/ea_memorial_cartesia.json"
+CARTESIA_CREDENTIAL_HOST_ENV = "EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE"
 DOCKER_TRANSPORT_ENV = frozenset(
     {
         "DOCKER_CERT_PATH",
@@ -1742,6 +1745,58 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             "size_bytes": int(observed.st_size),
         }
 
+    @staticmethod
+    def _cartesia_credential_mount_evidence(
+        inspection: Mapping[str, Any],
+    ) -> dict[str, object]:
+        matches = [
+            item
+            for item in _mount_identities(inspection)
+            if item.get("destination") == CARTESIA_CREDENTIAL_CONTAINER_PATH
+        ]
+        if (
+            len(matches) != 1
+            or matches[0].get("type") != "bind"
+            or matches[0].get("read_write") is not False
+        ):
+            raise DeployError("normalization_cartesia_credential_mount_invalid")
+        source = _normal_absolute_path(
+            matches[0].get("source"),
+            reason="normalization_cartesia_credential_source_invalid",
+        )
+        try:
+            parent = source.parent.lstat()
+            observed = source.lstat()
+        except OSError as exc:
+            raise DeployError(
+                "normalization_cartesia_credential_source_unavailable"
+            ) from exc
+        mode = stat.S_IMODE(observed.st_mode)
+        if (
+            not stat.S_ISDIR(parent.st_mode)
+            or stat.S_ISLNK(parent.st_mode)
+            or parent.st_uid != os.geteuid()
+            or stat.S_IMODE(parent.st_mode) & 0o022
+            or not stat.S_ISREG(observed.st_mode)
+            or stat.S_ISLNK(observed.st_mode)
+            or observed.st_uid != os.geteuid()
+            or observed.st_nlink != 1
+            or mode & 0o222
+            or mode & 0o007
+            or not mode & 0o400
+            or observed.st_size <= 0
+            or observed.st_size > MAX_PROVIDER_CREDENTIAL_FILE_BYTES
+        ):
+            raise DeployError("normalization_cartesia_credential_source_untrusted")
+        return {
+            "device": int(observed.st_dev),
+            "inode": int(observed.st_ino),
+            "mode": f"{mode:04o}",
+            "mtime_ns": int(observed.st_mtime_ns),
+            "size_bytes": int(observed.st_size),
+            "source_path": str(source),
+        }
+
     def _validate_live_split_baseline(
         self,
         *,
@@ -1857,6 +1912,9 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             recorded_environment_evidence = (
                 self._legacy_environment_label_evidence(recorded_root / ".env")
             )
+        cartesia_credential_evidence = (
+            self._cartesia_credential_mount_evidence(inspection)
+        )
         image = self._inspect_image_optional(expected_image_reference)
         if image is None:
             raise DeployError("normalization_expected_image_missing")
@@ -1877,6 +1935,7 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             "expected_image_id": expected_image_id,
             "expected_image_reference": expected_image_reference,
             "baseline_condition": condition,
+            "cartesia_credential_evidence": cartesia_credential_evidence,
             "recorded_working_dir": str(recorded_root),
             "recorded_environment_label": expected_environment_label,
             "recorded_environment_evidence": recorded_environment_evidence,
@@ -1963,6 +2022,12 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             config=config,
             mount_identities=_mount_identities(inspection),
             image_reference=expected_image_reference,
+        )
+        credential = ApiBaselineNormalizationLane._cartesia_credential_mount_evidence(
+            inspection
+        )
+        derived[CARTESIA_CREDENTIAL_HOST_ENV] = str(
+            credential.get("source_path") or ""
         )
         selected = {name: derived[name] for name in sorted(BASELINE_RENDER_ENV_KEYS)}
         if (

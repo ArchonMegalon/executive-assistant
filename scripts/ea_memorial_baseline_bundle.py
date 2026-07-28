@@ -50,7 +50,7 @@ except ModuleNotFoundError:  # pragma: no cover - direct script import
 
 BUNDLE_CONTRACT = "ea.memorial_api_baseline_bundle.v4"
 BUNDLE_VERSION = 4
-BASELINE_RENDER_ENV_KEYS = frozenset(
+LEGACY_BASELINE_RENDER_ENV_KEYS = frozenset(
     {
         "EA_MEMORIAL_DATA_HOST_PATH",
         "EA_MEMORIAL_IMAGE",
@@ -58,6 +58,16 @@ BASELINE_RENDER_ENV_KEYS = frozenset(
         "EA_MEMORIAL_TRUSTED_PROXY_CIDRS",
         "EA_SOURCE_REVISION",
     }
+)
+BASELINE_RENDER_ENV_KEYS = frozenset(
+    {
+        *LEGACY_BASELINE_RENDER_ENV_KEYS,
+        "EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE",
+    }
+)
+SUPPORTED_BASELINE_RENDER_ENV_KEYSETS = (
+    LEGACY_BASELINE_RENDER_ENV_KEYS,
+    BASELINE_RENDER_ENV_KEYS,
 )
 COMPOSE_BLOB_PATHS = ("docker-compose.yml", "docker-compose.memorial.yml")
 NORMALIZATION_OVERRIDE = "docker-compose.api-baseline-normalization.yml"
@@ -1029,15 +1039,22 @@ def _validated_baseline_environment_names(
 
 def _validated_render_environment(
     render_environment: Mapping[str, str],
+    *,
+    allow_legacy: bool = False,
 ) -> dict[str, str]:
     try:
         keys = set(render_environment)
     except (TypeError, ValueError) as exc:
         raise BaselineBundleError("render_environment_schema_invalid") from exc
-    if keys != BASELINE_RENDER_ENV_KEYS:
+    accepted_keysets = (
+        SUPPORTED_BASELINE_RENDER_ENV_KEYSETS
+        if allow_legacy
+        else (BASELINE_RENDER_ENV_KEYS,)
+    )
+    if keys not in accepted_keysets:
         raise BaselineBundleError("render_environment_schema_invalid")
     result: dict[str, str] = {}
-    for key in sorted(BASELINE_RENDER_ENV_KEYS):
+    for key in sorted(keys):
         try:
             value = render_environment[key]
         except (KeyError, TypeError, ValueError) as exc:
@@ -1055,7 +1072,7 @@ def _render_environment_assignments(
 ) -> bytes:
     validated = _validated_render_environment(render_environment)
     lines = []
-    for key in sorted(BASELINE_RENDER_ENV_KEYS):
+    for key in sorted(validated):
         value = validated[key].replace("'", "\\'")
         lines.append(f"{key}='{value}'")
     return ("\n".join(lines) + "\n").encode("utf-8")
@@ -1080,31 +1097,42 @@ def _decode_render_environment_assignments(raw: bytes) -> dict[str, str]:
     except UnicodeDecodeError as exc:
         raise BaselineBundleError("render_environment_utf8_invalid") from exc
     physical_lines = text.split("\n")
-    ordered_keys = sorted(BASELINE_RENDER_ENV_KEYS)
-    if physical_lines[-1:] != [""] or len(physical_lines) != len(ordered_keys) + 1:
+    if physical_lines[-1:] != [""]:
         raise BaselineBundleError("render_environment_assignments_invalid")
-    result: dict[str, str] = {}
-    for key, line in zip(ordered_keys, physical_lines[:-1], strict=True):
-        prefix = key + "='"
-        if not line.startswith(prefix) or not line.endswith("'"):
-            raise BaselineBundleError("render_environment_assignments_invalid")
-        encoded = line[len(prefix) : -1]
-        characters: list[str] = []
-        index = 0
-        while index < len(encoded):
-            character = encoded[index]
-            if character == "\\":
+    for keyset in SUPPORTED_BASELINE_RENDER_ENV_KEYSETS:
+        ordered_keys = sorted(keyset)
+        if len(physical_lines) != len(ordered_keys) + 1:
+            continue
+        result: dict[str, str] = {}
+        valid = True
+        for key, line in zip(ordered_keys, physical_lines[:-1], strict=True):
+            prefix = key + "='"
+            if not line.startswith(prefix) or not line.endswith("'"):
+                valid = False
+                break
+            encoded = line[len(prefix) : -1]
+            characters: list[str] = []
+            index = 0
+            while index < len(encoded):
+                character = encoded[index]
+                if character == "\\":
+                    index += 1
+                    if index >= len(encoded) or encoded[index] != "'":
+                        valid = False
+                        break
+                    characters.append("'")
+                elif character == "'" or not character.isprintable():
+                    valid = False
+                    break
+                else:
+                    characters.append(character)
                 index += 1
-                if index >= len(encoded) or encoded[index] != "'":
-                    raise BaselineBundleError("render_environment_assignments_invalid")
-                characters.append("'")
-            elif character == "'" or not character.isprintable():
-                raise BaselineBundleError("render_environment_assignments_invalid")
-            else:
-                characters.append(character)
-            index += 1
-        result[key] = "".join(characters)
-    return _validated_render_environment(result)
+            if not valid:
+                break
+            result[key] = "".join(characters)
+        if valid:
+            return _validated_render_environment(result, allow_legacy=True)
+    raise BaselineBundleError("render_environment_assignments_invalid")
 
 
 def _split_augmented_environment_local(

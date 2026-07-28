@@ -26,6 +26,9 @@ MEMORIAL = b"""services:
       - EA_SOURCE_REVISION=fixed
 """
 RENDER_ENVIRONMENT = {
+    "EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE": (
+        "/srv/ea/provider-secrets/cartesia.json"
+    ),
     "EA_MEMORIAL_DATA_HOST_PATH": "/srv/ea/memorial-data",
     "EA_MEMORIAL_IMAGE": "ea-runtime:memorial-main-2e5b40f9",
     "EA_MEMORIAL_RUNTIME_HOST_PATH": "/srv/ea/memorial-runtime",
@@ -301,6 +304,8 @@ def test_materializes_exact_git_blobs_and_value_free_override(
     expected_local = (
         b"LOCAL_ONLY=another-secret\n"
         b"# ea-memorial-api-baseline-render-environment:v2\n"
+        b"EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE="
+        b"'/srv/ea/provider-secrets/cartesia.json'\n"
         b"EA_MEMORIAL_DATA_HOST_PATH='/srv/ea/memorial-data'\n"
         b"EA_MEMORIAL_IMAGE='ea-runtime:memorial-main-2e5b40f9'\n"
         b"EA_MEMORIAL_RUNTIME_HOST_PATH='/srv/ea/memorial-runtime'\n"
@@ -324,7 +329,7 @@ def test_materializes_exact_git_blobs_and_value_free_override(
     assert "ENV_ONLY" not in manifest
     assert "LOCAL_ONLY" not in manifest
     assert "super-secret-value" not in manifest + public
-    assert manifest_payload["render_environment_key_count"] == 5
+    assert manifest_payload["render_environment_key_count"] == 6
     assert manifest_payload["render_environment_key_set_sha256"] == (
         hashlib.sha256(
             json.dumps(
@@ -466,6 +471,8 @@ def test_absent_trusted_local_is_synthesized_and_sealed(
     local = Path(info["environment_files"][1])
     assert local.read_bytes() == (
         b"# ea-memorial-api-baseline-render-environment:v2\n"
+        b"EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE="
+        b"'/srv/ea/provider-secrets/cartesia.json'\n"
         b"EA_MEMORIAL_DATA_HOST_PATH='/srv/ea/memorial-data'\n"
         b"EA_MEMORIAL_IMAGE='ea-runtime:memorial-main-2e5b40f9'\n"
         b"EA_MEMORIAL_RUNTIME_HOST_PATH='/srv/ea/memorial-runtime'\n"
@@ -501,6 +508,21 @@ def test_render_environment_single_quote_is_canonically_escaped(
         )
         == info
     )
+
+
+def test_recovery_decoder_accepts_legacy_five_key_render_environment() -> None:
+    raw = (
+        b"EA_MEMORIAL_DATA_HOST_PATH='/srv/ea/memorial-data'\n"
+        b"EA_MEMORIAL_IMAGE='ea-runtime:memorial-main-2e5b40f9'\n"
+        b"EA_MEMORIAL_RUNTIME_HOST_PATH='/srv/ea/memorial-runtime'\n"
+        b"EA_MEMORIAL_TRUSTED_PROXY_CIDRS='127.0.0.1/32,::1/128'\n"
+        b"EA_SOURCE_REVISION='2e5b40f9fe2ef4acb7946eb7e80537fcd01ab047'\n"
+    )
+
+    decoded = bundle._decode_render_environment_assignments(raw)
+
+    assert set(decoded) == bundle.LEGACY_BASELINE_RENDER_ENV_KEYS
+    assert "EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE" not in decoded
 
 
 @pytest.mark.parametrize("target", [".env", ".env.local"])
