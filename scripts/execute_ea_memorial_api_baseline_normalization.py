@@ -158,6 +158,17 @@ NORMALIZATION_COMPOSE_FILES = (
     "docker-compose.memorial.yml",
     "docker-compose.api-baseline-normalization.yml",
 )
+COLOCATED_NORMALIZATION_COMPOSE_FILES = (
+    "docker-compose.yml",
+    "docker-compose.prod.yml",
+    "docker-compose.memorial.yml",
+    "docker-compose.cloudflared.yml",
+    "docker-compose.api-baseline-normalization.yml",
+)
+SUPPORTED_NORMALIZATION_COMPOSE_FILE_LAYOUTS = (
+    NORMALIZATION_COMPOSE_FILES,
+    COLOCATED_NORMALIZATION_COMPOSE_FILES,
+)
 TOPOLOGY_LABELS = (
     "com.docker.compose.project.working_dir",
     "com.docker.compose.project.config_files",
@@ -1296,7 +1307,8 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             )
             for item in list(bundle.get("runtime_environment_files") or [])
         ]
-        expected_compose = [bundle_root / name for name in NORMALIZATION_COMPOSE_FILES]
+        compose_layout = tuple(path.name for path in compose_files)
+        expected_compose = [bundle_root / name for name in compose_layout]
         expected_environment = [bundle_root / ".env"]
         if len(environment_files) == 2:
             expected_environment.append(bundle_root / ".env.local")
@@ -1305,7 +1317,8 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             bundle_root / RUNTIME_DIRECTORY / RUNTIME_LOCAL_ENV_FILE,
         ]
         if (
-            compose_files != expected_compose
+            compose_layout not in SUPPORTED_NORMALIZATION_COMPOSE_FILE_LAYOUTS
+            or compose_files != expected_compose
             or environment_files != expected_environment
             or len(environment_files) not in {1, 2}
             or runtime_environment_files != expected_runtime_environment
@@ -1349,7 +1362,7 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
         bundle: Mapping[str, Any],
         *,
         expected_image_reference: str,
-        expected_config_hash: str,
+        expected_config_hash: str | None,
         reseal_bundle: Callable[[Mapping[str, Any]], dict[str, Any]],
     ) -> dict[str, Any]:
         if (
@@ -1410,7 +1423,10 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             raise DeployError("normalization_compose_hash_invalid")
         if (
             not SHA256_RE.fullmatch(rendered_hash)
-            or rendered_hash != expected_config_hash
+            or (
+                expected_config_hash is not None
+                and rendered_hash != expected_config_hash
+            )
         ):
             raise DeployError("normalization_compose_hash_mismatch")
         return {
@@ -2088,7 +2104,11 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
         compose_before = self._render_bundle_compose(
             bundle,
             expected_image_reference=live_before["expected_image_reference"],
-            expected_config_hash=live_before["config_hash"],
+            expected_config_hash=(
+                live_before["config_hash"]
+                if live_before["baseline_condition"] == SPLIT_BASELINE_CONDITION
+                else None
+            ),
             reseal_bundle=self._reseal_bundle,
         )
 
@@ -2101,7 +2121,11 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
         compose_after = self._render_bundle_compose(
             bundle,
             expected_image_reference=live_before["expected_image_reference"],
-            expected_config_hash=live_before["config_hash"],
+            expected_config_hash=(
+                live_before["config_hash"]
+                if live_before["baseline_condition"] == SPLIT_BASELINE_CONDITION
+                else None
+            ),
             reseal_bundle=self._reseal_bundle,
         )
         if compose_after != compose_before:
@@ -2190,7 +2214,12 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             expected_image_reference=str(
                 expected_live.get("expected_image_reference") or ""
             ),
-            expected_config_hash=str(expected_live.get("config_hash") or ""),
+            expected_config_hash=(
+                str(expected_live.get("config_hash") or "")
+                if expected_live.get("baseline_condition")
+                == SPLIT_BASELINE_CONDITION
+                else None
+            ),
             reseal_bundle=self._reseal_bundle,
         )
         if compose != dict(expected_compose):
@@ -2257,7 +2286,7 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             bundle_root / RUNTIME_DIRECTORY / RUNTIME_LOCAL_ENV_FILE,
         ]
         if (
-            len(compose_files) != 3
+            len(compose_files) not in {3, 5}
             or len(environment_files) not in {1, 2}
             or runtime_environment_files != expected_runtime_environment
         ):
@@ -2282,7 +2311,12 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             source_revision=str(live.get("expected_revision") or ""),
             image_id=str(live.get("expected_image_id") or ""),
             image_reference=str(live.get("expected_image_reference") or ""),
-            compose_config_hash=str(live.get("config_hash") or ""),
+            compose_config_hash=str(
+                self._prepared_mapping(prepared, "compose").get(
+                    "rendered_config_hash"
+                )
+                or ""
+            ),
             docker_daemon_identity=str(runtime.get("docker_daemon_identity") or ""),
             api_identity=self._prepared_mapping(runtime, "api_identity"),
             cloudflared_identity=self._prepared_mapping(
@@ -2403,7 +2437,10 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             labels.get("com.docker.compose.project") != PROJECT_NAME
             or labels.get("com.docker.compose.service") != API_SERVICE
             or any(labels.get(key) != value for key, value in expected_topology.items())
-            or labels.get(CONFIG_HASH_LABEL) != live.get("config_hash")
+            or labels.get(CONFIG_HASH_LABEL)
+            != self._prepared_mapping(prepared, "compose").get(
+                "rendered_config_hash"
+            )
             or str(config.get("Image") or "") != expected_image_reference
             or str(api_raw.get("Image") or "") != expected_image_id
             or self._container_environment_value(api_raw, "EA_SOURCE_REVISION")
@@ -2852,6 +2889,12 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
     ) -> None:
         previous = self._prepared_mapping(payload, "previous_image")
         baselines = self._prepared_mapping(payload, "baselines")
+        baseline_api = self._journal_projection(payload, "api_identity")
+        baseline_labels = self._prepared_mapping(baseline_api, "labels")
+        accepted_config_hashes = {
+            str(baselines.get("compose_config_hash") or ""),
+            str(baseline_labels.get("config_hash") or ""),
+        }
         config = api_raw.get("Config")
         labels = config.get("Labels") if isinstance(config, Mapping) else None
         if (
@@ -2859,7 +2902,7 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             or not isinstance(labels, Mapping)
             or labels.get("com.docker.compose.project") != PROJECT_NAME
             or labels.get("com.docker.compose.service") != API_SERVICE
-            or labels.get(CONFIG_HASH_LABEL) != baselines.get("compose_config_hash")
+            or labels.get(CONFIG_HASH_LABEL) not in accepted_config_hashes
             or config.get("Image") != previous.get("image_reference")
             or api_raw.get("Image") != previous.get("image_id")
             or self._container_environment_value(api_raw, "EA_SOURCE_REVISION")

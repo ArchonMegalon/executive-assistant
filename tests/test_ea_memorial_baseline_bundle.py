@@ -25,6 +25,15 @@ MEMORIAL = b"""services:
     environment:
       - EA_SOURCE_REVISION=fixed
 """
+PROD = b"""services:
+  ea-api:
+    read_only: true
+"""
+CLOUDFLARED = b"""services:
+  ea-api:
+    networks:
+      - default
+"""
 RENDER_ENVIRONMENT = {
     "EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE": (
         "/srv/ea/provider-secrets/cartesia.json"
@@ -46,12 +55,25 @@ def _object_id(raw: bytes) -> str:
 
 
 class FakeRunner:
-    def __init__(self, *, ancestor: bool = True, base: bytes = BASE) -> None:
+    def __init__(
+        self,
+        *,
+        ancestor: bool = True,
+        base: bytes = BASE,
+        colocated: bool = False,
+    ) -> None:
         self.ancestor = ancestor
         self.blobs = {
             "docker-compose.yml": base,
             "docker-compose.memorial.yml": MEMORIAL,
         }
+        if colocated:
+            self.blobs = {
+                "docker-compose.yml": base,
+                "docker-compose.prod.yml": PROD,
+                "docker-compose.memorial.yml": MEMORIAL,
+                "docker-compose.cloudflared.yml": CLOUDFLARED,
+            }
         self.object_ids = {path: _object_id(raw) for path, raw in self.blobs.items()}
         self.calls: list[tuple[str, ...]] = []
 
@@ -355,6 +377,36 @@ def test_materializes_exact_git_blobs_and_value_free_override(
     )
     assert all(call[0] == "/usr/bin/git" for call in runner.calls)
     assert sum(call[2:4] == ("cat-file", "blob") for call in runner.calls) == 2
+    assert bundle.require_baseline_bundle_seal(info) == info
+
+
+def test_colocated_bundle_seals_all_api_affecting_git_layers(
+    tmp_path: Path,
+) -> None:
+    inputs = _inputs(tmp_path)
+    inputs["plan"] = planner.build_plan(
+        plan_id="colocated-baseline-plan-001",
+        recorded_working_dir=str(inputs["recorded"]),
+        external_config_root=str(inputs["recorded"]),
+        trusted_environment_root=str(inputs["trusted"]),
+        expected_revision=REVISION,
+        expected_image_reference="ea-runtime:memorial-main-2e5b40f9",
+        expected_image_id="sha256:" + "a" * 64,
+        baseline_layout=planner.BASELINE_LAYOUT_COLOCATED_LEGACY_ENV,
+        generated_at="2026-07-21T12:00:00.000Z",
+    )
+
+    info = _materialize(inputs, FakeRunner(colocated=True))
+
+    assert [
+        Path(path).name for path in info["compose_files"]
+    ] == [
+        "docker-compose.yml",
+        "docker-compose.prod.yml",
+        "docker-compose.memorial.yml",
+        "docker-compose.cloudflared.yml",
+        "docker-compose.api-baseline-normalization.yml",
+    ]
     assert bundle.require_baseline_bundle_seal(info) == info
 
 

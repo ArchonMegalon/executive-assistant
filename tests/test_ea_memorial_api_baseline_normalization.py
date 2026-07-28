@@ -284,6 +284,27 @@ def _bundle(bundle_root: Path) -> dict[str, Any]:
     }
 
 
+def test_compose_prefix_accepts_exact_colocated_bundle_layout(
+    lane_factory: Callable[..., normalization.ApiBaselineNormalizationLane],
+    tmp_path: Path,
+) -> None:
+    lane = lane_factory()
+    root = tmp_path / "colocated-bundle"
+    payload = _bundle(root)
+    payload["compose_files"] = [
+        str(root / name)
+        for name in normalization.COLOCATED_NORMALIZATION_COMPOSE_FILES
+    ]
+
+    prefix = lane._compose_prefix(payload)
+
+    assert [
+        Path(prefix[index + 1]).name
+        for index, value in enumerate(prefix)
+        if value == "-f"
+    ] == list(normalization.COLOCATED_NORMALIZATION_COMPOSE_FILES)
+
+
 @pytest.mark.parametrize(
     ("contract_name", "version", "local_present", "accepted"),
     [
@@ -735,6 +756,7 @@ def test_fresh_preparation_seals_live_render_inputs_and_rechecks_drift(
     def validated_live(api_raw: Mapping[str, Any] | None = None) -> dict[str, Any]:
         return {
             "api_raw": dict(api_raw or before_api),
+            "baseline_condition": normalization.SPLIT_BASELINE_CONDITION,
             "config_hash": CONFIG_HASH,
             "expected_revision": REVISION,
             "expected_image_id": IMAGE_ID,

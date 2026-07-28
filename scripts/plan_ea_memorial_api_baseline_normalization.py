@@ -171,6 +171,11 @@ ALLOWED_IDENTITY_DIFFERENCES = [
     "com.docker.compose.project.environment_file",
 ]
 REQUIRED_EQUAL_LABELS = ["com.docker.compose.config-hash"]
+COLOCATED_ALLOWED_IDENTITY_DIFFERENCES = [
+    "com.docker.compose.config-hash",
+    *ALLOWED_IDENTITY_DIFFERENCES,
+]
+COLOCATED_REQUIRED_EQUAL_LABELS: list[str] = []
 PROHIBITED_ACTIONS = [
     "build_or_pull_image",
     "copy_environment_values",
@@ -336,8 +341,16 @@ def build_plan(
         },
         "identity_requirements": {
             "required_identity_domains": list(REQUIRED_IDENTITY_DOMAINS),
-            "allowed_differences": list(ALLOWED_IDENTITY_DIFFERENCES),
-            "required_equal_labels": list(REQUIRED_EQUAL_LABELS),
+            "allowed_differences": list(
+                COLOCATED_ALLOWED_IDENTITY_DIFFERENCES
+                if colocated_legacy
+                else ALLOWED_IDENTITY_DIFFERENCES
+            ),
+            "required_equal_labels": list(
+                COLOCATED_REQUIRED_EQUAL_LABELS
+                if colocated_legacy
+                else REQUIRED_EQUAL_LABELS
+            ),
             "verification_status": "required_unverified",
         },
         "authority": {
@@ -524,8 +537,17 @@ def validate_plan_payload(payload: Mapping[str, Any]) -> None:
         or identity.get("required_identity_domains")
         != REQUIRED_IDENTITY_DOMAINS
         or identity.get("allowed_differences")
-        != ALLOWED_IDENTITY_DIFFERENCES
-        or identity.get("required_equal_labels") != REQUIRED_EQUAL_LABELS
+        != (
+            COLOCATED_ALLOWED_IDENTITY_DIFFERENCES
+            if colocated_legacy
+            else ALLOWED_IDENTITY_DIFFERENCES
+        )
+        or identity.get("required_equal_labels")
+        != (
+            COLOCATED_REQUIRED_EQUAL_LABELS
+            if colocated_legacy
+            else REQUIRED_EQUAL_LABELS
+        )
         or identity.get("verification_status") != "required_unverified"
         or authority.get("executor_implemented") is not False
         or authority.get("independent_review_required") is not True

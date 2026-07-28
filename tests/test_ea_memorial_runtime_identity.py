@@ -349,7 +349,11 @@ def test_api_allows_only_topology_label_value_changes() -> None:
     before = _inspection()
     after = copy.deepcopy(before)
     for key in identity.TOPOLOGY_LABELS:
-        after["Config"]["Labels"][key] = f"new:{key}"  # type: ignore[index]
+        after["Config"]["Labels"][key] = (  # type: ignore[index]
+            "f" * 64
+            if key == identity.COMPOSE_CONFIG_HASH_LABEL
+            else f"new:{key}"
+        )
 
     expected = identity.memorial_api_runtime_projection(before)
     observed = identity.memorial_api_runtime_projection(after)
@@ -385,7 +389,9 @@ def test_api_allows_only_topology_label_value_changes() -> None:
     cloudflared_after_inspection = copy.deepcopy(cloudflared_before_inspection)
     for key in identity.TOPOLOGY_LABELS:
         cloudflared_after_inspection["Config"]["Labels"][key] = (  # type: ignore[index]
-            f"new:{key}"
+            "f" * 64
+            if key == identity.COMPOSE_CONFIG_HASH_LABEL
+            else f"new:{key}"
         )
     cloudflared_before = identity.cloudflared_runtime_projection(
         cloudflared_before_inspection

@@ -652,11 +652,13 @@ def _target_api_topology_label_evidence(
     ordered_compose_files: Sequence[Path],
     environment_file: Path,
     environment_local_file: Path | None,
+    compose_config_hash: str,
 ) -> dict[str, dict[str, Any]]:
     environment_files = [environment_file]
     if environment_local_file is not None:
         environment_files.append(environment_local_file)
     values = {
+        runtime_identity.COMPOSE_CONFIG_HASH_LABEL: compose_config_hash,
         "com.docker.compose.project.working_dir": str(bundle_path),
         "com.docker.compose.project.config_files": ",".join(
             str(path) for path in ordered_compose_files
@@ -1350,7 +1352,6 @@ def validate_payload(
     api_baseline = _identity_projection(
         baselines.get("api_identity"),
         name="api_identity",
-        expected_config_hash=str(baselines["compose_config_hash"]),
     )
     target_topology = _topology_evidence_shape(
         baselines.get("target_api_topology_label_evidence"),
@@ -1361,6 +1362,7 @@ def validate_payload(
         ordered_compose_files=compose_paths,
         environment_file=environment_file,
         environment_local_file=local_file,
+        compose_config_hash=str(baselines["compose_config_hash"]),
     )
     if (
         target_topology != expected_target_topology
@@ -2332,6 +2334,7 @@ class NormalizationRecoveryJournal:
                         ordered_compose_files=ordered_compose_files,
                         environment_file=environment_file,
                         environment_local_file=environment_local_file,
+                        compose_config_hash=compose_config_hash,
                     )
                 ),
             },

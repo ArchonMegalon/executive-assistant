@@ -24,6 +24,7 @@ COMPOSE_SERVICE_LABEL = "com.docker.compose.service"
 PUBLIC_NETWORK_NAME = "ea_public_ingress"
 TOPOLOGY_LABELS = frozenset(
     {
+        COMPOSE_CONFIG_HASH_LABEL,
         "com.docker.compose.project.working_dir",
         "com.docker.compose.project.config_files",
         "com.docker.compose.project.environment_file",
@@ -1464,12 +1465,20 @@ def runtime_identity_digests(
     projection: Mapping[str, object],
 ) -> dict[str, str]:
     source, _ = _validate_runtime_projection(projection)
-    return {
-        domain: _canonical_sha256(
-            _json_safe(source[domain], f"projection.{domain}")
+    result: dict[str, str] = {}
+    for domain in _IDENTITY_DOMAINS:
+        value = source[domain]
+        if (
+            domain == "labels"
+            and source["projection_kind"] == _API_PROJECTION_KIND
+        ):
+            labels = dict(_mapping(value, "projection.labels"))
+            labels.pop("config_hash", None)
+            value = labels
+        result[domain] = _canonical_sha256(
+            _json_safe(value, f"projection.{domain}")
         )
-        for domain in _IDENTITY_DOMAINS
-    }
+    return result
 
 
 def runtime_mismatch_domains(

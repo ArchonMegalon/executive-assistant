@@ -208,6 +208,13 @@ def test_plan_encodes_exact_colocated_legacy_environment_shape(
         str(recorded / "docker-compose.whatsapp-web-session.yml"),
         str(recorded / "docker-compose.cloudflared.yml"),
     ]
+    assert payload["identity_requirements"]["allowed_differences"] == [
+        "com.docker.compose.config-hash",
+        "com.docker.compose.project.working_dir",
+        "com.docker.compose.project.config_files",
+        "com.docker.compose.project.environment_file",
+    ]
+    assert payload["identity_requirements"]["required_equal_labels"] == []
     planner.validate_plan_payload(payload)
 
 

@@ -23,12 +23,16 @@ from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 
 try:
     from scripts.plan_ea_memorial_api_baseline_normalization import (
+        COLOCATED_LEGACY_ENV_CONDITION,
         PlanError,
+        SPLIT_BASELINE_CONDITION,
         validate_plan_payload,
     )
 except ModuleNotFoundError:  # pragma: no cover - direct script import
     from plan_ea_memorial_api_baseline_normalization import (  # type: ignore[no-redef]
+        COLOCATED_LEGACY_ENV_CONDITION,
         PlanError,
+        SPLIT_BASELINE_CONDITION,
         validate_plan_payload,
     )
 
@@ -69,7 +73,21 @@ SUPPORTED_BASELINE_RENDER_ENV_KEYSETS = (
     LEGACY_BASELINE_RENDER_ENV_KEYS,
     BASELINE_RENDER_ENV_KEYS,
 )
-COMPOSE_BLOB_PATHS = ("docker-compose.yml", "docker-compose.memorial.yml")
+SPLIT_COMPOSE_BLOB_PATHS = (
+    "docker-compose.yml",
+    "docker-compose.memorial.yml",
+)
+COLOCATED_COMPOSE_BLOB_PATHS = (
+    "docker-compose.yml",
+    "docker-compose.prod.yml",
+    "docker-compose.memorial.yml",
+    "docker-compose.cloudflared.yml",
+)
+SUPPORTED_COMPOSE_BLOB_PATHS = (
+    SPLIT_COMPOSE_BLOB_PATHS,
+    COLOCATED_COMPOSE_BLOB_PATHS,
+)
+COMPOSE_BLOB_PATHS = SPLIT_COMPOSE_BLOB_PATHS
 NORMALIZATION_OVERRIDE = "docker-compose.api-baseline-normalization.yml"
 MANIFEST_NAME = "baseline-bundle-manifest.json"
 RUNTIME_ENV_FILE = "ea_runtime.env"
@@ -692,7 +710,10 @@ def _blob_digest(raw: bytes, object_id: str) -> str:
 
 
 def _git_blobs(
-    runner: Runner, root: Path, revision: str
+    runner: Runner,
+    root: Path,
+    revision: str,
+    relative_paths: Sequence[str],
 ) -> tuple[str, list[tuple[str, str, bytes]]]:
     resolved = _git_line(
         runner,
@@ -723,7 +744,9 @@ def _git_blobs(
     if ancestry.returncode:
         raise BaselineBundleError("source_commit_not_origin_main_ancestor")
     result: list[tuple[str, str, bytes]] = []
-    for relative in COMPOSE_BLOB_PATHS:
+    if tuple(relative_paths) not in SUPPORTED_COMPOSE_BLOB_PATHS:
+        raise BaselineBundleError("compose_blob_layout_invalid")
+    for relative in relative_paths:
         object_id = _git_line(
             runner,
             root,
@@ -1289,6 +1312,29 @@ def _validate_bundle(path: Path) -> tuple[dict[str, Any], str]:
         compose = manifest.get("ordered_compose_files")
         environment = manifest.get("environment_files")
         runtime_environment = manifest.get("runtime_environment_files")
+        compose_paths = (
+            tuple(
+                str(item.get("relative_path") or "")
+                for item in compose[:-1]
+            )
+            if (
+                isinstance(compose, list)
+                and compose
+                and all(isinstance(item, Mapping) for item in compose)
+            )
+            else ()
+        )
+        render_key_metadata = (
+            manifest.get("render_environment_key_count"),
+            manifest.get("render_environment_key_set_sha256"),
+        )
+        supported_render_key_metadata = {
+            (
+                len(keyset),
+                _sha(_canonical_bytes(sorted(keyset))),
+            )
+            for keyset in SUPPORTED_BASELINE_RENDER_ENV_KEYSETS
+        }
         if (
             set(manifest) != MANIFEST_KEYS
             or manifest.get("contract_name") != BUNDLE_CONTRACT
@@ -1307,16 +1353,14 @@ def _validate_bundle(path: Path) -> tuple[dict[str, Any], str]:
             or not isinstance(manifest.get("environment_key_set_sha256"), str)
             or not SHA_RE.fullmatch(str(manifest.get("environment_key_set_sha256")))
             or type(manifest.get("render_environment_key_count")) is not int
-            or manifest.get("render_environment_key_count")
-            != len(BASELINE_RENDER_ENV_KEYS)
-            or manifest.get("render_environment_key_set_sha256")
-            != _sha(_canonical_bytes(sorted(BASELINE_RENDER_ENV_KEYS)))
+            or render_key_metadata not in supported_render_key_metadata
             or not isinstance(manifest.get("trusted_environment_records_sha256"), str)
             or not SHA_RE.fullmatch(
                 str(manifest.get("trusted_environment_records_sha256"))
             )
             or not isinstance(compose, list)
-            or len(compose) != 3
+            or compose_paths not in SUPPORTED_COMPOSE_BLOB_PATHS
+            or len(compose) != len(compose_paths) + 1
             or not all(_record_valid(item, allow_absent=False) for item in compose)
             or not isinstance(environment, list)
             or len(environment) != 2
@@ -1330,7 +1374,7 @@ def _validate_bundle(path: Path) -> tuple[dict[str, Any], str]:
         ):
             raise BaselineBundleError("bundle_manifest_invalid")
         if [item["relative_path"] for item in compose] != [
-            *COMPOSE_BLOB_PATHS,
+            *compose_paths,
             NORMALIZATION_OVERRIDE,
         ]:
             raise BaselineBundleError("bundle_compose_order_invalid")
@@ -1344,8 +1388,8 @@ def _validate_bundle(path: Path) -> tuple[dict[str, Any], str]:
         ):
             raise BaselineBundleError("bundle_runtime_environment_order_invalid")
         if (
-            any(item["git_blob_id"] is None for item in compose[:2])
-            or compose[2]["git_blob_id"] is not None
+            any(item["git_blob_id"] is None for item in compose[:-1])
+            or compose[-1]["git_blob_id"] is not None
             or environment[0]["present"] is not True
             or environment[1]["present"] is not True
             or any(item["git_blob_id"] is not None for item in environment)
@@ -1537,7 +1581,7 @@ def _require_bundle_semantics(
         else:
             env_only = sorted(available_env_only & baseline_environment_names)
         expected_override = _override(env_only)
-        recorded_override = compose_records[2]
+        recorded_override = compose_records[len(blobs)]
         if (
             retained_override != expected_override
             or retained_override_record["sha256"] != _sha(expected_override)
@@ -1567,7 +1611,17 @@ def _sealed_retained_blobs(
     anchor = _directory_identity(os.fstat(directory_fd))
     try:
         result: list[tuple[str, str, bytes]] = []
-        for index, relative in enumerate(COMPOSE_BLOB_PATHS):
+        compose_records = manifest.get("ordered_compose_files")
+        if not isinstance(compose_records, list) or not compose_records:
+            raise BaselineBundleError("bundle_manifest_invalid")
+        relative_paths = tuple(
+            str(item.get("relative_path") or "")
+            for item in compose_records[:-1]
+            if isinstance(item, Mapping)
+        )
+        if relative_paths not in SUPPORTED_COMPOSE_BLOB_PATHS:
+            raise BaselineBundleError("bundle_compose_order_invalid")
+        for index, relative in enumerate(relative_paths):
             raw, _record = _read_at(
                 directory_fd,
                 relative,
@@ -1575,7 +1629,7 @@ def _sealed_retained_blobs(
                 reason="retained_compose",
             )
             assert raw is not None
-            object_id = str(manifest["ordered_compose_files"][index]["git_blob_id"])
+            object_id = str(compose_records[index]["git_blob_id"])
             if (
                 not OBJECT_RE.fullmatch(object_id)
                 or _blob_digest(raw, object_id) != object_id
@@ -1805,6 +1859,18 @@ def _materialize_baseline_bundle(
     revision = str(plan["source_requirements"]["expected_revision"])
     if not REVISION_RE.fullmatch(revision):
         raise BaselineBundleError("source_revision_invalid")
+    activation = plan.get("activation_condition")
+    condition = (
+        str(activation.get("condition") or "")
+        if isinstance(activation, Mapping)
+        else ""
+    )
+    if condition == SPLIT_BASELINE_CONDITION:
+        compose_blob_paths = SPLIT_COMPOSE_BLOB_PATHS
+    elif condition == COLOCATED_LEGACY_ENV_CONDITION:
+        compose_blob_paths = COLOCATED_COMPOSE_BLOB_PATHS
+    else:
+        raise BaselineBundleError("baseline_plan_layout_invalid")
     plan_sha = _sha(_canonical_bytes(plan))
     recovery_manifest_sha: str | None = None
     if trusted_recovery_seal is not None:
@@ -1875,7 +1941,12 @@ def _materialize_baseline_bundle(
         repository_anchor = _directory_identity(os.fstat(repository_fd))
         try:
             repository_cwd = _repository_descriptor_cwd(repository_fd)
-            origin_main_commit, blobs = _git_blobs(runner, repository_cwd, revision)
+            origin_main_commit, blobs = _git_blobs(
+                runner,
+                repository_cwd,
+                revision,
+                compose_blob_paths,
+            )
             if _directory_identity(os.fstat(repository_fd)) != repository_anchor:
                 raise BaselineBundleError("repository_root_changed")
             _revalidate_directory(repository, repository_fd, "repository_root_changed")
