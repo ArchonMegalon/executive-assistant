@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -14,11 +15,11 @@ import uuid
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REQUIREMENTS_PATHS = (
-    ROOT / "ea" / "requirements.txt",
-)
+REQUIREMENTS_PATHS = (ROOT / "ea" / "requirements.txt",)
 SBOM_OUTPUT = ROOT / ".codex-studio" / "published" / "runtime_dependency_sbom.cdx.json"
-AUDIT_OUTPUT = ROOT / ".codex-studio" / "published" / "runtime_dependency_audit.generated.json"
+AUDIT_OUTPUT = (
+    ROOT / ".codex-studio" / "published" / "runtime_dependency_audit.generated.json"
+)
 PIP_AUDIT_PYTHON_ENV = "EA_PIP_AUDIT_PYTHON"
 
 
@@ -55,13 +56,17 @@ def _requirements(path: Path) -> list[tuple[str, str]]:
             if line.find(operator) >= 0
         ]
         if not operator_positions:
-            raise ValueError(f"unsupported requirement without version constraint: {line!r}")
+            raise ValueError(
+                f"unsupported requirement without version constraint: {line!r}"
+            )
         position, operator = min(operator_positions, key=lambda item: item[0])
         name = line[:position].strip()
         constraint = line[position:].strip()
         if not name or not constraint[len(operator) :].strip():
             raise ValueError(f"invalid requirement constraint: {line!r}")
-        version = constraint[len(operator) :].strip() if operator == "==" else constraint
+        version = (
+            constraint[len(operator) :].strip() if operator == "==" else constraint
+        )
         rows.append((name, version))
     return rows
 
@@ -71,15 +76,59 @@ def _normalized_package_name(value: str) -> str:
     return re.sub(r"[-_.]+", "-", base_name)
 
 
+def _valid_python_candidate(candidate: Path) -> bool:
+    return (
+        candidate.is_absolute()
+        and candidate.is_file()
+        and os.access(candidate, os.X_OK)
+    )
+
+
+def _invoking_python_has_pip_audit() -> bool:
+    return importlib.util.find_spec("pip_audit") is not None
+
+
+def _shared_worktree_python() -> Path | None:
+    completed = subprocess.run(  # nosec B603,B607
+        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0 or not completed.stdout.strip():
+        return None
+    common_dir = Path(completed.stdout.strip())
+    if not common_dir.is_absolute():
+        common_dir = (ROOT / common_dir).resolve()
+    if common_dir.name != ".git":
+        return None
+    return common_dir.parent / ".venv" / "bin" / "python"
+
+
 def _pip_audit_python() -> str:
     configured = os.environ.get(PIP_AUDIT_PYTHON_ENV, "").strip()
-    candidate = Path(configured or sys.executable).expanduser()
-    if not candidate.is_absolute() or not candidate.is_file() or not os.access(candidate, os.X_OK):
+    if configured:
+        candidate = Path(configured).expanduser()
+        if not _valid_python_candidate(candidate):
+            raise RuntimeError("pip_audit_python_invalid")
+        return str(candidate)
+
+    invoking_python = Path(sys.executable).expanduser()
+    if _valid_python_candidate(invoking_python) and _invoking_python_has_pip_audit():
+        return str(invoking_python)
+
+    shared_worktree_python = _shared_worktree_python()
+    if shared_worktree_python is None or not _valid_python_candidate(
+        shared_worktree_python
+    ):
         raise RuntimeError("pip_audit_python_invalid")
-    return str(candidate)
+    return str(shared_worktree_python)
 
 
-def _build_sbom(requirement_sets: list[tuple[Path, list[tuple[str, str]]]]) -> dict[str, Any]:
+def _build_sbom(
+    requirement_sets: list[tuple[Path, list[tuple[str, str]]]],
+) -> dict[str, Any]:
     components: list[dict[str, Any]] = []
     dependencies: list[dict[str, Any]] = []
     for source_index, (path, requirements) in enumerate(requirement_sets, start=1):
@@ -132,7 +181,9 @@ def _pip_audit_json(requirements_path: Path) -> dict[str, Any]:
         capture_output=True,
         text=True,
     )
-    combined = "\n".join(part for part in (completed.stdout, completed.stderr) if part).strip()
+    combined = "\n".join(
+        part for part in (completed.stdout, completed.stderr) if part
+    ).strip()
     json_line = ""
     for line in reversed(combined.splitlines()):
         stripped = line.strip()
@@ -149,11 +200,16 @@ def _pip_audit_json(requirements_path: Path) -> dict[str, Any]:
         raise RuntimeError("pip_audit_json_invalid")
     raw_dependencies = payload.get("dependencies")
     raw_fixes = payload.get("fixes")
-    if not isinstance(raw_dependencies, list) or not all(isinstance(item, dict) for item in raw_dependencies):
+    if not isinstance(raw_dependencies, list) or not all(
+        isinstance(item, dict) for item in raw_dependencies
+    ):
         raise RuntimeError("pip_audit_dependencies_invalid")
     if not isinstance(raw_fixes, list):
         raise RuntimeError("pip_audit_fixes_invalid")
-    required_names = {_normalized_package_name(name) for name, _version in _requirements(requirements_path)}
+    required_names = {
+        _normalized_package_name(name)
+        for name, _version in _requirements(requirements_path)
+    }
     audited_names = {
         _normalized_package_name(str(item.get("name") or ""))
         for item in raw_dependencies
@@ -178,8 +234,14 @@ def materialize() -> dict[str, Any]:
     total_fix_count = 0
     for requirements_path, _requirements_rows in requirement_sets:
         audit_payload = _pip_audit_json(requirements_path)
-        source_dependencies = [dict(item) for item in list(audit_payload.get("dependencies") or []) if isinstance(item, dict)]
-        source_vulnerable = [item for item in source_dependencies if list(item.get("vulns") or [])]
+        source_dependencies = [
+            dict(item)
+            for item in list(audit_payload.get("dependencies") or [])
+            if isinstance(item, dict)
+        ]
+        source_vulnerable = [
+            item for item in source_dependencies if list(item.get("vulns") or [])
+        ]
         source_ref = requirements_path.relative_to(ROOT).as_posix()
         total_fix_count += len(list(audit_payload.get("fixes") or []))
         dependencies.extend(source_dependencies)
@@ -203,7 +265,9 @@ def materialize() -> dict[str, Any]:
         "generated_at": _utc_now(),
         "generated_by": "scripts/materialize_runtime_dependency_evidence.py",
         "source_git_head": _git_head(),
-        "requirements_path": (ROOT / "ea" / "requirements.txt").relative_to(ROOT).as_posix(),
+        "requirements_path": (ROOT / "ea" / "requirements.txt")
+        .relative_to(ROOT)
+        .as_posix(),
         "requirements_sha256": _sha256(ROOT / "ea" / "requirements.txt"),
         "requirements_sources": source_receipts,
         "audit_complete": True,
@@ -218,16 +282,24 @@ def materialize() -> dict[str, Any]:
                 "name": str(item.get("name") or ""),
                 "version": str(item.get("version") or ""),
                 "requirements_path": str(item.get("requirements_path") or ""),
-                "vulnerability_ids": [str(vuln.get("id") or "") for vuln in list(item.get("vulns") or []) if isinstance(vuln, dict)],
+                "vulnerability_ids": [
+                    str(vuln.get("id") or "")
+                    for vuln in list(item.get("vulns") or [])
+                    if isinstance(vuln, dict)
+                ],
             }
             for item in vulnerable
         ],
         "status": "pass" if not vulnerable else "fail",
     }
     SBOM_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    SBOM_OUTPUT.write_text(json.dumps(sbom, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    SBOM_OUTPUT.write_text(
+        json.dumps(sbom, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     receipt["sbom_sha256"] = _sha256(SBOM_OUTPUT)
-    AUDIT_OUTPUT.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    AUDIT_OUTPUT.write_text(
+        json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     return receipt
 
 

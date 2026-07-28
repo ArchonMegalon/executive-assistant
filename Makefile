@@ -7,7 +7,7 @@
 .PHONY: init-vocallab-verification-hmac-key probe-vocallab-provider materialize-vocallab-provider-verification verify-vocallab-provider-verification
 
 PYTHON_BIN ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
-PIP_AUDIT_PYTHON ?= $(abspath $(PYTHON_BIN))
+PIP_AUDIT_PYTHON ?=
 VOCALLAB_PROVIDER_PROBE ?= .runtime/vocallab-provider-probe.generated.json
 VOCALLAB_PROVIDER_VERIFICATION ?= .runtime/vocallab-provider-verification.generated.json
 VOCALLAB_VERIFICATION_HMAC_KEY_FILE ?= config/vocallab_verification_hmac_key

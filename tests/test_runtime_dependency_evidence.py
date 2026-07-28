@@ -86,15 +86,22 @@ def test_runtime_dependency_materializer_writes_pass_receipts(
     assert sbom["bomFormat"] == "CycloneDX"
     assert sbom["specVersion"] == "1.6"
     assert len(list(sbom.get("components") or [])) >= 10
-    requirement_sources = {str(item["requirements_path"]) for item in list(receipt.get("requirements_sources") or [])}
+    requirement_sources = {
+        str(item["requirements_path"])
+        for item in list(receipt.get("requirements_sources") or [])
+    }
     assert requirement_sources == {"ea/requirements.txt"}
-    assert all(str(item.get("requirements_sha256") or "").strip() for item in list(receipt.get("requirements_sources") or []))
+    assert all(
+        str(item.get("requirements_sha256") or "").strip()
+        for item in list(receipt.get("requirements_sources") or [])
+    )
     sbom_sources = {
         str(prop.get("value") or "")
         for component in list(sbom.get("components") or [])
         if isinstance(component, dict)
         for prop in list(component.get("properties") or [])
-        if isinstance(prop, dict) and str(prop.get("name") or "") == "ea.requirements_source"
+        if isinstance(prop, dict)
+        and str(prop.get("name") or "") == "ea.requirements_source"
     }
     assert {"ea/requirements.txt"} <= sbom_sources
 
@@ -105,6 +112,7 @@ def test_runtime_dependency_audit_uses_invoking_python(
 ) -> None:
     materializer = _load_script("materialize_runtime_dependency_evidence")
     monkeypatch.delenv(materializer.PIP_AUDIT_PYTHON_ENV, raising=False)
+    monkeypatch.setattr(materializer, "_invoking_python_has_pip_audit", lambda: True)
     requirements_path = tmp_path / "requirements.txt"
     requirements_path.write_text("example==1.0\n", encoding="utf-8")
     captured: list[str] = []
@@ -127,6 +135,36 @@ def test_runtime_dependency_audit_uses_invoking_python(
         "fixes": [],
     }
     assert captured[:3] == [sys.executable, "-m", "pip_audit"]
+
+
+def test_runtime_dependency_audit_uses_shared_worktree_python(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    materializer = _load_script("materialize_runtime_dependency_evidence")
+    shared_python = tmp_path / ".venv" / "bin" / "python"
+    shared_python.parent.mkdir(parents=True)
+    shared_python.write_text("#!/bin/sh\n", encoding="utf-8")
+    shared_python.chmod(0o755)
+    monkeypatch.delenv(materializer.PIP_AUDIT_PYTHON_ENV, raising=False)
+    monkeypatch.setattr(materializer, "_invoking_python_has_pip_audit", lambda: False)
+    monkeypatch.setattr(materializer, "_shared_worktree_python", lambda: shared_python)
+
+    assert materializer._pip_audit_python() == str(shared_python)
+
+
+def test_runtime_dependency_audit_rejects_invalid_configured_python(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    materializer = _load_script("materialize_runtime_dependency_evidence")
+    monkeypatch.setenv(
+        materializer.PIP_AUDIT_PYTHON_ENV,
+        str(tmp_path / "missing-python"),
+    )
+
+    with pytest.raises(RuntimeError, match="pip_audit_python_invalid"):
+        materializer._pip_audit_python()
 
 
 def test_runtime_dependency_audit_fails_closed_when_tool_execution_fails(
@@ -157,8 +195,7 @@ def test_runtime_dependency_materializer_accepts_exact_and_bounded_constraints(
     materializer = _load_script("materialize_runtime_dependency_evidence")
     requirements_path = tmp_path / "requirements.txt"
     requirements_path.write_text(
-        "exact-package==1.2.3\n"
-        "bounded-package>=48.0.1,<49.0.0\n",
+        "exact-package==1.2.3\nbounded-package>=48.0.1,<49.0.0\n",
         encoding="utf-8",
     )
 
@@ -211,7 +248,10 @@ def test_runtime_dependency_verifier_rejects_empty_audit_coverage(
                     {
                         "name": "example",
                         "properties": [
-                            {"name": "ea.requirements_source", "value": "ea/requirements.txt"}
+                            {
+                                "name": "ea.requirements_source",
+                                "value": "ea/requirements.txt",
+                            }
                         ],
                     }
                 ],
@@ -252,7 +292,7 @@ def test_runtime_dependency_verifier_rejects_empty_audit_coverage(
 def test_makefile_wires_runtime_dependency_evidence_gate() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assert "PIP_AUDIT_PYTHON ?= $(abspath $(PYTHON_BIN))" in makefile
+    assert "PIP_AUDIT_PYTHON ?=\n" in makefile
     assert "materialize-runtime-dependency-evidence:" in makefile
     assert "verify-runtime-dependency-evidence:" in makefile
     assert 'EA_PIP_AUDIT_PYTHON="$(PIP_AUDIT_PYTHON)"' in makefile
