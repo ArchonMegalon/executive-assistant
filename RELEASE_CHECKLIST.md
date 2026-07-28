@@ -13,7 +13,7 @@
 - [ ] `make verify-release-authority` passes, confirming the release manifest points at a real runtime origin, carries an explicit deployment id, records compose topology, and is not being claimed from a dirty local worktree.
 - [ ] `curl -fsS http://localhost:${EA_HOST_PORT:-8090}/health/release-authority` returns the deployed release-authority posture and gate payload expected for this rollout.
 - [ ] `make verify-flagship-release-readiness` passes, confirming the weekly pulse, browser proof, flagship receipt, and Fleet journey gate are all clear for wider release claims.
-- [ ] `make verify-whole-project-gold-map` passes, confirming EA readiness is not being overclaimed as whole-Chummer gold and that memorial voice/realtime remains separately blocked until its own receipt exists.
+- [ ] `make verify-whole-project-gold-map` passes, confirming EA readiness is not being overclaimed as whole-Chummer gold and that the memorial labels remain distinct: public-origin voice gold requires voice/browser/meaningful-turn/signed-room evidence, while flagship experience gold additionally requires strict spatial-tour proof.
 - [ ] Product boundary reviewed: non-core public utility routes are disabled unless intentionally required (`EA_ENABLE_PUBLIC_RESULTS`, `EA_ENABLE_PUBLIC_TOURS`).
 - [ ] Local release gate bundle is green (`make ci-gates`, `make release-preflight`, and any required Postgres parity run).
 - [ ] CI gate bundle (`make smoke-help`, `make ci-local`, runtime smoke API tests, `make verify-release-assets`) is green.
@@ -33,6 +33,8 @@
 - [ ] Memorial preflight proves the captured prior Compose topology still renders to the live API image, normalized environment/process identity, and mount digest under the stripped rollback environment.
 - [ ] `EA_MEMORIAL_CANDIDATE_RECEIPT` is a mode-`0600` passing runtime-v5 receipt bound to the exact image/revision, immutable memorial projection root/digest, isolated project/port locks, and `EA_MEMORIAL_DATA_HOST_PATH`; its browser audit has zero provider work, WebSockets, failed requests, page errors, external requests, and same-origin HTTP errors.
 - [ ] `EA_MEMORIAL_CONTROL_TOUR_SLUG` is set for any priority 3D tour that must survive promotion; OpenAPI remains a path superset and the tour's pre/post JSON digest is identical.
+- [ ] Claim only `Memorial public-origin voice gold` when the current public voice, realtime browser, meaningful-turn browser, and signed room receipts pass on one deployed revision and origin.
+- [ ] Claim `Memorial flagship experience gold` only when public-origin voice gold passes and the strict spatial-tour authority, browser-interaction, deploy-binding, and exact-byte receipt also passes.
 
 ## Migrations
 
