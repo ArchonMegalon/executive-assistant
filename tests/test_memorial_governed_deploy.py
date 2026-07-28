@@ -5829,6 +5829,81 @@ def test_forward_topology_rebases_canonical_five_layer_release_in_place(
     assert not any("up" in call for call in runner.calls)
 
 
+def test_forward_topology_rebases_canonical_prior_release_root(
+    release_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    expected_layers = list(deploy.TRUSTED_EXTERNAL_COMPOSE_LAYER_ORDER)
+    prior_root = tmp_path / "prior-release"
+    prior_root.mkdir()
+    for index, filename in enumerate(expected_layers):
+        (release_root / filename).write_text(
+            f"services: {{}}\n# current-layer-{index}\n",
+            encoding="utf-8",
+        )
+        (prior_root / filename).write_text(
+            f"services: {{}}\n# prior-layer-{index}\n",
+            encoding="utf-8",
+        )
+    for root in (prior_root, release_root):
+        local_environment = root / ".env.local"
+        local_environment.write_text(
+            "EA_RUNTIME_LOCAL=retained\n",
+            encoding="utf-8",
+        )
+        local_environment.chmod(0o600)
+    prior_environment_files = tuple(
+        str(prior_root / deploy.EA_RUNTIME_ENV_DIRECTORY / filename)
+        for filename in (
+            deploy.EA_RUNTIME_ENV_FILE,
+            deploy.EA_RUNTIME_LOCAL_ENV_FILE,
+        )
+    )
+    expected_environment_files = [
+        str(release_root / deploy.EA_RUNTIME_ENV_DIRECTORY / filename)
+        for filename in (
+            deploy.EA_RUNTIME_ENV_FILE,
+            deploy.EA_RUNTIME_LOCAL_ENV_FILE,
+        )
+    ]
+    runner = FakeRunner(
+        release_root,
+        baseline_root=prior_root,
+        baseline_files=tuple(expected_layers),
+        baseline_environment_files=prior_environment_files,
+    )
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    receipt = _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert receipt["status"] == "preflight_only_pass"
+    topology = receipt["forward_topology_source"]
+    assert topology["working_dir"] == str(prior_root)
+    assert topology["compose_config_files"] == [
+        str(prior_root / filename) for filename in expected_layers
+    ]
+    assert topology["compose_environment_files"] == list(
+        prior_environment_files
+    )
+    assert (
+        topology["target_compose_environment_files"]
+        == expected_environment_files
+    )
+    config_call = [
+        call for call in runner.calls if call[-2:] == ["config", "--quiet"]
+    ][0]
+    configured_environment_files = [
+        config_call[index + 1]
+        for index, item in enumerate(config_call[:-1])
+        if item == "--env-file"
+    ]
+    assert configured_environment_files == expected_environment_files
+    assert not any("up" in call for call in runner.calls)
+
+
 def test_canonical_five_layer_release_requires_governed_environment_label(
     release_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

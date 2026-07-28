@@ -6185,7 +6185,8 @@ def test_blocked_voice_release_renders_polished_text_only_memorial_guide(
     assert "Schriftliche Frage stellen" not in page
     assert "Zum Gespräch" in page
     assert "Zum quellengebundenen Gedenkbegleiter" not in page
-    assert "ist nicht Manfred und spricht nicht für ihn" in page
+    assert "Du schreibst mit einer KI-Version von Manfred." in page
+    assert "Sprechen ist derzeit nicht verfügbar" in page
     assert "Was möchtest du Manfred fragen?" not in page
     assert "KI-gestützten, synthetischen Manfred-Stimme" not in page
     assert "const memorialVoiceReleaseAllowed = false;" in page

@@ -76,6 +76,30 @@ def test_runtime_requirements_are_exactly_pinned() -> None:
     assert not any(">=" in line or "<=" in line or "~=" in line for line in lines)
 
 
+def test_runtime_requirement_pins_agree_with_lock_constraints() -> None:
+    def normalized_pins(path: Path) -> dict[str, str]:
+        pins: dict[str, str] = {}
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            name, separator, version = line.partition("==")
+            assert separator == "==", f"non-exact requirement in {path.name}: {line}"
+            normalized_name = name.partition("[")[0].lower().replace("_", "-")
+            pins[normalized_name] = version
+        return pins
+
+    requirements = normalized_pins(APP_ROOT / "requirements.txt")
+    constraints = normalized_pins(APP_ROOT / "requirements.lock")
+
+    mismatches = {
+        name: {"requirement": version, "constraint": constraints.get(name)}
+        for name, version in requirements.items()
+        if constraints.get(name) != version
+    }
+    assert mismatches == {}
+
+
 def test_openvoice_tts_runtime_image_is_removed() -> None:
     forbidden = [
         APP_ROOT / "Dockerfile.openvoice",

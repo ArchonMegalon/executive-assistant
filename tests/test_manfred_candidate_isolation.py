@@ -499,6 +499,43 @@ def test_public_evaluation_voice_boundary_is_provider_free_and_not_released() ->
     ]
 
 
+def test_signed_voice_boundary_retries_transient_cutover_identity() -> None:
+    attempts = 0
+    sleeps: list[float] = []
+    expectation = {
+        "access_mode": candidate_verifier.VOICE_ACCESS_MODE_PUBLIC_EVALUATION,
+        "source_revision": COMMIT,
+    }
+
+    def fake_request(
+        _base_url: str,
+        _path: str,
+        **_kwargs: object,
+    ) -> tuple[int, bytes, dict[str, str]]:
+        nonlocal attempts
+        attempts += 1
+        source_revision = "d" * 40 if attempts == 1 else COMMIT
+        return (
+            400,
+            json.dumps({"detail": "tts_text_missing"}).encode(),
+            {"x-ea-source-revision": source_revision},
+        )
+
+    result = candidate_verifier._verify_voice_provider_boundary(
+        "https://memorial.example",
+        voice_release_expectation=expectation,
+        request_fn=fake_request,
+        wait_seconds=2,
+        sleep_fn=sleeps.append,
+        monotonic_fn=lambda: 0.0,
+    )
+
+    assert attempts == 2
+    assert sleeps == [0.25]
+    assert result["mode"] == "public_evaluation_authorization_verified"
+    assert result["source_revision"] == COMMIT
+
+
 @pytest.mark.parametrize(
     (
         "voice_release_expectation",

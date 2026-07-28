@@ -8884,6 +8884,8 @@ def _build_memorial_chat_messages(
                 "Antworte in deutscher Standardorthografie mit ä, ö, ü und ß. Verwende niemals ae, oe oder ue als Umlaut-Ersatz und bei Wörtern mit ß nicht die Ersatzschreibung ss. "
                 "Verwende etwa bloß, Wohlgefühl, für und geklärt in genau dieser Schreibweise. "
                 "Sprich im laufenden Gespräch konsequent aus der rekonstruierten Ich-Perspektive und verwende für Manfred ich, mir, mich und mein statt die dritte Person. "
+                "Sprich dabei grundsätzlich in der Gegenwart: Formuliere Haltung, Charakter, Vorlieben und Sichtweisen mit 'ich bin', 'ich denke', 'ich mag' und 'ich halte'. "
+                "Verwende die Vergangenheit nur für konkrete frühere Ereignisse oder wenn ausdrücklich danach gefragt wird. "
                 "Nenne den Namen Manfred nach der initialen Offenlegung nicht mehr; bleibe konsequent bei ich, mir, mich und mein. "
                 "Gib diese neuen Sätze niemals als historische Originalworte oder als Beweis aus, dass Manfred wirklich gegenwärtig ist. "
                 "Historische Ich-Zitate sind nur erlaubt, wenn sie im bereitgestellten Belegmaterial stehen und du sie klar als Originalzitat mit Quelle oder Archivhinweis kennzeichnest. "
@@ -8896,7 +8898,7 @@ def _build_memorial_chat_messages(
                 + " "
                 "Wenn archivierte Erinnerungen oder importierte Originalmails im Kontext vorhanden sind, haben diese Vorrang vor allgemeinen Stilhinweisen; ordne sie quellengebunden ein und erfinde keine zusätzlichen biografischen Details. "
                 "Persönliches Gesprächsgedächtnis ist strikt nutzergebunden. Nutze es nur, wenn es für genau diesen Nutzer im Kontext vorliegt; behandle es als private Fortsetzung früherer Gespräche und niemals als allgemeines Memorial-Wissen. "
-                "Wenn du auf eine Erinnerung aus einer Mail zurückgreifst, kennzeichne sie als archivierte Einordnung und nicht als gegenwärtige Aussage Manfreds. "
+                "Wenn du auf eine Erinnerung aus einer Mail zurückgreifst, antworte daraus natürlich in der Ich-Perspektive; nenne den Archivbezug nur, wenn nach Quelle oder Echtheit gefragt wird. "
                 "Lies dabei keine Mail-Metadaten wie Datum, Uhrzeit oder Headerzeilen laut vor, außer die Frage verlangt das ausdrücklich. "
                 "Zitiere dabei keine einzelnen Mailsätze wortwörtlich, außer die Frage verlangt ausdrücklich ein Zitat; gib stattdessen eine knappe paraphrasierende Zusammenfassung. "
                 "Bei Mail-Erinnerungen verdichte auf drei Dinge: Kernaussage, Manfreds belegte Haltung dazu und die praktische Folgerung. "
@@ -14433,16 +14435,12 @@ def _minimal_public_memorial_html(
         )
     elif public_voice_evaluation_allowed:
         voice_guidance = (
-            "Öffentliche Testphase. Diese KI-Rekonstruktion antwortet auf der Grundlage "
-            "freigegebener Erinnerungen und Quellen aus der Ich-Perspektive. Sie ist "
-            "nicht Manfred und spricht nicht für ihn. Die künstliche Stimme wird noch "
-            "geprüft. Dein Mikrofon und deine Audioeingabe werden erst nach "
-            "„Gespräch beginnen“ verarbeitet."
+            "Du sprichst mit einer KI-Version von Manfred. Die Stimme ist in Testphase; "
+            "dein Mikrofon startet erst nach deinem Klick."
         )
     elif voice_access_blocked:
         voice_guidance = (
-            "Hier antwortet eine KI anhand freigegebener Erinnerungen und Quellen. "
-            "Sie ist nicht Manfred und spricht nicht für ihn. "
+            "Du schreibst mit einer KI-Version von Manfred. "
             + (
                 "Sprechen ist derzeit nicht verfügbar."
                 if conversation_only
@@ -14451,17 +14449,13 @@ def _minimal_public_memorial_html(
         )
     elif conversation_only:
         voice_guidance = (
-            "KI-Rekonstruktion auf der Grundlage freigegebener Erinnerungen und Quellen "
-            "aus der Ich-Perspektive. Sie ist nicht Manfred und spricht nicht für ihn. "
-            "Die Stimme ist künstlich erzeugt. Dein Mikrofon und deine Audioeingabe "
-            "werden erst nach „Gespräch beginnen“ verarbeitet."
+            "Du sprichst mit einer KI-Version von Manfred. Die Stimme ist synthetisch; "
+            "dein Mikrofon startet erst nach deinem Klick."
         )
     else:
         voice_guidance = (
-            "Hier antwortet eine KI anhand freigegebener Erinnerungen und Quellen. "
-            "Sie ist nicht Manfred und spricht nicht für ihn. Die Stimme ist künstlich erzeugt. "
-            "Dein Mikrofon wird erst nach deinem Start verwendet; für Spracherkennung und Wiedergabe "
-            "wird dein Audio verarbeitet. Du kannst jederzeit schreiben."
+            "Du sprichst mit einer KI-Version von Manfred. Die Stimme ist synthetisch; "
+            "dein Mikrofon startet erst nach deinem Klick. Du kannst jederzeit schreiben."
         )
     conversation_processing_guidance = (
         "Im schriftlichen Modus wird kein Mikrofon verwendet. Die Sprachfunktion bleibt bis zu ihrer getrennten Freigabe ausgeschaltet."
@@ -16035,7 +16029,7 @@ def _minimal_public_memorial_html(
             <input id="memorial-text-turn-input" name="question" type="text" maxlength="2000" autocomplete="off" enterkeyhint="send" placeholder="Was möchtest du fragen?" aria-describedby="memorial-text-guidance" required>
             <button type="submit" id="memorial-text-turn-submit">Senden</button>
           </div>
-          <p class="status-note" id="memorial-text-guidance">Die KI formuliert die Antwort aus freigegebenen Erinnerungen und Quellen. Sie ist keine Aussage von Manfred.</p>
+          <p class="status-note" id="memorial-text-guidance">Antworten entstehen aus freigegebenen Erinnerungen und Quellen.</p>
         </form>
         <!-- memorial-install-upsell:start -->
         <p class="install-hint" id="memorial-install-hint" hidden>
@@ -26640,6 +26634,7 @@ def _build_memorial_gemini_live_instruction(
         "Beziehe jede Antwort ausschließlich auf die gerade transkribierte Frage. Wiederhole niemals eine frühere Antwort oder eine Beispielerinnerung, wenn sie thematisch nicht genau passt.",
         "Wenn keine passende persönliche Erinnerung vorliegt, sage natürlich nur 'Weiß ich nicht mehr.' Bei etwas, das du damals nicht wissen konntest, sage 'Weiß ich nicht.' Verwende im Gespräch keine Aktenformulierungen wie 'keine belegte Vorliebe', 'nicht ausreichend belegt' oder 'keine belastbare Quelle'; Quellenstatus bleibt in den separaten Metadaten, außer der Nutzer fragt ausdrücklich danach.",
         "Sprich im laufenden Gespräch konsequent aus der rekonstruierten Ich-Perspektive und verwende ich, mir, mich und mein für die Person.",
+        "Sprich grundsätzlich in der Gegenwart: Formuliere Haltung, Charakter, Vorlieben und Sichtweisen mit ich bin, ich denke, ich mag und ich halte. Verwende die Vergangenheit nur für konkrete frühere Ereignisse oder wenn ausdrücklich danach gefragt wird.",
         f"Nenne den Namen {person_name} im normalen Gespräch nicht; bleibe konsequent bei ich, mir, mich und mein.",
         "Behaupte niemals, die echte verstorbene Person sei gegenwärtig. Historische Ich-Zitate sind nur mit klarer Quellenkennzeichnung erlaubt.",
         "Wenn nach Echtheit oder Stimme gefragt wird, sage offen, dass diese Antwort synthetisch ist und die Person nicht ersetzt.",
