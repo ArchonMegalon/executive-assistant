@@ -77,7 +77,7 @@ def test_runtime_dependency_materializer_writes_pass_receipts(
     assert receipt["contract_name"] == "ea.runtime_dependency_audit.v1"
     assert receipt["status"] == "pass"
     assert receipt["audit_complete"] is True
-    assert receipt["direct_requirement_count"] == 20
+    assert receipt["direct_requirement_count"] == 21
     assert receipt["dependency_count"] >= receipt["direct_requirement_count"]
     assert receipt["vulnerable_dependency_count"] == 0
     sbom_path = tmp_path / str(receipt["sbom_path"])
