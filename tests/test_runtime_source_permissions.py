@@ -18,12 +18,18 @@ def _runtime_tree(tmp_path: Path) -> tuple[Path, Path]:
     root = tmp_path / "release"
     source = root / "ea" / "app"
     source.mkdir(parents=True)
+    scripts = root / "scripts"
+    scripts.mkdir()
     module = source / "main.py"
     module.write_text("from __future__ import annotations\n", encoding="utf-8")
+    launcher = scripts / "runtime_guard.sh"
+    launcher.write_text("#!/usr/bin/env sh\n", encoding="utf-8")
     root.chmod(0o755)
     source.parent.chmod(0o755)
     source.chmod(0o755)
+    scripts.chmod(0o755)
     module.chmod(0o644)
+    launcher.chmod(0o755)
     return root, module
 
 
@@ -34,7 +40,8 @@ def test_runtime_source_tree_passes_without_reading_contents(tmp_path: Path) -> 
 
     assert receipt["status"] == "pass"
     assert receipt["runtime_user"] == "10001:10001"
-    assert receipt["release_files_scanned"] == 1
+    assert receipt["source_trees"] == ["ea/app", "scripts"]
+    assert receipt["release_files_scanned"] == 2
     assert receipt["file_contents_read"] is False
     assert receipt["secrets_included"] is False
 
@@ -58,6 +65,19 @@ def test_runtime_source_repair_normalizes_0600_without_making_source_writable(
 
     assert repaired == 1
     assert stat.S_IMODE(module.stat().st_mode) == 0o644
+    assert receipt["status"] == "pass"
+
+
+def test_runtime_source_repair_covers_scripts_bind_mount(tmp_path: Path) -> None:
+    root, _module = _runtime_tree(tmp_path)
+    launcher = root / "scripts" / "runtime_guard.sh"
+    launcher.chmod(0o700)
+
+    repaired = verifier.repair_runtime_source_permissions(root)
+    receipt = verifier.verify_runtime_source_tree(root)
+
+    assert repaired == 1
+    assert stat.S_IMODE(launcher.stat().st_mode) == 0o744
     assert receipt["status"] == "pass"
 
 

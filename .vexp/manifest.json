@@ -1316,7 +1316,7 @@
     "scripts/verify_ea_core_candidate_runtime.py": "f19965db5bc667a243e79635307b67edd6977b6407201adf7ceae9655a5a8245",
     "scripts/verify_ea_operator_readiness.py": "e546e02945bdf22079d23be0ba149b1db3623a35c3850f283883a97e019c9a21",
     "scripts/verify_ea_provider_contract_receipts.py": "af70375bf0934fee9bb7aa7c19a6ad1c2ae0e51bd81275ef1aa5719adf31b4b4",
-    "scripts/verify_ea_runtime_source_permissions.py": "e0d9fe2e5abeb818d2649f00ca02ddbd0bc01530374a24c832f5e9b2e0f2d787",
+    "scripts/verify_ea_runtime_source_permissions.py": "3c805bcaa6d541cccbcf2e06b399ec9103350b9d9837f93de3f4395dce52f079",
     "scripts/verify_ea_sendr_campaign_packet.py": "6f34366bdba447b7ae8b4496968f2159fb7e32f71874b4b01e7023af7e355501",
     "scripts/verify_env_no_secrets.py": "cbfff2fb969afdb511aa783b269467a4eec4683bd292823781b0d8545be5d390",
     "scripts/verify_flagship_release_readiness.py": "4e236b3930860002b89ad95a94b67fedd78013b56187b4364460e231277aae8a",
@@ -1781,7 +1781,7 @@
     "tests/test_runtime_dependency_evidence.py": "7f9d0f164a32b48eb8da8fa3c54eb654b13670e663f8d64a2b1a7dccfee32493",
     "tests/test_runtime_image_contracts.py": "62a4704f84d68eb039f1d38b1f1d31e4fb83ea62a0d52da065ca2d7d1474979b",
     "tests/test_runtime_profile.py": "09fae4003169ce2c016ec57889a9ab2657ea7c3abf52c119839d8f1fb7cf45c8",
-    "tests/test_runtime_source_permissions.py": "2ef3a6aa915a35a9bf17bab3518cdbb065093dd2d2e72a42c9e8bbb040a0a4e2",
+    "tests/test_runtime_source_permissions.py": "87b383a0c0aae472ea050a3b8d02ea81098c6680fbc956fe154e1155052a7f7f",
     "tests/test_runtime_supply_chain.py": "8d88214fb327961aa78db318d13cf6d51170ee727fb9b32a7391c78c974be740",
     "tests/test_settings.py": "e4cf75166b75fdaa95f0683267330d10d715c1068661f7999a9e789c6da0bcd5",
     "tests/test_skill_bootstrap_routing.py": "3d6d159a60eb1b6006253df50db9c09584ebcae3d4cec3851948b52c09bb2c82",
@@ -1878,13 +1878,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "8f70f0288080f13aff0987e879729421efc5eb0b",
-  "indexed_at_timestamp": "2026-07-28T17:32:04.180395046+00:00",
+  "indexed_at_commit": "4073ffa52cb3b35e85ee9de3b23e3d9959fae018",
+  "indexed_at_timestamp": "2026-07-28T17:40:31.839930366+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 47088,
+    "total_edges": 47179,
     "total_files": 1877,
-    "total_nodes": 29559
+    "total_nodes": 29562
   },
   "vexp_version": "2.3.1"
 }
