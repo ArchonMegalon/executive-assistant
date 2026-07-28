@@ -1,0 +1,105 @@
+{
+  "generatedAt": "2026-06-27T10:59:21.731687Z",
+  "contract_name": "chummer6-ui.chummer5a_layout_hard_gate",
+  "status": "pass",
+  "summary": "Chummer5a shell-layout parity is wired as a hard release gate.",
+  "reasons": [],
+  "reviews": {
+    "legacyBaselineReview": {
+      "status": "pass",
+      "reasons": []
+    },
+    "avaloniaLayoutReview": {
+      "status": "pass",
+      "reasons": []
+    },
+    "blazorLayoutReview": {
+      "status": "pass",
+      "reasons": []
+    },
+    "sharedCatalogReview": {
+      "status": "pass",
+      "reasons": []
+    },
+    "releaseWiringReview": {
+      "status": "pass",
+      "reasons": []
+    }
+  },
+  "evidence": {
+    "legacyFrmCareerDesignerPath": "/docker/chummer5a/Chummer/Forms/Character Forms/CharacterCareer.Designer.cs",
+    "legacyMenuMarkers": [
+      "mnuCreateFile",
+      "mnuCreateEdit",
+      "mnuCreateSpecial"
+    ],
+    "legacyToolbarMarkers": [
+      "tsMain.Items.AddRange",
+      "tsbSave",
+      "tsbPrint",
+      "tsbCopy"
+    ],
+    "legacyTabCount": 19,
+    "menuHeaders": [
+      "File",
+      "Edit",
+      "Special",
+      "Tools",
+      "Windows",
+      "Help"
+    ],
+    "expectedMenuHeaders": [
+      "File",
+      "Edit",
+      "Special",
+      "Tools",
+      "Windows",
+      "Help"
+    ],
+    "blazorRoot": "/docker/chummercomplete/chummer6-ui/Chummer.Blazor",
+    "toolstripButtonPositions": {
+      "SaveButton": 1219,
+      "PrintButton": 1376,
+      "CopyButton": 1535,
+      "DesktopHomeButton": 1692,
+      "ImportFileButton": 2046,
+      "CloseWorkspaceButton": 2215,
+      "SettingsButton": 3744,
+      "LoadDemoRunnerButton": 3378,
+      "ImportRawButton": 3559
+    },
+    "toolstripButtonVisibility": {
+      "SaveButton": true,
+      "PrintButton": true,
+      "CopyButton": true,
+      "DesktopHomeButton": false,
+      "ImportFileButton": true,
+      "CloseWorkspaceButton": true,
+      "SettingsButton": true,
+      "LoadDemoRunnerButton": true,
+      "ImportRawButton": false
+    },
+    "orderedVisibleButtons": [
+      "SaveButton",
+      "PrintButton",
+      "CopyButton",
+      "ImportFileButton",
+      "CloseWorkspaceButton",
+      "LoadDemoRunnerButton",
+      "SettingsButton"
+    ],
+    "blazorPreferredToolstripOrderPositions": {
+      "save_character": 441,
+      "print_character": 510,
+      "copy": 570,
+      "new_character": 627,
+      "open_character": 694
+    },
+    "requiredTestName": "Chummer5a_layout_hard_gate_is_wired_into_release_proofs_and_classic_shell_markers",
+    "mainWindowDefaultContentColumns": "0,*,0",
+    "blazorSupportsCompactSingleRunnerLayout": true,
+    "defaultSingleRunnerKeepsWorkspaceChromeCollapsed": true,
+    "reasonCount": 0,
+    "failureCount": 0
+  }
+}

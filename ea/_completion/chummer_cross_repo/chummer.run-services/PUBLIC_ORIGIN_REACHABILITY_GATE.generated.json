@@ -1,0 +1,12 @@
+{
+  "status": "pass",
+  "base_url": "https://chummer.run/",
+  "final_url": "https://chummer.run/",
+  "http_status": 200,
+  "cloudflare_ray": "a1a14c5b1821dcca-FRA",
+  "server": "cloudflare",
+  "detected_error_code": null,
+  "failure_reason": null,
+  "generated_at": "2026-07-12T16:06:59.014793Z",
+  "body_excerpt": "<!doctype html>\n<html lang=\"en\" data-theme=\"hub-front-door\">\n<head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <title>Chummer &#x2014; Shadowrun character manager \u00b7 Chummer</title>\n    <meta name=\"description\" content=\"Desktop character manager for Shadowrun.\" />\n    <meta name=\"theme-color\" content=\"#0f1110\" />\n    <meta name=\"mobile-web-app-capable\" content=\"yes\" />\n    <meta name=\"apple-mobile-web-app-capable\" content=\"yes\" />\n    <meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black-translucent\" />\n    <meta name=..."
+}

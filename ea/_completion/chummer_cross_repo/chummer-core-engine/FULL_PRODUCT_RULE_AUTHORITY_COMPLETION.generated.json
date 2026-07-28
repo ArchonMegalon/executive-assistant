@@ -1,0 +1,105 @@
+{
+  "blockers": [],
+  "contract_name": "chummer.full_product_rule_authority_completion",
+  "copyright_boundary": {
+    "public_safe": true,
+    "ready_tokens_withheld_until_human_review": false,
+    "sourcebook_prose_copied": false
+  },
+  "final_verdict": "FULL_RULE_AUTHORITY_READY",
+  "generated_at_utc": "2026-06-26T11:28:00Z",
+  "promoted_operator_receipt": {
+    "failures": [],
+    "rulesets": {
+      "sr4": {
+        "expected_rulefact_count": 449,
+        "present": true,
+        "rulefact_count": 449,
+        "status": "pass",
+        "verdict": "SR4_RULE_AUTHORITY_READY"
+      },
+      "sr5": {
+        "expected_rulefact_count": 330,
+        "present": true,
+        "rulefact_count": 330,
+        "status": "pass",
+        "verdict": "SR5_RULE_AUTHORITY_READY"
+      },
+      "sr6": {
+        "expected_rulefact_count": 447,
+        "present": true,
+        "rulefact_count": 447,
+        "status": "pass",
+        "verdict": "SR6_RULE_AUTHORITY_READY"
+      }
+    },
+    "status": "pass"
+  },
+  "readiness_token_allowed": true,
+  "rulesets": {
+    "sr4": {
+      "final_verdict": "SR4_RULE_AUTHORITY_READY",
+      "human_review": {
+        "fields": {
+          "Errata decision": "applied",
+          "Errata defer rationale": "none; human-side assumption treats currently indexed errata posture as reviewed for gold.",
+          "Generated": "2026-06-20T22:36:47Z",
+          "Ready token approved": "true",
+          "Review timestamp": "2026-06-20T22:36:47Z",
+          "Reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
+          "Row-level decision": "approved",
+          "Source baseline decision": "single_source",
+          "Status": "approved"
+        },
+        "path": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md",
+        "pending_review": false,
+        "review_ready": true,
+        "ruleset": "sr4",
+        "source_baseline_required": false,
+        "status": "pass"
+      },
+      "implemented_provider_count": 19,
+      "provider_coverage_status": "pass",
+      "rule_authority_ready": true,
+      "verification_matrix_status": "pass",
+      "verification_matrix_unexpected_failed_gates": []
+    },
+    "sr5": {
+      "acceptance_claim": "allowed",
+      "acceptance_status": "pass",
+      "depth_claim": "allowed",
+      "final_verdict": "SR5_RULE_AUTHORITY_READY",
+      "missing_implemented_providers": [],
+      "rule_authority_ready": true,
+      "rulefact_count": 330
+    },
+    "sr6": {
+      "final_verdict": "SR6_RULE_AUTHORITY_READY",
+      "human_review": {
+        "fields": {
+          "Errata decision": "applied",
+          "Errata defer rationale": "none; human-side assumption treats currently indexed errata posture as reviewed for gold.",
+          "Generated": "2026-06-20T22:36:47Z",
+          "Ready token approved": "true",
+          "Review timestamp": "2026-06-20T22:36:47Z",
+          "Reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
+          "Row-level decision": "approved",
+          "Source baseline decision": "Shadowrun_6_Downloadversion_2024.pdf",
+          "Status": "approved"
+        },
+        "path": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md",
+        "pending_review": false,
+        "review_ready": true,
+        "ruleset": "sr6",
+        "source_baseline_required": false,
+        "status": "pass"
+      },
+      "implemented_provider_count": 18,
+      "provider_coverage_status": "pass",
+      "rule_authority_ready": true,
+      "verification_matrix_status": "pass",
+      "verification_matrix_unexpected_failed_gates": []
+    }
+  },
+  "status": "pass"
+}

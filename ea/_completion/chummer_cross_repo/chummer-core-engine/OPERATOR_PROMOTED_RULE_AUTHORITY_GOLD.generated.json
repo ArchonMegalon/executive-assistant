@@ -1,0 +1,65 @@
+{
+  "contract_name": "chummer.operator_promoted_rule_authority_gold",
+  "copyright_boundary": {
+    "sourcebook_art_committed": false,
+    "sourcebook_text_committed": false,
+    "verdict_uses_public_safe_facts_and_receipts": true
+  },
+  "failures": [],
+  "final_verdict": "FULL_RULE_AUTHORITY_READY",
+  "generated_at_utc": "2026-06-22T06:21:24Z",
+  "rulesets": [
+    {
+      "failures": [],
+      "fixture_failed": 0,
+      "fixture_passed": 21,
+      "rulefact_count": 449,
+      "ruleset": "sr4",
+      "status": "pass",
+      "table_status": "reviewed",
+      "verdict": "SR4_RULE_AUTHORITY_READY"
+    },
+    {
+      "failures": [],
+      "rulefact_count": 330,
+      "ruleset": "sr5",
+      "status": "pass",
+      "verdict": "SR5_RULE_AUTHORITY_READY"
+    },
+    {
+      "failures": [],
+      "fixture_failed": 0,
+      "fixture_passed": 37,
+      "rulefact_count": 447,
+      "ruleset": "sr6",
+      "status": "pass",
+      "table_status": "reviewed",
+      "verdict": "SR6_RULE_AUTHORITY_READY"
+    }
+  ],
+  "source_identity": {
+    "failures": [],
+    "sources": {
+      "sr4": {
+        "exists": true,
+        "path": "/mnt/pcloud/personal/Roleplay/sr/(SR4) Shadowrun 4e Core Rules.pdf",
+        "sha256": "28da9d6dfd8eba79a2ae46dc41e2ec825d16067d288e6f20e23c65767616d41d",
+        "sha256_matches_expected": true
+      },
+      "sr5": {
+        "exists": true,
+        "path": "/mnt/pcloud/personal/Roleplay/sr/Shadowrun Fifth Edition Core Rulebook.pdf",
+        "sha256": "b6769553a7348286e6396b49e364960c71bba5436412b88c5672e4f522ad52d5",
+        "sha256_matches_expected": true
+      },
+      "sr6": {
+        "exists": true,
+        "path": "/mnt/pcloud/personal/Roleplay/sr/Shadowrun_6_Downloadversion_2024.pdf",
+        "sha256": "104dd5cc0f167232c3bc0f6453b389d9114dd7df483345e5b1211fda667bf023",
+        "sha256_matches_expected": true
+      }
+    },
+    "status": "pass"
+  },
+  "status": "pass"
+}

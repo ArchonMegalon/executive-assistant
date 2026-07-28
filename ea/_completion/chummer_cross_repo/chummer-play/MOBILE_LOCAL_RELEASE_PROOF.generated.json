@@ -1,0 +1,1473 @@
+{
+  "contract_name": "chummer6-mobile.local_release_proof",
+  "verification_mode": "integration",
+  "verification_run_id": "cef422edc7f7cdb3e7d955b8ccee2649",
+  "status": "passed",
+  "proof_kind": "source_backed_local_regression_contract",
+  "source_files": [
+    "src/Chummer.Play.RegressionChecks/Program.cs",
+    "src/Chummer.Play.Web/PlayWebApplication.cs",
+    "src/Chummer.Play.Web/PlayRouteHandlers.cs",
+    "src/Chummer.Play.Web/PlayTurnCompanionService.cs",
+    "src/Chummer.Play.Core/Application/PlayTurnCompanionProjector.cs",
+    "src/Chummer.Play.Web/Components/_Imports.razor",
+    "src/Chummer.Play.Web/Components/Pages/MobileTurnCompanionPage.razor",
+    "src/Chummer.Play.Web/Components/Pages/MobileLiveTurnCompanionPage.razor",
+    "src/Chummer.Play.Web/PlaySessionGrant.cs",
+    "src/Chummer.Play.Web/wwwroot/mobile-turn-companion.js",
+    "src/Chummer.Play.Web/wwwroot/mobile-install-shell.js",
+    "src/Chummer.Play.Web/wwwroot/mobile.css",
+    "src/Chummer.Play.Web/wwwroot/index.html",
+    "src/Chummer.Play.Web/Components/App.razor",
+    "src/Chummer.Play.Web/Dockerfile",
+    "src/Chummer.Play.Web/wwwroot/service-worker.js",
+    "src/Chummer.Play.Web/wwwroot/manifest.webmanifest",
+    "src/Chummer.Play.Web/wwwroot/manifest.player.webmanifest",
+    "src/Chummer.Play.Web/wwwroot/manifest.gm.webmanifest",
+    "src/Chummer.Play.Web/wwwroot/manifest.observer.webmanifest",
+    "docs/migration-map.md",
+    "docs/PLAY_RELEASE_SIGNOFF.md",
+    "scripts/ai/verify.sh",
+    "scripts/ai/with-package-plane.sh",
+    "scripts/release/verify_mobile_release_proof.sh",
+    "scripts/verify_mobile_pwa_runtime_smoke.py",
+    "scripts/verify_mobile_pwa_viewport_smoke.py",
+    "scripts/verify_mobile_pwa_analytics_smoke.py",
+    "scripts/verify_mobile_pwa_performance_budget.py",
+    "docs/next90-m112-mobile-campaign-continuity.proof.md",
+    "scripts/verify_next90_m112_mobile_campaign_continuity.py",
+    "docs/next90-m119-mobile-onboarding-continuity.proof.md",
+    "scripts/verify_next90_m119_mobile_onboarding_continuity.py",
+    "docs/next90-m117-mobile-artifact-shelf.proof.md",
+    "scripts/verify_next90_m117_mobile_artifact_shelf.py",
+    "docs/next90-m121-mobile-live-combat-confidence.proof.md",
+    "scripts/verify_next90_m121_mobile_live_combat_confidence.py",
+    "docs/next90-m122-mobile-runner-goal-updates-and-consequence-feed.proof.md",
+    "scripts/verify_next90_m122_mobile_runner_goal_updates.py",
+    "docs/next90-m145-mobile-quick-explain-and-follow-up.proof.md",
+    "scripts/verify_next90_m145_mobile_quick_explain_and_follow_up.py",
+    "scripts/materialize_mobile_cross_surface_readiness.py",
+    "scripts/materialize_mobile_release_boundary.py",
+    "scripts/ai/write_verification_mode_receipt.py"
+  ],
+  "source_file_digests": [
+    {
+      "path": "src/Chummer.Play.RegressionChecks/Program.cs",
+      "sha256": "359fc924814aa0fa162ceefc3e81803a29b2c0e39603ef11b8021f72d77f500a"
+    },
+    {
+      "path": "src/Chummer.Play.Web/PlayWebApplication.cs",
+      "sha256": "88427272857193c31d6050a5d087d5690da5bdcfb85005ce230b6b7732f227ee"
+    },
+    {
+      "path": "src/Chummer.Play.Web/PlayRouteHandlers.cs",
+      "sha256": "2e98bf419cb7f35cfc55cb4eafff612c8225349f633d6536790f9ed2c9689a2e"
+    },
+    {
+      "path": "src/Chummer.Play.Web/PlayTurnCompanionService.cs",
+      "sha256": "e825e982c0289013540d3017609417435544b6cca148455f5502f588a00f901f"
+    },
+    {
+      "path": "src/Chummer.Play.Core/Application/PlayTurnCompanionProjector.cs",
+      "sha256": "decc042caaf76509af756dac68b2cbbcf97baac76f696535614b51b0638b4088"
+    },
+    {
+      "path": "src/Chummer.Play.Web/Components/_Imports.razor",
+      "sha256": "99b607d8151be961a3559703ea2a2c10e17cee0aba32bfb252705e1d140deda4"
+    },
+    {
+      "path": "src/Chummer.Play.Web/Components/Pages/MobileTurnCompanionPage.razor",
+      "sha256": "f011ccb50b26dfd2988e4b947a69a20eea994cc01fe39193d38ee439c5cda853"
+    },
+    {
+      "path": "src/Chummer.Play.Web/Components/Pages/MobileLiveTurnCompanionPage.razor",
+      "sha256": "cfbb9e1b061eeb36e3b10a9201f1417a55ddd2569878e3a261c9ee1f0e0a350e"
+    },
+    {
+      "path": "src/Chummer.Play.Web/PlaySessionGrant.cs",
+      "sha256": "64cec336bb079d20d6984238c84d358b60156a155c1dc5d65b1d84d75b1d4d08"
+    },
+    {
+      "path": "src/Chummer.Play.Web/wwwroot/mobile-turn-companion.js",
+      "sha256": "4bebcb9320b9a6748fa6879e442dffa4ba11c85c0ac8b0ba47c5d5adee6aae29"
+    },
+    {
+      "path": "src/Chummer.Play.Web/wwwroot/mobile-install-shell.js",
+      "sha256": "bd691178430f3feb36113686a8c665e356ede6cce39194918f52cef8fe6b2cdb"
+    },
+    {
+      "path": "src/Chummer.Play.Web/wwwroot/mobile.css",
+      "sha256": "5ebc665a90355e837a5b0bea28470ef32937c76146250df350d88022ed798082"
+    },
+    {
+      "path": "src/Chummer.Play.Web/wwwroot/index.html",
+      "sha256": "978cae0f85f2eba026d04116d7a7b74be6c0189b5f24098871448befe17b9e3b"
+    },
+    {
+      "path": "src/Chummer.Play.Web/Components/App.razor",
+      "sha256": "dc97e719772929dd4a25c4848bfa1c421732137ecb584a8702fb5195b1ca304a"
+    },
+    {
+      "path": "src/Chummer.Play.Web/Dockerfile",
+      "sha256": "d85fd016ab7708dddea31d4d157741ab745be4825968ef5a5c7e453318ea8c82"
+    },
+    {
+      "path": "src/Chummer.Play.Web/wwwroot/service-worker.js",
+      "sha256": "f3cef86bbf454b1a93c8ff9ccfe84f4c83dc7b505901471d702493a37960b83c"
+    },
+    {
+      "path": "src/Chummer.Play.Web/wwwroot/manifest.webmanifest",
+      "sha256": "7411b100fa3cd6ddb905d5e0beac2ad2977aa495de65c8031a70cdb5e1bcf797"
+    },
+    {
+      "path": "src/Chummer.Play.Web/wwwroot/manifest.player.webmanifest",
+      "sha256": "8da984961dd2d50bdcfb92b1be0af8228f9bd9d6dcdad38889e7916e69843b40"
+    },
+    {
+      "path": "src/Chummer.Play.Web/wwwroot/manifest.gm.webmanifest",
+      "sha256": "eda6bf766e595e4dd490494d8da3ade15d469641b6a08dee1619ad93871c2b26"
+    },
+    {
+      "path": "src/Chummer.Play.Web/wwwroot/manifest.observer.webmanifest",
+      "sha256": "d1006f14a0d159e0eb40c18675b518638c8f07fa6017a4a019d7e34cb0d72d7d"
+    },
+    {
+      "path": "docs/migration-map.md",
+      "sha256": "d8ccdf6bed6bc72695fb884c86361df3a59d5cf00755e2230cb1c3bef856428b"
+    },
+    {
+      "path": "docs/PLAY_RELEASE_SIGNOFF.md",
+      "sha256": "dd9e9f9abc050b03051d27b8a4e60acb3f43417e9aa543cad8205add916d9c2b"
+    },
+    {
+      "path": "scripts/ai/verify.sh",
+      "sha256": "48f6c75a10dd2437151488617c3564e7eb165175ed12b94c1e836ea2a0b38e2d"
+    },
+    {
+      "path": "scripts/ai/with-package-plane.sh",
+      "sha256": "f56faed9f80eb4d3f1fa4ee8855f37a27e4c7a98cef42d771891141a9da3160f"
+    },
+    {
+      "path": "scripts/release/verify_mobile_release_proof.sh",
+      "sha256": "b53209bc11d760a6d5b67064b6eff6c350bdf66194dd1fd9e0ab132b5ed4050d"
+    },
+    {
+      "path": "scripts/verify_mobile_pwa_runtime_smoke.py",
+      "sha256": "9654359bbe5661ff008ba6ef3c29adda41334a0b14f790a4d98a343c5045d742"
+    },
+    {
+      "path": "scripts/verify_mobile_pwa_viewport_smoke.py",
+      "sha256": "17bc82c3f0092e84100c2a554b31cf2168e022e71f15c63b9819bed1b879effb"
+    },
+    {
+      "path": "scripts/verify_mobile_pwa_analytics_smoke.py",
+      "sha256": "4524c0a8b037d6423d8b7f145b84d61e8879467a44aded0cff984b051603b37a"
+    },
+    {
+      "path": "scripts/verify_mobile_pwa_performance_budget.py",
+      "sha256": "4957ff5b9e72a6f1e71962008c40799a6b0174a42e88c111e84a43fd1f5ae2b9"
+    },
+    {
+      "path": "docs/next90-m112-mobile-campaign-continuity.proof.md",
+      "sha256": "215567974fcc55e7b504f0800041b41fe297c1a07f012523e5b68224bc6f7867"
+    },
+    {
+      "path": "scripts/verify_next90_m112_mobile_campaign_continuity.py",
+      "sha256": "b35f02359bdde7e6775ccb8d59278a5ef8bafdba84c33274cb98abef28b284ef"
+    },
+    {
+      "path": "docs/next90-m119-mobile-onboarding-continuity.proof.md",
+      "sha256": "9c6e117af2d9726b74579b87d259de41247259b97ef66c1c119189f5a44c08cd"
+    },
+    {
+      "path": "scripts/verify_next90_m119_mobile_onboarding_continuity.py",
+      "sha256": "b6297700fb6852ff0c9e1d23b3d3ccdfc2749ff09fa3bc38fee04b4e088ae814"
+    },
+    {
+      "path": "docs/next90-m117-mobile-artifact-shelf.proof.md",
+      "sha256": "e91e1c1677509510c5194e6f37600c1a792455ab94940d6f806394261ba012a1"
+    },
+    {
+      "path": "scripts/verify_next90_m117_mobile_artifact_shelf.py",
+      "sha256": "e45afcdb46d58971073e4c93930a5937293f74ef6c37adba53ecb2cf8e281354"
+    },
+    {
+      "path": "docs/next90-m121-mobile-live-combat-confidence.proof.md",
+      "sha256": "860bd4642d70a340355b0931d968c4b9d1354290d45a7a2b12bc01fe1db795e9"
+    },
+    {
+      "path": "scripts/verify_next90_m121_mobile_live_combat_confidence.py",
+      "sha256": "74ababe0621e5c5c3939973045e314452a8e4b3fb6e02d2bf45c42c697134a1e"
+    },
+    {
+      "path": "docs/next90-m122-mobile-runner-goal-updates-and-consequence-feed.proof.md",
+      "sha256": "6af38472a30d5fb55ab855730bed226788097b48a11fbdfd1ee4c784e7ed7a1d"
+    },
+    {
+      "path": "scripts/verify_next90_m122_mobile_runner_goal_updates.py",
+      "sha256": "e375c0b4998f3646886314bdac802cd1506e864d9f9eb6fb54168d264b0f3166"
+    },
+    {
+      "path": "docs/next90-m145-mobile-quick-explain-and-follow-up.proof.md",
+      "sha256": "7c203f79e5146164b61104656a7692881fb9fae516a4d4ab9c857b560298db49"
+    },
+    {
+      "path": "scripts/verify_next90_m145_mobile_quick_explain_and_follow_up.py",
+      "sha256": "2b5e90ccb539fc7477294884c814c859f8c0dfd9f14fecab1189130545551cc6"
+    },
+    {
+      "path": "scripts/materialize_mobile_cross_surface_readiness.py",
+      "sha256": "30237046313841cc39bfc071eed8b8a32481bdd9cc5cdbdc048bfc5a9e850cc0"
+    },
+    {
+      "path": "scripts/materialize_mobile_release_boundary.py",
+      "sha256": "9185f095627c0cd73ac84491f1440ac1cc51be5178f30753923643113ec997fe"
+    },
+    {
+      "path": "scripts/ai/write_verification_mode_receipt.py",
+      "sha256": "53b6143edb69de10c487a6110b1a893141063812c539e651c9bf3099997831ad"
+    }
+  ],
+  "journeys_passed": [
+    "install_claim_restore_continue",
+    "campaign_session_recover_recap",
+    "recover_from_sync_conflict",
+    "quality_release_hardening",
+    "pwa_runtime_smoke",
+    "mobile_pwa_viewport_smoke",
+    "mobile_pwa_analytics_smoke",
+    "turn_companion_live_session",
+    "migration_boundary_evidence",
+    "mobile_campaign_continuity",
+    "mobile_onboarding_continuity",
+    "mobile_artifact_shelf",
+    "mobile_live_combat_confidence",
+    "mobile_runner_goal_updates",
+    "quick_explain_follow_up"
+  ],
+  "required_markers": {
+    "install_claim_restore_continue": [
+      "VerifyRoamingWorkspaceRestorePlanRestoresPackageOwnedCampaignState",
+      "Assert(plan.ResumeFollowThrough.Contains(\"Resume Redmond Patrol\"",
+      "Assert(plan.ResumeFollowThroughHref.Contains(\"/play/session-redmond\"",
+      "Assert(plan.SupportFollowThroughHref.Contains(\"/contact\"",
+      "Assert(plan.SupportFollowThroughHref.Contains(\"campaignId=campaign-redmond\"",
+      "Assert(projection.SupportFollowThroughHref.Contains(\"kind=install_help\"",
+      "Assert(projection.SupportFollowThroughHref.Contains(\"sessionId=session-redmond\""
+    ],
+    "campaign_session_recover_recap": [
+      "VerifyCampaignWorkspaceLiteProjectionPromotesContinuitySummary",
+      "VerifyCachePressureDecisionNoticeUsesSupportNextActionCopy",
+      "VerifyIndexShellBindsContextualActionLabelsAsync",
+      "VerifyPlayRoamingRestoreServiceProjectsClaimedDeviceRecovery",
+      "Assert(projection.ContinuityRailSummary.Contains(\"Downtime:\", StringComparison.Ordinal)",
+      "Assert(projection.ContinuityRailSummary.Contains(\"Diary:\", StringComparison.Ordinal)",
+      "Assert(projection.ContinuityRailSummary.Contains(\"Contacts:\", StringComparison.Ordinal)",
+      "Assert(projection.ContinuityRailSummary.Contains(\"Heat:\", StringComparison.Ordinal)",
+      "Assert(projection.ContinuityRailSummary.Contains(\"Aftermath:\", StringComparison.Ordinal)",
+      "Assert(projection.ContinuityRailSummary.Contains(\"Return:\", StringComparison.Ordinal)",
+      "Assert(projection.GmOperationsSummary.Contains(\"Opposition:\", StringComparison.Ordinal)",
+      "Assert(projection.GmOperationsSummary.Contains(\"Roster movement:\", StringComparison.Ordinal)",
+      "Assert(projection.GmOperationsSummary.Contains(\"Prep library:\", StringComparison.Ordinal)",
+      "Assert(projection.GmOperationsSummary.Contains(\"Event controls:\", StringComparison.Ordinal)",
+      "Assert(projection.GmOperationsSummary.Contains(\"audit-visible\", StringComparison.Ordinal)",
+      "Assert(projection.GmOperationsSummary.Contains(\"support-linked\", StringComparison.Ordinal)",
+      "Assert(projection.GmOperationsLabels.Any(item => item.Contains(\"Opposition lane:\", StringComparison.Ordinal))",
+      "Assert(projection.GmOperationsLabels.Any(item => item.Contains(\"Roster movement lane:\", StringComparison.Ordinal))",
+      "Assert(projection.GmOperationsLabels.Any(item => item.Contains(\"Prep library lane:\", StringComparison.Ordinal))",
+      "Assert(projection.GmOperationsLabels.Any(item => item.Contains(\"Event controls lane:\", StringComparison.Ordinal))",
+      "Assert(projection.GmOperationsLabels.Any(item => item.Contains(\"Governance lane:\", StringComparison.Ordinal))",
+      "Assert(projection.OfflineTruthSummary.Contains(\"Stale:\", StringComparison.Ordinal)",
+      "Assert(projection.OfflineTruthSummary.Contains(\"Can do now:\", StringComparison.Ordinal)",
+      "Assert(projection.OfflineTruthSummary.Contains(\"safehouse\", StringComparison.OrdinalIgnoreCase)",
+      "Assert(projection.OfflineTruthSummary.Contains(\"Needs online:\", StringComparison.Ordinal)",
+      "Assert(projection.OfflineTruthLabels.Any(item => item.Contains(\"Stale lane:\", StringComparison.Ordinal))",
+      "Assert(projection.OfflineTruthLabels.Any(item => item.Contains(\"Can-do-now lane:\", StringComparison.Ordinal))",
+      "Assert(projection.OfflineTruthLabels.Any(item => item.Contains(\"Needs-online lane:\", StringComparison.Ordinal))",
+      "Assert(projection.OfflineTruthLabels.Any(item => item.Contains(\"safehouse\", StringComparison.OrdinalIgnoreCase))",
+      "Assert(plan.TravelCompanionSummary.Contains(\"Cached:\", StringComparison.Ordinal)",
+      "Assert(plan.TravelCompanionSummary.Contains(\"Stale:\", StringComparison.Ordinal)",
+      "Assert(plan.TravelCompanionSummary.Contains(\"Offline actions:\", StringComparison.Ordinal)",
+      "Assert(plan.TravelCompanionLabels.Any(item => item.Contains(\"Cached lane:\", StringComparison.Ordinal))",
+      "Assert(plan.TravelCompanionLabels.Any(item => item.Contains(\"Stale lane:\", StringComparison.Ordinal))",
+      "Assert(plan.TravelCompanionLabels.Any(item => item.Contains(\"Offline action lane:\", StringComparison.Ordinal))",
+      "Assert(plan.SafeNextAction.Contains(\"Open scene-redmond mobile return\"",
+      "Assert(projection.ChangePacketSummary.Contains(\"Return anchor stays on checkpoint 12\"",
+      "Assert(projection.ChangePacketLabels.Any(item => item.Contains(\"Scene packet: scene-redmond\"",
+      "Assert(projection.RolePosture.Contains(\"player lane\"",
+      "Assert(projection.RoleFollowThroughHref.Contains(\"/play/session-redmond?role=Player\"",
+      "Assert(projection.DecisionNotice.Contains(\"Use the current bundle proof for scene-redmond\"",
+      "setLink(\"workspace-decision-notice-link\", payload.decisionNoticeHref, payload.decisionNotice, \"/\", \"Decision notice follow-through\");",
+      "setLink(\"follow-through-update-link\", payload.updateFollowThroughHref, payload.updateFollowThrough, \"/downloads\", \"Update follow-through\");",
+      "setLink(\"follow-through-support-link\", payload.supportFollowThroughHref, payload.supportFollowThrough, \"/contact\", \"Support follow-through\");",
+      "setLink(\"follow-through-role-link\", payload.roleFollowThroughHref, payload.roleFollowThrough, \"/\", \"Role follow-through\");",
+      "setLink(\"restore-follow-through-link\", payload.resumeFollowThroughHref, payload.resumeFollowThrough, \"/play\", \"Claimed-device follow-through\");",
+      "setLink(\"restore-support-follow-through-link\", payload.supportFollowThroughHref, payload.supportFollowThrough, \"/contact\", \"Restore support follow-through\");",
+      "const explicitDeviceId = params.get(\"deviceId\") || \"\";",
+      "const resolvedDeviceId = resolveStableDeviceId(role, explicitDeviceId);",
+      "const observerId = resolveObserverId();",
+      "const observeResponse = await fetch(`/api/play/observe/${encodeURIComponent(sessionId)}`);",
+      "fetch(\"/api/play/continuity/claim\", {",
+      "renderContinuityClaimStatus({",
+      "document.getElementById(\"shell-continuity-claim-button\").addEventListener(\"click\", claimContinuityOnThisDevice);",
+      "id=\"shell-continuity-claim-status\"",
+      "id=\"shell-owner-route-link\"",
+      "id=\"shell-continuity-claim-button\"",
+      "id=\"change-packet-summary\"",
+      "id=\"change-packet-list\"",
+      "id=\"workspace-continuity-rail\"",
+      "id=\"workspace-continuity-rail-list\"",
+      "id=\"workspace-gm-ops\"",
+      "id=\"workspace-gm-ops-list\"",
+      "id=\"workspace-offline-truth\"",
+      "id=\"workspace-offline-truth-list\"",
+      "id=\"workspace-role\"",
+      "id=\"workspace-update\"",
+      "id=\"workspace-support\"",
+      "id=\"workspace-support-status\"",
+      "id=\"workspace-known-issue\"",
+      "id=\"workspace-fix-state\"",
+      "id=\"restore-follow-through\"",
+      "id=\"restore-offline-truth\"",
+      "id=\"restore-offline-truth-labels\"",
+      "id=\"restore-travel-companion\"",
+      "id=\"restore-travel-companion-labels\"",
+      "id=\"restore-prefetch-labels\""
+    ],
+    "recover_from_sync_conflict": [
+      "VerifyRoamingWorkspaceRestorePlanPreservesConflictAndInstallLocalGuardrails",
+      "Assert(plan.RequiresConflictReview",
+      "Assert(plan.ResumeFollowThrough.Contains(\"restore review\"",
+      "Assert(plan.SupportFollowThroughHref.Contains(\"different%20channels\"",
+      "Assert(plan.AttentionItems.Any(item => item.Contains(\"different channels\"",
+      "id=\"restore-support-follow-through\""
+    ],
+    "quality_release_hardening": [
+      "VerifyIndexShellAccessibilityContractAsync",
+      "VerifyCachePressureBudgetContractAsync",
+      "VerifyCachePressureDecisionNoticeUsesSupportNextActionCopy",
+      "VerifyOfflineQueueRejectsMalformedSessionEnvelopeAsync",
+      "VerifyOfflineQueueRejectsStaleLineageAsync",
+      "VerifyResumePreservesLedgerWhenRuntimeBundleDriftsAsync",
+      "VerifyResumeNormalizesCheckpointToLedgerLineageAsync",
+      "VerifyReconnectLineageTransitionContinuityAsync",
+      "VerifyResumeAndWorkspaceLiteRoutesStayRoleConcreteAsync",
+      "VerifyTurnCompanionRealHostPipelineUsesAntiforgeryAsync",
+      "VerifyTurnCompanionRunsiteAnchorSelectionStaysDeviceScopedAsync",
+      "VerifyRuntimeBundleSessionLockReleasesOnCanceledAcquireAsync",
+      "RUNSITE stays orientation-only here: room, zone, and hotspot anchors are inspectable context, not token authority.",
+      "function normalizePlayRouteForMobileShell(href, roleFallback, sessionIdFallback, deviceFallback)",
+      "playParams.set(\"role\", role);",
+      "playParams.set(\"sessionId\", sessionId);",
+      "playParams.set(\"deviceId\", deviceId);",
+      "return `/mobile/${mode}?${playParams.toString()}`;",
+      "Post-closure completion criteria (M12)",
+      "Post-closure hardening criteria (M13)",
+      "Post-closure role-depth criteria (M14)",
+      "Release-proof cadence criteria:"
+    ],
+    "pwa_runtime_smoke": [
+      "mobile_pwa_runtime_smoke ok",
+      "public_install_boundary: /mobile /mobile/player /mobile/gm /mobile/observer",
+      "public_authority: none",
+      "query_parameters_grant_access: false",
+      "live_session_boundary: /mobile/live",
+      "live_grant_source: trusted_server_headers",
+      "live_owner_route: /mobile/live",
+      "private_api_boundary: online 200 private,no-store",
+      "PlaySessionGrantPolicy.TryResolve",
+      "RequireTrustedMobileLiveGrantBoundaryAsync",
+      "data-session-grant-backed=\"true\"",
+      "python3 scripts/verify_mobile_pwa_runtime_smoke.py"
+    ],
+    "mobile_pwa_viewport_smoke": [
+      "mobile_pwa_viewport_smoke ok",
+      "public_install_phone_layouts: player / gm / observer",
+      "public_install_desktop_layout: 3 columns",
+      "manifest_start_urls: clean player / gm / observer",
+      "live_session_viewport: 390x844 /mobile/live",
+      "live_touch_target_min:",
+      "Page.getInstallabilityErrors",
+      "python3 scripts/verify_mobile_pwa_viewport_smoke.py"
+    ],
+    "mobile_pwa_analytics_smoke": [
+      "mobile_pwa_analytics_smoke ok",
+      "public_install_analytics: disabled",
+      "live_analytics_route: /mobile/live",
+      "live_analytics_role_source: trusted_server_headers",
+      "privacy_blocked: dnt_gpc",
+      "analytics_default_disabled: true",
+      "secret_leak_free: true",
+      "function isAnalyticsBlocked()",
+      "return /session|device|token|continuity|owner|secret|key|href|url/i.test(key);",
+      "python3 scripts/verify_mobile_pwa_analytics_smoke.py"
+    ],
+    "turn_companion_live_session": [
+      "@page \"/mobile/live\"",
+      "PlaySessionGrantPolicy.ResolveCurrent",
+      "The live companion requires a validated server session grant.",
+      "PlayRouteHandlers.BuildMobileOwnerRoute()",
+      "return \"/mobile/live\";",
+      "query parameters must not grant live companion access",
+      "chummer-play-analytics-config",
+      "RybbitAnalyticsEnabled",
+      "RYBBIT_CHUMMER_PLAY_SITE_ID",
+      "RYBBIT_CHUMMER_PLAY_SCRIPT_URL",
+      "RYBBIT_CHUMMER_PLAY_ALLOW_SAME_HOST_PROXY",
+      "endpoint.Scheme == Uri.UriSchemeHttps",
+      "mobile_shell_open",
+      "mobile_role_switch",
+      "\"/manifest.player.webmanifest\"",
+      "\"/manifest.gm.webmanifest\"",
+      "\"/manifest.observer.webmanifest\"",
+      "\"id\": \"/mobile/player\"",
+      "\"id\": \"/mobile/gm\"",
+      "\"id\": \"/mobile/observer\"",
+      "\"scope\": \"/mobile/\"",
+      "\"purpose\": \"any maskable\"",
+      "id=\"turn-action-grid\"",
+      "id=\"turn-history-list\"",
+      "id=\"turn-runsite-summary\"",
+      "id=\"runsite-anchor\""
+    ],
+    "migration_boundary_evidence": [
+      "`Chummer.Session.Web/Program.cs` -> `src/Chummer.Play.Web/Program.cs`",
+      "`Chummer.Session.Web/BrowserSessionApiClient.cs` -> `src/Chummer.Play.Web/BrowserSessionApiClient.cs`",
+      "`Chummer.Session.Web` bootstrap/sync/session DTOs -> `Chummer.Play.Contracts` package-owned play transport surface",
+      "replace old `Chummer.Presentation` project references with package-only dependencies",
+      "preserve local-first event log, runtime bundle, and offline cache ownership here",
+      "keep DTO canon in shared packages instead of introducing repo-local copies"
+    ],
+    "mobile_campaign_continuity": [
+      "Mobile campaign continuity criteria (M112)",
+      "next90-m112-mobile-campaign-continuity",
+      "Assert(projection.MobileCampaignCurrentState.Contains(\"Current continuity posture:\", StringComparison.Ordinal)",
+      "Assert(projection.MobileCampaignStateSummary.Contains(\"Cached state:\", StringComparison.Ordinal)",
+      "Assert(projection.MobileCampaignCachedState.Contains(\"Cached state:\", StringComparison.Ordinal)",
+      "Assert(projection.MobileCampaignStaleState.Contains(\"Stale state:\", StringComparison.Ordinal)",
+      "Assert(projection.MobileCampaignActionRequired.Contains(\"Action required:\", StringComparison.Ordinal)",
+      "Assert(projection.MobileCampaignActionRequired.Contains(\"Mobile shell owner: player lane. Session: scene-redmond.\", StringComparison.Ordinal)",
+      "Assert(projection.MobileCampaignStateLabels.Any(item => item.Contains(\"Cached lane:\", StringComparison.Ordinal))",
+      "Assert(projection.MobileCampaignStateLabels.Any(item => item.Contains(\"Action-required lane:\", StringComparison.Ordinal))",
+      "Assert(plan.TravelCampaignCurrentState.Contains(\"Current continuity posture:\", StringComparison.Ordinal)",
+      "Assert(plan.TravelCampaignStateSummary.Contains(\"Cached state:\", StringComparison.Ordinal)",
+      "Assert(plan.TravelCampaignCachedState.Contains(\"Cached state:\", StringComparison.Ordinal)",
+      "Assert(plan.TravelCampaignStaleState.Contains(\"Stale state:\", StringComparison.Ordinal)",
+      "Assert(plan.TravelCampaignActionRequired.Contains(\"Action required:\", StringComparison.Ordinal)",
+      "Assert(plan.TravelCampaignActionRequired.Contains(\"Travel lane: play_tablet on install-tablet.\", StringComparison.Ordinal)",
+      "Assert(postFailureProjection.EntryStateSummary.Contains(\"cached, stale, and action-required travel continuity\", StringComparison.Ordinal)",
+      "Assert(postFailureProjection.RecoveryActions.Any(item => item.Contains(\"Travel continuity cached state:\", StringComparison.Ordinal))",
+      "Assert(postFailureProjection.RecoveryActions.Any(item => item.Contains(\"Travel continuity stale state:\", StringComparison.Ordinal))",
+      "Assert(postFailureProjection.RecoveryActions.Any(item => item.Contains(\"Travel continuity action required:\", StringComparison.Ordinal))",
+      "Assert(plan.TravelCampaignStateLabels.Any(item => item.Contains(\"Cached lane:\", StringComparison.Ordinal))",
+      "Assert(plan.TravelCampaignStateLabels.Any(item => item.Contains(\"Travel companion lane:\", StringComparison.Ordinal))",
+      "setText(\"workspace-mobile-campaign-current-state\", payload.mobileCampaignCurrentState, \"No mobile campaign continuity posture is available yet.\");",
+      "setText(\"workspace-mobile-campaign-state\", payload.mobileCampaignStateSummary, \"No mobile campaign-state summary is available yet.\");",
+      "setList(\"workspace-mobile-campaign-state-list\", payload.mobileCampaignStateLabels);",
+      "setText(\"workspace-action-required\", payload.actionRequiredSummary, \"No action-required summary is available yet.\");",
+      "setList(\"workspace-action-required-list\", payload.actionRequiredLabels);",
+      "setText(\"workspace-mobile-campaign-cached-state\", payload.mobileCampaignCachedState, \"No mobile cached campaign state is available yet.\");",
+      "setText(\"workspace-mobile-campaign-stale-state\", payload.mobileCampaignStaleState, \"No mobile stale campaign state is available yet.\");",
+      "setText(\"workspace-mobile-campaign-action-required\", payload.mobileCampaignActionRequired, \"No mobile campaign action-required posture is available yet.\");",
+      "setText(\"restore-travel-campaign-current-state\", payload.travelCampaignCurrentState, \"No restore travel campaign continuity posture is available yet.\");",
+      "setText(\"restore-travel-campaign-state\", payload.travelCampaignStateSummary, \"No restore travel campaign-state summary is available yet.\");",
+      "setList(\"restore-travel-campaign-state-labels\", payload.travelCampaignStateLabels);",
+      "setText(\"restore-action-required\", payload.actionRequiredSummary, \"No restore action-required summary is available yet.\");",
+      "setList(\"restore-action-required-labels\", payload.actionRequiredLabels);",
+      "setText(\"restore-travel-campaign-cached-state\", payload.travelCampaignCachedState, \"No restore travel cached campaign state is available yet.\");",
+      "setText(\"restore-travel-campaign-stale-state\", payload.travelCampaignStaleState, \"No restore travel stale campaign state is available yet.\");",
+      "setText(\"restore-travel-campaign-action-required\", payload.travelCampaignActionRequired, \"No restore travel action-required posture is available yet.\");",
+      "if (lowered.includes(\"action required\") || lowered.includes(\"action-required\")) {",
+      "function syncContinuityCardTone(cardId, currentStateId, summaryId, currentStateText, actionId)",
+      "const actionState = actionId ? (document.getElementById(actionId).textContent || \"\") : \"\";",
+      "card.dataset.tone = inferContinuityTone(actionState || currentStateText || currentState || summary);",
+      "const continuityTone = inferContinuityTone(`${payload.mobileCampaignActionRequired || \"\"} ${payload.mobileCampaignStaleState || \"\"}`);",
+      "document.getElementById(\"shell-continuity-status\").dataset.tone = continuityTone;",
+      "`${payload.mobileCampaignStaleState || \"\"} ${payload.mobileCampaignCurrentState || \"\"}`",
+      "`${payload.travelCampaignStaleState || \"\"} ${payload.travelCampaignCurrentState || \"\"}`",
+      "syncContinuityStateBreakdown(\n      \"workspace-mobile-campaign-cached-state\",",
+      "syncContinuityStateBreakdown(\n      \"restore-travel-campaign-cached-state\",",
+      "id=\"workspace-mobile-campaign-card\"",
+      "id=\"workspace-mobile-campaign-current-state\"",
+      "id=\"workspace-mobile-campaign-state\"",
+      "id=\"restore-travel-campaign-card\"",
+      "id=\"restore-travel-campaign-current-state\"",
+      "id=\"restore-travel-campaign-state\"",
+      "id=\"workspace-mobile-campaign-cached-state\"",
+      "id=\"workspace-mobile-campaign-stale-state\"",
+      "id=\"workspace-mobile-campaign-action-required\"",
+      "id=\"workspace-mobile-campaign-state-list\"",
+      "id=\"restore-travel-campaign-cached-state\"",
+      "id=\"restore-travel-campaign-stale-state\"",
+      "id=\"restore-travel-campaign-action-required\"",
+      "id=\"restore-travel-campaign-state-labels\"",
+      "campaign_memory:travel",
+      "campaign_state:mobile",
+      "scripts/verify_next90_m112_mobile_campaign_continuity.py"
+    ],
+    "mobile_onboarding_continuity": [
+      "Mobile onboarding continuity criteria (M119)",
+      "next90-m119-mobile-onboarding-continuity",
+      "Assert(projection.LaunchPrimerSummary.Contains(\"Starter primer:\", StringComparison.Ordinal)",
+      "Assert(projection.LaunchPrimerHref == \"/artifacts/session-redmond/artifact%3Asession-redmond%3Astarter-primer?role=Player&view=personal\"",
+      "Assert(projection.FirstSessionBriefingSummary.Contains(\"First-session briefing:\", StringComparison.Ordinal)",
+      "Assert(projection.FirstSessionBriefingHref == \"/artifacts/session-redmond/artifact%3Asession-redmond%3Afirst-session-briefing?role=Player&view=travel\"",
+      "Assert(projection.StarterArtifactContinuitySummary.Contains(\"Starter continuity:\", StringComparison.Ordinal)",
+      "Assert(projection.StarterArtifactContinuityLabels.Any(item => item.Contains(\"Starter primer lane:\", StringComparison.Ordinal))",
+      "Assert(plan.StarterPrimerFollowThrough.Contains(\"starter primer\", StringComparison.OrdinalIgnoreCase)",
+      "Assert(plan.StarterPrimerFollowThroughHref.Contains(\"artifact%3Asession-redmond%3Astarter-primer\", StringComparison.Ordinal)",
+      "Assert(plan.StarterPrimerFollowThroughHref.Contains(\"deviceId=install-tablet\", StringComparison.Ordinal)",
+      "Assert(plan.FirstSessionBriefingFollowThrough.Contains(\"first-session briefing\", StringComparison.OrdinalIgnoreCase)",
+      "Assert(plan.FirstSessionBriefingFollowThroughHref.Contains(\"artifact%3Asession-redmond%3Afirst-session-briefing\", StringComparison.Ordinal)",
+      "Assert(plan.FirstSessionBriefingFollowThroughHref.Contains(\"view=travel\", StringComparison.Ordinal)",
+      "Assert(noSessionProjection.RecommendedActionLabel.Contains(\"starter primer\", StringComparison.OrdinalIgnoreCase)",
+      "Assert(noCampaignProjection.RecommendedActionHref.Contains(\"starter-primer\", StringComparison.OrdinalIgnoreCase)",
+      "Assert(restorePlanTravel.StarterPrimerFollowThroughHref.Contains($\"deviceId={Uri.EscapeDataString(expectedDeviceId)}\", StringComparison.Ordinal)",
+      "Assert(restorePlanTravel.FirstSessionBriefingFollowThroughHref.Contains(\"view=travel\", StringComparison.Ordinal)",
+      "setText(\"workspace-launch-primer\", payload.launchPrimerSummary, \"No starter primer summary is available yet.\");",
+      "setLink(\"workspace-launch-primer-link\", payload.launchPrimerHref, \"Open starter primer\", \"/artifacts\", \"Open starter primer\");",
+      "setText(\"workspace-first-session-briefing\", payload.firstSessionBriefingSummary, \"No first-session briefing summary is available yet.\");",
+      "setLink(\"workspace-first-session-briefing-link\", payload.firstSessionBriefingHref, \"Open first-session briefing\", \"/artifacts\", \"Open first-session briefing\");",
+      "setText(\"workspace-starter-artifact-continuity\", payload.starterArtifactContinuitySummary, \"No starter artifact continuity summary is available yet.\");",
+      "setText(\"restore-starter-primer-follow-through\", payload.starterPrimerFollowThrough, \"No travel starter-primer follow-through is available yet.\");",
+      "setText(\"restore-first-session-briefing-follow-through\", payload.firstSessionBriefingFollowThrough, \"No travel first-session briefing follow-through is available yet.\");",
+      "starter_onboarding:mobile",
+      "first_session_briefing:mobile",
+      "scripts/verify_next90_m119_mobile_onboarding_continuity.py"
+    ],
+    "mobile_artifact_shelf": [
+      "Mobile artifact shelf criteria (M117)",
+      "next90-m117-mobile-artifact-shelf",
+      "Assert(projection.ArtifactShelfSelectionSummary.Contains(\"My stuff shelf:\", StringComparison.Ordinal)",
+      "Assert(projection.ArtifactShelfViews.Count == 4",
+      "Assert(projection.ArtifactShelfViews.Any(item => item.ViewId == \"travel\" && item.Label == \"Travel cache\" && item.Href == \"/artifacts/session-redmond?role=Player&view=travel\")",
+      "Assert(travelProjection.SelectedArtifactView == \"travel\"",
+      "Assert(travelProjection.ArtifactShelfSelectionSummary.Contains(\"Travel shelf:\", StringComparison.Ordinal)",
+      "Assert(observerProjection.ArtifactShelfViews.Any(item => item.ViewId == \"travel\" && item.Href.Contains(\"role=Observer\", StringComparison.Ordinal))",
+      "Assert(gmProjection.ArtifactShelfViews.Any(item => item.ViewId == \"travel\" && item.Href.Contains(\"role=GameMaster\", StringComparison.Ordinal))",
+      "Assert(recapProjection.SelectedRecapArtifactSummary.Contains(\"travel shelf\", StringComparison.OrdinalIgnoreCase)",
+      "setText(\"workspace-artifact-shelf-summary\", payload.artifactShelfSelectionSummary, \"No mobile artifact shelf summary is available yet.\");",
+      "setText(\"workspace-artifact-selection\", payload.selectedRecapArtifactSummary, \"Selected recap artifact: no recap artifact is pinned yet.\");",
+      "setLink(\"workspace-artifact-selection-link\", payload.selectedRecapArtifactHref || selectedArtifactView?.href, artifactId",
+      "document.getElementById(\"workspace-artifact-shelf-link\").href = selectedArtifactView?.href || \"/artifacts\";",
+      "? `Browse ${selectedArtifactView.label}`",
+      "const artifactView = params.get(\"artifactView\") || \"\";",
+      "const artifactId = params.get(\"artifactId\") || \"\";",
+      "workspaceQuery.set(\"artifactView\", artifactView);",
+      "workspaceQuery.set(\"artifactId\", artifactId);",
+      "renderWorkspace(payload, artifactId);",
+      "Assert(artifactShelfBrowseRedirect.Location == $\"/index.html?sessionId={Uri.EscapeDataString(sessionId)}&role={Uri.EscapeDataString(role.ToString())}&artifactView=campaign\"",
+      "Assert(artifactShelfRedirect.Location == $\"/index.html?sessionId={Uri.EscapeDataString(sessionId)}&role={Uri.EscapeDataString(role.ToString())}&artifactView=travel&artifactId=artifact-recap\"",
+      "artifact_shelf:mobile",
+      "artifact_recap_view:mobile",
+      "scripts/verify_next90_m117_mobile_artifact_shelf.py"
+    ],
+    "mobile_live_combat_confidence": [
+      "Mobile live combat confidence criteria (M121)",
+      "next90-m121-mobile-add-player-table-cards-between-turn-affordances-and-gm-l",
+      "Assert(playerDescriptor.Summary.Contains(\"player table cards\", StringComparison.OrdinalIgnoreCase)",
+      "Assert(playerDescriptor.Summary.Contains(\"between-turn\", StringComparison.OrdinalIgnoreCase)",
+      "Assert(gmDescriptor.Summary.Contains(\"GM-lite continuity\", StringComparison.Ordinal)",
+      "Assert(projection.PlayerTableCardsSummary.Contains(\"Player table cards:\", StringComparison.Ordinal)",
+      "Assert(projection.PlayerTableCardLabels.Any(item => item.Contains(\"Initiative lane:\", StringComparison.Ordinal))",
+      "Assert(projection.BetweenTurnAffordancesSummary.Contains(\"Between-turn affordances:\", StringComparison.Ordinal)",
+      "Assert(projection.BetweenTurnAffordanceLabels.Any(item => item.Contains(\"Ready lane:\", StringComparison.Ordinal))",
+      "Assert(projection.GmLiteContinuitySummary.Contains(\"GM-lite continuity:\", StringComparison.Ordinal)",
+      "Assert(projection.GmLiteContinuityLabels.Any(item => item.Contains(\"Objective lane:\", StringComparison.Ordinal))",
+      "Assert(observerProjection.GmLiteContinuitySummary.Contains(\"observer lane\", StringComparison.OrdinalIgnoreCase)",
+      "Assert(gmProjection.PlayerTableCardsSummary.Contains(\"Advance Initiative\", StringComparison.Ordinal)",
+      "Assert(gmProjection.GmLiteContinuitySummary.Contains(\"GM runboard\", StringComparison.Ordinal)",
+      "setText(\"workspace-player-table-cards\", payload.playerTableCardsSummary, \"No player table-card summary is available yet.\");",
+      "setList(\"workspace-player-table-cards-list\", payload.playerTableCardLabels);",
+      "setText(\"workspace-between-turn-affordances\", payload.betweenTurnAffordancesSummary, \"No between-turn affordance summary is available yet.\");",
+      "setList(\"workspace-between-turn-affordances-list\", payload.betweenTurnAffordanceLabels);",
+      "setText(\"workspace-gm-lite-continuity\", payload.gmLiteContinuitySummary, \"No GM-lite continuity summary is available yet.\");",
+      "setList(\"workspace-gm-lite-continuity-list\", payload.gmLiteContinuityLabels);",
+      "id=\"workspace-player-table-cards\"",
+      "id=\"workspace-player-table-cards-list\"",
+      "id=\"workspace-between-turn-affordances\"",
+      "id=\"workspace-between-turn-affordances-list\"",
+      "id=\"workspace-gm-lite-continuity\"",
+      "id=\"workspace-gm-lite-continuity-list\"",
+      "player table cards",
+      "between-turn affordances",
+      "GM-lite continuity views",
+      "add_player_table_cards_between:mobile",
+      "scripts/verify_next90_m121_mobile_live_combat_confidence.py"
+    ],
+    "mobile_runner_goal_updates": [
+      "Mobile runner-goal updates and consequence-feed criteria (M122)",
+      "next90-m122-mobile-add-mobile-runner-goal-updates-and-player-safe-consequen",
+      "Assert(projection.RunnerGoalUpdatesSummary.Contains(\"Runner goal updates:\", StringComparison.Ordinal)",
+      "Assert(projection.RunnerGoalUpdatesSummary.Contains(\"Return moments stay player-safe\", StringComparison.Ordinal)",
+      "Assert(projection.RunnerGoalUpdateLabels.Any(item => item.Contains(\"Goal checkpoint lane:\", StringComparison.Ordinal))",
+      "Assert(projection.RunnerGoalUpdateLabels.Any(item => item.Contains(\"Goal signal lane:\", StringComparison.Ordinal))",
+      "Assert(projection.RunnerGoalUpdateLabels.Any(item => item.Contains(\"Goal route lane:\", StringComparison.Ordinal))",
+      "Assert(projection.RunnerGoalUpdateLabels.Any(item => item.Contains(\"Goal boundary lane:\", StringComparison.Ordinal))",
+      "Assert(projection.PlayerSafeConsequenceFeedSummary.Contains(\"Player-safe consequence feed:\", StringComparison.Ordinal)",
+      "Assert(projection.PlayerSafeConsequenceFeedSummary.Contains(\"BLACK LEDGER world truth\", StringComparison.Ordinal)",
+      "Assert(projection.PlayerSafeConsequenceFeedLabels.Any(item => item.Contains(\"Consequence lane:\", StringComparison.Ordinal))",
+      "Assert(projection.PlayerSafeConsequenceFeedLabels.Any(item => item.Contains(\"Spoiler lane:\", StringComparison.Ordinal))",
+      "Assert(projection.PlayerSafeConsequenceFeedLabels.Any(item => item.Contains(\"Return lane:\", StringComparison.Ordinal))",
+      "Assert(projection.PlayerSafeConsequenceFeedLabels.Any(item => item.Contains(\"Trust lane:\", StringComparison.Ordinal))",
+      "Assert(observerProjection.RunnerGoalUpdatesSummary.Contains(\"Runner goal updates:\", StringComparison.Ordinal)",
+      "Assert(observerProjection.PlayerSafeConsequenceFeedSummary.Contains(\"Player-safe consequence feed:\", StringComparison.Ordinal)",
+      "Assert(gmProjection.RunnerGoalUpdatesSummary.Contains(\"GM runboard\", StringComparison.Ordinal)",
+      "Assert(gmProjection.PlayerSafeConsequenceFeedLabels.Any(item => item.Contains(\"Trust lane:\", StringComparison.Ordinal))",
+      "setText(\"workspace-runner-goal-updates\", payload.runnerGoalUpdatesSummary, \"No runner-goal update summary is available yet.\");",
+      "setList(\"workspace-runner-goal-update-list\", payload.runnerGoalUpdateLabels);",
+      "setText(\"workspace-player-safe-consequence-feed\", payload.playerSafeConsequenceFeedSummary, \"No player-safe consequence feed summary is available yet.\");",
+      "setList(\"workspace-player-safe-consequence-feed-list\", payload.playerSafeConsequenceFeedLabels);",
+      "id=\"workspace-runner-goal-updates\"",
+      "id=\"workspace-runner-goal-update-list\"",
+      "id=\"workspace-player-safe-consequence-feed\"",
+      "id=\"workspace-player-safe-consequence-feed-list\"",
+      "runner-goal return updates",
+      "player-safe consequence feed views",
+      "add_mobile_runner_goal_updates:mobile",
+      "scripts/verify_next90_m122_mobile_runner_goal_updates.py"
+    ],
+    "quick_explain_follow_up": [
+      "Successor-wave explain and follow-up criteria (M145)",
+      "Assert(projection.QuickExplainSummary.Contains(\"Quick explain:\", StringComparison.Ordinal)",
+      "Assert(projection.SourceAnchorSummary.Contains(\"Source anchors:\", StringComparison.Ordinal)",
+      "Assert(projection.StaleStatePosture.Contains(\"Stale-state posture: green\", StringComparison.Ordinal)",
+      "Assert(projection.GroundedFollowUpSummary.Contains(\"Grounded follow-up:\", StringComparison.Ordinal)",
+      "Assert(projection.GroundedFollowUpLabels.Any(item => item.Contains(\"Boundary lane:\", StringComparison.Ordinal))",
+      "setText(\"workspace-quick-explain\", payload.quickExplainSummary, \"No quick explain summary is available yet.\");",
+      "setList(\"workspace-quick-explain-list\", payload.quickExplainLabels);",
+      "setText(\"workspace-source-anchor\", payload.sourceAnchorSummary, \"No source-anchor context is available yet.\");",
+      "setList(\"workspace-source-anchor-list\", payload.sourceAnchorLabels);",
+      "setText(\"workspace-stale-posture\", payload.staleStatePosture, \"No stale-state posture is available yet.\");",
+      "setText(\"workspace-grounded-follow-up\", payload.groundedFollowUpSummary, \"No grounded follow-up summary is available yet.\");",
+      "setList(\"workspace-grounded-follow-up-list\", payload.groundedFollowUpLabels);",
+      "id=\"workspace-quick-explain\"",
+      "id=\"workspace-source-anchor\"",
+      "id=\"workspace-stale-posture\"",
+      "id=\"workspace-grounded-follow-up\"",
+      "packet-backed quick explain",
+      "source-anchor context",
+      "grounded text-first follow-up bounded to the claimed live-play shell"
+    ]
+  },
+  "package_receipts": [
+    {
+      "package_id": "next90-m112-mobile-campaign-continuity",
+      "title": "Make travel and mobile campaign continuity explicit for stale, cached, and action-required campaign state.",
+      "milestone_id": "112",
+      "work_task_id": "112.4",
+      "frontier_id": "3720982159",
+      "active_flagship_frontier_id": "1033794907",
+      "repo": "chummer6-mobile",
+      "checkout_root": "/docker/chummercomplete/chummer-play",
+      "allowed_paths": [
+        "src",
+        "tests",
+        "docs",
+        "scripts"
+      ],
+      "status": "implemented",
+      "proof_marker_set": "mobile_campaign_continuity",
+      "owned_surfaces": [
+        "campaign_memory:travel",
+        "campaign_state:mobile"
+      ],
+      "proof_receipt": "docs/next90-m112-mobile-campaign-continuity.proof.md"
+    },
+    {
+      "package_id": "next90-m119-mobile-onboarding-continuity",
+      "title": "Add travel and mobile starter continuity for primer and briefing artifacts.",
+      "milestone_id": "119",
+      "work_task_id": "119.3",
+      "frontier_id": "2766704797",
+      "repo": "chummer6-mobile",
+      "checkout_root": "/docker/chummercomplete/chummer-play",
+      "allowed_paths": [
+        "src",
+        "tests",
+        "docs",
+        "scripts"
+      ],
+      "status": "implemented",
+      "proof_marker_set": "mobile_onboarding_continuity",
+      "owned_surfaces": [
+        "starter_onboarding:mobile",
+        "first_session_briefing:mobile"
+      ],
+      "proof_receipt": "docs/next90-m119-mobile-onboarding-continuity.proof.md"
+    },
+    {
+      "package_id": "next90-m121-mobile-add-player-table-cards-between-turn-affordances-and-gm-l",
+      "title": "Add player table cards, between-turn affordances, and GM-lite continuity views for live combat confidence.",
+      "milestone_id": "121",
+      "work_task_id": "121.4",
+      "frontier_id": "6121780841",
+      "repo": "chummer6-mobile",
+      "checkout_root": "/docker/chummercomplete/chummer-play",
+      "allowed_paths": [
+        "src",
+        "tests",
+        "docs",
+        "scripts"
+      ],
+      "status": "implemented",
+      "proof_marker_set": "mobile_live_combat_confidence",
+      "owned_surfaces": [
+        "add_player_table_cards_between:mobile"
+      ],
+      "proof_receipt": "docs/next90-m121-mobile-live-combat-confidence.proof.md"
+    },
+    {
+      "package_id": "next90-m145-mobile-quick-explain-and-follow-up",
+      "milestone_id": "145",
+      "work_task_id": "145.3",
+      "frontier_id": "1453045303",
+      "status": "closed",
+      "proof_marker_set": "quick_explain_follow_up",
+      "owned_surfaces": [
+        "quick_explain:mobile",
+        "grounded_follow_up:mobile"
+      ],
+      "proof_receipt": "docs/next90-m145-mobile-quick-explain-and-follow-up.proof.md"
+    },
+    {
+      "package_id": "next90-m122-mobile-add-mobile-runner-goal-updates-and-player-safe-consequen",
+      "title": "Add mobile runner-goal updates and player-safe consequence feed views for campaign return moments.",
+      "milestone_id": "122",
+      "work_task_id": "122.4",
+      "frontier_id": "8138838792",
+      "repo": "chummer6-mobile",
+      "checkout_root": "/docker/chummercomplete/chummer-play",
+      "allowed_paths": [
+        "src",
+        "tests",
+        "docs",
+        "scripts"
+      ],
+      "status": "implemented",
+      "proof_marker_set": "mobile_runner_goal_updates",
+      "owned_surfaces": [
+        "add_mobile_runner_goal_updates:mobile"
+      ],
+      "proof_receipt": "docs/next90-m122-mobile-runner-goal-updates-and-consequence-feed.proof.md"
+    },
+    {
+      "package_id": "next90-m117-mobile-artifact-shelf",
+      "milestone_id": "117",
+      "work_task_id": "117.4",
+      "title": "Add mobile artifact shelf views for campaign, travel, and recap artifacts.",
+      "frontier_id": "3440617449",
+      "frontier_ids": [
+        "3440617449",
+        "3371889980"
+      ],
+      "active_flagship_frontier_id": "3371889980",
+      "repo": "chummer6-mobile",
+      "checkout_root": "/docker/chummercomplete/chummer-play",
+      "allowed_paths": [
+        "src",
+        "tests",
+        "docs",
+        "scripts"
+      ],
+      "status": "closed",
+      "proof_marker_set": "mobile_artifact_shelf",
+      "owned_surfaces": [
+        "artifact_shelf:mobile",
+        "artifact_recap_view:mobile"
+      ],
+      "proof_receipt": "docs/next90-m117-mobile-artifact-shelf.proof.md"
+    }
+  ],
+  "verification_commands": [
+    {
+      "id": "mobile_pwa_analytics_smoke",
+      "command": "python3 scripts/verify_mobile_pwa_analytics_smoke.py",
+      "receipt_path": ".codex-studio/published/MOBILE_PWA_ANALYTICS_SMOKE.generated.json",
+      "required_before_materialize": true,
+      "proves": [
+        "Rybbit default-disabled posture",
+        "DNT/GPC collection block",
+        "Player and GM shell-open/install/share analytics",
+        "session/device/secret leak-free payloads"
+      ]
+    },
+    {
+      "id": "pwa_runtime_smoke",
+      "command": "python3 scripts/verify_mobile_pwa_runtime_smoke.py",
+      "receipt_path": ".codex-studio/published/MOBILE_PWA_RUNTIME_SMOKE.generated.json",
+      "required_before_materialize": true,
+      "proves": [
+        "interactive Blazor mobile shell",
+        "hero dropdown Play launch to Player and GM PWA routes",
+        "Player and GM offline local queue replay after reconnect",
+        "device-neutral session handoff receivers",
+        "private play API fail-closed offline boundary"
+      ]
+    },
+    {
+      "id": "mobile_pwa_viewport_smoke",
+      "command": "python3 scripts/verify_mobile_pwa_viewport_smoke.py",
+      "receipt_path": ".codex-studio/published/MOBILE_PWA_VIEWPORT_SMOKE.generated.json",
+      "required_before_materialize": true,
+      "proves": [
+        "Player and GM installability",
+        "role-specific manifest URLs and scopes",
+        "mobile viewport overflow and touch target bounds",
+        "standalone installed-shell UI state"
+      ]
+    }
+  ],
+  "smoke_receipts": [
+    {
+      "id": "mobile_pwa_analytics_smoke",
+      "command": "python3 scripts/verify_mobile_pwa_analytics_smoke.py",
+      "receipt_path": ".codex-studio/published/MOBILE_PWA_ANALYTICS_SMOKE.generated.json",
+      "contract_name": "chummer_play.mobile_pwa_analytics_smoke.v2",
+      "status": "pass",
+      "generated_at_utc": "2026-07-27T13:38:16Z",
+      "verification_mode": "integration",
+      "verification_run_id": "cef422edc7f7cdb3e7d955b8ccee2649",
+      "required_before_materialize": true
+    },
+    {
+      "id": "pwa_runtime_smoke",
+      "command": "python3 scripts/verify_mobile_pwa_runtime_smoke.py",
+      "receipt_path": ".codex-studio/published/MOBILE_PWA_RUNTIME_SMOKE.generated.json",
+      "contract_name": "chummer_play.mobile_pwa_runtime_smoke.v2",
+      "status": "pass",
+      "generated_at_utc": "2026-07-27T13:36:21Z",
+      "verification_mode": "integration",
+      "verification_run_id": "cef422edc7f7cdb3e7d955b8ccee2649",
+      "required_before_materialize": true
+    },
+    {
+      "id": "mobile_pwa_viewport_smoke",
+      "command": "python3 scripts/verify_mobile_pwa_viewport_smoke.py",
+      "receipt_path": ".codex-studio/published/MOBILE_PWA_VIEWPORT_SMOKE.generated.json",
+      "contract_name": "chummer_play.mobile_pwa_viewport_smoke.v2",
+      "status": "pass",
+      "generated_at_utc": "2026-07-27T13:36:23Z",
+      "verification_mode": "integration",
+      "verification_run_id": "cef422edc7f7cdb3e7d955b8ccee2649",
+      "required_before_materialize": true
+    }
+  ],
+  "role_pwa_contract": {
+    "status": "pass",
+    "contract_name": "chummer6-mobile.role_pwa_contract.v2",
+    "public_install_boundary": {
+      "routes": [
+        "/mobile",
+        "/mobile/player",
+        "/mobile/gm",
+        "/mobile/observer"
+      ],
+      "authority": "none",
+      "roles": [
+        {
+          "mode": "player",
+          "route": "/mobile/player",
+          "authority": "none",
+          "manifest_id": "/mobile/player",
+          "manifest_start_url": "/mobile/player",
+          "manifest_scope": "/mobile/",
+          "manifest_shortcut_urls": [
+            "/mobile/player",
+            "/mobile/gm"
+          ],
+          "manifest_icon_purposes": [
+            "any maskable"
+          ],
+          "installability_error_count": 0
+        },
+        {
+          "mode": "gm",
+          "route": "/mobile/gm",
+          "authority": "none",
+          "manifest_id": "/mobile/gm",
+          "manifest_start_url": "/mobile/gm",
+          "manifest_scope": "/mobile/",
+          "manifest_shortcut_urls": [
+            "/mobile/gm",
+            "/mobile/player"
+          ],
+          "manifest_icon_purposes": [
+            "any maskable"
+          ],
+          "installability_error_count": 0
+        },
+        {
+          "mode": "observer",
+          "route": "/mobile/observer",
+          "authority": "none",
+          "manifest_id": "/mobile/observer",
+          "manifest_start_url": "/mobile/observer",
+          "manifest_scope": "/mobile/",
+          "manifest_shortcut_urls": [
+            "/mobile/observer",
+            "/mobile/player"
+          ],
+          "manifest_icon_purposes": [
+            "any maskable"
+          ],
+          "installability_error_count": 0
+        }
+      ]
+    },
+    "live_session_boundary": {
+      "cache_control": "private, no-store",
+      "content_security_policy": "default-src 'none'; base-uri 'none'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; manifest-src 'self'; script-src 'self'; style-src 'self'; worker-src 'self'",
+      "device_binding": "runtime-granted-device",
+      "grant_source": "trusted_server_headers",
+      "owner_route": "/mobile/live",
+      "query_parameters_grant_access": false,
+      "role_binding": "Player",
+      "role_change_exit": "/mobile/gm",
+      "route": "/mobile/live",
+      "session_binding": "session-runtime-grant"
+    },
+    "private_api_boundary": {
+      "online_cache_control": "private, no-store",
+      "online_status": 200
+    },
+    "viewport_boundary": {
+      "public": {
+        "authority": "none",
+        "desktop_layout": {
+          "gridColumns": 3,
+          "overflowFree": true
+        },
+        "phone_layouts": {
+          "gm": {
+            "authority": "none",
+            "hasLiveRoot": false,
+            "hasLiveRuntime": false,
+            "installTouchTarget": 47.5625,
+            "overflowFree": true
+          },
+          "observer": {
+            "authority": "none",
+            "hasLiveRoot": false,
+            "hasLiveRuntime": false,
+            "installTouchTarget": 47.5625,
+            "overflowFree": true
+          },
+          "player": {
+            "authority": "none",
+            "hasLiveRoot": false,
+            "hasLiveRuntime": false,
+            "installTouchTarget": 47.5625,
+            "overflowFree": true
+          }
+        },
+        "query_parameters_grant_access": false
+      },
+      "live": {
+        "grant_source": "trusted_server_headers",
+        "phone_layout": {
+          "actionColumns": 1,
+          "glanceCount": 6,
+          "minTouchTarget": 44,
+          "overflowFree": true,
+          "role": "Player",
+          "sessionId": "session-mobile-viewport"
+        },
+        "route": "/mobile/live"
+      }
+    },
+    "analytics_boundary": {
+      "public": {
+        "analytics_enabled": false,
+        "event_count": 0,
+        "provider_requests": 0,
+        "query_secret_leak_free": true
+      },
+      "live": {
+        "analytics_role": "Player",
+        "events": [
+          "mobile_shell_open",
+          "mobile_privacy_probe"
+        ],
+        "grant_source": "trusted_server_headers",
+        "provider_script": "/mobile-rybbit-smoke.js",
+        "route": "/mobile/live",
+        "secret_leak_free": true
+      },
+      "privacy": {
+        "default_disabled": true,
+        "default_event_count": 0,
+        "default_provider_requests": 0,
+        "dnt_gpc_blocked": true,
+        "privacy_event_count": 0,
+        "privacy_provider_requests": 0,
+        "secret_leak_free": true
+      }
+    },
+    "checks": {
+      "public_install_routes_are_distinct_and_authority_free": true,
+      "query_parameters_cannot_grant_live_access": true,
+      "live_route_requires_trusted_server_grant": true,
+      "role_change_exits_live_authority": true,
+      "private_api_is_no_store": true,
+      "manifests_are_clean_install_labels": true,
+      "manifest_shortcuts_are_authority_free": true,
+      "viewport_manifests_are_installable_and_clean": true,
+      "public_phone_and_desktop_layouts_proven": true,
+      "live_mobile_viewport_is_grant_backed": true,
+      "public_install_analytics_are_disabled": true,
+      "live_analytics_are_sanitized_and_grant_backed": true,
+      "analytics_privacy_controls_hold": true
+    },
+    "source_receipts": {
+      "runtime": ".codex-studio/published/MOBILE_PWA_RUNTIME_SMOKE.generated.json",
+      "viewport": ".codex-studio/published/MOBILE_PWA_VIEWPORT_SMOKE.generated.json",
+      "analytics": ".codex-studio/published/MOBILE_PWA_ANALYTICS_SMOKE.generated.json"
+    }
+  },
+  "cross_surface_readiness": {
+    "status": "pass",
+    "contract_name": "chummer6-mobile.cross_surface_readiness.v1",
+    "fleet_flagship_readiness_path": "/docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json",
+    "fleet_generated_at": "2026-07-18T00:25:10Z",
+    "fleet_status": "fail",
+    "ready_keys": [
+      "rules_engine_and_import",
+      "hub_and_registry",
+      "mobile_play_shell",
+      "ui_kit_and_flagship_polish",
+      "media_artifacts",
+      "horizons_and_public_surface"
+    ],
+    "warning_keys": [
+      "fleet_and_operator_loop"
+    ],
+    "missing_keys": [
+      "desktop_client"
+    ],
+    "readiness_plane_gap_keys": [
+      "flagship_ready",
+      "veteran_deep_workflow_ready",
+      "dense_workbench_ready",
+      "feedback_loop_ready",
+      "public_shelf_ready",
+      "recovery_trust_ready"
+    ],
+    "coverage": {
+      "mobile_play_shell": "ready",
+      "desktop_client": "missing"
+    },
+    "mobile_play_shell": {
+      "status": "ready",
+      "summary": "Mobile play-shell continuity and reconnect proof are current.",
+      "mobile_local_release_status": "passed",
+      "campaign_session_recover_recap_effective_state": "ready",
+      "recover_from_sync_conflict_owner_scoped_effective_state": "ready"
+    },
+    "flagship_ready": {
+      "status": "missing",
+      "summary": "Flagship replacement truth is still stricter than the current structural closure.",
+      "reasons": [
+        "Whole-product coverage still has open flagship gaps: fleet_and_operator_loop, desktop_client.",
+        "Dense-workbench readiness plane is not ready.",
+        "Feedback-loop readiness plane is not ready.",
+        "Veteran deep-workflow readiness plane is not ready.",
+        "Public-shelf readiness plane is not ready.",
+        "Recovery-trust readiness plane is not ready."
+      ]
+    },
+    "checks": {
+      "fleet_receipt_present": true,
+      "fleet_mobile_play_shell_ready": true,
+      "fleet_mobile_local_release_passed": true,
+      "fleet_mobile_scope_not_listed_as_blocker": true
+    },
+    "non_mobile_blockers": [
+      "dense_workbench_ready",
+      "desktop_client",
+      "feedback_loop_ready",
+      "flagship_ready",
+      "fleet_and_operator_loop",
+      "public_shelf_ready",
+      "recovery_trust_ready",
+      "veteran_deep_workflow_ready"
+    ]
+  },
+  "cross_surface_refresh": {
+    "status": "fail",
+    "required": false,
+    "contract_name": "chummer6-mobile.cross_surface_readiness_refresh.v1",
+    "generated_at_utc": "2026-07-27T13:36:24Z",
+    "script_path": "scripts/materialize_mobile_cross_surface_readiness.py",
+    "receipt_path": ".codex-studio/published/MOBILE_CROSS_SURFACE_READINESS.generated.json",
+    "base_url": "https://chummer.run",
+    "fleet_status": "fail",
+    "fleet_warning_keys": [
+      "fleet_and_operator_loop"
+    ],
+    "fleet_missing_keys": [
+      "desktop_client"
+    ],
+    "mobile_play_shell": {
+      "status": "ready",
+      "summary": "Mobile play-shell continuity and reconnect proof are current.",
+      "mobile_local_release_status": "passed"
+    },
+    "public_edge": {
+      "skipped": false,
+      "status": "fail",
+      "live_gate_status": null,
+      "strict_status": "fail",
+      "gate_exit_code": 2,
+      "downloads_status": null,
+      "frontdoor_navigation_status": null,
+      "frontdoor_route": null,
+      "handoff_launch_route": null,
+      "role_alias_route_status": null,
+      "pwa_static_status": null,
+      "mobile_ledger_status": null,
+      "ready_mobile_handoff_status": null,
+      "participate_iframe_shell_status": null,
+      "player_manifest_path": null,
+      "gm_manifest_path": null,
+      "player_handoff_strips_device": null,
+      "gm_handoff_strips_device": null,
+      "rybbit_player": null,
+      "rybbit_gm": null,
+      "strict_preflight_status": null,
+      "strict_postdeploy_status": null,
+      "strict_postdeploy_stale": false,
+      "strict_postdeploy_skip_preflight": null,
+      "strict_postdeploy_skip_release_version_match": null,
+      "strict_postdeploy_strict_preflight": false,
+      "strict_postdeploy_strict_invocation": false,
+      "strict_postdeploy_strict_no_allowance_invocation": false,
+      "live_build_lock_probe": {
+        "status": "clear",
+        "process_count": 0,
+        "entries": [],
+        "command": "ps -eo pid=,args=",
+        "returncode": 0
+      },
+      "failures": [
+        "strict public-edge preflight receipt is missing",
+        "strict public-edge postdeploy receipt is missing"
+      ]
+    },
+    "surface_source_fingerprint": {
+      "kind": "current_checkout_sha256",
+      "file_count": 11,
+      "paths": [
+        "src/Chummer.Play.Web/wwwroot/index.html",
+        "src/Chummer.Play.Web/wwwroot/mobile-turn-companion.js",
+        "src/Chummer.Play.Web/wwwroot/service-worker.js",
+        "src/Chummer.Play.Web/wwwroot/manifest.webmanifest",
+        "src/Chummer.Play.Web/wwwroot/manifest.player.webmanifest",
+        "src/Chummer.Play.Web/wwwroot/manifest.gm.webmanifest",
+        "src/Chummer.Play.Web/Components/App.razor",
+        "src/Chummer.Play.Web/Components/Pages/MobileTurnCompanionPage.razor",
+        "src/Chummer.Play.Web/PlayWebApplication.cs",
+        "src/Chummer.Play.Web/PlayRouteHandlers.cs",
+        "src/Chummer.Play.Web/PlayTurnCompanionService.cs"
+      ],
+      "matches_current_checkout": true
+    },
+    "checks": {
+      "fleet_mobile_play_shell_ready": true,
+      "fleet_mobile_local_release_passed": true,
+      "fleet_mobile_scope_not_blocking": true,
+      "public_edge_frontdoor_navigation_pass": false,
+      "public_edge_frontdoor_route_is_player": false,
+      "public_edge_handoff_launch_route_is_player": false,
+      "public_edge_role_alias_routes_pass": false,
+      "public_edge_pwa_static_pass": false,
+      "public_edge_mobile_ledger_pass": false,
+      "public_edge_public_targets_keep_play_only": false,
+      "frontdoor_player_gm_blazor_shells_live": false,
+      "frontdoor_player_gm_role_manifests_live": false,
+      "frontdoor_player_gm_handoff_links_preserve_role_and_strip_device": false,
+      "frontdoor_rybbit_roles_live": false,
+      "public_edge_gate_pass": false,
+      "strict_public_edge_gate_pass": false
+    }
+  },
+  "release_boundary": {
+    "status": "pass",
+    "required": true,
+    "script_path": "scripts/materialize_mobile_release_boundary.py",
+    "receipt_path": ".codex-studio/published/MOBILE_RELEASE_BOUNDARY.generated.json",
+    "contract_name": "chummer6-mobile.release_boundary.v1",
+    "generated_at_utc": "2026-07-27T13:38:17Z",
+    "ownership_checks": {
+      "owned_play_source_files_present": true,
+      "owned_play_test_files_present": true,
+      "owned_run_services_source_files_present": true,
+      "owned_run_services_test_files_present": true,
+      "owned_release_receipts_present": true,
+      "release_receipts_machine_local_noise_free": true
+    },
+    "play_owned_entry_count": 19,
+    "play_foreign_entry_count": 0,
+    "play_disposable_entry_count": 0,
+    "play_external_blocker_entry_count": 1,
+    "play_ambient_entry_count": 0,
+    "run_services_owned_entry_count": 0,
+    "run_services_foreign_entry_count": 0,
+    "run_services_ambient_entry_count": 595,
+    "release_receipt_count": 9,
+    "owned_disposable_local_artifact_count": 4,
+    "shared_external_temp_artifact_count": 3,
+    "disposable_local_artifact_count": 7,
+    "preflight_snapshot": {
+      "path": "/tmp/chummer-public-edge-deploy-preflight-current.json",
+      "status": "not_found",
+      "blocking_findings": []
+    },
+    "postdeploy_snapshot": {
+      "path": "/tmp/chummer-public-edge-postdeploy-canonical-current.json",
+      "status": "not_found",
+      "failures": []
+    },
+    "design_mirror_snapshot": {
+      "status": "pass",
+      "script_path": "scripts/ai/verify_design_mirror.py",
+      "command": "python3 scripts/ai/verify_design_mirror.py",
+      "blocking_findings": [],
+      "blocking_finding_count": 0,
+      "repair_commands": [],
+      "stdout": "design mirror ok"
+    },
+    "live_build_lock_probe": {
+      "status": "clear",
+      "process_count": 0,
+      "entries": [],
+      "command": "ps -eo pid=,args=",
+      "returncode": 0
+    },
+    "canonical_release_blockers": {
+      "path": "/docker/chummercomplete/RELEASE_BLOCKERS.generated.json",
+      "status": "present",
+      "generated_at": "2026-07-27T12:54:02Z",
+      "root_blocker_ids": [
+        "registry_release_channel",
+        "release_posture:non_flagship_channel",
+        "proof:desktop_executable_exit_gate",
+        "proof:desktop_visual_familiarity_exit_gate",
+        "proof:desktop_workflow_execution_gate",
+        "proof:desktop_first_minute_gate",
+        "proof:desktop_update_rollback_revoke",
+        "proof:desktop_gold_gate",
+        "proof:user_journey_tester_audit",
+        "proof:mobile_local_release_proof",
+        "proof:core_release_receipts",
+        "proof:support_packets",
+        "release_truth:public_edge_postdeploy_gate",
+        "release_truth:final_gold_janitor",
+        "release_truth:release_ready",
+        "release_truth:windows_installer_visual_audit",
+        "blocked_route:avalonia:macos:osx-arm64"
+      ],
+      "root_blocker_count": 17,
+      "root_blockers": [
+        {
+          "id": "registry_release_channel",
+          "blocker_id": "registry_release_channel",
+          "owning_repo": "chummer6-hub-registry",
+          "failing_gate": "public release channel verification",
+          "stable_promotion_command": null,
+          "post_promotion_verify_command": null,
+          "expected_bundle_path": null,
+          "expected_bundle_path_exists": null
+        },
+        {
+          "id": "release_posture:non_flagship_channel",
+          "blocker_id": "release_posture:non_flagship_channel",
+          "owning_repo": "chummer6-hub-registry",
+          "failing_gate": "published release channel is not in flagship public-stable posture",
+          "stable_promotion_command": "RELEASE_CHANNEL=public_stable RELEASE_VERSION=run-20260712-174412 RELEASE_PUBLISHED_AT=2026-07-12T18:46:26Z bash /docker/chummercomplete/chummer6-ui/scripts/publish-download-bundle.sh /docker/chummercomplete/chummer.run-services/Chummer.Portal/downloads /docker/chummercomplete/chummer.run-services/Chummer.Portal/downloads",
+          "post_promotion_verify_command": "python3 scripts/materialize_release_ready_receipt.py --force-global-verifier && python3 scripts/materialize_operator_release_dashboard.py && python3 scripts/final_gold_janitor.py && python3 ../scripts/release/_release_gate_common.py && python3 ../scripts/materialize_codex_flagship_handoff.py --timestamp \"$(date --iso-8601=seconds)\"",
+          "expected_bundle_path": null,
+          "expected_bundle_path_exists": null
+        },
+        {
+          "id": "proof:desktop_executable_exit_gate",
+          "blocker_id": "proof:desktop_executable_exit_gate",
+          "owning_repo": "chummer6-ui",
+          "failing_gate": "desktop_executable_exit_gate is not currently passing and fresh",
+          "stable_promotion_command": null,
+          "post_promotion_verify_command": null,
+          "expected_bundle_path": null,
+          "expected_bundle_path_exists": null
+        },
+        {
+          "id": "proof:desktop_visual_familiarity_exit_gate",
+          "blocker_id": "proof:desktop_visual_familiarity_exit_gate",
+          "owning_repo": "chummer6-ui",
+          "failing_gate": "desktop_visual_familiarity_exit_gate is not currently passing and fresh",
+          "stable_promotion_command": null,
+          "post_promotion_verify_command": null,
+          "expected_bundle_path": null,
+          "expected_bundle_path_exists": null
+        },
+        {
+          "id": "proof:desktop_workflow_execution_gate",
+          "blocker_id": "proof:desktop_workflow_execution_gate",
+          "owning_repo": "chummer6-ui",
+          "failing_gate": "desktop_workflow_execution_gate is not currently passing and fresh",
+          "stable_promotion_command": null,
+          "post_promotion_verify_command": null,
+          "expected_bundle_path": null,
+          "expected_bundle_path_exists": null
+        },
+        {
+          "id": "proof:desktop_first_minute_gate",
+          "blocker_id": "proof:desktop_first_minute_gate",
+          "owning_repo": "chummer6-ui",
+          "failing_gate": "desktop_first_minute_gate is not currently passing and fresh (receipt status=fail; fresh=false; generated_at=2026-07-20T04:21:28Z; age_seconds=635548; findings: user journey tester trace must include an offset-aware generated_at_utc timestamp.; tester trace release_version binding is missing or malformed.; tester trace release_channel binding is missing or malformed.; tester trace artifact_digest binding is missing or malformed.; tester trace artifact_digest_source binding is missing or malformed.; tester trace source_mouse_receipt_name does not match Linux primary receipt_path.; tester trace source_mouse_receipt_path does not match Linux primary receipt_path.; tester trace source_mouse_receipt_sha256 binding is missing or malformed.; tester trace release_version does not match the release candidate.; tester trace release_channel does not match the release candidate.; tester trace artifact_digest does not match the release candidate.; candidate_artifact_digest_mismatch: trace, source receipt, tested installer, gate projection, and promoted candidate bytes must share one SHA-256 digest.; master_index_search_focus_stability: screenshot_sha256 must be a JSON object.; master_index_search_focus_stability: screenshot_sha256 keys must exactly match screenshots.; master_index_search_focus_stability: screenshot is missing: /docker/chummercomplete/chummer-presentation/.codex-studio/out/linux-desktop-exit-gate/run.zr57on/startup-smoke-installer/mouse-first-journey-screenshots-avalonia-linux-x64/master_index_search_focus_stability-before.png; master_index_search_focus_stability: screenshot is missing: /docker/chummercomplete/chummer-presentation/.codex-studio/out/linux-desktop-exit-gate/run.zr57on/startup-smoke-installer/mouse-first-journey-screenshots-avalonia-linux-x64/master_index_search_focus_stability-after.png; file_new_character_visible_workspace: screenshot_sha256 must be a JSON object.; file_new_character_visible_workspace: screenshot_sha256 keys must exactly match screenshots.; file_new_character_visible_workspace: screenshot is missing: /docker/chummercomplete/chummer-presentation/.codex-studio/out/linux-desktop-exit-gate/run.zr57on/startup-smoke-installer/mouse-first-journey-screenshots-avalonia-linux-x64/file_new_character_visible_workspace-before.png; file_new_character_visible_workspace: screenshot is missing: /docker/chummercomplete/chummer-presentation/.codex-studio/out/linux-desktop-exit-gate/run.zr57on/startup-smoke-installer/mouse-first-journey-screenshots-avalonia-linux-x64/file_new_character_visible_workspace-after.png; [13 additional findings omitted])",
+          "stable_promotion_command": null,
+          "post_promotion_verify_command": null,
+          "expected_bundle_path": null,
+          "expected_bundle_path_exists": null
+        },
+        {
+          "id": "proof:desktop_update_rollback_revoke",
+          "blocker_id": "proof:desktop_update_rollback_revoke",
+          "owning_repo": "chummer6-ui",
+          "failing_gate": "desktop_update_rollback_revoke is not currently passing and fresh",
+          "stable_promotion_command": null,
+          "post_promotion_verify_command": null,
+          "expected_bundle_path": null,
+          "expected_bundle_path_exists": null
+        },
+        {
+          "id": "proof:desktop_gold_gate",
+          "blocker_id": "proof:desktop_gold_gate",
+          "owning_repo": "chummer6-ui",
+          "failing_gate": "desktop_gold_gate is not currently passing and fresh (receipt status=review_required; fresh=false; generated_at=2026-07-20T04:21:28Z; age_seconds=635548; findings: user_journey_tester_audit: user journey tester trace must include an offset-aware generated_at_utc timestamp.; user_journey_tester_audit: tester trace release_version binding is missing or malformed.; user_journey_tester_audit: tester trace release_channel binding is missing or malformed.; user_journey_tester_audit: tester trace artifact_digest binding is missing or malformed.; user_journey_tester_audit: tester trace artifact_digest_source binding is missing or malformed.; user_journey_tester_audit: tester trace source_mouse_receipt_name does not match Linux primary receipt_path.; user_journey_tester_audit: tester trace source_mouse_receipt_path does not match Linux primary receipt_path.; user_journey_tester_audit: tester trace source_mouse_receipt_sha256 binding is missing or malformed.; user_journey_tester_audit: tester trace release_version does not match the release candidate.; user_journey_tester_audit: tester trace release_channel does not match the release candidate.; user_journey_tester_audit: tester trace artifact_digest does not match the release candidate.; user_journey_tester_audit: candidate_artifact_digest_mismatch: trace, source receipt, tested installer, gate projection, and promoted candidate bytes must share one SHA-256 digest.; user_journey_tester_audit: master_index_search_focus_stability: screenshot_sha256 must be a JSON object.; user_journey_tester_audit: master_index_search_focus_stability: screenshot_sha256 keys must exactly match screenshots.; user_journey_tester_audit: master_index_search_focus_stability: screenshot is missing: /docker/chummercomplete/chummer-presentation/.codex-studio/out/linux-desktop-exit-gate/run.zr57on/startup-smoke-installer/mouse-first-journey-screenshots-avalonia-linux-x64/master_index_search_focus_stability-before.png; user_journey_tester_audit: master_index_search_focus_stability: screenshot is missing: /docker/chummercomplete/chummer-presentation/.codex-studio/out/linux-desktop-exit-gate/run.zr57on/startup-smoke-installer/mouse-first-journey-screenshots-avalonia-linux-x64/master_index_search_focus_stability-after.png; user_journey_tester_audit: file_new_character_visible_workspace: screenshot_sha256 must be a JSON object.; user_journey_tester_audit: file_new_character_visible_workspace: screenshot_sha256 keys must exactly match screenshots.; user_journey_tester_audit: file_new_character_visible_workspace: screenshot is missing: /docker/chummercomplete/chummer-presentation/.codex-studio/out/linux-desktop-exit-gate/run.zr57on/startup-smoke-installer/mouse-first-journey-screenshots-avalonia-linux-x64/file_new_character_visible_workspace-before.png; user_journey_tester_audit: file_new_character_visible_workspace: screenshot is missing: /docker/chummercomplete/chummer-presentation/.codex-studio/out/linux-desktop-exit-gate/run.zr57on/startup-smoke-installer/mouse-first-journey-screenshots-avalonia-linux-x64/file_new_character_visible_workspace-after.png; [13 additional findings omitted])",
+          "stable_promotion_command": null,
+          "post_promotion_verify_command": null,
+          "expected_bundle_path": null,
+          "expected_bundle_path_exists": null
+        },
+        {
+          "id": "proof:user_journey_tester_audit",
+          "blocker_id": "proof:user_journey_tester_audit",
+          "owning_repo": "chummer6-ui",
+          "failing_gate": "user_journey_tester_audit is not currently passing and fresh",
+          "stable_promotion_command": null,
+          "post_promotion_verify_command": null,
+          "expected_bundle_path": null,
+          "expected_bundle_path_exists": null
+        },
+        {
+          "id": "proof:mobile_local_release_proof",
+          "blocker_id": "proof:mobile_local_release_proof",
+          "owning_repo": "chummer6-mobile",
+          "failing_gate": "mobile_local_release_proof is not currently passing and fresh",
+          "stable_promotion_command": null,
+          "post_promotion_verify_command": null,
+          "expected_bundle_path": null,
+          "expected_bundle_path_exists": null
+        },
+        {
+          "id": "proof:core_release_receipts",
+          "blocker_id": "proof:core_release_receipts",
+          "owning_repo": "chummer6-core",
+          "failing_gate": "core_release_receipts is not currently passing and fresh",
+          "stable_promotion_command": null,
+          "post_promotion_verify_command": null,
+          "expected_bundle_path": null,
+          "expected_bundle_path_exists": null
+        },
+        {
+          "id": "proof:support_packets",
+          "blocker_id": "proof:support_packets",
+          "owning_repo": "chummer6-hub",
+          "failing_gate": "support_packets is not currently passing and fresh",
+          "stable_promotion_command": null,
+          "post_promotion_verify_command": null,
+          "expected_bundle_path": null,
+          "expected_bundle_path_exists": null
+        },
+        {
+          "id": "release_truth:public_edge_postdeploy_gate",
+          "blocker_id": "release_truth:public_edge_postdeploy_gate",
+          "owning_repo": "chummer6-hub",
+          "failing_gate": "public_edge_postdeploy_gate is not passing for public-stable release truth",
+          "stable_promotion_command": null,
+          "post_promotion_verify_command": null,
+          "expected_bundle_path": null,
+          "expected_bundle_path_exists": null
+        },
+        {
+          "id": "release_truth:final_gold_janitor",
+          "blocker_id": "release_truth:final_gold_janitor",
+          "owning_repo": "chummer6-hub",
+          "failing_gate": "final_gold_janitor is not passing for public-stable release truth",
+          "stable_promotion_command": null,
+          "post_promotion_verify_command": null,
+          "expected_bundle_path": null,
+          "expected_bundle_path_exists": null
+        },
+        {
+          "id": "release_truth:release_ready",
+          "blocker_id": "release_truth:release_ready",
+          "owning_repo": "chummer6-hub",
+          "failing_gate": "release_ready is not passing for public-stable release truth",
+          "stable_promotion_command": null,
+          "post_promotion_verify_command": null,
+          "expected_bundle_path": null,
+          "expected_bundle_path_exists": null
+        },
+        {
+          "id": "release_truth:windows_installer_visual_audit",
+          "blocker_id": "release_truth:windows_installer_visual_audit",
+          "owning_repo": "chummer6-ui",
+          "failing_gate": "windows_installer_visual_audit is not passing for public-stable release truth",
+          "stable_promotion_command": null,
+          "post_promotion_verify_command": null,
+          "expected_bundle_path": "/docker/chummercomplete/chummer.run-services/.state/incoming_windows_installer_gold_proof/windows-installer-gold-proof-d0857d0a6e5c.zip",
+          "expected_bundle_path_exists": false
+        },
+        {
+          "id": "blocked_route:avalonia:macos:osx-arm64",
+          "blocker_id": "blocked_route:avalonia:macos:osx-arm64",
+          "owning_repo": "chummer6-hub-registry",
+          "failing_gate": "primary desktop tuple avalonia:macos:osx-arm64 is blocked",
+          "stable_promotion_command": null,
+          "post_promotion_verify_command": null,
+          "expected_bundle_path": null,
+          "expected_bundle_path_exists": null
+        }
+      ]
+    },
+    "external_follow_through": {
+      "design_mirror": {
+        "status": "clear",
+        "blocking_findings": [],
+        "repair_commands": []
+      },
+      "strict_public_edge": {
+        "status": "ready_to_rerun",
+        "live_build_lock_probe_status": "clear",
+        "preflight_snapshot_status": "not_found",
+        "preflight_blocking_findings": [],
+        "wait_reason": null,
+        "follow_through_command": "python3 scripts/run_mobile_strict_public_edge_follow_through.py --wait-for-clear --execute-rerun --timeout-seconds 21600 --poll-interval-seconds 60",
+        "follow_through_receipt_path": ".codex-studio/published/MOBILE_STRICT_PUBLIC_EDGE_FOLLOW_THROUGH.generated.json",
+        "rerun_commands": [
+          "python3 /docker/chummercomplete/chummer.run-services/scripts/check_public_edge_deploy_preflight.py --output /tmp/chummer-public-edge-deploy-preflight-current.json",
+          "python3 /docker/chummercomplete/chummer.run-services/scripts/verify_public_edge_postdeploy_gate.py --base-url https://chummer.run --strict-preflight --output /tmp/chummer-public-edge-postdeploy-canonical-current.json",
+          "python3 scripts/verify_mobile_pwa_performance_budget.py",
+          "python3 scripts/materialize_mobile_cross_surface_readiness.py",
+          "python3 scripts/materialize_mobile_local_release_proof.py",
+          "bash scripts/release/verify_mobile_release_proof.sh"
+        ]
+      }
+    }
+  },
+  "source_file_count": 44,
+  "source_file_digest_count": 44,
+  "generated_at": "2026-07-27T13:38:17Z",
+  "generated_at_utc": "2026-07-27T13:38:17Z"
+}

@@ -1,0 +1,2018 @@
+{
+  "contract_name": "fleet.flagship_product_readiness",
+  "schema_version": 1,
+  "generated_at": "2026-07-28T05:15:30Z",
+  "status": "fail",
+  "scoped_status": "fail",
+  "ready_keys": [
+    "rules_engine_and_import",
+    "hub_and_registry",
+    "mobile_play_shell",
+    "ui_kit_and_flagship_polish",
+    "media_artifacts",
+    "horizons_and_public_surface",
+    "fleet_and_operator_loop"
+  ],
+  "warning_keys": [],
+  "missing_keys": [
+    "desktop_client"
+  ],
+  "scoped_warning_keys": [],
+  "scoped_missing_keys": [
+    "desktop_client"
+  ],
+  "deferred_warning_keys": [],
+  "completion_audit": {
+    "status": "fail",
+    "reason": "Launch-critical nested blockers or coverage gaps remain; raw materializer status is not sufficient for a flagship launch claim. Launch blockers: release channel channel is preview, not a flagship stable lane, release channel supportability is not gold_supported, release channel rollout is blocking: coverage_incomplete, release-ready gate google_oauth_linking_proof failed (22 findings; first finding: generated_at_utc is stale), release-ready gate public_edge_postdeploy_gate failed (3 findings; first finding: public_edge_postdeploy_gate release truth verdict is RUNTIME_PREFLIGHT_FAIL), Windows installer visual audit source digest does not match promoted installer, windows installer visual audit source still targets 80655fd79a096cd7714910d7b38f7741eea01f82ada96dc6a2a097951997d91a instead of promoted digest d0857d0a6e5c958f34117051669373444b785f683e701c3e0ae428abef36e8ca: /docker/chummercomplete/chummer.run-services/Chummer.Portal/downloads/visual-audit/windows-installer/WINDOWS_INSTALLER_VISUAL_AUDIT.source.json, windows installer gold proof artifact is still missing: /docker/chummercomplete/chummer.run-services/.state/incoming_windows_installer_gold_proof/windows-installer-gold-proof-d0857d0a6e5c.zip, release-ready gate supply_chain_evidence failed (2 findings; first finding: container_vulnerability_audit:not_available), release-ready gate public_edge_observability_release failed (2 findings; first finding: operator_proof: operator proof is missing). Coverage gaps: desktop_client.",
+    "external_only": false,
+    "unresolved_external_proof_request_count": 1,
+    "unresolved_external_proof_request_hosts": [
+      "macos"
+    ],
+    "unresolved_external_proof_request_tuples": [
+      "avalonia:osx-arm64:macos"
+    ]
+  },
+  "flagship_readiness_audit": {
+    "status": "fail",
+    "reason": "Launch-critical nested blockers or coverage gaps remain; raw materializer status is not sufficient for a flagship launch claim. Launch blockers: release channel channel is preview, not a flagship stable lane, release channel supportability is not gold_supported, release channel rollout is blocking: coverage_incomplete, release-ready gate google_oauth_linking_proof failed (22 findings; first finding: generated_at_utc is stale), release-ready gate public_edge_postdeploy_gate failed (3 findings; first finding: public_edge_postdeploy_gate release truth verdict is RUNTIME_PREFLIGHT_FAIL), Windows installer visual audit source digest does not match promoted installer, windows installer visual audit source still targets 80655fd79a096cd7714910d7b38f7741eea01f82ada96dc6a2a097951997d91a instead of promoted digest d0857d0a6e5c958f34117051669373444b785f683e701c3e0ae428abef36e8ca: /docker/chummercomplete/chummer.run-services/Chummer.Portal/downloads/visual-audit/windows-installer/WINDOWS_INSTALLER_VISUAL_AUDIT.source.json, windows installer gold proof artifact is still missing: /docker/chummercomplete/chummer.run-services/.state/incoming_windows_installer_gold_proof/windows-installer-gold-proof-d0857d0a6e5c.zip, release-ready gate supply_chain_evidence failed (2 findings; first finding: container_vulnerability_audit:not_available), release-ready gate public_edge_observability_release failed (2 findings; first finding: operator_proof: operator proof is missing). Coverage gaps: desktop_client.",
+    "coverage_gap_keys": [
+      "desktop_client"
+    ],
+    "scoped_coverage_gap_keys": [
+      "desktop_client"
+    ],
+    "warning_coverage_keys": [],
+    "missing_coverage_keys": [
+      "desktop_client"
+    ],
+    "scoped_warning_coverage_keys": [],
+    "scoped_missing_coverage_keys": [
+      "desktop_client"
+    ],
+    "deferred_warning_coverage_keys": [],
+    "effective_missing_coverage_keys": [],
+    "failed_coverage_keys": [
+      "desktop_client"
+    ],
+    "effective_coverage_result_pointers": {
+      "desktop_client": "/release_truth_projection/coverage_results/desktop_client"
+    }
+  },
+  "external_host_proof": {
+    "status": "fail",
+    "reason": "Run the missing macos proof lane for 1 desktop tuple(s), ingest receipts, and then republish release truth.",
+    "unresolved_request_count": 1,
+    "unresolved_hosts": [
+      "macos"
+    ],
+    "unresolved_tuples": [
+      "avalonia:osx-arm64:macos"
+    ],
+    "runbook_path": "/docker/fleet/.codex-studio/published/EXTERNAL_PROOF_RUNBOOK.generated.md",
+    "runbook_generated_at": "2026-07-04T00:13:56Z",
+    "runbook_plan_generated_at": "2026-07-04T00:13:20Z",
+    "runbook_release_channel_generated_at": "2026-07-03T23:27:02Z",
+    "commands_dir": "/docker/fleet/.codex-studio/published/external-proof-commands",
+    "command_bundle_sha256": "079b4a4c69e81935860bb044efd3626572721ee969107564617bd94a3195c9b4",
+    "command_bundle_file_count": 30,
+    "runbook_command_bundle_sha256": "079b4a4c69e81935860bb044efd3626572721ee969107564617bd94a3195c9b4",
+    "runbook_command_bundle_file_count": 30,
+    "runbook_synced": false,
+    "runbook_sync_reasons": [
+      "External proof runbook plan_generated_at does not match support packets generated_at; operator follow-through is stale.",
+      "External proof runbook release_channel_generated_at does not match release-channel generatedAt; tuple instructions are stale."
+    ]
+  },
+  "summary": {
+    "ready_count": 7,
+    "warning_count": 0,
+    "missing_count": 1,
+    "scoped_warning_count": 0,
+    "scoped_missing_count": 1,
+    "deferred_warning_count": 0,
+    "history_snapshot_count": 44
+  },
+  "quality_policy": {
+    "bar": "top_flagship_grade",
+    "whole_project_frontier_required": true,
+    "feedback_autofix_loop_required": true,
+    "feedback_loop_release_gate_required": true,
+    "accept_lowered_standards": false
+  },
+  "autofix_routing": {
+    "status": "ready",
+    "summary": "Local journey blockers are routed to owner repos.",
+    "total_local_blocker_count": 0,
+    "routed_local_blocker_count": 0,
+    "unrouted_local_blocker_count": 0,
+    "owner_repo_counts": {},
+    "journey_local_blocker_counts": {},
+    "routes": [],
+    "unrouted_reasons": []
+  },
+  "readiness_planes": {
+    "structural_ready": {
+      "status": "ready",
+      "summary": "Structural delivery, journey, and control-loop truth are coherent.",
+      "reasons": [],
+      "evidence": {
+        "dispatchable_truth_ready": true,
+        "dispatchable_truth_ready_raw": true,
+        "dispatchable_truth_ready_recovered_from_external_only_desktop_scope": true,
+        "journey_overall_state": "ready",
+        "journey_effective_overall_state": "ready",
+        "journey_overall_routed_local_only": false,
+        "journey_overall_desktop_scoped_blocked": false,
+        "journey_local_blocker_autofix_routing_ready": true,
+        "supervisor_recent_enough": true,
+        "supervisor_recent_enough_raw": false,
+        "supervisor_current_readiness_recovery": true,
+        "supervisor_recent_enough_recovered_from_active_shard_topology": false,
+        "supervisor_state_recovered_from_active_shards": false,
+        "runtime_healing_alert_state": "healthy",
+        "runtime_healing_override_stale_incident": false
+      }
+    },
+    "flagship_ready": {
+      "status": "missing",
+      "summary": "Flagship replacement truth is still stricter than the current structural closure.",
+      "reasons": [
+        "Whole-product coverage still has open flagship gaps: desktop_client.",
+        "Veteran readiness plane is not ready.",
+        "Primary-route readiness plane is not ready.",
+        "Dense-workbench readiness plane is not ready.",
+        "Feedback-loop readiness plane is not ready.",
+        "Veteran deep-workflow readiness plane is not ready.",
+        "Public-shelf readiness plane is not ready.",
+        "Recovery-trust readiness plane is not ready.",
+        "SR4 parity readiness plane is not ready.",
+        "SR6 parity readiness plane is not ready."
+      ],
+      "evidence": {
+        "registry_path": "/docker/fleet/.codex-design/product/FLAGSHIP_PARITY_REGISTRY.yaml",
+        "registry_present": true,
+        "status_counts": {
+          "documented": 0,
+          "implemented": 0,
+          "task_proven": 0,
+          "veteran_approved": 0,
+          "gold_ready": 11,
+          "unknown": 0
+        },
+        "families_below_task_proven": [],
+        "families_below_veteran_approved": [],
+        "families_below_gold_ready": [],
+        "parity_lab_ready": true,
+        "parity_lab_capture_pack_path": "/docker/fleet/docs/chummer5a-oracle/parity_lab_capture_pack.yaml",
+        "parity_lab_veteran_compare_pack_path": "/docker/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml",
+        "parity_lab_missing_flagship_family_ids": [],
+        "parity_lab_families_below_target": [],
+        "parity_lab_capture_missing_non_negotiable_ids": [],
+        "parity_lab_workflow_missing_non_negotiable_ids": [],
+        "parity_lab_missing_whole_product_coverage_keys": [],
+        "coverage_gap_keys": [
+          "desktop_client"
+        ],
+        "structural_ready": true,
+        "veteran_ready": false,
+        "primary_route_ready": false,
+        "dense_workbench_ready": false,
+        "feedback_loop_ready": false,
+        "veteran_deep_workflow_ready": false,
+        "public_shelf_ready": false,
+        "data_durability_ready": true,
+        "recovery_trust_ready": false,
+        "rules_explainability_ready": true,
+        "custom_data_survival_ready": true,
+        "large_sheet_performance_ready": true,
+        "sr4_parity_ready": false,
+        "sr6_parity_ready": false,
+        "m136_aggregate_readiness_gate_path": "/docker/fleet/.codex-studio/published/NEXT90_M136_FLEET_AGGREGATE_READINESS_PARITY_GATES.generated.json",
+        "m136_aggregate_readiness_gate_ready": true,
+        "m136_aggregate_readiness_gate_status": "pass",
+        "m136_aggregate_readiness_monitor_status": "pass",
+        "m136_aggregate_readiness_gate_generated_at": "2026-06-12T15:25:24Z",
+        "m136_aggregate_readiness_gate_reasons": [],
+        "m138_hero_path_closeout_gate_path": "/docker/fleet/.codex-studio/published/NEXT90_M138_FLEET_HERO_PATH_CLOSEOUT_GATES.generated.json",
+        "m138_hero_path_closeout_gate_ready": true,
+        "m138_hero_path_closeout_gate_status": "pass",
+        "m138_hero_path_closeout_monitor_status": "pass",
+        "m138_hero_path_closeout_gate_generated_at": "2026-06-12T15:20:49Z",
+        "m138_hero_path_closeout_gate_reasons": [],
+        "m139_operational_trust_closeout_gate_path": "/docker/fleet/.codex-studio/published/NEXT90_M139_FLEET_OPERATIONAL_TRUST_CLOSEOUT_GATES.generated.json",
+        "m139_operational_trust_closeout_gate_ready": true,
+        "m139_operational_trust_closeout_gate_status": "pass",
+        "m139_operational_trust_closeout_monitor_status": "warning",
+        "m139_operational_trust_closeout_gate_generated_at": "2026-05-06T04:09:45Z",
+        "m139_operational_trust_closeout_gate_reasons": [],
+        "m140_portability_and_cadence_closeout_gate_path": "/docker/fleet/.codex-studio/published/NEXT90_M140_FLEET_PORTABILITY_AND_CADENCE_CLOSEOUT_GATES.generated.json",
+        "m140_portability_and_cadence_closeout_gate_ready": true,
+        "m140_portability_and_cadence_closeout_gate_status": "pass",
+        "m140_portability_and_cadence_closeout_monitor_status": "warning",
+        "m140_portability_and_cadence_closeout_gate_generated_at": "2026-05-06T04:08:52Z",
+        "m140_portability_and_cadence_closeout_gate_reasons": [],
+        "m141_import_route_closeout_gate_path": "/docker/fleet/.codex-studio/published/NEXT90_M141_FLEET_IMPORT_ROUTE_CLOSEOUT_GATES.generated.json",
+        "m141_import_route_closeout_gate_ready": true,
+        "m141_import_route_closeout_gate_status": "pass",
+        "m141_import_route_closeout_monitor_status": "pass",
+        "m141_import_route_closeout_gate_generated_at": "2026-05-06T04:08:53Z",
+        "m141_import_route_closeout_gate_reasons": [],
+        "m142_route_local_proof_closeout_gate_path": "/docker/fleet/.codex-studio/published/NEXT90_M142_FLEET_ROUTE_LOCAL_PROOF_CLOSEOUT_GATES.generated.json",
+        "m142_route_local_proof_closeout_gate_ready": true,
+        "m142_route_local_proof_closeout_gate_status": "pass",
+        "m142_route_local_proof_closeout_monitor_status": "pass",
+        "m142_route_local_proof_closeout_gate_generated_at": "2026-06-12T15:20:46Z",
+        "m142_route_local_proof_closeout_gate_reasons": [],
+        "m143_route_local_output_closeout_gate_path": "/docker/fleet/.codex-studio/published/NEXT90_M143_FLEET_ROUTE_LOCAL_OUTPUT_CLOSEOUT_GATES.generated.json",
+        "m143_route_local_output_closeout_gate_ready": true,
+        "m143_route_local_output_closeout_gate_status": "pass",
+        "m143_route_local_output_closeout_monitor_status": "pass",
+        "m143_route_local_output_closeout_gate_generated_at": "2026-05-06T04:08:55Z",
+        "m143_route_local_output_closeout_gate_reasons": [],
+        "readiness_plane_contract_path": "/docker/fleet/.codex-design/product/FLAGSHIP_READINESS_PLANES.yaml",
+        "readiness_plane_contract_present": true,
+        "readiness_plane_contract_ids": [
+          "custom_data_survival_ready",
+          "data_durability_ready",
+          "dense_workbench_ready",
+          "flagship_ready",
+          "large_sheet_performance_ready",
+          "primary_route_ready",
+          "public_shelf_ready",
+          "recovery_trust_ready",
+          "rules_explainability_ready",
+          "sr4_parity_ready",
+          "sr5_veteran_ready",
+          "sr6_parity_ready",
+          "veteran_deep_workflow_ready"
+        ]
+      }
+    },
+    "veteran_ready": {
+      "status": "warning",
+      "summary": "Veteran-orientation proof is still incomplete.",
+      "reasons": [
+        "Desktop visual familiarity gate is not ready."
+      ],
+      "evidence": {
+        "registry_path": "/docker/fleet/.codex-design/product/VETERAN_FIRST_MINUTE_GATE.yaml",
+        "registry_present": true,
+        "required_landmark_count": 11,
+        "task_count": 4,
+        "visual_gate_ready": false,
+        "parity_lab_ready": true,
+        "parity_lab_capture_pack_path": "/docker/fleet/docs/chummer5a-oracle/parity_lab_capture_pack.yaml",
+        "parity_lab_capture_pack_present": true,
+        "parity_lab_veteran_compare_pack_path": "/docker/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml",
+        "parity_lab_veteran_compare_pack_present": true,
+        "parity_lab_family_target_count": 11,
+        "parity_lab_invalid_target_family_ids": [],
+        "parity_lab_missing_flagship_family_ids": [],
+        "parity_lab_families_below_target": [],
+        "parity_lab_capture_coverage_key": "desktop_client",
+        "parity_lab_capture_coverage_key_matches": true,
+        "parity_lab_capture_non_negotiable_ids": [
+          "character_roster_first_class",
+          "claim_restore_in_installer_or_in_app",
+          "file_menu_live",
+          "guided_product_installer_happy_path",
+          "master_index_first_class",
+          "no_browser_only_claim_code_ritual",
+          "no_generic_shell_or_dashboard_first",
+          "startup_is_workbench_or_restore"
+        ],
+        "parity_lab_workflow_non_negotiable_ids": [
+          "character_roster_first_class",
+          "claim_restore_in_installer_or_in_app",
+          "file_menu_live",
+          "guided_product_installer_happy_path",
+          "master_index_first_class",
+          "no_browser_only_claim_code_ritual",
+          "no_generic_shell_or_dashboard_first",
+          "startup_is_workbench_or_restore"
+        ],
+        "parity_lab_capture_missing_non_negotiable_ids": [],
+        "parity_lab_workflow_missing_non_negotiable_ids": [],
+        "parity_lab_whole_product_coverage_keys": [
+          "desktop_client",
+          "fleet_and_operator_loop"
+        ],
+        "parity_lab_missing_whole_product_coverage_keys": [],
+        "families_below_task_proven": [],
+        "families_below_veteran_approved": []
+      }
+    },
+    "sr5_veteran_ready": {
+      "status": "warning",
+      "summary": "SR5 veteran orientation and familiarity proof is still incomplete.",
+      "reasons": [
+        "Desktop visual familiarity gate is not ready."
+      ],
+      "evidence": {
+        "registry_path": "/docker/fleet/.codex-design/product/VETERAN_FIRST_MINUTE_GATE.yaml",
+        "registry_present": true,
+        "required_landmark_count": 11,
+        "task_count": 4,
+        "visual_gate_ready": false,
+        "parity_lab_ready": true,
+        "parity_lab_capture_pack_path": "/docker/fleet/docs/chummer5a-oracle/parity_lab_capture_pack.yaml",
+        "parity_lab_capture_pack_present": true,
+        "parity_lab_veteran_compare_pack_path": "/docker/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml",
+        "parity_lab_veteran_compare_pack_present": true,
+        "parity_lab_family_target_count": 11,
+        "parity_lab_invalid_target_family_ids": [],
+        "parity_lab_missing_flagship_family_ids": [],
+        "parity_lab_families_below_target": [],
+        "parity_lab_capture_coverage_key": "desktop_client",
+        "parity_lab_capture_coverage_key_matches": true,
+        "parity_lab_capture_non_negotiable_ids": [
+          "character_roster_first_class",
+          "claim_restore_in_installer_or_in_app",
+          "file_menu_live",
+          "guided_product_installer_happy_path",
+          "master_index_first_class",
+          "no_browser_only_claim_code_ritual",
+          "no_generic_shell_or_dashboard_first",
+          "startup_is_workbench_or_restore"
+        ],
+        "parity_lab_workflow_non_negotiable_ids": [
+          "character_roster_first_class",
+          "claim_restore_in_installer_or_in_app",
+          "file_menu_live",
+          "guided_product_installer_happy_path",
+          "master_index_first_class",
+          "no_browser_only_claim_code_ritual",
+          "no_generic_shell_or_dashboard_first",
+          "startup_is_workbench_or_restore"
+        ],
+        "parity_lab_capture_missing_non_negotiable_ids": [],
+        "parity_lab_workflow_missing_non_negotiable_ids": [],
+        "parity_lab_whole_product_coverage_keys": [
+          "desktop_client",
+          "fleet_and_operator_loop"
+        ],
+        "parity_lab_missing_whole_product_coverage_keys": [],
+        "families_below_task_proven": [],
+        "families_below_veteran_approved": [],
+        "alias_of": "veteran_ready"
+      }
+    },
+    "veteran_deep_workflow_ready": {
+      "status": "warning",
+      "summary": "Dense veteran workflow proof is still incomplete.",
+      "reasons": [
+        "Desktop flagship coverage is not ready."
+      ],
+      "evidence": {
+        "desktop_client_ready": false,
+        "workflow_unresolved_receipt_count": 0,
+        "workflow_unresolved_receipts_sr4_sr6_only": false,
+        "families_below_veteran_approved": [],
+        "ui_element_parity_audit_required": true,
+        "ui_element_parity_audit_release_blocking_ready": true,
+        "ui_element_parity_audit_gap_ids": []
+      }
+    },
+    "primary_route_ready": {
+      "status": "warning",
+      "summary": "Primary-route truth is still incomplete or ambiguous.",
+      "reasons": [
+        "Release channel is still missing required desktop platform/head pairs."
+      ],
+      "evidence": {
+        "registry_path": "/docker/fleet/.codex-design/product/PRIMARY_ROUTE_REGISTRY.yaml",
+        "registry_present": true,
+        "job_count": 6,
+        "jobs_missing_primary_route": [],
+        "jobs_with_unbounded_fallback": [],
+        "release_channel_missing_required_head_tuples": [],
+        "release_channel_missing_required_platform_head_pairs": [
+          "avalonia:macos"
+        ]
+      }
+    },
+    "dense_workbench_ready": {
+      "status": "warning",
+      "summary": "Dense-workbench proof is still incomplete.",
+      "reasons": [
+        "Desktop visual familiarity gate is not ready.",
+        "Desktop flagship coverage is not ready yet."
+      ],
+      "evidence": {
+        "registry_path": "/docker/fleet/.codex-design/product/DENSE_WORKBENCH_BUDGET.yaml",
+        "registry_present": true,
+        "release_blocking": true,
+        "metric_group_count": 4,
+        "visual_gate_ready": false,
+        "desktop_ready": false,
+        "missing_required_milestone2_test_inventory_count": 0,
+        "reported_missing_required_milestone2_test_count": 0
+      }
+    },
+    "feedback_loop_ready": {
+      "status": "warning",
+      "summary": "Feedback and support closure proof is still incomplete.",
+      "reasons": [
+        "Support-case packets are older than 24h; closure truth is stale.",
+        "External-host proof backlog is still open without a synced runbook."
+      ],
+      "evidence": {
+        "registry_path": "/docker/fleet/.codex-design/product/FEEDBACK_LOOP_RELEASE_GATE.yaml",
+        "registry_present": true,
+        "release_blocking": true,
+        "feedback_progress_email_workflow_path": "/docker/fleet/.codex-design/product/FEEDBACK_PROGRESS_EMAIL_WORKFLOW.yaml",
+        "feedback_progress_email_workflow_present": true,
+        "feedback_progress_email_sender": "wageslave@chummer.run",
+        "feedback_progress_email_stage_ids": [
+          "audited_decision",
+          "fix_available",
+          "request_received"
+        ],
+        "feedback_progress_email_award_keys": [
+          "accepted",
+          "denied"
+        ],
+        "feedback_progress_email_dispatch_tool": "connector.dispatch",
+        "feedback_progress_email_dispatch_action_kind": "delivery.send",
+        "feedback_progress_email_dispatch_channel": "email",
+        "feedback_progress_email_dispatch_provider": "emailit",
+        "feedback_progress_email_required_receipt_state": "sent",
+        "feedback_progress_email_required_receipt_transport": "emailit",
+        "feedback_progress_email_required_receipt_fields": [
+          "case_id",
+          "delivery_id",
+          "from_email",
+          "provider",
+          "recipient",
+          "stage_id",
+          "subject"
+        ],
+        "feedback_progress_email_e2e_gate_present": true,
+        "feedback_discovery_gateway_present": true,
+        "feedback_discovery_gateway_ready": true,
+        "feedback_discovery_candidate_count": 0,
+        "feedback_discovery_karma_forge_candidate_count": 0,
+        "feedback_discovery_first_part_routed_count": 0,
+        "feedback_discovery_missing_route_count": 0,
+        "feedback_discovery_missing_next_action_count": 0,
+        "feedback_discovery_ltd_registry_path": "/docker/fleet/.codex-design/product/LTD_RUNTIME_AND_PROJECTION_REGISTRY.yaml",
+        "feedback_discovery_ltd_registry_key": "ltd_runtime_and_projection_registry",
+        "feedback_discovery_ltd_product_system": "discovery_system",
+        "feedback_discovery_ltd_system_ready": true,
+        "feedback_discovery_ltd_missing_tools": [],
+        "feedback_discovery_ltd_tools": [
+          "ProductLift",
+          "Signitic",
+          "FacePop",
+          "Deftform",
+          "Icanpreneur",
+          "MetaSurvey",
+          "Lunacal",
+          "Teable",
+          "NextStep",
+          "Product Governor",
+          "chummer6-design",
+          "Emailit"
+        ],
+        "feedback_discovery_route_counts": {},
+        "feedback_discovery_required_first_part_steps": [
+          "adaptive_interview",
+          "public_signal",
+          "structured_prescreen"
+        ],
+        "feedback_discovery_required_tools": [
+          "chummer6-design",
+          "deftform",
+          "emailit",
+          "facepop",
+          "icanpreneur",
+          "lunacal",
+          "metasurvey",
+          "nextstep",
+          "product governor",
+          "productlift",
+          "signitic",
+          "teable"
+        ],
+        "support_generated_at": "2026-07-12T17:37:44Z",
+        "support_generated_age_seconds": 1337866,
+        "support_source_refresh_mode": "",
+        "support_source_refresh_mode_fallback_warning": false,
+        "support_source_refresh_mode_fallback_warning_reason": "",
+        "support_source_refresh_mirror_generated_at": "",
+        "support_source_refresh_mirror_timestamp_parseable": false,
+        "support_source_refresh_mirror_timestamp_future": false,
+        "support_source_refresh_mirror_age_seconds": null,
+        "support_source_refresh_mirror_fresh": false,
+        "support_source_refresh_mode_recovered_from_external_only_backlog": false,
+        "support_source_refresh_mode_recovered_from_fresh_zero_backlog_mirror": false,
+        "support_open_packet_count": 0,
+        "support_open_non_external_packet_count": 0,
+        "closure_waiting_on_release_truth": 0,
+        "update_required_misrouted_case_count": 0,
+        "non_external_needs_human_response": 0,
+        "non_external_packets_without_named_owner": 0,
+        "non_external_packets_without_lane": 0,
+        "unresolved_external_proof_request_count": 1,
+        "external_proof_runbook_synced": false,
+        "thresholds": {
+          "max_support_packet_age_hours": 24,
+          "max_open_non_external_packets": 0,
+          "max_closure_waiting_on_release_truth": 0,
+          "max_update_required_misrouted_cases": 0,
+          "max_non_external_needs_human_response": 0,
+          "require_named_owner_on_non_external_packets": true,
+          "require_named_lane_on_non_external_packets": true,
+          "allow_cached_packet_refresh_for_gold": false,
+          "allow_external_backlog_only_with_synced_runbook": true,
+          "require_feedback_progress_email_workflow": true,
+          "require_feedback_progress_email_e2e_gate": true,
+          "require_feedback_progress_email_decision_awards": true,
+          "required_feedback_progress_sender_email": "wageslave@chummer.run",
+          "require_feedback_discovery_gateway": true,
+          "require_feedback_discovery_ltd_registry": true,
+          "required_feedback_discovery_route": "karma_forge_discovery",
+          "required_feedback_discovery_first_part_steps": [
+            "public_signal",
+            "structured_prescreen",
+            "adaptive_interview"
+          ],
+          "required_feedback_discovery_tools": [
+            "ProductLift",
+            "Signitic",
+            "FacePop",
+            "Deftform",
+            "Icanpreneur",
+            "Lunacal",
+            "MetaSurvey",
+            "Teable",
+            "NextStep",
+            "Product Governor",
+            "chummer6-design",
+            "Emailit"
+          ]
+        }
+      }
+    },
+    "public_shelf_ready": {
+      "status": "warning",
+      "summary": "Public shelf and route truth are still inconsistent or stale.",
+      "reasons": [
+        "Primary-route readiness plane is not ready.",
+        "Release channel still has missing required platform/head pairs.",
+        "Release channel truth is stale.",
+        "Windows is on the public shelf while Windows executable proof is not effectively ready."
+      ],
+      "evidence": {
+        "hub_and_registry_ready": true,
+        "primary_route_ready": false,
+        "release_channel_freshness_ok": false,
+        "release_channel_has_windows_public_installer": true,
+        "ui_windows_exit_gate_raw_ready": false,
+        "ui_windows_exit_gate_effective_ready": false,
+        "release_channel_missing_required_platform_head_pairs": [
+          "avalonia:macos"
+        ]
+      }
+    },
+    "data_durability_ready": {
+      "status": "ready",
+      "summary": "Data durability and reversible migration proof are current.",
+      "reasons": [],
+      "evidence": {
+        "rules_engine_and_import_ready": true,
+        "install_claim_restore_continue_effective": "ready",
+        "families_below_task_proven": [],
+        "ui_element_parity_audit_gap_ids": []
+      }
+    },
+    "recovery_trust_ready": {
+      "status": "warning",
+      "summary": "Install, update, restore, or recovery trust proof is still incomplete.",
+      "reasons": [
+        "Desktop flagship coverage is not ready.",
+        "Desktop executable exit gate is not ready.",
+        "Windows executable proof is not effectively ready.",
+        "Feedback-loop readiness plane is not ready."
+      ],
+      "evidence": {
+        "desktop_client_ready": false,
+        "install_claim_restore_continue_effective": "ready",
+        "ui_executable_exit_gate_status": "fail",
+        "ui_executable_exit_gate_effective_ready": false,
+        "ui_windows_exit_gate_raw_ready": false,
+        "ui_windows_exit_gate_effective_ready": false,
+        "feedback_loop_ready": false
+      }
+    },
+    "rules_explainability_ready": {
+      "status": "ready",
+      "summary": "Rules explainability and import-certification proof is current.",
+      "reasons": [],
+      "evidence": {
+        "rules_engine_and_import_ready": true,
+        "build_explain_publish": "ready",
+        "build_explain_publish_effective": "ready",
+        "build_explain_publish_rules_scope_blocking_reason_count": 0,
+        "rules_certification_status": "passed"
+      }
+    },
+    "custom_data_survival_ready": {
+      "status": "ready",
+      "summary": "Custom-data, translator, and rule-environment survival proof is current.",
+      "reasons": [],
+      "evidence": {
+        "rules_engine_and_import_ready": true,
+        "families_below_task_proven": [],
+        "ui_element_parity_audit_gap_ids": []
+      }
+    },
+    "large_sheet_performance_ready": {
+      "status": "ready",
+      "summary": "Large-sheet and dense-roster performance proof is current.",
+      "reasons": [],
+      "evidence": {
+        "rules_engine_and_import_ready": true,
+        "rules_certification_status": "passed",
+        "build_explain_publish_rules_scope_blocking_reason_count": 0
+      }
+    },
+    "sr4_parity_ready": {
+      "status": "missing",
+      "summary": "SR4 parity proof is still incomplete.",
+      "reasons": [
+        "SR4 desktop workflow parity proof is not ready.",
+        "SR4/SR6 desktop parity frontier receipt is not ready."
+      ],
+      "evidence": {
+        "sr4_workflow_parity_status": "fail",
+        "sr4_workflow_parity_external_only_missing_api_surface_contract": false,
+        "sr4_sr6_frontier_receipt_status": "fail"
+      }
+    },
+    "sr6_parity_ready": {
+      "status": "missing",
+      "summary": "SR6 parity proof is still incomplete.",
+      "reasons": [
+        "SR6 desktop workflow parity proof is not ready.",
+        "SR4/SR6 desktop parity frontier receipt is not ready."
+      ],
+      "evidence": {
+        "sr6_workflow_parity_status": "fail",
+        "sr6_workflow_parity_external_only_missing_api_surface_contract": false,
+        "sr4_sr6_frontier_receipt_status": "fail",
+        "ui_element_parity_audit_gap_ids": []
+      }
+    }
+  },
+  "readiness_plane_summary": {
+    "ready_count": 5,
+    "warning_count": 8,
+    "missing_count": 3
+  },
+  "readiness_plane_gap_keys": [
+    "flagship_ready",
+    "veteran_ready",
+    "sr5_veteran_ready",
+    "veteran_deep_workflow_ready",
+    "primary_route_ready",
+    "dense_workbench_ready",
+    "feedback_loop_ready",
+    "public_shelf_ready",
+    "recovery_trust_ready",
+    "sr4_parity_ready",
+    "sr6_parity_ready"
+  ],
+  "source_documents": [
+    "FLAGSHIP_PRODUCT_BAR.md",
+    "FLAGSHIP_READINESS_PLANES.yaml",
+    "FLAGSHIP_PARITY_REGISTRY.yaml",
+    "DENSE_WORKBENCH_BUDGET.yaml",
+    "VETERAN_FIRST_MINUTE_GATE.yaml",
+    "SR5_FIRST_MINUTE_TASKS.yaml",
+    "SR5_SCREENSHOT_ORACLE_REGISTRY.yaml",
+    "SR5_FLAGSHIP_VISUAL_PARITY_EXIT.yaml",
+    "PRIMARY_ROUTE_REGISTRY.yaml",
+    "FEEDBACK_LOOP_RELEASE_GATE.yaml",
+    "FEEDBACK_PROGRESS_EMAIL_WORKFLOW.yaml",
+    "DESKTOP_CLIENT_PRODUCT_CUT.md",
+    "DESKTOP_PLATFORM_ACCEPTANCE_MATRIX.yaml",
+    "SURFACE_DESIGN_SYSTEM_AND_AI_REVIEW_LOOP.md",
+    "FLAGSHIP_UI_RELEASE_GATE.md",
+    "DESKTOP_EXECUTABLE_EXIT_GATES.md",
+    "LEGACY_CLIENT_AND_ADJACENT_PARITY.md",
+    "LEGACY_CLIENT_AND_ADJACENT_PARITY_REGISTRY.yaml",
+    "COMPANION_PERSONA_AND_INTERACTION_MODEL.md",
+    "COMPANION_PACKET.md",
+    "COMPANION_TRIGGER_REGISTRY.yaml",
+    "MEDIA_ARTIFACT_RECIPE_REGISTRY.yaml",
+    "LOCALIZATION_AND_LANGUAGE_SYSTEM.md",
+    "LOCALIZATION_PARITY_MATRIX.yaml",
+    "ERROR_TAXONOMY_AND_ESCALATION_MATRIX.yaml",
+    "ACCESSIBILITY_AND_COPY_SAFETY_RELEASE_CHECKLIST.md",
+    "CAMPAIGN_OPERABILITY_SCORING_RUBRIC.yaml",
+    "FAILURE_MODE_JOURNEY_SCRIPTS.md",
+    "FLAGSHIP_RESPONSIVENESS_BUDGETS.yaml",
+    "KNOWN_ISSUE_AND_FIX_STATUS_LANGUAGE.md",
+    "ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md",
+    "LONG_RUNNING_ACTION_SAFETY_CONTRACT.md",
+    "CAMPAIGN_OS_FLAGSHIP_CLOSEOUT.md",
+    "HORIZON_PROMOTION_RULES.md",
+    "PUBLIC_RELEASE_EXPERIENCE.yaml",
+    "METRICS_AND_SLOS.yaml",
+    "WHAT_IS_STILL_BELOW_GOLD.md"
+  ],
+  "acceptance_axes": [
+    "primary_path_clarity",
+    "veteran_first_minute_orientation",
+    "veteran_deep_workflow_confidence",
+    "desktop_familiarity_and_install_continuity",
+    "desktop_head_authority_and_fallback_honesty",
+    "dense_workbench_budget",
+    "authored_ruleset_experience",
+    "dense_data_expert_speed",
+    "rule_environment_honesty",
+    "trust_and_recovery",
+    "data_durability_and_reversible_migration",
+    "rules_explainability",
+    "custom_data_survival",
+    "large_sheet_performance",
+    "premium_public_coherence",
+    "split_brain_release_truth",
+    "cross_surface_design_authorship",
+    "no_step_back_client_parity",
+    "flagship_release_parity_truth"
+  ],
+  "coverage": {
+    "desktop_client": "missing",
+    "rules_engine_and_import": "ready",
+    "hub_and_registry": "ready",
+    "mobile_play_shell": "ready",
+    "ui_kit_and_flagship_polish": "ready",
+    "media_artifacts": "ready",
+    "horizons_and_public_surface": "ready",
+    "fleet_and_operator_loop": "ready"
+  },
+  "coverage_details": {
+    "desktop_client": {
+      "status": "missing",
+      "summary": "Desktop flagship proof is still incomplete.",
+      "reasons": [
+        "Executable desktop exit gate proof is missing or not passed. Desktop shell/install/support liveliness must be proven from shipped artifacts.",
+        "Executable gate blocker: Desktop visual familiarity exit gate is missing or not passing.",
+        "Executable gate blocker: Desktop workflow execution gate is missing or not passing.",
+        "Executable gate blocker: Release channel desktop install artifact(s) have unexpected keys: avalonia:osx-arm64:macos:publicationSource.",
+        "Executable gate blocker: Promoted release-channel artifact is missing from local desktop downloads shelf: chummer-avalonia-osx-arm64-installer.dmg.",
+        "Executable gate blocker: Release channel desktopTupleCoverage.externalProofRequests does not match missing desktop tuple inventory.",
+        "Executable gate blocker: Release channel desktopTupleCoverage.externalProofRequests object rows do not match canonical missing-tuple external proof contract.",
+        "Executable gate blocker: Release channel desktopTupleCoverage missingRequiredPlatformHeadPairs inventory does not match promoted installer tuples.",
+        "Executable gate blocker: Release channel desktopTupleCoverage missingRequiredPlatforms inventory does not match promoted installer tuples.",
+        "Executable gate blocker: Release channel desktopTupleCoverage promotedPlatformHeadRidTuples inventory does not match promoted installer tuples.",
+        "Executable gate blocker: Release channel desktopTupleCoverage missingRequiredPlatformHeadRidTuples inventory does not match promoted installer tuples.",
+        "Executable gate blocker: Release channel is missing required desktop platform/head installer tuple pair(s): avalonia:macos.",
+        "Executable gate blocker: Release channel status cannot be publishable while required desktop tuple coverage is incomplete.",
+        "Executable gate blocker: Windows installer visual proof must be captured on a Windows host before promotion can pass.",
+        "Executable gate blocker: Windows gate reason: Portal Windows installer binding disagrees with the authoritative release channel.",
+        "Executable gate blocker: Windows gate reason: Windows installer visual proof is missing; capture progress and completion screenshots on a Windows host.",
+        "Executable gate blocker: Windows gate reason: Windows startup smoke receipt executionEnvironment is missing or unsupported.",
+        "Executable gate blocker: Windows gate reason: Windows startup smoke receipt is stale (1329713s old).",
+        "Executable gate blocker: Windows gate reason: Blazor browser-lane aggregate proof set is missing or not passed.",
+        "Executable gate blocker: Windows gate reason: Chummer5a desktop workflow parity proof is missing or not passed.",
+        "Executable gate blocker: Windows gate reason: SR4 desktop workflow parity proof is missing or not passed.",
+        "Executable gate blocker: Windows gate reason: SR6 desktop workflow parity proof is missing or not passed.",
+        "Executable gate blocker: Windows startup smoke receipt is stale for promoted installer bytes (1334071s old).",
+        "Executable gate blocker: Linux desktop exit gate receipt checks.release_channel_version does not match release channel version for promoted head 'avalonia'.",
+        "Executable gate blocker: Linux desktop exit gate receipt releaseVersion/version does not match release channel version for promoted head 'avalonia'.",
+        "Executable gate blocker: Linux installer startup smoke receipt version does not match release channel version for promoted head 'avalonia'.",
+        "Executable gate blocker: Linux gate embedded release_channel_linux_artifact version/releaseVersion does not match promoted release channel version.",
+        "Executable gate blocker: Linux gate embedded release_channel_linux_artifact sha256 does not match promoted release channel.",
+        "Executable gate blocker: Linux gate embedded release_channel_linux_artifact sizeBytes does not match promoted release channel.",
+        "Executable gate blocker: Linux installer startup smoke receipt artifactDigest does not match promoted release-channel artifact bytes for head 'avalonia'.",
+        "Executable gate blocker: macOS desktop exit gate receipt channelId/channel does not match release channel channelId for promoted head 'avalonia' (osx-arm64).",
+        "Executable gate blocker: macOS desktop exit gate receipt checks.release_channel_id does not match release channel channelId for promoted head 'avalonia' (osx-arm64).",
+        "Executable gate blocker: macOS desktop exit gate receipt checks.release_channel_version does not match release channel version for promoted head 'avalonia' (osx-arm64).",
+        "Executable gate blocker: macOS desktop exit gate receipt releaseVersion/version does not match release channel version for promoted head 'avalonia' (osx-arm64).",
+        "Executable gate blocker: macOS desktop exit gate checks.startup_smoke_receipt_found disagrees with startup_smoke.receipt_path file presence for promoted head 'avalonia' (osx-arm64).",
+        "Executable gate blocker: macOS gate embedded release_channel_macos_artifact channelId/channel does not match promoted release channel.",
+        "Executable gate blocker: macOS gate embedded release_channel_macos_artifact version/releaseVersion does not match promoted release channel version.",
+        "Executable gate blocker: macOS gate installer path is missing or unreadable for promoted head 'avalonia' (osx-arm64).",
+        "Executable gate blocker: macOS startup smoke receipt path is missing or unreadable for promoted head 'avalonia' (osx-arm64).",
+        "Executable gate blocker: macOS startup smoke external blocker must be missing_macos_host_capability when startup smoke receipt is missing for promoted head 'avalonia' (osx-arm64) on a non-macOS-capable host.",
+        "Executable desktop workflow execution gate proof is missing or not passed. Catalog parity without click-through receipts does not pass.",
+        "Desktop visual familiarity exit gate proof is missing or not passed. Workflow parity without familiar theme/layout/dialog posture does not pass.",
+        "Windows desktop exit gate proof is missing, not passed, or lacks payload/sample integrity proof.",
+        "Chummer5a desktop workflow parity proof is missing or not passed. Representative shell parity is not enough.",
+        "SR4 desktop workflow parity proof is missing or not passed. Chummer4 parity must remain open until a real desktop parity gate lands.",
+        "SR6 desktop workflow parity proof is missing or not passed. Cumulative carry-forward workflows are not complete yet.",
+        "SR4/SR6 desktop parity frontier receipt is missing or not passed. Cross-edition completion cannot close on isolated family proofs alone.",
+        "Release channel receipt is stale (1333744s old; max 86400s).",
+        "Release channel is not simultaneously published, release-proven, and Avalonia-desktop-backed.",
+        "Release channel is missing required desktop platform/head installer tuple pair(s): avalonia:macos.",
+        "Release channel publishes Linux installer media, but executable-gate evidence is missing passing Linux startup-smoke tuple proof.",
+        "Release channel publishes Windows installer media, but executable-gate evidence is missing passing Windows startup-smoke tuple proof."
+      ],
+      "evidence": {
+        "ui_stage": "publicly_promoted",
+        "ui_promotion": "public",
+        "ui_local_release_status": "passed",
+        "ui_executable_exit_gate_status": "fail",
+        "ui_executable_exit_gate_blocking_mode": "mixed_or_local",
+        "ui_executable_exit_gate_path": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json",
+        "ui_executable_exit_gate_effective_ready": false,
+        "ui_executable_exit_gate_recovered_from_release_posture_cycle": false,
+        "ui_executable_exit_gate_reason_count": 39,
+        "ui_executable_exit_gate_ignored_nonlinux_only": false,
+        "ui_executable_exit_gate_reasons": [
+          "Desktop visual familiarity exit gate is missing or not passing.",
+          "Desktop workflow execution gate is missing or not passing.",
+          "Release channel desktop install artifact(s) have unexpected keys: avalonia:osx-arm64:macos:publicationSource.",
+          "Promoted release-channel artifact is missing from local desktop downloads shelf: chummer-avalonia-osx-arm64-installer.dmg.",
+          "Release channel desktopTupleCoverage.externalProofRequests does not match missing desktop tuple inventory.",
+          "Release channel desktopTupleCoverage.externalProofRequests object rows do not match canonical missing-tuple external proof contract.",
+          "Release channel desktopTupleCoverage missingRequiredPlatformHeadPairs inventory does not match promoted installer tuples.",
+          "Release channel desktopTupleCoverage missingRequiredPlatforms inventory does not match promoted installer tuples.",
+          "Release channel desktopTupleCoverage promotedPlatformHeadRidTuples inventory does not match promoted installer tuples.",
+          "Release channel desktopTupleCoverage missingRequiredPlatformHeadRidTuples inventory does not match promoted installer tuples.",
+          "Release channel is missing required desktop platform/head installer tuple pair(s): avalonia:macos.",
+          "Release channel status cannot be publishable while required desktop tuple coverage is incomplete.",
+          "Windows installer visual proof must be captured on a Windows host before promotion can pass.",
+          "Windows gate reason: Portal Windows installer binding disagrees with the authoritative release channel.",
+          "Windows gate reason: Windows installer visual proof is missing; capture progress and completion screenshots on a Windows host.",
+          "Windows gate reason: Windows startup smoke receipt executionEnvironment is missing or unsupported.",
+          "Windows gate reason: Windows startup smoke receipt is stale (1329713s old).",
+          "Windows gate reason: Blazor browser-lane aggregate proof set is missing or not passed.",
+          "Windows gate reason: Chummer5a desktop workflow parity proof is missing or not passed.",
+          "Windows gate reason: SR4 desktop workflow parity proof is missing or not passed.",
+          "Windows gate reason: SR6 desktop workflow parity proof is missing or not passed.",
+          "Windows startup smoke receipt is stale for promoted installer bytes (1334071s old).",
+          "Linux desktop exit gate receipt checks.release_channel_version does not match release channel version for promoted head 'avalonia'.",
+          "Linux desktop exit gate receipt releaseVersion/version does not match release channel version for promoted head 'avalonia'.",
+          "Linux installer startup smoke receipt version does not match release channel version for promoted head 'avalonia'.",
+          "Linux gate embedded release_channel_linux_artifact version/releaseVersion does not match promoted release channel version.",
+          "Linux gate embedded release_channel_linux_artifact sha256 does not match promoted release channel.",
+          "Linux gate embedded release_channel_linux_artifact sizeBytes does not match promoted release channel.",
+          "Linux installer startup smoke receipt artifactDigest does not match promoted release-channel artifact bytes for head 'avalonia'.",
+          "macOS desktop exit gate receipt channelId/channel does not match release channel channelId for promoted head 'avalonia' (osx-arm64).",
+          "macOS desktop exit gate receipt checks.release_channel_id does not match release channel channelId for promoted head 'avalonia' (osx-arm64).",
+          "macOS desktop exit gate receipt checks.release_channel_version does not match release channel version for promoted head 'avalonia' (osx-arm64).",
+          "macOS desktop exit gate receipt releaseVersion/version does not match release channel version for promoted head 'avalonia' (osx-arm64).",
+          "macOS desktop exit gate checks.startup_smoke_receipt_found disagrees with startup_smoke.receipt_path file presence for promoted head 'avalonia' (osx-arm64).",
+          "macOS gate embedded release_channel_macos_artifact channelId/channel does not match promoted release channel.",
+          "macOS gate embedded release_channel_macos_artifact version/releaseVersion does not match promoted release channel version.",
+          "macOS gate installer path is missing or unreadable for promoted head 'avalonia' (osx-arm64).",
+          "macOS startup smoke receipt path is missing or unreadable for promoted head 'avalonia' (osx-arm64).",
+          "macOS startup smoke external blocker must be missing_macos_host_capability when startup smoke receipt is missing for promoted head 'avalonia' (osx-arm64) on a non-macOS-capable host."
+        ],
+        "ui_executable_gate_freshness_max_age_seconds": 86400,
+        "ui_executable_gate_freshness_proof_age_seconds": {
+          "flagship UI release gate proof_age_seconds": 2629349,
+          "desktop workflow execution gate proof_age_seconds": 4358,
+          "desktop visual familiarity gate proof_age_seconds": 4427
+        },
+        "ui_executable_gate_freshness_issue_count": 0,
+        "ui_executable_gate_freshness_issues": [],
+        "ui_executable_gate_generated_at": "2026-07-28T05:03:42.536150Z",
+        "ui_executable_gate_age_seconds": 708,
+        "ui_linux_exit_gate_status": "passed",
+        "ui_linux_exit_gate_recovered_from_executable_gate": false,
+        "ui_linux_exit_gate_effective_ready": true,
+        "ui_linux_exit_gate_release_posture_only_executable_gate_local_blockers": false,
+        "ui_windows_exit_gate_status": "failed",
+        "ui_windows_exit_gate_blocking_mode": "mixed_or_local",
+        "ui_windows_exit_gate_reasons": [
+          "Portal Windows installer binding disagrees with the authoritative release channel.",
+          "Windows installer visual proof is missing; capture progress and completion screenshots on a Windows host.",
+          "Windows startup smoke receipt executionEnvironment is missing or unsupported.",
+          "Windows startup smoke receipt is stale (1329713s old).",
+          "Blazor browser-lane aggregate proof set is missing or not passed.",
+          "Chummer5a desktop workflow parity proof is missing or not passed.",
+          "SR4 desktop workflow parity proof is missing or not passed.",
+          "SR6 desktop workflow parity proof is missing or not passed."
+        ],
+        "ui_windows_exit_gate_recovered_from_executable_gate": false,
+        "ui_windows_exit_gate_effective_ready": false,
+        "ui_windows_exit_gate_payload_marker_present": false,
+        "ui_windows_exit_gate_appended_payload_marker_present": false,
+        "ui_windows_exit_gate_sample_marker_present": false,
+        "ui_external_host_proof_blockers_status": "blocked",
+        "ui_external_host_proof_blockers_path": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/UI_EXTERNAL_HOST_PROOF_BLOCKERS.generated.json",
+        "ui_external_host_proof_blockers_generated_at": "2026-07-27T14:19:12Z",
+        "ui_external_host_proof_blockers_unresolved_hosts": [
+          "macos"
+        ],
+        "ui_external_host_proof_blockers_unresolved_tuples": [
+          "avalonia:osx-arm64:macos"
+        ],
+        "ui_external_host_proof_blockers_request_count": 1,
+        "ui_external_host_proof_blockers_requests": [
+          {
+            "tuple_id": "avalonia:osx-arm64:macos",
+            "required_host": "macos",
+            "blocker_codes": [
+              "installer_missing",
+              "receipt_missing"
+            ],
+            "blocker_messages": [
+              "installer missing at /docker/chummercomplete/.state/release-build-20260727/candidate-capture/.non-public-bundle-fresh.candidate-build.brSpyGto/chummer-avalonia-osx-arm64-installer.dmg",
+              "startup smoke receipt missing at /tmp/tmp.V3AGfd2txr/startup-smoke-avalonia-osx-arm64.receipt.json"
+            ],
+            "ready": false,
+            "install_access_class": "account_required"
+          }
+        ],
+        "ui_workflow_execution_gate_status": "fail",
+        "ui_workflow_execution_gate_path": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json",
+        "ui_workflow_execution_gate_recovered_from_executable_gate": false,
+        "ui_workflow_execution_gate_family_missing_receipt_count": 0,
+        "ui_workflow_execution_gate_family_failing_receipt_count": 0,
+        "ui_workflow_execution_gate_execution_missing_receipt_count": 0,
+        "ui_workflow_execution_gate_execution_failing_receipt_count": 0,
+        "ui_workflow_execution_gate_execution_weak_receipt_count": 0,
+        "ui_workflow_execution_gate_unresolved_receipt_count": 0,
+        "ui_workflow_execution_gate_unresolved_receipts": [],
+        "ui_workflow_execution_gate_unresolved_receipts_sr4_sr6_only": false,
+        "ui_user_journey_tester_audit_required": true,
+        "ui_user_journey_tester_audit_status": "pass",
+        "ui_user_journey_tester_audit_path": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/USER_JOURNEY_TESTER_AUDIT.generated.json",
+        "ui_user_journey_tester_audit_required_workflows": [
+          "master_index_search_focus_stability",
+          "file_new_character_visible_workspace",
+          "minimal_character_build_save_reload",
+          "major_navigation_sanity",
+          "validation_or_export_smoke"
+        ],
+        "ui_user_journey_tester_audit_required_workflow_assertions": {
+          "master_index_search_focus_stability": [
+            "focus_preserved_after_typing",
+            "search_text_accumulates_keyboard_input"
+          ],
+          "file_new_character_visible_workspace": [
+            "new_character_action_opened_visible_workspace",
+            "visible_workspace_nonblank",
+            "starter_attributes_match_seeded_workspace",
+            "section_preview_omits_review_copy"
+          ],
+          "minimal_character_build_save_reload": [
+            "character_created_saved_reloaded",
+            "reload_preserved_character_identity"
+          ],
+          "major_navigation_sanity": [
+            "primary_navigation_clicks_change_visible_content",
+            "no_unhandled_errors"
+          ],
+          "validation_or_export_smoke": [
+            "validation_or_export_action_completed",
+            "result_visible_or_file_created"
+          ]
+        },
+        "ui_user_journey_tester_audit_workflow_count": 5,
+        "ui_user_journey_tester_audit_missing_workflows": [],
+        "ui_user_journey_tester_audit_nonpassing_workflows": [],
+        "ui_user_journey_tester_audit_insufficient_screenshot_workflows": [],
+        "ui_user_journey_tester_audit_counter_only_screenshot_workflows": [],
+        "ui_user_journey_tester_audit_unverified_screenshot_workflows": [],
+        "ui_user_journey_tester_audit_missing_workflow_assertions": {},
+        "ui_user_journey_tester_audit_missing_execution_discipline": [],
+        "ui_user_journey_tester_audit_open_blocking_findings_count": 0,
+        "ui_user_journey_tester_audit_ready": true,
+        "ui_visual_familiarity_exit_gate_status": "fail",
+        "ui_visual_familiarity_exit_gate_effective_ready": false,
+        "ui_visual_familiarity_exit_gate_recovered_from_executable_gate": false,
+        "ui_visual_familiarity_exit_gate_path": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json",
+        "ui_flagship_release_gate_status": "pass",
+        "ui_flagship_release_gate_path": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/UI_FLAGSHIP_RELEASE_GATE.generated.json",
+        "ui_element_parity_audit_required": true,
+        "ui_element_parity_audit_path": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json",
+        "ui_element_parity_audit_present": true,
+        "ui_element_parity_audit_visual_no_count": 0,
+        "ui_element_parity_audit_behavioral_no_count": 0,
+        "ui_element_parity_audit_total_elements": 80,
+        "ui_element_parity_audit_required_release_blocking_ids": [
+          "source:hero_lab_importer_route",
+          "source:translator_route",
+          "source:xml_amendment_editor_route",
+          "family:custom_data_xml_and_translator_bridge",
+          "family:dense_builder_and_career_workflows",
+          "family:dice_initiative_and_table_utilities",
+          "family:identity_contacts_lifestyles_history",
+          "family:legacy_and_adjacent_import_oracles",
+          "family:sheet_export_print_viewer_and_exchange",
+          "family:sr6_supplements_designers_and_house_rules"
+        ],
+        "ui_element_parity_audit_missing_required_ids": [],
+        "ui_element_parity_audit_unresolved_release_blocking_ids": [],
+        "ui_element_parity_audit_unresolved_release_blocking_rows": [],
+        "ui_element_parity_audit_release_blocking_ready": true,
+        "ui_element_parity_route_local_effective_ready": true,
+        "ui_element_parity_route_local_only": true,
+        "ui_element_parity_route_local_resolved_ids": [
+          "family:dice_initiative_and_table_utilities",
+          "family:legacy_and_adjacent_import_oracles",
+          "family:sheet_export_print_viewer_and_exchange",
+          "source:hero_lab_importer_route"
+        ],
+        "ui_visual_familiarity_required_milestone2_tests": [
+          "Opening_mainframe_preserves_chummer5a_successor_workbench_posture",
+          "Runtime_backed_file_menu_preserves_working_open_save_import_routes",
+          "Master_index_is_a_first_class_runtime_backed_workbench_route",
+          "Character_roster_is_a_first_class_runtime_backed_workbench_route",
+          "Runtime_backed_shell_chrome_stays_enabled_after_runner_load",
+          "Runtime_backed_codex_tree_preserves_legacy_left_rail_navigation_posture",
+          "Loaded_runner_header_stays_tab_panel_only_without_metric_cards",
+          "Character_creation_preserves_familiar_dense_builder_rhythm",
+          "Advancement_and_karma_journal_workflows_preserve_familiar_progression_rhythm",
+          "Gear_builder_preserves_familiar_browse_detail_confirm_rhythm",
+          "Vehicles_and_drones_builder_preserves_familiar_browse_detail_confirm_rhythm",
+          "Cyberware_and_cyberlimb_builder_preserve_legacy_dialog_familiarity_cues",
+          "Contacts_diary_and_support_routes_execute_with_public_path_visibility",
+          "Magic_matrix_and_consumables_workflows_execute_with_specific_dialog_fields_and_confirm_actions"
+        ],
+        "ui_visual_familiarity_required_milestone2_test_variant_groups": [
+          [
+            "Opening_mainframe_preserves_chummer5a_successor_workbench_posture"
+          ],
+          [
+            "Runtime_backed_file_menu_preserves_working_open_save_import_routes"
+          ],
+          [
+            "Master_index_is_a_first_class_runtime_backed_workbench_route"
+          ],
+          [
+            "Character_roster_is_a_first_class_runtime_backed_workbench_route"
+          ],
+          [
+            "Runtime_backed_shell_chrome_stays_enabled_after_runner_load"
+          ],
+          [
+            "Runtime_backed_codex_tree_preserves_legacy_left_rail_navigation_posture",
+            "Standalone_navigator_tree_selection_raises_workspace_tab_section_and_workflow_events"
+          ],
+          [
+            "Loaded_runner_header_stays_tab_panel_only_without_metric_cards"
+          ],
+          [
+            "Character_creation_preserves_familiar_dense_builder_rhythm"
+          ],
+          [
+            "Advancement_and_karma_journal_workflows_preserve_familiar_progression_rhythm"
+          ],
+          [
+            "Gear_builder_preserves_familiar_browse_detail_confirm_rhythm"
+          ],
+          [
+            "Vehicles_and_drones_builder_preserves_familiar_browse_detail_confirm_rhythm"
+          ],
+          [
+            "Cyberware_and_cyberlimb_builder_preserve_legacy_dialog_familiarity_cues"
+          ],
+          [
+            "Contacts_diary_and_support_routes_execute_with_public_path_visibility"
+          ],
+          [
+            "Magic_matrix_and_consumables_workflows_execute_with_specific_dialog_fields_and_confirm_actions",
+            "Magic_workflows_execute_with_specific_dialog_fields_and_confirm_actions",
+            "Matrix_workflows_execute_with_specific_dialog_fields_and_confirm_actions"
+          ]
+        ],
+        "ui_visual_familiarity_required_test_inventory_count": 37,
+        "ui_visual_familiarity_missing_test_inventory_count": 0,
+        "ui_visual_familiarity_missing_required_milestone2_test_inventory_count": 0,
+        "ui_visual_familiarity_missing_required_milestone2_test_inventory": [],
+        "ui_visual_familiarity_reported_missing_required_milestone2_test_count": 0,
+        "ui_visual_familiarity_reported_missing_required_milestone2_tests": [],
+        "ui_visual_familiarity_missing_required_legacy_interaction_key_count": 0,
+        "ui_visual_familiarity_missing_required_legacy_interaction_keys": [],
+        "ui_localization_release_gate_present": true,
+        "ui_localization_release_gate_status": "pass",
+        "ui_localization_release_gate_path": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/UI_LOCALIZATION_RELEASE_GATE.generated.json",
+        "ui_localization_release_gate_default_key_count": 438,
+        "ui_localization_release_gate_locale_summary_count": 6,
+        "ui_localization_release_gate_shipping_locale_count": 6,
+        "ui_localization_release_gate_shipping_locales": [
+          "de-de",
+          "en-us",
+          "fr-fr",
+          "ja-jp",
+          "pt-br",
+          "zh-cn"
+        ],
+        "ui_localization_release_gate_missing_locale_summary_shipping_locale_count": 0,
+        "ui_localization_release_gate_missing_locale_summary_shipping_locales": [],
+        "ui_localization_release_gate_translation_backlog_finding_count": 0,
+        "ui_localization_release_gate_translation_backlog_findings": [],
+        "ui_localization_release_gate_untranslated_locale_count": 0,
+        "ui_localization_release_gate_untranslated_counts_by_locale": {},
+        "ui_workflow_parity_status": "fail",
+        "ui_workflow_parity_effective_ready": false,
+        "ui_workflow_parity_recovered_from_workflow_execution_gate": false,
+        "ui_workflow_parity_path": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/CHUMMER5A_DESKTOP_WORKFLOW_PARITY.generated.json",
+        "sr4_workflow_parity_status": "fail",
+        "sr4_workflow_parity_effective_ready": false,
+        "sr4_workflow_parity_external_only_missing_api_surface_contract": false,
+        "sr4_workflow_parity_path": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/SR4_DESKTOP_WORKFLOW_PARITY.generated.json",
+        "sr6_workflow_parity_status": "fail",
+        "sr6_workflow_parity_effective_ready": false,
+        "sr6_workflow_parity_external_only_missing_api_surface_contract": false,
+        "sr6_workflow_parity_path": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/SR6_DESKTOP_WORKFLOW_PARITY.generated.json",
+        "sr4_sr6_frontier_receipt_status": "fail",
+        "sr4_sr6_frontier_receipt_external_only_missing_api_surface_contract": false,
+        "sr4_sr6_frontier_receipt_path": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/SR4_SR6_DESKTOP_PARITY_FRONTIER.generated.json",
+        "ui_workflow_execution_gate_direct_flagship_slice_runtime_proof": false,
+        "release_channel_status": "published",
+        "release_channel_release_proof_status": "passed",
+        "release_channel_generated_at": "2026-07-12T18:46:26Z",
+        "release_channel_effective_generated_at": "2026-07-12T18:46:26Z",
+        "release_channel_effective_age_seconds": 1333744,
+        "release_channel_freshness_source": "canonical",
+        "release_channel_age_seconds": 1333744,
+        "release_channel_freshness_max_age_seconds": 86400,
+        "release_channel_freshness_ok": false,
+        "release_channel_verified_mirror_path": "",
+        "release_channel_verified_mirror_generated_at": "",
+        "release_channel_verified_mirror_age_seconds": null,
+        "release_channel_verified_mirror_identity_match": false,
+        "release_channel_ui_local_release_proof_generated_at": "2026-06-28T18:35:45Z",
+        "release_channel_ui_local_release_proof_age_seconds": 2543985,
+        "release_channel_ui_local_release_proof_supports_freshness": false,
+        "release_channel_id": "preview",
+        "release_channel_heads": [
+          "avalonia"
+        ],
+        "release_channel_has_linux_public_installer": true,
+        "release_channel_has_windows_public_installer": true,
+        "release_channel_has_macos_public_installer": false,
+        "release_channel_linux_promoted_tuples": [
+          "avalonia:linux-x64"
+        ],
+        "release_channel_windows_promoted_tuples": [
+          "avalonia:win-x64"
+        ],
+        "release_channel_macos_promoted_tuples": [],
+        "release_channel_promoted_tuple_heads": [
+          "avalonia"
+        ],
+        "ui_executable_gate_required_promoted_heads": [
+          "avalonia"
+        ],
+        "release_channel_missing_required_head_tuples": [],
+        "release_channel_required_tuple_platforms": [
+          "linux",
+          "macos",
+          "windows"
+        ],
+        "release_channel_required_tuple_heads": [
+          "avalonia"
+        ],
+        "release_channel_promoted_platform_heads": {
+          "linux": [
+            "avalonia"
+          ],
+          "macos": [],
+          "windows": [
+            "avalonia"
+          ]
+        },
+        "release_channel_missing_required_platform_head_pairs": [
+          "avalonia:macos"
+        ],
+        "release_channel_missing_required_platform_head_pairs_derived": [
+          "avalonia:macos"
+        ],
+        "release_channel_missing_required_platforms_derived": [
+          "macos"
+        ],
+        "release_channel_missing_required_heads_derived": [],
+        "release_channel_tuple_coverage_reported_missing_required_platform_head_pairs": [
+          "avalonia:macos"
+        ],
+        "release_channel_tuple_coverage_reported_missing_required_platforms": [
+          "macos"
+        ],
+        "release_channel_tuple_coverage_reported_missing_required_heads": [],
+        "release_channel_tuple_coverage_declares_missing_required_platform_head_pairs": true,
+        "release_channel_tuple_coverage_declares_missing_required_platforms": true,
+        "release_channel_tuple_coverage_declares_missing_required_heads": true,
+        "release_channel_tuple_coverage_incomplete": true,
+        "release_channel_tuple_coverage_missing_pair_inventory_mismatch": [],
+        "release_channel_tuple_coverage_missing_platform_inventory_mismatch": [],
+        "release_channel_tuple_coverage_missing_head_inventory_mismatch": [],
+        "release_channel_rollout_state": "coverage_incomplete",
+        "release_channel_supportability_state": "review_required",
+        "ui_executable_gate_visual_required_promoted_heads": [
+          "avalonia",
+          "blazor-desktop"
+        ],
+        "ui_executable_gate_workflow_required_promoted_heads": [
+          "avalonia",
+          "blazor-desktop"
+        ],
+        "ui_executable_gate_visual_missing_required_inventory_heads": [],
+        "ui_executable_gate_workflow_missing_required_inventory_heads": [],
+        "ui_executable_gate_visual_missing_or_failing_head_proofs": [],
+        "ui_executable_gate_workflow_missing_or_failing_head_proofs": [],
+        "ui_executable_gate_unpromoted_desktop_shelf_installers": [],
+        "ui_executable_gate_unpromoted_desktop_shelf_installers_raw": [],
+        "ui_executable_gate_trusted_local_roots": [
+          "/docker/chummercomplete/chummer-presentation",
+          "/docker/chummercomplete/.audit-worktrees/source-lock-materialize/chummer6-ui",
+          "/docker/chummercomplete/.clean-main/chummer6-ui-main",
+          "/docker/chummercomplete/.codex-worktrees/ui-hosted-macos-evidence-20260725",
+          "/docker/chummercomplete/.codex-worktrees/ui-immutable-incumbent-compose-20260726",
+          "/docker/chummercomplete/.codex-worktrees/ui-linux-deb-signing-20260726",
+          "/docker/chummercomplete/.codex-worktrees/ui-main-nightly-integration-20260726",
+          "/docker/chummercomplete/.codex-worktrees/ui-pr52-release-control-ci-20260725",
+          "/docker/chummercomplete/.codex-worktrees/ui-protected-publication-20260725",
+          "/docker/chummercomplete/.codex-worktrees/ui-stable-presentation-receipts-20260726",
+          "/docker/chummercomplete/.codex-worktrees/ui-startup-visual-window-ownership-20260727.EO9Fii",
+          "/docker/chummercomplete/.codex-worktrees/ui-surface-polish-20260725",
+          "/docker/chummercomplete/.codex-worktrees/ui-unsigned-native-receipt-seal-20260726",
+          "/docker/chummercomplete/.codex-worktrees/ui-unsigned-preview-native-evidence-20260726",
+          "/docker/chummercomplete/.flagship-assembler-worktree.jEiVUT",
+          "/docker/chummercomplete/.global-flagship-provider-auth-worktree-20260725",
+          "/docker/chummercomplete/.nightly-builder.OkRxXW/sources/chummer-presentation",
+          "/docker/chummercomplete/.nightly-current-build.TkKxk83F/chummer-presentation",
+          "/docker/chummercomplete/.nightly-main-rebuild.hjwrpf/chummer-presentation",
+          "/docker/chummercomplete/.nightly-main-rebuild.hjwrpf/chummer-presentation-final",
+          "/docker/chummercomplete/.preview-nightly-authorities/run-20260720-093248/workspace/chummer-presentation",
+          "/docker/chummercomplete/.preview-nightly-candidates/run-20260718-131445/compat/chummer-presentation",
+          "/docker/chummercomplete/.remote-main-vapor",
+          "/docker/chummercomplete/.scope-approval-worktree.AoQjiB",
+          "/docker/chummercomplete/.state/release-build-20260727/chummer-presentation",
+          "/docker/chummercomplete/.state/release-build-20260727/chummer-presentation-provenance",
+          "/docker/chummercomplete/.tmp-ui-main-widen",
+          "/docker/chummercomplete/_release-src/nightly-run-20260712-174412/chummer-presentation",
+          "/docker/chummercomplete/chummer-presentation-keylocker-backend-20260723-v1",
+          "/docker/chummercomplete/chummer-presentation-keylocker-integration-20260723-v1",
+          "/docker/chummercomplete/chummer-presentation-keylocker-integration-20260723-v2",
+          "/docker/chummercomplete/chummer-presentation-keylocker-integration-20260723-v3",
+          "/docker/chummercomplete/chummer-presentation-keylocker-review-cb733d-20260723",
+          "/docker/chummercomplete/chummer-presentation-signing-env-passthrough-20260723-v1",
+          "/docker/chummercomplete/chummer-presentation-sr6-attribute-workbench",
+          "/docker/chummercomplete/chummer-presentation-sr6-origin-dialog-clean",
+          "/docker/chummercomplete/chummer6-ui-windows-esigner-prep-20260722",
+          "/docker/chummercomplete/ui-statusbar-test-20260727",
+          "$HOME/.local/share/ea-releases/chummer-public-download-2e9d1c5b-durable-20260724-r9/sources/ui",
+          "$HOME/.local/share/ea-releases/windows-preview-run-20260721-134142/source-authorities-merged/chummer-presentation",
+          "$HOME/.local/share/ea-releases/windows-preview-run-20260721-134142/source-authorities-owner-fix/chummer-presentation",
+          "/tmp/chp-main-fix",
+          "/tmp/chummer-presentation-main-push",
+          "/tmp/chummer-presentation-verify-main",
+          "/tmp/chummer-ui-audit.eggPH0",
+          "/tmp/chummer-ui-main-deploy-2",
+          "/tmp/chummer-ui-workflow-hotfix.sh0Q7r/ui",
+          "/tmp/chummer6-ui-publishfix",
+          "/tmp/chummer6-ui-release-warnings",
+          "/tmp/chummer6-ui-worktree",
+          "/tmp/codex-fleet-runtime/worktrees/ui/next90-m122-ui-surface-campaign-adoption-runner-goal-pins-resolutionrep",
+          "/tmp/codex-fleet-runtime/worktrees/ui/next90-m123-ui-add-desktop-open-runs-and-gm-open-run-creation-flows-tie",
+          "/tmp/merge-chummer-presentation-main",
+          "/tmp/presentation-main-verify-merge",
+          "/docker/chummercomplete/chummer-hub-registry",
+          "/docker/chummercomplete/chummer.run-services"
+        ],
+        "ui_executable_gate_has_expanded_trusted_local_roots": true,
+        "ui_executable_gate_hub_registry_root": "/docker/chummercomplete/chummer-hub-registry",
+        "ui_executable_gate_hub_registry_release_channel_path": "/docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json",
+        "ui_executable_gate_hub_registry_root_trusted_for_startup_smoke_proof": true,
+        "ui_executable_gate_stale_linux_gate_receipts_without_promoted_tuples": [],
+        "ui_executable_gate_stale_windows_gate_receipts_without_promoted_tuples": [],
+        "ui_executable_gate_stale_macos_gate_receipts_without_promoted_tuples": [],
+        "ui_executable_gate_stale_linux_gate_receipt_tuple_keys_without_promoted_tuples": [],
+        "ui_executable_gate_stale_windows_gate_receipt_tuple_keys_without_promoted_tuples": [],
+        "ui_executable_gate_stale_macos_gate_receipt_tuple_keys_without_promoted_tuples": [],
+        "ui_executable_gate_stale_passing_platform_gate_receipts_without_promoted_tuples": [],
+        "ui_executable_gate_stale_passing_platform_gate_receipts_without_promoted_tuples_derived": [],
+        "ui_executable_gate_stale_passing_platform_gate_receipts_without_promoted_tuples_mismatch": [],
+        "ui_executable_gate_stale_linux_receipt_tuples_overlapping_promoted_tuples": [],
+        "ui_executable_gate_stale_windows_receipt_tuples_overlapping_promoted_tuples": [],
+        "ui_executable_gate_stale_macos_receipt_tuples_overlapping_promoted_tuples": [],
+        "release_channel_linux_has_invalid_tuple_metadata": false,
+        "release_channel_windows_has_invalid_tuple_metadata": false,
+        "release_channel_macos_has_invalid_tuple_metadata": false,
+        "release_channel_linux_channel_mismatch_keys": [],
+        "release_channel_windows_channel_mismatch_keys": [],
+        "release_channel_macos_channel_mismatch_keys": [],
+        "release_channel_linux_duplicate_tuple_keys": [],
+        "release_channel_windows_duplicate_tuple_keys": [],
+        "release_channel_macos_duplicate_tuple_keys": [],
+        "ui_executable_gate_linux_statuses": {
+          "avalonia:linux-x64": "fail"
+        },
+        "ui_executable_gate_linux_tuple_count": 1,
+        "ui_executable_gate_linux_passing_tuple_count": 0,
+        "ui_executable_gate_linux_missing_or_failing_keys": [
+          "avalonia:linux-x64"
+        ],
+        "ui_executable_gate_linux_stale_promoted_tuple_keys": [],
+        "ui_executable_gate_windows_statuses": {
+          "avalonia:win-x64": "fail"
+        },
+        "ui_executable_gate_windows_tuple_count": 1,
+        "ui_executable_gate_windows_passing_tuple_count": 0,
+        "ui_executable_gate_windows_missing_or_failing_keys": [
+          "avalonia:win-x64"
+        ],
+        "ui_executable_gate_windows_stale_promoted_tuple_keys": [],
+        "ui_executable_gate_macos_statuses": {
+          "avalonia:osx-arm64": "fail"
+        },
+        "ui_executable_gate_macos_tuple_count": 0,
+        "ui_executable_gate_macos_passing_tuple_count": 0,
+        "ui_executable_gate_macos_missing_or_failing_keys": [
+          "avalonia:macos"
+        ],
+        "ui_executable_gate_macos_stale_promoted_tuple_keys": [],
+        "install_claim_restore_continue": "ready",
+        "install_claim_restore_continue_effective": "ready",
+        "build_explain_publish": "ready",
+        "build_explain_publish_effective": "ready",
+        "install_claim_restore_continue_external_blocking_reason_count": 0,
+        "install_claim_restore_continue_local_blocking_reason_count": 0,
+        "install_claim_restore_continue_external_proof_request_count": 0,
+        "install_claim_restore_continue_external_proof_request_hosts": [],
+        "install_claim_restore_continue_external_proof_request_tuples": [],
+        "install_claim_restore_continue_external_proof_requests": [],
+        "install_claim_restore_continue_relevant_external_proof_request_count": 0,
+        "build_explain_publish_relevant_external_proof_request_count": 0,
+        "desktop_ignore_nonlinux_desktop_host_proof_blockers": false,
+        "parity_registry_path": "/docker/fleet/.codex-design/product/LEGACY_CLIENT_AND_ADJACENT_PARITY_REGISTRY.yaml",
+        "parity_registry_excluded_scope": [
+          "plugin-framework"
+        ],
+        "parity_registry_declared_blocking_family_count": 0,
+        "parity_registry_declared_blocking_family_ids": [],
+        "parity_registry_proof_closed_family_count": 0,
+        "parity_registry_proof_closed_family_ids": [],
+        "parity_registry_unresolved_family_count": 0,
+        "parity_registry_unresolved_family_ids": [],
+        "parity_registry_desktop_family_ids": [],
+        "parity_registry_unresolved_families": [],
+        "ui_executable_exit_gate_local_blocking_findings_count": 26,
+        "ui_executable_exit_gate_effective_local_blocking_findings": [
+          "Desktop visual familiarity exit gate is missing or not passing.",
+          "Desktop workflow execution gate is missing or not passing.",
+          "Release channel desktop install artifact(s) have unexpected keys: avalonia:osx-arm64:macos:publicationSource.",
+          "Promoted release-channel artifact is missing from local desktop downloads shelf: chummer-avalonia-osx-arm64-installer.dmg.",
+          "Release channel desktopTupleCoverage.externalProofRequests does not match missing desktop tuple inventory.",
+          "Release channel desktopTupleCoverage missingRequiredPlatformHeadPairs inventory does not match promoted installer tuples.",
+          "Release channel desktopTupleCoverage missingRequiredPlatforms inventory does not match promoted installer tuples.",
+          "Release channel desktopTupleCoverage promotedPlatformHeadRidTuples inventory does not match promoted installer tuples.",
+          "Release channel desktopTupleCoverage missingRequiredPlatformHeadRidTuples inventory does not match promoted installer tuples.",
+          "Windows gate reason: Portal Windows installer binding disagrees with the authoritative release channel.",
+          "Windows gate reason: Windows startup smoke receipt executionEnvironment is missing or unsupported.",
+          "Windows gate reason: Blazor browser-lane aggregate proof set is missing or not passed.",
+          "Windows gate reason: Chummer5a desktop workflow parity proof is missing or not passed.",
+          "Windows gate reason: SR4 desktop workflow parity proof is missing or not passed.",
+          "Windows gate reason: SR6 desktop workflow parity proof is missing or not passed.",
+          "Linux desktop exit gate receipt checks.release_channel_version does not match release channel version for promoted head 'avalonia'.",
+          "Linux desktop exit gate receipt releaseVersion/version does not match release channel version for promoted head 'avalonia'.",
+          "Linux installer startup smoke receipt version does not match release channel version for promoted head 'avalonia'.",
+          "Linux gate embedded release_channel_linux_artifact version/releaseVersion does not match promoted release channel version.",
+          "Linux gate embedded release_channel_linux_artifact sha256 does not match promoted release channel.",
+          "Linux gate embedded release_channel_linux_artifact sizeBytes does not match promoted release channel.",
+          "Linux installer startup smoke receipt artifactDigest does not match promoted release-channel artifact bytes for head 'avalonia'.",
+          "macOS desktop exit gate receipt channelId/channel does not match release channel channelId for promoted head 'avalonia' (osx-arm64).",
+          "macOS desktop exit gate checks.startup_smoke_receipt_found disagrees with startup_smoke.receipt_path file presence for promoted head 'avalonia' (osx-arm64).",
+          "macOS gate embedded release_channel_macos_artifact channelId/channel does not match promoted release channel.",
+          "macOS gate embedded release_channel_macos_artifact version/releaseVersion does not match promoted release channel version."
+        ],
+        "ui_executable_exit_gate_effective_local_blocking_findings_count": 26,
+        "install_claim_restore_continue_blocked_by_external_constraints_only": false,
+        "build_explain_publish_external_blocking_reason_count": 0,
+        "build_explain_publish_local_blocking_reason_count": 0,
+        "build_explain_publish_blocked_by_external_constraints_only": false
+      }
+    },
+    "rules_engine_and_import": {
+      "status": "ready",
+      "summary": "Rules parity and import certification are explicitly proven.",
+      "reasons": [],
+      "evidence": {
+        "core_stage": "boundary_pure",
+        "build_explain_publish": "ready",
+        "build_explain_publish_effective": "ready",
+        "build_explain_publish_local_blocking_reason_count": 0,
+        "build_explain_publish_external_blocking_reason_count": 0,
+        "build_explain_publish_rules_scope_blocking_reason_count": 0,
+        "build_explain_publish_rules_scope_blocking_reasons": [],
+        "rules_certification_path": "/docker/chummercomplete/chummer6-core/.codex-studio/published/ENGINE_PROOF_PACK.generated.json",
+        "rules_certification_status": "passed",
+        "rules_certification_raw_status": "passed",
+        "rules_certification_contract_name": "chummer6-core.engine_proof_pack",
+        "parity_registry_path": "/docker/fleet/.codex-design/product/LEGACY_CLIENT_AND_ADJACENT_PARITY_REGISTRY.yaml",
+        "parity_registry_excluded_scope": [
+          "plugin-framework"
+        ],
+        "parity_registry_declared_blocking_family_count": 0,
+        "parity_registry_declared_blocking_family_ids": [],
+        "parity_registry_proof_closed_family_count": 0,
+        "parity_registry_proof_closed_family_ids": [],
+        "parity_registry_rules_family_ids": [],
+        "parity_registry_unresolved_family_count": 0,
+        "parity_registry_unresolved_family_ids": []
+      }
+    },
+    "hub_and_registry": {
+      "status": "ready",
+      "summary": "Hub, registry, and public release shelf proof are aligned.",
+      "reasons": [],
+      "evidence": {
+        "hub_stage": "publicly_promoted",
+        "hub_promotion": "public",
+        "hub_registry_stage": "boundary_pure",
+        "hub_local_release_status": "passed",
+        "release_channel_status": "published",
+        "release_channel_release_proof": "passed",
+        "install_claim_restore_continue": "ready",
+        "install_claim_restore_continue_desktop_scoped_blocked": false,
+        "install_claim_restore_continue_effective_state": "ready",
+        "install_claim_restore_continue_release_proof_override": true,
+        "report_cluster_release_notify": "ready",
+        "report_cluster_release_notify_desktop_scoped_blocked": false,
+        "report_cluster_release_notify_effective_state": "ready",
+        "report_cluster_release_notify_release_proof_override": true,
+        "report_cluster_release_notify_blocked_by_external_constraints_only": false,
+        "report_cluster_release_notify_external_blocking_reason_count": 0,
+        "report_cluster_release_notify_local_blocking_reason_count": 0,
+        "report_cluster_release_notify_external_proof_request_count": 0
+      }
+    },
+    "mobile_play_shell": {
+      "status": "ready",
+      "summary": "Mobile play-shell continuity and reconnect proof are current.",
+      "reasons": [],
+      "evidence": {
+        "mobile_stage": "publicly_promoted",
+        "mobile_promotion": "public",
+        "mobile_local_release_status": "passed",
+        "campaign_session_recover_recap": "ready",
+        "campaign_session_recover_recap_effective_state": "ready",
+        "campaign_session_recover_recap_owner_scoped_effective_state": "ready",
+        "campaign_session_recover_recap_owner_scoped_unrelated_routed_local_only": false,
+        "campaign_session_recover_recap_owner_scoped_routed_owner_repos": [],
+        "recover_from_sync_conflict": "ready",
+        "recover_from_sync_conflict_effective_state": "ready",
+        "recover_from_sync_conflict_owner_scoped_effective_state": "ready",
+        "recover_from_sync_conflict_public_proof_ready": false,
+        "recover_from_sync_conflict_owner_scoped_unrelated_routed_local_only": false,
+        "recover_from_sync_conflict_owner_scoped_routed_owner_repos": []
+      }
+    },
+    "ui_kit_and_flagship_polish": {
+      "status": "ready",
+      "summary": "Shared UI, accessibility, and flagship polish proof is current across heads.",
+      "reasons": [],
+      "evidence": {
+        "ui_kit_stage": "boundary_pure",
+        "ui_stage": "publicly_promoted",
+        "mobile_stage": "publicly_promoted",
+        "ui_promotion": "public",
+        "mobile_promotion": "public",
+        "build_explain_publish": "ready",
+        "build_explain_publish_effective": "ready",
+        "campaign_session_recover_recap": "ready",
+        "campaign_session_recover_recap_effective_state": "ready",
+        "campaign_session_recover_recap_owner_scoped_effective_state": "ready",
+        "campaign_session_recover_recap_owner_scoped_unrelated_routed_local_only": false,
+        "campaign_session_recover_recap_owner_scoped_routed_owner_repos": []
+      }
+    },
+    "media_artifacts": {
+      "status": "ready",
+      "summary": "Artifact publication and media proof are explicitly green.",
+      "reasons": [],
+      "evidence": {
+        "media_stage": "boundary_pure",
+        "build_explain_publish": "ready",
+        "build_explain_publish_effective": "ready",
+        "media_proof_path": "/docker/fleet/repos/chummer-media-factory/.codex-studio/published/MEDIA_LOCAL_RELEASE_PROOF.generated.json",
+        "media_proof_status": "passed"
+      }
+    },
+    "horizons_and_public_surface": {
+      "status": "ready",
+      "summary": "Horizons posture and public surface proof are aligned with live release truth.",
+      "reasons": [],
+      "evidence": {
+        "public_group_deployment_status": "public",
+        "progress_report_generated_at": "2026-07-11T16:33:18Z",
+        "install_claim_restore_continue": "ready",
+        "install_claim_restore_continue_desktop_scoped_blocked": false,
+        "install_claim_restore_continue_effective_state": "ready",
+        "install_claim_restore_continue_release_proof_override": true,
+        "report_cluster_release_notify": "ready",
+        "report_cluster_release_notify_desktop_scoped_blocked": false,
+        "report_cluster_release_notify_effective_state": "ready",
+        "report_cluster_release_notify_release_proof_override": true,
+        "report_cluster_release_notify_blocked_by_external_constraints_only": false,
+        "report_cluster_release_notify_external_blocking_reason_count": 0,
+        "report_cluster_release_notify_local_blocking_reason_count": 0,
+        "report_cluster_release_notify_external_proof_request_count": 0,
+        "acceptance_path": "/docker/fleet/.codex-design/product/FLAGSHIP_RELEASE_ACCEPTANCE.yaml",
+        "flagship_bar_mirror_path": "/docker/fleet/.codex-design/product/FLAGSHIP_PRODUCT_BAR.md",
+        "flagship_bar_mirror_exists": true,
+        "horizons_overview_mirror_path": "/docker/fleet/.codex-design/product/HORIZONS.md",
+        "horizons_overview_mirror_exists": true,
+        "required_desktop_canon_missing_names": [],
+        "canonical_horizon_doc_count": 14,
+        "mirror_horizon_doc_count": 21,
+        "missing_mirror_horizon_doc_names": [],
+        "surface_design_review_loop_path": "/docker/fleet/.codex-design/product/SURFACE_DESIGN_SYSTEM_AND_AI_REVIEW_LOOP.md",
+        "chummer5a_familiarity_bridge_path": "/docker/fleet/.codex-design/product/CHUMMER5A_FAMILIARITY_BRIDGE.md",
+        "desktop_executable_exit_gates_path": "/docker/fleet/.codex-design/product/DESKTOP_EXECUTABLE_EXIT_GATES.md",
+        "legacy_client_and_adjacent_parity_path": "/docker/fleet/.codex-design/product/LEGACY_CLIENT_AND_ADJACENT_PARITY.md",
+        "public_release_experience_path": "/docker/fleet/.codex-design/product/PUBLIC_RELEASE_EXPERIENCE.yaml",
+        "surface_design_review_loop_exists": true,
+        "chummer5a_familiarity_bridge_exists": true,
+        "desktop_executable_exit_gates_exists": true,
+        "legacy_client_and_adjacent_parity_exists": true,
+        "public_release_experience_exists": true
+      }
+    },
+    "fleet_and_operator_loop": {
+      "status": "ready",
+      "summary": "Fleet control-loop proof is current and steering a ready product surface set.",
+      "reasons": [],
+      "evidence": {
+        "runtime_healing_alert_state": "healthy",
+        "runtime_healing_last_event_at": "",
+        "runtime_healing_override_stale_incident": false,
+        "journey_overall_state": "ready",
+        "journey_effective_overall_state": "ready",
+        "journey_blocked_external_only_count": 0,
+        "journey_blocked_with_local_count": 0,
+        "journey_effective_blocked_external_only_count": 0,
+        "journey_effective_blocked_with_local_count": 0,
+        "journey_overall_desktop_scoped_blocked": false,
+        "journey_overall_routed_local_only": false,
+        "journey_local_blocker_count_total": 0,
+        "journey_local_blocker_routed_count": 0,
+        "journey_local_blocker_unrouted_count": 0,
+        "journey_local_blocker_autofix_routing_ready": true,
+        "journey_local_blocker_owner_repo_counts": {},
+        "journey_local_blocker_counts": {},
+        "journey_local_blocker_route_sample": [],
+        "journey_local_blocker_unrouted_reason_sample": [],
+        "history_snapshot_count": 44,
+        "support_packets_generated_at": "2026-07-12T17:37:44Z",
+        "support_packets_generated_age_seconds": 1337866,
+        "support_packets_refresh_mode": "",
+        "support_open_packet_count": 0,
+        "support_open_non_external_packet_count": 0,
+        "support_closure_waiting_on_release_truth": 0,
+        "support_update_required_misrouted_case_count": 0,
+        "support_non_external_needs_human_response_count": 0,
+        "support_non_external_packets_without_named_owner": 0,
+        "support_non_external_packets_without_lane": 0,
+        "external_proof_backlog_request_count": 1,
+        "external_proof_backlog_request_observation_count": 1,
+        "external_proof_backlog_duplicate_observation_count": 0,
+        "external_proof_runbook_path": "/docker/fleet/.codex-studio/published/EXTERNAL_PROOF_RUNBOOK.generated.md",
+        "external_proof_runbook_generated_at": "2026-07-04T00:13:56Z",
+        "external_proof_runbook_plan_generated_at": "2026-07-04T00:13:20Z",
+        "external_proof_runbook_release_channel_generated_at": "2026-07-03T23:27:02Z",
+        "external_proof_commands_dir": "/docker/fleet/.codex-studio/published/external-proof-commands",
+        "external_proof_command_bundle_sha256": "079b4a4c69e81935860bb044efd3626572721ee969107564617bd94a3195c9b4",
+        "external_proof_command_bundle_file_count": 30,
+        "external_proof_runbook_command_bundle_sha256": "079b4a4c69e81935860bb044efd3626572721ee969107564617bd94a3195c9b4",
+        "external_proof_runbook_command_bundle_file_count": 30,
+        "external_proof_runbook_synced": false,
+        "external_proof_runbook_sync_issue_count": 2,
+        "dispatchable_truth_ready": true,
+        "final_gold_janitor_path": "/docker/fleet/_completion/full_product_reaudit_v20/FINAL_GOLD_JANITOR.generated.json",
+        "final_gold_janitor_state": "fail",
+        "final_gold_janitor_verdict": "NOT_GOLD",
+        "final_gold_janitor_reasons": [],
+        "live_backed_truth_path": "/docker/fleet/_completion/full_product_reaudit_v20/LIVE_BACKED_RELEASE_TRUTH_MATRIX.generated.json",
+        "live_backed_truth_status": "",
+        "live_backed_gold_claim_allowed": true,
+        "live_backed_truth_reasons": [],
+        "active_shards_generated_at": "2026-07-11T15:11:14Z",
+        "active_shards_manifest_kind": "configured_shard_topology",
+        "active_shards_count": 3,
+        "configured_shards_count": 14,
+        "active_shards_recent": false,
+        "ooda_state_recovered_from_active_shards": false,
+        "ooda_state_recovery_source": "",
+        "supervisor_mode": "sharded",
+        "supervisor_completion_status": "fail",
+        "supervisor_completion_external_only": true,
+        "supervisor_completion_desktop_scoped": false,
+        "supervisor_completion_routed_local_only": false,
+        "supervisor_successor_wave_steering_ready": false,
+        "supervisor_completion_status_recovered_from_current_readiness": true,
+        "supervisor_updated_at": "2026-07-17T22:45:17Z",
+        "supervisor_recent_enough": false,
+        "supervisor_focus_profiles": [
+          "top_flagship_grade",
+          "whole_project_frontier"
+        ],
+        "supervisor_runtime_focus_profiles": [
+          "top_flagship_grade",
+          "whole_project_frontier"
+        ],
+        "supervisor_state_recovered_from_active_shards": false,
+        "supervisor_focus_profiles_recovered_from_runtime_env": false,
+        "supervisor_hard_flagship_ready": true,
+        "supervisor_whole_project_frontier_ready": true,
+        "ooda_controller": "up",
+        "ooda_supervisor": "up",
+        "ooda_aggregate_stale": false,
+        "ooda_timestamp_stale": false,
+        "ooda_steady_complete_quiet": false,
+        "ooda_live_active_progress": false,
+        "ooda_recovered_from_current_supervisor_topology": false,
+        "runtime_healing_alert_state_recovered_from_external_only_desktop_scope": true,
+        "external_proof_runbook_sync_recovered_from_external_only_desktop_scope": true,
+        "external_proof_release_channel_sync_recovered_from_external_only_desktop_scope": true,
+        "dispatchable_truth_ready_recovered_from_external_only_desktop_scope": true
+      }
+    }
+  },
+  "parity_registry": {
+    "path": "/docker/fleet/.codex-design/product/LEGACY_CLIENT_AND_ADJACENT_PARITY_REGISTRY.yaml",
+    "excluded_scope": [
+      "plugin-framework"
+    ],
+    "declared_blocking_family_count": 0,
+    "declared_blocking_family_ids": [],
+    "declared_blocking_families": [],
+    "proof_closed_family_count": 0,
+    "proof_closed_family_ids": [],
+    "proof_closed_families": [],
+    "unresolved_family_count": 0,
+    "unresolved_family_ids": [],
+    "unresolved_families": []
+  },
+  "flagship_parity_registry": {
+    "path": "/docker/fleet/.codex-design/product/FLAGSHIP_PARITY_REGISTRY.yaml",
+    "status_counts": {
+      "documented": 0,
+      "implemented": 0,
+      "task_proven": 0,
+      "veteran_approved": 0,
+      "gold_ready": 11,
+      "unknown": 0
+    },
+    "family_count": 11,
+    "families_below_task_proven": [],
+    "families_below_veteran_approved": [],
+    "families_below_gold_ready": [],
+    "parity_lab_ready": true,
+    "parity_lab_capture_pack_path": "/docker/fleet/docs/chummer5a-oracle/parity_lab_capture_pack.yaml",
+    "parity_lab_veteran_compare_pack_path": "/docker/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml",
+    "parity_lab_family_target_count": 11,
+    "parity_lab_invalid_target_family_ids": [],
+    "parity_lab_missing_flagship_family_ids": [],
+    "parity_lab_families_below_target": [],
+    "parity_lab_capture_coverage_key": "desktop_client",
+    "parity_lab_capture_coverage_key_matches": true,
+    "parity_lab_capture_missing_non_negotiable_ids": [],
+    "parity_lab_workflow_missing_non_negotiable_ids": [],
+    "parity_lab_missing_whole_product_coverage_keys": []
+  },
+  "evidence_sources": {
+    "acceptance": "/docker/fleet/.codex-design/product/FLAGSHIP_RELEASE_ACCEPTANCE.yaml",
+    "parity_registry": "/docker/fleet/.codex-design/product/LEGACY_CLIENT_AND_ADJACENT_PARITY_REGISTRY.yaml",
+    "flagship_parity_registry": "/docker/fleet/.codex-design/product/FLAGSHIP_PARITY_REGISTRY.yaml",
+    "flagship_readiness_planes": "/docker/fleet/.codex-design/product/FLAGSHIP_READINESS_PLANES.yaml",
+    "dense_workbench_budget": "/docker/fleet/.codex-design/product/DENSE_WORKBENCH_BUDGET.yaml",
+    "veteran_first_minute_gate": "/docker/fleet/.codex-design/product/VETERAN_FIRST_MINUTE_GATE.yaml",
+    "primary_route_registry": "/docker/fleet/.codex-design/product/PRIMARY_ROUTE_REGISTRY.yaml",
+    "feedback_loop_release_gate": "/docker/fleet/.codex-design/product/FEEDBACK_LOOP_RELEASE_GATE.yaml",
+    "status_plane": "/docker/fleet/.codex-studio/published/STATUS_PLANE.generated.yaml",
+    "progress_report": "/docker/fleet/.codex-studio/published/PROGRESS_REPORT.generated.json",
+    "progress_history": "/docker/fleet/.codex-studio/published/PROGRESS_HISTORY.generated.json",
+    "journey_gates": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
+    "support_packets": "/docker/fleet/.codex-studio/published/SUPPORT_CASE_PACKETS.generated.json",
+    "external_proof_runbook": "/docker/fleet/.codex-studio/published/EXTERNAL_PROOF_RUNBOOK.generated.md",
+    "supervisor_state": "/docker/fleet/state/chummer_design_supervisor/state.json",
+    "ooda_state": "/docker/fleet/state/design_supervisor_ooda/overwatch_20260625T180607Z_8h/state.json",
+    "ui_local_release_proof": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/UI_LOCAL_RELEASE_PROOF.generated.json",
+    "ui_executable_exit_gate": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json",
+    "ui_linux_exit_gate": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/UI_LINUX_DESKTOP_EXIT_GATE.generated.json",
+    "ui_windows_exit_gate": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/UI_WINDOWS_DESKTOP_EXIT_GATE.generated.json",
+    "ui_workflow_execution_gate": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json",
+    "ui_visual_familiarity_exit_gate": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json",
+    "ui_user_journey_tester_audit": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/USER_JOURNEY_TESTER_AUDIT.generated.json",
+    "ui_workflow_parity_proof": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/CHUMMER5A_DESKTOP_WORKFLOW_PARITY.generated.json",
+    "sr4_workflow_parity_proof": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/SR4_DESKTOP_WORKFLOW_PARITY.generated.json",
+    "sr6_workflow_parity_proof": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/SR6_DESKTOP_WORKFLOW_PARITY.generated.json",
+    "sr4_sr6_frontier_receipt": "/docker/chummercomplete/chummer6-ui/.codex-studio/published/SR4_SR6_DESKTOP_PARITY_FRONTIER.generated.json",
+    "hub_local_release_proof": "/docker/chummercomplete/chummer.run-services/.codex-studio/published/HUB_LOCAL_RELEASE_PROOF.generated.json",
+    "mobile_local_release_proof": "/docker/chummercomplete/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json",
+    "release_channel": "/docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json",
+    "releases_json": "/docker/chummercomplete/chummer-hub-registry/.codex-studio/published/releases.json"
+  },
+  "release_truth_projection": {
+    "contract_name": "chummer.flagship_product_readiness.release_truth_projection.v1",
+    "source": {
+      "path": "/docker/chummercomplete/chummer.run-services/.codex-studio/published/RELEASE_READY.generated.json",
+      "sha256": "9e9797303de5fbd86fe2a6cde135799562b8a7d6023655917d8aefcf376e0c9a",
+      "contract_name": "chummer.release_ready",
+      "generated_at_utc": "2026-07-28T05:15:18Z",
+      "status": "fail",
+      "verdict": "NOT_RELEASE_READY",
+      "fresh": true,
+      "max_age_seconds": 86400,
+      "future_tolerance_seconds": 300
+    },
+    "integrity_status": "pass",
+    "integrity_findings": [],
+    "failed_gate_count": 7,
+    "failure_count": 83,
+    "failed_gate_ids": [
+      "release_channel",
+      "flagship_product_readiness",
+      "google_oauth_linking_proof",
+      "public_edge_postdeploy_gate",
+      "windows_installer_visual_audit",
+      "supply_chain_evidence",
+      "public_edge_observability_release"
+    ],
+    "blocking_gate_ids": [
+      "release_channel",
+      "google_oauth_linking_proof",
+      "public_edge_postdeploy_gate",
+      "windows_installer_visual_audit",
+      "supply_chain_evidence",
+      "public_edge_observability_release"
+    ],
+    "backreference_gate_ids": [
+      "flagship_product_readiness"
+    ],
+    "failed_gates": [
+      {
+        "gate_id": "release_channel",
+        "relation": "leaf",
+        "blocks_current_artifact": true,
+        "failure_count": 3,
+        "failure_indexes": [
+          0,
+          1,
+          2
+        ],
+        "headline": "release channel channel is preview, not a flagship stable lane",
+        "current_receipt_state_pointer": "/current_receipt_states/release_channel",
+        "blocking_gate_artifact_pointer": ""
+      },
+      {
+        "gate_id": "flagship_product_readiness",
+        "relation": "self_backreference",
+        "blocks_current_artifact": false,
+        "failure_count": 48,
+        "failure_indexes": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50
+        ],
+        "headline": "",
+        "current_receipt_state_pointer": "/current_receipt_states/flagship_product_readiness",
+        "blocking_gate_artifact_pointer": ""
+      },
+      {
+        "gate_id": "google_oauth_linking_proof",
+        "relation": "leaf",
+        "blocks_current_artifact": true,
+        "failure_count": 22,
+        "failure_indexes": [
+          51,
+          52,
+          53,
+          54,
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72
+        ],
+        "headline": "generated_at_utc is stale",
+        "current_receipt_state_pointer": "/current_receipt_states/google_oauth_linking_proof",
+        "blocking_gate_artifact_pointer": "/blocking_gate_artifacts/google_oauth_linking_proof"
+      },
+      {
+        "gate_id": "public_edge_postdeploy_gate",
+        "relation": "leaf",
+        "blocks_current_artifact": true,
+        "failure_count": 3,
+        "failure_indexes": [
+          73,
+          74,
+          75
+        ],
+        "headline": "public_edge_postdeploy_gate release truth verdict is RUNTIME_PREFLIGHT_FAIL",
+        "current_receipt_state_pointer": "/current_receipt_states/public_edge_postdeploy_gate",
+        "blocking_gate_artifact_pointer": ""
+      },
+      {
+        "gate_id": "windows_installer_visual_audit",
+        "relation": "leaf",
+        "blocks_current_artifact": true,
+        "failure_count": 3,
+        "failure_indexes": [
+          76,
+          77,
+          78
+        ],
+        "headline": "Windows installer visual audit source digest does not match promoted installer",
+        "current_receipt_state_pointer": "/current_receipt_states/windows_installer_visual_audit",
+        "blocking_gate_artifact_pointer": "/blocking_gate_artifacts/windows_installer_visual_audit"
+      },
+      {
+        "gate_id": "supply_chain_evidence",
+        "relation": "leaf",
+        "blocks_current_artifact": true,
+        "failure_count": 2,
+        "failure_indexes": [
+          79,
+          80
+        ],
+        "headline": "container_vulnerability_audit:not_available",
+        "current_receipt_state_pointer": "/current_receipt_states/supply_chain_evidence",
+        "blocking_gate_artifact_pointer": "/blocking_gate_artifacts/supply_chain_evidence"
+      },
+      {
+        "gate_id": "public_edge_observability_release",
+        "relation": "leaf",
+        "blocks_current_artifact": true,
+        "failure_count": 2,
+        "failure_indexes": [
+          81,
+          82
+        ],
+        "headline": "operator_proof: operator proof is missing",
+        "current_receipt_state_pointer": "/current_receipt_states/public_edge_observability_release",
+        "blocking_gate_artifact_pointer": "/blocking_gate_artifacts/public_edge_observability_release"
+      }
+    ],
+    "unattributed_failure_indexes": [],
+    "coverage_results": {
+      "desktop_client": {
+        "evidence_presence": "present",
+        "readiness_status": "fail",
+        "root_blocker_count": 5,
+        "root_blocker_ids": [
+          "proof:desktop_executable_exit_gate",
+          "proof:desktop_visual_familiarity_exit_gate",
+          "proof:desktop_workflow_execution_gate",
+          "proof:desktop_gold_gate",
+          "release_truth:windows_installer_visual_audit"
+        ],
+        "source_root_blocker_pointers": [
+          "/root_blockers/1",
+          "/root_blockers/2",
+          "/root_blockers/3",
+          "/root_blockers/4",
+          "/root_blockers/9"
+        ]
+      }
+    },
+    "full_failure_details_embedded": false
+  },
+  "gate_status_override": {
+    "contract_name": "chummer.flagship_product_readiness.fail_closed_override.v1",
+    "applied_at_utc": "2026-07-28T05:15:30Z",
+    "raw_status": "fail",
+    "raw_scoped_status": "fail",
+    "summary_pass": false,
+    "reason": "Launch-critical nested blockers or coverage gaps remain; raw materializer status is not sufficient for a flagship launch claim.",
+    "launch_critical_nested_blockers": [
+      "release channel channel is preview, not a flagship stable lane",
+      "release channel supportability is not gold_supported",
+      "release channel rollout is blocking: coverage_incomplete",
+      "binding: evidence: contract_name must be chummer.run.google_oauth_linking_operator_evidence.v2",
+      "binding: evidence: observed_at_utc is stale",
+      "binding: evidence: observed_at_utc predates the current request",
+      "binding: evidence: request_nonce does not match the current request/release binding",
+      "binding: evidence: request_sha256 does not match the current request/release binding",
+      "binding: evidence: release_authority_sha256 does not match the current request/release binding",
+      "binding: evidence: portal_release_manifest_sha256 does not match the current request/release binding",
+      "binding: evidence: hub_release_manifest_sha256 does not match the current request/release binding",
+      "binding: evidence: live_release_manifest_sha256 does not match the current request/release binding",
+      "binding: evidence: screenshots must contain at least 2 entries",
+      "binding: evidence: detached operator attestation is missing",
+      "binding: evidence: import_provenance is missing",
+      "binding: evidence: import provenance source_artifact_sha256 is invalid",
+      "binding: evidence: import provenance source_receipt_sha256 is invalid",
+      "binding: evidence: import provenance importer_program_sha256 is stale",
+      "binding: evidence: imported_at_utc must be a timezone-aware timestamp",
+      "binding: evidence: import_source_artifact contains pytest/test-fixture provenance",
+      "binding: evidence: import_source_receipt_path contains pytest/test-fixture provenance",
+      "binding: evidence: import_source_screenshot_paths contains pytest/test-fixture provenance",
+      "operator_end_to_end_evidence: contract_name must be chummer.run.google_oauth_linking_operator_evidence.v2",
+      "operator_end_to_end_evidence: observed_at_utc is stale",
+      "operator_end_to_end_evidence: observed_at_utc predates the current request",
+      "operator_end_to_end_evidence: request_nonce does not match the current request/release binding",
+      "operator_end_to_end_evidence: request_sha256 does not match the current request/release binding",
+      "operator_end_to_end_evidence: release_authority_sha256 does not match the current request/release binding",
+      "operator_end_to_end_evidence: portal_release_manifest_sha256 does not match the current request/release binding",
+      "operator_end_to_end_evidence: hub_release_manifest_sha256 does not match the current request/release binding",
+      "operator_end_to_end_evidence: live_release_manifest_sha256 does not match the current request/release binding",
+      "operator_end_to_end_evidence: screenshots must contain at least 2 entries",
+      "operator_end_to_end_evidence: detached operator attestation is missing",
+      "operator_end_to_end_evidence: import_provenance is missing",
+      "operator_end_to_end_evidence: import provenance source_artifact_sha256 is invalid",
+      "operator_end_to_end_evidence: import provenance source_receipt_sha256 is invalid",
+      "operator_end_to_end_evidence: import provenance importer_program_sha256 is stale",
+      "operator_end_to_end_evidence: imported_at_utc must be a timezone-aware timestamp",
+      "operator_end_to_end_evidence: import_source_artifact contains pytest/test-fixture provenance",
+      "operator_end_to_end_evidence: import_source_receipt_path contains pytest/test-fixture provenance",
+      "operator_end_to_end_evidence: import_source_screenshot_paths contains pytest/test-fixture provenance",
+      "auth_signin_automation_paused: paused by user request on 2026-07-08: do not send Chummer sign-in emails without explicit approval (/docker/chummercomplete/chummer.run-services/.state/auth_signin_automation_paused.flag)",
+      "generated_at_utc is stale",
+      "evidence: contract_name must be chummer.run.google_oauth_linking_operator_evidence.v2",
+      "evidence: observed_at_utc is stale",
+      "evidence: observed_at_utc predates the current request",
+      "evidence: request_nonce does not match the current request/release binding",
+      "evidence: request_sha256 does not match the current request/release binding",
+      "evidence: release_authority_sha256 does not match the current request/release binding",
+      "evidence: portal_release_manifest_sha256 does not match the current request/release binding",
+      "evidence: hub_release_manifest_sha256 does not match the current request/release binding",
+      "evidence: live_release_manifest_sha256 does not match the current request/release binding",
+      "evidence: screenshots must contain at least 2 entries",
+      "evidence: detached operator attestation is missing",
+      "evidence: import_provenance is missing",
+      "evidence: import provenance source_artifact_sha256 is invalid",
+      "evidence: import provenance source_receipt_sha256 is invalid",
+      "evidence: import provenance importer_program_sha256 is stale",
+      "evidence: imported_at_utc must be a timezone-aware timestamp",
+      "evidence: import_source_artifact contains pytest/test-fixture provenance",
+      "evidence: import_source_receipt_path contains pytest/test-fixture provenance",
+      "evidence: import_source_screenshot_paths contains pytest/test-fixture provenance",
+      "proof status is not pass",
+      "proof receipt contains failures",
+      "Windows installer visual audit source digest does not match promoted installer",
+      "windows installer visual audit source still targets 80655fd79a096cd7714910d7b38f7741eea01f82ada96dc6a2a097951997d91a instead of promoted digest d0857d0a6e5c958f34117051669373444b785f683e701c3e0ae428abef36e8ca: /docker/chummercomplete/chummer.run-services/Chummer.Portal/downloads/visual-audit/windows-installer/WINDOWS_INSTALLER_VISUAL_AUDIT.source.json",
+      "windows installer gold proof artifact is still missing: /docker/chummercomplete/chummer.run-services/.state/incoming_windows_installer_gold_proof/windows-installer-gold-proof-d0857d0a6e5c.zip",
+      "Hosted Build backup and point-in-time-recovery retention, tombstone or lineage retention, deletion replay, and whole-account erasure are not launch-approved or production-verified.",
+      "Hosted Build V002 operator decisions remain unresolved: quota_policy, logical_bytes, recreation_and_undo, offline_compatibility, tombstone_privacy_policy, stable_owner_identity, writer_epoch, delete_replay_and_rpo, provider_and_topology, enforcement_boundary, migration_posture, capacity_and_retention."
+    ],
+    "coverage_gap_keys": [
+      "desktop_client"
+    ],
+    "scoped_coverage_gap_keys": [
+      "desktop_client"
+    ],
+    "effective_reason": "Launch-critical nested blockers or coverage gaps remain; raw materializer status is not sufficient for a flagship launch claim. Launch blockers: release channel channel is preview, not a flagship stable lane, release channel supportability is not gold_supported, release channel rollout is blocking: coverage_incomplete, binding: evidence: contract_name must be chummer.run.google_oauth_linking_operator_evidence.v2, binding: evidence: observed_at_utc is stale, binding: evidence: observed_at_utc predates the current request, binding: evidence: request_nonce does not match the current request/release binding, binding: evidence: request_sha256 does not match the current request/release binding, binding: evidence: release_authority_sha256 does not match the current request/release binding, binding: evidence: portal_release_manifest_sha256 does not match the current request/release binding, binding: evidence: hub_release_manifest_sha256 does not match the current request/release binding, binding: evidence: live_release_manifest_sha256 does not match the current request/release binding, binding: evidence: screenshots must contain at least 2 entries, binding: evidence: detached operator attestation is missing, binding: evidence: import_provenance is missing, binding: evidence: import provenance source_artifact_sha256 is invalid, binding: evidence: import provenance source_receipt_sha256 is invalid, binding: evidence: import provenance importer_program_sha256 is stale, binding: evidence: imported_at_utc must be a timezone-aware timestamp, binding: evidence: import_source_artifact contains pytest/test-fixture provenance, binding: evidence: import_source_receipt_path contains pytest/test-fixture provenance, binding: evidence: import_source_screenshot_paths contains pytest/test-fixture provenance, operator_end_to_end_evidence: contract_name must be chummer.run.google_oauth_linking_operator_evidence.v2, operator_end_to_end_evidence: observed_at_utc is stale, operator_end_to_end_evidence: observed_at_utc predates the current request, operator_end_to_end_evidence: request_nonce does not match the current request/release binding, operator_end_to_end_evidence: request_sha256 does not match the current request/release binding, operator_end_to_end_evidence: release_authority_sha256 does not match the current request/release binding, operator_end_to_end_evidence: portal_release_manifest_sha256 does not match the current request/release binding, operator_end_to_end_evidence: hub_release_manifest_sha256 does not match the current request/release binding, operator_end_to_end_evidence: live_release_manifest_sha256 does not match the current request/release binding, operator_end_to_end_evidence: screenshots must contain at least 2 entries, operator_end_to_end_evidence: detached operator attestation is missing, operator_end_to_end_evidence: import_provenance is missing, operator_end_to_end_evidence: import provenance source_artifact_sha256 is invalid, operator_end_to_end_evidence: import provenance source_receipt_sha256 is invalid, operator_end_to_end_evidence: import provenance importer_program_sha256 is stale, operator_end_to_end_evidence: imported_at_utc must be a timezone-aware timestamp, operator_end_to_end_evidence: import_source_artifact contains pytest/test-fixture provenance, operator_end_to_end_evidence: import_source_receipt_path contains pytest/test-fixture provenance, operator_end_to_end_evidence: import_source_screenshot_paths contains pytest/test-fixture provenance, auth_signin_automation_paused: paused by user request on 2026-07-08: do not send Chummer sign-in emails without explicit approval (/docker/chummercomplete/chummer.run-services/.state/auth_signin_automation_paused.flag), generated_at_utc is stale, evidence: contract_name must be chummer.run.google_oauth_linking_operator_evidence.v2, evidence: observed_at_utc is stale, evidence: observed_at_utc predates the current request, evidence: request_nonce does not match the current request/release binding, evidence: request_sha256 does not match the current request/release binding, evidence: release_authority_sha256 does not match the current request/release binding, evidence: portal_release_manifest_sha256 does not match the current request/release binding, evidence: hub_release_manifest_sha256 does not match the current request/release binding, evidence: live_release_manifest_sha256 does not match the current request/release binding, evidence: screenshots must contain at least 2 entries, evidence: detached operator attestation is missing, evidence: import_provenance is missing, evidence: import provenance source_artifact_sha256 is invalid, evidence: import provenance source_receipt_sha256 is invalid, evidence: import provenance importer_program_sha256 is stale, evidence: imported_at_utc must be a timezone-aware timestamp, evidence: import_source_artifact contains pytest/test-fixture provenance, evidence: import_source_receipt_path contains pytest/test-fixture provenance, evidence: import_source_screenshot_paths contains pytest/test-fixture provenance, proof status is not pass, proof receipt contains failures, Windows installer visual audit source digest does not match promoted installer, windows installer visual audit source still targets 80655fd79a096cd7714910d7b38f7741eea01f82ada96dc6a2a097951997d91a instead of promoted digest d0857d0a6e5c958f34117051669373444b785f683e701c3e0ae428abef36e8ca: /docker/chummercomplete/chummer.run-services/Chummer.Portal/downloads/visual-audit/windows-installer/WINDOWS_INSTALLER_VISUAL_AUDIT.source.json, windows installer gold proof artifact is still missing: /docker/chummercomplete/chummer.run-services/.state/incoming_windows_installer_gold_proof/windows-installer-gold-proof-d0857d0a6e5c.zip, Hosted Build backup and point-in-time-recovery retention, tombstone or lineage retention, deletion replay, and whole-account erasure are not launch-approved or production-verified., Hosted Build V002 operator decisions remain unresolved: quota_policy, logical_bytes, recreation_and_undo, offline_compatibility, tombstone_privacy_policy, stable_owner_identity, writer_epoch, delete_replay_and_rpo, provider_and_topology, enforcement_boundary, migration_posture, capacity_and_retention. Coverage gaps: desktop_client."
+  }
+}
