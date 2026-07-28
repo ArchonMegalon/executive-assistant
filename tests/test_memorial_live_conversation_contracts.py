@@ -30,7 +30,10 @@ MEMORIAL_FIXTURE_ROOT = ROOT / "tests" / "fixtures" / "memorial"
 PUBLIC_MEMORIALS_SOURCE = ROOT / "ea" / "app" / "api" / "routes" / "public_memorials.py"
 
 
-CONTACT_REPLY_VARIANTS = {"Worum geht es?"}
+CONTACT_REPLY_VARIANTS = {
+    "Worum geht es?",
+    "Ich höre zu. Lass dir Zeit.",
+}
 _CARTESIA_SECRET_ENV_NAMES = (
     "CARTESIA_API_KEY",
     "EA_CARTESIA_API_KEY",
@@ -60,7 +63,110 @@ def test_contact_reply_variants_avoid_fragile_roundtrip_phrasing() -> None:
 
     assert all("Jo" not in variant for variant in variants)
     assert all("Ich bin da" not in variant for variant in variants)
+    assert "Worum geht es?" in variants
     assert variants == CONTACT_REPLY_VARIANTS
+
+
+@pytest.mark.parametrize(
+    ("question", "generated", "expected"),
+    (
+        (
+            "Was war dein Lieblingsessen?",
+            "Dazu gibt es keine belegte Vorliebe.",
+            "Weiß ich nicht mehr.",
+        ),
+        (
+            "Wie ist das Wetter morgen?",
+            "Dafür liegt nichts vor.",
+            "Weiß ich nicht.",
+        ),
+    ),
+)
+def test_memorial_spoken_uncertainty_uses_natural_conversation_language(
+    question: str,
+    generated: str,
+    expected: str,
+) -> None:
+    from app.api.routes import public_memorials
+
+    assert (
+        public_memorials._naturalize_memorial_spoken_uncertainty(
+            generated,
+            question=question,
+        )
+        == expected
+    )
+
+
+def test_memorial_generic_fallback_admits_missing_memory_instead_of_reciting_a_template() -> None:
+    from app.api.routes import public_memorials
+
+    answer = public_memorials._memorial_chat_fallback_answer(
+        {"person_name": "Manfred", "slug": "manfred"},
+        "Was war dein Lieblingsessen?",
+        {},
+    )
+
+    assert answer["answer"] == "Weiß ich nicht mehr."
+    assert answer["sources"] == []
+    assert answer["public_memory_used"] is False
+
+
+def test_memorial_live_instruction_has_no_universal_topic_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_memorial",
+        lambda slug: {"slug": slug, "person_name": "Manfred"},
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_public_memorial_profile",
+        lambda slug: {},
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_memory_context_lines",
+        lambda **kwargs: [],
+    )
+
+    instruction = public_memorials._build_memorial_gemini_live_instruction(
+        slug="manfred",
+    )
+
+    assert "Bei der Frage, ob du dich nach Covid impfen lassen würdest" not in instruction
+    assert "Scam" not in instruction
+    assert "gerade transkribierte Frage" in instruction
+    assert "Weiß ich nicht mehr." in instruction
+    assert "keine belegte Vorliebe" in instruction
+
+
+def test_memorial_spoken_guard_rejects_replayed_vaccine_stance_for_unrelated_question() -> None:
+    from app.api.routes import public_memorials
+
+    repeated_answer = (
+        "Nein. Nach Covid: strikt gegen die Impfung; Ärzten und Pharma traute "
+        "ich nicht, für mich war sie ein Scam der Pharmaindustrie, und ich "
+        "wusste es besser."
+    )
+
+    assert (
+        public_memorials._naturalize_memorial_spoken_uncertainty(
+            repeated_answer,
+            question="Was war dein Lieblingsessen?",
+        )
+        == "Weiß ich nicht mehr."
+    )
+    assert (
+        public_memorials._naturalize_memorial_spoken_uncertainty(
+            repeated_answer,
+            question="Würdest du dich nach Covid impfen lassen?",
+        )
+        == repeated_answer
+    )
 
 
 def _client(*, principal_id: str) -> TestClient:
@@ -5183,7 +5289,7 @@ def test_memorial_voice_config_forces_german_over_browser_or_provider_locale(
     assert config["lang"] == "en-US"
     assert config["provider_language"] == "de-DE"
     assert response.status_code == 200
-    assert seen["lang"] == "de-DE"
+    assert seen["lang"] == "de"
     assert seen["speaking_rate"] == "0.90"
     assert "atempo=0.92" in str(pad_seen["extra_filters"])
 
@@ -5802,8 +5908,8 @@ def test_memorial_warmup_primes_voicewave_contact_openings(
 
     public_memorials._run_memorial_live_warmup(slug)
 
-    assert len(seen_render_calls) == 1
-    assert {item["text"] for item in seen_render_calls} <= CONTACT_REPLY_VARIANTS
+    assert len(seen_render_calls) == len(CONTACT_REPLY_VARIANTS)
+    assert {item["text"] for item in seen_render_calls} == CONTACT_REPLY_VARIANTS
     assert all(item["slug"] == slug for item in seen_render_calls)
     assert all(item["selected_plugin"] == public_memorials.VOICEWAVE_TTS_PLUGIN_ID for item in seen_render_calls)
     assert all(item["lead_in_ms"] == public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS for item in seen_render_calls)
@@ -5918,7 +6024,7 @@ def test_memorial_speech_synthesize_reuses_final_render_cache(
     assert cache_metadata["lang"] == "de-AT"
     assert (
         cache_metadata["provider_language_policy"]
-        == "unmixr_configurable_locale_v2"
+            == "unmixr_base_language_code_v3"
     )
 
 
@@ -8695,6 +8801,8 @@ def test_manfred_voice_config_warms_timbre_and_guides_austrian_pronunciation() -
     assert payload["unmixr_speaking_volume"] == "medium"
     assert payload["tts_postprocess_profile"] == "unmixr_natural_soft"
     assert payload["unmixr_pronunciation_dict"] == {
+        "klar": "klaar",
+        "Klar": "Klaar",
         "ordne": "ord-ne",
         "Ordne": "Ord-ne",
     }
@@ -9706,15 +9814,15 @@ def test_memorial_contact_tts_cache_rejects_pre_locale_policy_key(
     assert content_type == "audio/wav"
     assert audio != legacy_audio
     assert len(synth_calls) == 1
-    assert synth_calls[0]["lang"] == "de-AT"
+    assert synth_calls[0]["lang"] == "de"
     assert synth_calls[0]["voice_id"] == "voice-1"
     cache_metadata = [
         json.loads(path.read_text(encoding="utf-8"))
         for path in public_memorials._memorial_tts_render_cache_root().glob("*.json")
     ]
     assert any(
-        item.get("provider_language_policy") == "unmixr_configurable_locale_v2"
-        and item.get("provider_language") == "de-AT"
+        item.get("provider_language_policy") == "unmixr_base_language_code_v3"
+        and item.get("provider_language") == "de"
         for item in cache_metadata
     )
 
@@ -9760,6 +9868,12 @@ def test_memorial_unmixr_renderer_applies_provider_locale_and_soft_timbre_policy
         "unmixr_speaking_rate": "medium",
         "unmixr_speaking_pitch": "medium",
         "unmixr_speaking_volume": "medium",
+        "unmixr_pronunciation_dict": {
+            "klar": "klaar",
+            "Klar": "Klaar",
+            "ordne": "ord-ne",
+            "Ordne": "Ord-ne",
+        },
     }
 
     rendered, content_type = public_memorials._render_memorial_tts_audio(
@@ -9779,11 +9893,13 @@ def test_memorial_unmixr_renderer_applies_provider_locale_and_soft_timbre_policy
     assert rendered == audio
     assert content_type == "audio/wav"
     assert len(synth_calls) == 1
-    assert synth_calls[0]["lang"] == "de-DE"
+    assert synth_calls[0]["lang"] == "de"
     assert synth_calls[0]["speaking_rate"] == "medium"
     assert synth_calls[0]["speaking_pitch"] == "medium"
     assert synth_calls[0]["speaking_volume"] == "medium"
-    assert "pronunciation_dict" not in synth_calls[0]
+    assert synth_calls[0]["pronunciation_dict"] == base_config[
+        "unmixr_pronunciation_dict"
+    ]
     assert filter_calls
     assert filter_calls[0] == ",".join(
         [
@@ -9800,10 +9916,12 @@ def test_memorial_unmixr_renderer_applies_provider_locale_and_soft_timbre_policy
     ]
     assert any(
         item.get("lang") == "de-AT"
-        and item.get("provider_language") == "de-DE"
-        and item.get("provider_language_policy") == "unmixr_configurable_locale_v2"
-        and "pronunciation_dict" not in item
-        and "provider_pronunciation_policy" not in item
+        and item.get("provider_language") == "de"
+        and item.get("provider_language_policy") == "unmixr_base_language_code_v3"
+        and item.get("pronunciation_dict") == base_config[
+            "unmixr_pronunciation_dict"
+        ]
+        and item.get("provider_pronunciation_policy") == "unmixr_config_v1"
         for item in cache_metadata
     )
 
@@ -9919,13 +10037,16 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     )
     assert (
         public_memorials._MEMORIAL_LANDING_ACKNOWLEDGEMENT_TEXT
-        == "Worüber möchtest du sprechen?"
+        == "Worum geht es?"
+    )
+    assert (
+        'const contactAcknowledgementText = "Worum geht es?";'
+        in source
     )
     assert (
         'const contactAcknowledgementText = "Worüber möchtest du sprechen?";'
-        in source
+        not in source
     )
-    assert 'const contactAcknowledgementText = "Worum geht es?";' not in source
     assert 'id="memorial-read-answer"' in source
     assert 'id="memorial-replay-answer"' in source
     assert 'id="memorial-toggle-status"' in source

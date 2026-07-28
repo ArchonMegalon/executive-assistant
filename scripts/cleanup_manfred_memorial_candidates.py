@@ -694,6 +694,14 @@ def _evaluate_locked(
         posture = dict(raw_posture)
         project = str(posture.get("project") or "")
         schema = str(posture.get("runtime_schema") or "")
+        if posture.get("registry_receipt_invalid") is True:
+            candidates[project] = _quarantine_row(
+                project,
+                runtime_schema=schema or "unknown",
+                reason="registered_receipt_invalid",
+                error="manfred_candidate_retention_registered_receipt_invalid",
+            )
+            continue
         if project == LIVE_COMPOSE_PROJECT:
             candidates[project] = _quarantine_row(
                 project,
@@ -850,7 +858,10 @@ def evaluate_retention(
                 }
             )
             return report
-        postures = registered_candidate_receipt_postures(registry_path=registry)
+        postures = registered_candidate_receipt_postures(
+            registry_path=registry,
+            quarantine_invalid=True,
+        )
         return _evaluate_locked(
             postures=postures,
             apply=apply,

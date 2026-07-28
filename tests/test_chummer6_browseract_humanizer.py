@@ -221,6 +221,60 @@ def test_repair_spacing_artifacts_handles_story_apostrophe_and_sentence_boundari
     assert "ifshetoldherselfitwasn" not in repaired
 
 
+def test_repair_spacing_artifacts_splits_long_provider_highlight_fusions() -> None:
+    module = _load_module()
+    original = "Aster listened to Mara while the city waited for rescue."
+    broken = (
+        "Mara spoke with ahintoffondnesssneakinginto her voice "
+        "beneathherusualfrustration before the cityfinallyshowedup, "
+        "baglikeshewouldcheckamachinethatwasn't broken. Aster caredabout the route."
+    )
+
+    repaired = module._repair_spacing_artifacts(broken, original)
+
+    assert "a hint of fondness sneaking into" in repaired
+    assert "beneath her usual frustration" in repaired
+    assert "city finally showed up" in repaired
+    assert "bag like she would check a machine that wasn't" in repaired
+    assert "cared about" in repaired
+
+
+def test_extract_humanized_text_accepts_current_page_output_without_original_echo() -> None:
+    module = _load_module()
+    original = (
+        "Chapter Two: What the Medicine Weighs\n"
+        "Aster crossed six rooftops with insulin for Lantern Reach while Mara waited at the clinic boat."
+    )
+    humanized = (
+        "Chapter Two: What the Medicine Weighs Aster crossed six rooftops carrying insulin "
+        "for people in Lantern Reach while Mara kept the clinic boat ready."
+    )
+    body = {
+        "output": {
+            "string": json.dumps(
+                [
+                    {
+                        "content": (
+                            "Undetectable AI Humanizer\n"
+                            "42Words\n"
+                            f"{humanized}\n"
+                            "1811Words\n"
+                            "Switch to Undetectable\n"
+                            "unrelated sample copy\n"
+                            "Copy Output\n"
+                        )
+                    }
+                ]
+            )
+        }
+    }
+
+    extracted = module.extract_humanized_text(body, original)
+
+    assert "carrying insulin" in extracted
+    assert "unrelated sample copy" not in extracted
+
+
 def test_length_normalize_provider_output_deletes_low_overlap_sentences_only() -> None:
     module = _load_module()
     original = (
@@ -322,6 +376,31 @@ def test_cmd_check_uses_humanizer_timeout(monkeypatch: pytest.MonkeyPatch, capsy
     assert waited["timeout_seconds"] == 123
 
 
+def test_wait_for_task_accepts_completed_output_when_remote_status_is_stale_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    completed = {
+        "status": "running",
+        "output": {"string": json.dumps([{"humanized_text": "A completed provider result."}])},
+        "steps": [
+            {"status": "succeed", "step_goal": "Navigate"},
+            {"status": "succeed", "step_goal": "Input"},
+            {"status": "succeed", "step_goal": "Humanize"},
+            {"status": "succeed", "step_goal": "Output"},
+        ],
+    }
+
+    def fake_request(_method: str, path: str, **_kwargs):
+        if path == "/get-task-status":
+            return {"status": "running"}
+        return completed
+
+    monkeypatch.setattr(module, "api_request", fake_request)
+
+    assert module.wait_for_task("task-stale-running", timeout_seconds=30) == completed
+
+
 def test_env_value_allows_empty_env_to_clear_stale_local_value(monkeypatch: pytest.MonkeyPatch) -> None:
     module = _load_module()
     monkeypatch.setattr(module, "LOCAL_ENV", {"CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_ID": "stale-workflow"})
@@ -329,6 +408,14 @@ def test_env_value_allows_empty_env_to_clear_stale_local_value(monkeypatch: pyte
     monkeypatch.setenv("CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_ID", "")
 
     assert module.env_value("CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_ID") == ""
+
+
+def test_resolve_humanize_text_reads_utf8_file(tmp_path: Path) -> None:
+    module = _load_module()
+    manuscript = tmp_path / "aster.md"
+    manuscript.write_text("Chapter One\nAster chose the harbor route.", encoding="utf-8")
+
+    assert module._resolve_humanize_text(None, manuscript) == manuscript.read_text(encoding="utf-8")
 
 
 def test_resolve_workflow_prefers_query_when_explicit_env_is_cleared(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1470,3 +1470,35 @@ def test_live_telegram_receipt_isolates_malformed_pending_sample_count(
     assert receipt["pending_user_selected_voice_job_count"] == 0
     assert "malformed_job_receipt" in receipt["failed_codes"]
     assert receipt["failed_candidates"][0]["status"] == "malformed_job_receipt"
+
+
+def test_live_telegram_receipt_includes_approved_origin_dossier_story_delivery(
+    tmp_path: Path,
+) -> None:
+    module = _load_script("materialize_telegram_audiobook_live_delivery_receipt")
+    job = _job_receipt(job_id="origin-dossier-live-delivery")
+    job["source"].update(
+        {
+            "kind": "origin_dossier_story",
+            "rights_basis": "player_or_gm_approved_origin_story",
+            "source_filename": "Kestrel - Origin Story.txt",
+            "source_url_sha256": "",
+        }
+    )
+    job["telegram"].update(
+        {
+            "chat_bound": False,
+            "message_bound": False,
+        }
+    )
+
+    receipt = module.build_receipt(
+        output_path=tmp_path / "origin-dossier-live.generated.json",
+        job_receipts=[job],
+        generated_at="2026-06-19T21:20:00Z",
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["candidate_count"] == 1
+    assert receipt["source_filter"] == "telegram_delivered_audiobook_sources"
+    assert receipt["selected_delivery"]["source_kind"] == "origin_dossier_story"

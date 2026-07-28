@@ -1,0 +1,52 @@
+{
+  "account_match": true,
+  "account_ref_sha256": "replace-with-64-character-sha256",
+  "agent_surfaces": {
+    "knowledge_agents_visible": false,
+    "task_agents_visible": false,
+    "workflow_agents_visible": false
+  },
+  "api_observation": {
+    "idempotency_observed": false,
+    "machine_api_observed": false,
+    "model_identity_observed": false,
+    "service_auth_observed": false,
+    "usage_endpoint_observed": false,
+    "webhook_signing_observed": false
+  },
+  "authenticated": true,
+  "capabilities": {
+    "agents": false,
+    "deep_research": false,
+    "document_chat": false,
+    "multi_llm_chat": false,
+    "multimedia_chat": false,
+    "organization_memory": false
+  },
+  "controls": {
+    "audit_log_visible": false,
+    "deletion_control_visible": false,
+    "export_control_visible": false,
+    "rbac_visible": false,
+    "retention_control_visible": false,
+    "usage_reporting_visible": false
+  },
+  "data_uploaded": false,
+  "final_surface_url": "https://girschele-workspace.workllm.io/",
+  "irreversible_actions_attempted": [],
+  "observed_at": "replace-with-UTC-timestamp",
+  "plan": {
+    "commercial_tier": "replace-with-observed-tier",
+    "monthly_ai_credits": 0,
+    "unlimited_users": false
+  },
+  "schema": "executive_assistant.workllm_browser_account_review.v1",
+  "screenshot_artifacts": [
+    {
+      "path": "/protected/path/account-usage-surface.png",
+      "sha256": "replace-with-64-character-sha256"
+    }
+  ],
+  "site": "girschele-workspace.workllm.io",
+  "work_type": "account_review"
+}

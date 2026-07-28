@@ -57,6 +57,7 @@ from app.services.memorial_openvoice import (
     piper_fast_synthesize_request,
     unmixr_clone_request,
     unmixr_delete_clone_profile_request,
+    unmixr_language,
     unmixr_memorial_voice_id,
     unmixr_plugin_option,
     unmixr_pronunciation_dict,
@@ -220,7 +221,11 @@ _MEMORIAL_TTS_LEAD_IN_MS = 420
 _MEMORIAL_TTS_TAIL_SILENCE_MS = 700
 _MEMORIAL_CONTACT_TTS_LEAD_IN_MS = 420
 _MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS = 320
-_MEMORIAL_LANDING_ACKNOWLEDGEMENT_TEXT = "Worüber möchtest du sprechen?"
+_MEMORIAL_LANDING_ACKNOWLEDGEMENT_TEXT = "Worum geht es?"
+_MEMORIAL_CONTACT_REPLY_VARIANTS = (
+    _MEMORIAL_LANDING_ACKNOWLEDGEMENT_TEXT,
+    "Ich höre zu. Lass dir Zeit.",
+)
 _MEMORIAL_FAST_TTS_LEAD_IN_MS = 280
 _MEMORIAL_FAST_TTS_TAIL_SILENCE_MS = 320
 _MEMORIAL_REALTIME_TTS_LEAD_IN_MS = 640
@@ -7501,8 +7506,13 @@ def _memorial_phrase_bank_entry(phrase_id: str) -> dict[str, object]:
 
 
 def _memorial_contact_answer_body(question: str) -> str:
-    del question
-    return _text(_memorial_phrase_bank_entry("contact_opening").get("audio_text"))
+    normalized = _normalize_memorial_transcript_text(question)
+    if not normalized:
+        return _MEMORIAL_LANDING_ACKNOWLEDGEMENT_TEXT
+    digest = hashlib.sha256(normalized.encode("utf-8")).digest()
+    return _MEMORIAL_CONTACT_REPLY_VARIANTS[
+        int.from_bytes(digest[:2], "big") % len(_MEMORIAL_CONTACT_REPLY_VARIANTS)
+    ]
 
 
 def _is_memorial_direct_contact_opening_text(text: str) -> bool:
@@ -7511,6 +7521,12 @@ def _is_memorial_direct_contact_opening_text(text: str) -> bool:
         "ja.",
         "ja, ich bin da.",
         "worum geht es?",
+        "ich höre zu. lass dir zeit.",
+        "ich hoere zu. lass dir zeit.",
+        "ich höre zu. sag es in ruhe.",
+        "ich hoere zu. sag es in ruhe.",
+        "sprich weiter. ich höre zu.",
+        "sprich weiter. ich hoere zu.",
         "ja. sag es mir.",
         "ja. ich höre dich gut.",
         "ja. ich hoere dich gut.",
@@ -7731,11 +7747,16 @@ def _memorial_live_guardrail_answer_body(transcript_text: str, answer_text: str,
     if _memorial_answer_has_narrowing_clarification(answer_text):
         if _is_memorial_current_speculation_question(effective_question):
             return _memorial_current_speculation_answer_body(effective_question)
-        if _is_memorial_contact_question(effective_question) or not _normalize_memorial_transcript_text(transcript_text):
+        if not _normalize_memorial_transcript_text(transcript_text):
+            return _memorial_contact_answer_body("")
+        if _is_memorial_contact_question(effective_question):
             return _memorial_contact_answer_body(f"{effective_question} {turn_id}".strip())
         if _is_memorial_values_question(effective_question):
             return _memorial_values_guardrail_answer_body(effective_question)
-    return answer_text
+    return _naturalize_memorial_spoken_uncertainty(
+        answer_text,
+        question=effective_question,
+    )
 
 
 def _memorial_ooda_required_terms(domain: str) -> tuple[str, ...]:
@@ -8548,20 +8569,11 @@ def _memorial_chat_fallback_answer(
             "Was belegt ist, steht in den Quellen und in der Originalstimme."
         )
     else:
-        if direct_memory_statement:
-            public_memory_used = True
-            response_sources = ["Freigegebene Erinnerungen"]
-            response_private_context_used = False
-            response_personal_memory_used = False
-            body = (
-                f"{direct_memory_statement} "
-                "Das war fuer mich der entscheidende Punkt."
-            )
-        else:
-            body = (
-                "Fuer mich musste man zuerst die Tatsachen sauber trennen, Verantwortung und Folgen ordnen "
-                "und erst danach urteilen. Ein bequemer, aber unklarer Schluss war keine brauchbare Antwort."
-            )
+        response_sources = []
+        response_private_context_used = False
+        response_personal_memory_used = False
+        public_memory_used = False
+        body = "Weiß ich nicht mehr."
     response = {
         "person_name": person_name,
         "mode": "memorial_first_person_memory_chat",
@@ -8585,6 +8597,60 @@ def _memorial_chat_fallback_answer(
     if fallback_reason:
         response["fallback_reason"] = fallback_reason
     return response
+
+
+def _naturalize_memorial_spoken_uncertainty(
+    value: object,
+    *,
+    question: str = "",
+) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return ""
+    normalized_question = _normalize_memorial_transcript_text(question).lower()
+    normalized_text = text.lower()
+    repeated_covid_vaccine_stance = (
+        "nach covid" in normalized_text
+        and "impfung" in normalized_text
+        and "scam" in normalized_text
+        and "pharma" in normalized_text
+    )
+    if repeated_covid_vaccine_stance and not _is_memorial_vaccine_question(question):
+        if _is_memorial_contact_question(question):
+            return _memorial_contact_answer_body(question)
+        if _is_memorial_present_world_question(question) or _is_memorial_current_speculation_question(question):
+            return "Weiß ich nicht."
+        return "Weiß ich nicht mehr."
+    evidence_question = any(
+        marker in normalized_question
+        for marker in (
+            "beleg",
+            "beweis",
+            "quelle",
+            "archiv",
+            "original",
+        )
+    )
+    archival_uncertainty = any(
+        marker in normalized_text
+        for marker in (
+            "keine belegte vorliebe",
+            "keine belegte erinnerung",
+            "keine belastbare erinnerung",
+            "keine belastbare quelle",
+            "keine gesicherte erinnerung",
+            "nicht ausreichend belegt",
+            "nicht sicher belegt",
+            "dazu ist nichts belegt",
+            "dazu liegt nichts vor",
+            "dafür liegt nichts vor",
+        )
+    )
+    if not evidence_question and archival_uncertainty:
+        if _is_memorial_present_world_question(question) or _is_memorial_current_speculation_question(question):
+            return "Weiß ich nicht."
+        return "Weiß ich nicht mehr."
+    return text
 
 
 def _compact_memorial_spoken_answer(value: object) -> str:
@@ -8822,7 +8888,9 @@ def _build_memorial_chat_messages(
                 "Gib diese neuen Sätze niemals als historische Originalworte oder als Beweis aus, dass Manfred wirklich gegenwärtig ist. "
                 "Historische Ich-Zitate sind nur erlaubt, wenn sie im bereitgestellten Belegmaterial stehen und du sie klar als Originalzitat mit Quelle oder Archivhinweis kennzeichnest. "
                 "Wenn nach Echtheit, Stimme oder Funktionsweise gefragt wird, sage offen, dass die Antwort synthetisch und quellengebunden ist und Manfred nicht ersetzt. "
-                "Wenn etwas ungeklärt ist, sage es knapp als Gedenkbegleiter und bitte nur dann um Präzisierung, wenn sie wirklich nötig ist. "
+                "Wenn der Kontext keine passende persönliche Erinnerung enthält, sage natürlich und ohne Archivausdruck nur: 'Weiß ich nicht mehr.' Bei etwas, das die Person nicht wissen konnte, sage: 'Weiß ich nicht.' "
+                "Sage im gesprochenen Gespräch niemals 'keine belegte Vorliebe', 'nicht ausreichend belegt', 'keine belastbare Quelle' oder ähnliche Aktenformulierungen; Beleg- und Quellenstatus bleiben in den separaten Metadaten, außer der Nutzer fragt ausdrücklich danach. "
+                "Bitte nur dann um Präzisierung, wenn sie wirklich nötig ist. "
                 "Antworte emotional einfühlsam, aber faktentreu innerhalb der bereitgestellten Fakten. "
                 + _memorial_sensitive_attribution_instruction()
                 + " "
@@ -9204,12 +9272,15 @@ def _memorial_chat_answer(
         }
     if _is_memorial_contact_question(normalized_question):
         phrase = _memorial_phrase_bank_entry("contact_opening")
+        contact_answer = _memorial_contact_answer_body(normalized_question)
+        phrase["audio_text"] = contact_answer
+        phrase["visible_text"] = contact_answer
         return {
             "person_name": person_name,
             "mode": "memorial_first_person_memory_chat",
             "question": normalized_question,
-            "answer": _memorial_contact_answer_body(normalized_question),
-            "answer_audio_text": _text(phrase.get("audio_text")),
+            "answer": contact_answer,
+            "answer_audio_text": contact_answer,
             "phrase_bank_entry": phrase,
             "sources": [],
             "private_context_used": bool(_list_of_dicts(private_profile.get("family_context_notes"))),
@@ -9342,7 +9413,13 @@ def _memorial_chat_answer(
             max_output_tokens=160,
         )
         generated = _compact_memorial_spoken_answer(
-            _enforce_memorial_narrator_boundary(result.text, question=normalized_question)
+            _naturalize_memorial_spoken_uncertainty(
+                _enforce_memorial_narrator_boundary(
+                    result.text,
+                    question=normalized_question,
+                ),
+                question=normalized_question,
+            )
         )
         fallback_used = False
         fallback_reason = ""
@@ -10353,9 +10430,11 @@ def _render_memorial_tts_audio(
         pronunciation_dict = unmixr_pronunciation_dict(
             merged_config.get("unmixr_pronunciation_dict", {})
         )
-    provider_language = _text(
-        merged_config.get("provider_language"),
-        _text(merged_config.get("lang"), "de"),
+    provider_language = unmixr_language(
+        _text(
+            merged_config.get("provider_language"),
+            _text(merged_config.get("lang"), "de"),
+        )
     )
     extra_filters = _speech_postprocess_filters_for_config(selected_plugin, merged_config)
     cache_payload = {
@@ -10379,7 +10458,10 @@ def _render_memorial_tts_audio(
     }
     if selected_plugin == UNMIXR_TTS_PLUGIN_ID:
         cache_payload["provider_language"] = provider_language
-        cache_payload["provider_language_policy"] = "unmixr_configurable_locale_v2"
+        cache_payload["provider_language_policy"] = "unmixr_base_language_code_v3"
+        account_slot = _text(merged_config.get("unmixr_account_slot"), "")
+        if account_slot:
+            cache_payload["unmixr_account_slot"] = account_slot
         if pronunciation_dict:
             cache_payload["pronunciation_dict"] = pronunciation_dict
             cache_payload["provider_pronunciation_policy"] = "unmixr_config_v1"
@@ -10424,6 +10506,11 @@ def _render_memorial_tts_audio(
                 speaking_rate=_text(merged_config.get("unmixr_speaking_rate"), ""),
                 speaking_pitch=_text(merged_config.get("unmixr_speaking_pitch"), ""),
                 speaking_volume=_text(merged_config.get("unmixr_speaking_volume"), ""),
+                account_slot=_text(
+                    merged_config.get("unmixr_account_slot"),
+                    "",
+                )
+                or None,
                 **pronunciation_options,
             )
         elif selected_plugin == VOICEWAVE_TTS_PLUGIN_ID:
@@ -11637,16 +11724,7 @@ def _run_memorial_voicewave_contact_prewarm(
         selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
         if selected_plugin != VOICEWAVE_TTS_PLUGIN_ID or not bool(selected_option.get("tts_plugin_enabled")):
             raise RuntimeError("voicewave_prewarm_provider_unavailable")
-        seed_texts = tuple(
-            dict.fromkeys(
-                _memorial_contact_answer_body(seed_question)
-                for seed_question in (
-                    "Kann ich jetzt mit dir reden?",
-                    "Bist du da?",
-                    "Hoerst du zu?",
-                )
-            )
-        )
+        seed_texts = _MEMORIAL_CONTACT_REPLY_VARIANTS
         first_ready_marked = False
         for seed_text in seed_texts:
             try:
@@ -26559,7 +26637,8 @@ def _build_memorial_gemini_live_instruction(
         "Antworte ruhig, knapp und in kurzen gesprochenen Sätzen.",
         "Beantworte die Frage im ersten Satz schlicht und direkt. Wenn eine freigegebene Erinnerung eine klare Haltung belegt, nenne diese Haltung zuerst; eine nötige Grenze folgt höchstens in einem kurzen Satz.",
         "Vermeide defensive Meta-Antworten, Verfahrenshinweise und Aufforderungen wie 'frag es enger', wenn die freigegebenen Erinnerungen eine Antwort tragen.",
-        "Bei der Frage, ob du dich nach Covid impfen lassen würdest, lautet die direkte Antwort: Nein. Du hast Ärzten und der Pharmaindustrie dabei nicht vertraut, die Impfung für einen Scam gehalten und geglaubt, es besser zu wissen.",
+        "Beziehe jede Antwort ausschließlich auf die gerade transkribierte Frage. Wiederhole niemals eine frühere Antwort oder eine Beispielerinnerung, wenn sie thematisch nicht genau passt.",
+        "Wenn keine passende persönliche Erinnerung vorliegt, sage natürlich nur 'Weiß ich nicht mehr.' Bei etwas, das du damals nicht wissen konntest, sage 'Weiß ich nicht.' Verwende im Gespräch keine Aktenformulierungen wie 'keine belegte Vorliebe', 'nicht ausreichend belegt' oder 'keine belastbare Quelle'; Quellenstatus bleibt in den separaten Metadaten, außer der Nutzer fragt ausdrücklich danach.",
         "Sprich im laufenden Gespräch konsequent aus der rekonstruierten Ich-Perspektive und verwende ich, mir, mich und mein für die Person.",
         f"Nenne den Namen {person_name} im normalen Gespräch nicht; bleibe konsequent bei ich, mir, mich und mein.",
         "Behaupte niemals, die echte verstorbene Person sei gegenwärtig. Historische Ich-Zitate sind nur mit klarer Quellenkennzeichnung erlaubt.",

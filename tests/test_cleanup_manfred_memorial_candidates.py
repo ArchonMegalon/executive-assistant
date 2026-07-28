@@ -394,6 +394,41 @@ class CleanupManfredMemorialCandidatesTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
+    def test_invalid_registered_receipt_is_quarantined_without_aborting_audit(
+        self,
+    ) -> None:
+        project = "ea-manfred-candidate-stale00000000"
+        posture = {
+            "project": project,
+            "runtime_schema": "unknown",
+            "legacy": False,
+            "retention_eligible": False,
+            "quarantined": True,
+            "quarantine_reason": "registered_receipt_invalid",
+            "registry_receipt_invalid": True,
+            "automatic_retirement_authorized": False,
+        }
+        docker = _DockerFixture([[], []], {})
+
+        report = self._evaluate(postures=[posture], docker=docker)
+
+        self.assertEqual(report["status"], "pass")
+        self.assertEqual(
+            report["candidates"],
+            [
+                {
+                    "project": project,
+                    "runtime_schema": "unknown",
+                    "qualification": "ineligible",
+                    "quarantined": True,
+                    "quarantine_reason": "registered_receipt_invalid",
+                    "automatic_retirement_authorized": False,
+                    "error": ("manfred_candidate_retention_registered_receipt_invalid"),
+                }
+            ],
+        )
+        docker.assert_read_only(self)
+
     def test_inventory_tolerates_unlabeled_unrelated_container(self) -> None:
         identifier = "f" * 64
         image_id = "sha256:" + "e" * 64

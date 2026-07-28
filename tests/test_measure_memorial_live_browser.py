@@ -844,7 +844,8 @@ def test_browser_gold_receipt_accepts_only_https_live_public_proof(
 ) -> None:
     module = _load_module()
     monkeypatch.setattr(module, "_git_dirty", lambda: False)
-    monkeypatch.setattr(module, "_git_head", lambda: "HEAD")
+    monkeypatch.setattr(module, "_git_head", lambda: "b" * 40)
+    monkeypatch.setattr(module, "_repository_git_head", lambda: "a" * 40)
     monkeypatch.setattr(module, "_source_tree_fingerprint", lambda: "tree")
     monkeypatch.setattr(module, "resolve_source_worktree_fingerprint", lambda _root: "state")
 
@@ -860,6 +861,10 @@ def test_browser_gold_receipt_accepts_only_https_live_public_proof(
     assert receipt["failed_codes"] == []
     assert receipt["gold_claim_allowed"] is True
     assert receipt["launch_proof_scope"] == "real_public_microphone"
+    assert receipt["source_git_head"] == "b" * 40
+    assert receipt["head_semantics"] == "source_state"
+    assert receipt["repository_git_head"] == "a" * 40
+    assert receipt["repository_git_head_semantics"] == "git_commit"
 
 
 def test_private_review_browser_receipt_is_safe_non_gold_exact_revision_evidence(
@@ -875,6 +880,7 @@ def test_private_review_browser_receipt_is_safe_non_gold_exact_revision_evidence
     )
     monkeypatch.setattr(module, "_git_dirty", lambda: False)
     monkeypatch.setattr(module, "_git_head", lambda: revision)
+    monkeypatch.setattr(module, "_repository_git_head", lambda: revision)
     monkeypatch.setattr(module, "_source_tree_fingerprint", lambda: "tree")
     monkeypatch.setattr(
         module,

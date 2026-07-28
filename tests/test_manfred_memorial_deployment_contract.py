@@ -1163,7 +1163,7 @@ def test_candidate_page_prewarm_audio_contract_is_exact_wave() -> None:
     valid_wave = b"RIFF" + (b"\x00" * 4) + b"WAVE" + (b"\x00" * 116)
 
     assert candidate_verify.PAGE_PREWARM_ACKNOWLEDGEMENT_TEXT == (
-        "Worüber möchtest du sprechen?"
+        "Worum geht es?"
     )
     assert candidate_verify._normalized_content_type(
         "audio/wav; charset=binary"

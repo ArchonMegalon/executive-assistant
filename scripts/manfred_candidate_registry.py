@@ -367,8 +367,7 @@ def _validated_runtime_posture(
         raise RuntimeError("manfred_candidate_registry_runtime_posture_invalid")
     if (
         posture.get("schema") != RUNTIME_POSTURE_SCHEMA
-        or posture.get("api_container_id")
-        != payload.get("candidate_api_container_id")
+        or posture.get("api_container_id") != payload.get("candidate_api_container_id")
         or CONTAINER_ID.fullmatch(str(posture.get("api_container_id") or "")) is None
         or posture.get("image_id") != image_id
         or HEX_64.fullmatch(str(posture.get("environment_sha256") or "")) is None
@@ -575,13 +574,17 @@ def _runtime_identity(payload: dict[str, object]) -> dict[str, object]:
             raise RuntimeError("manfred_candidate_registry_receipt_invalid")
         execution_inputs = _validated_execution_inputs(payload, revision=revision)
         image_locator_evidence = payload.get("image_locator_evidence")
-        if image_locator_evidence != {
-            "locator": image,
-            "resolved_image_id": image_id,
-            "revision_label": revision,
-            "used_for_attestation_only": True,
-            "consumed_by_compose": False,
-        } or payload.get("compose_uses_immutable_image_id") is not True:
+        if (
+            image_locator_evidence
+            != {
+                "locator": image,
+                "resolved_image_id": image_id,
+                "revision_label": revision,
+                "used_for_attestation_only": True,
+                "consumed_by_compose": False,
+            }
+            or payload.get("compose_uses_immutable_image_id") is not True
+        ):
             raise RuntimeError(
                 "manfred_candidate_registry_image_reference_semantics_invalid"
             )
@@ -1226,6 +1229,7 @@ def registered_candidate_receipts(
 def registered_candidate_receipt_postures(
     *,
     registry_path: Path | None = None,
+    quarantine_invalid: bool = False,
 ) -> list[dict[str, object]]:
     path = Path(registry_path or default_registry_path())
     loaded = _read_private_json(path, missing_ok=True)
@@ -1234,9 +1238,26 @@ def registered_candidate_receipt_postures(
     entries, _pending = _validated_registry(loaded[0])
     postures: list[dict[str, object]] = []
     for entry in entries:
-        _payload, observed, identity = _receipt_entry(Path(entry["receipt_path"]))
-        if observed != entry:
-            raise RuntimeError("manfred_candidate_registry_receipt_changed")
+        try:
+            _payload, observed, identity = _receipt_entry(Path(entry["receipt_path"]))
+            if observed != entry:
+                raise RuntimeError("manfred_candidate_registry_receipt_changed")
+        except RuntimeError:
+            if not quarantine_invalid:
+                raise
+            postures.append(
+                {
+                    **entry,
+                    "runtime_schema": "unknown",
+                    "legacy": False,
+                    "retention_eligible": False,
+                    "quarantined": True,
+                    "quarantine_reason": "registered_receipt_invalid",
+                    "registry_receipt_invalid": True,
+                    "automatic_retirement_authorized": False,
+                }
+            )
+            continue
         legacy = identity["legacy"] is True
         postures.append(
             {

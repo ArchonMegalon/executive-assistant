@@ -43,7 +43,7 @@ PAGE_PREWARM_ALLOWED_AUTOMATIC_PATHS = frozenset(
     PAGE_PREWARM_REQUIRED_PATHS
 )
 PAGE_PREWARM_ALLOWED_WEBSOCKET_PATHS: frozenset[str] = frozenset()
-PAGE_PREWARM_ACKNOWLEDGEMENT_TEXT = "Worüber möchtest du sprechen?"
+PAGE_PREWARM_ACKNOWLEDGEMENT_TEXT = "Worum geht es?"
 PAGE_PREWARM_WAVE_CONTENT_TYPES = frozenset(
     {
         "audio/vnd.wave",
@@ -1792,7 +1792,10 @@ def audit_browser_surface(
                     or any(payload != {} for payload in status_payloads)
                     or len(synthesis_payloads) != 1
                     or synthesis_payloads[0]
-                    != {"text": PAGE_PREWARM_ACKNOWLEDGEMENT_TEXT}
+                    != {
+                        "text": PAGE_PREWARM_ACKNOWLEDGEMENT_TEXT,
+                        "voice_ab_variant": "",
+                    }
                 ):
                     raise RuntimeError(
                         "candidate_browser_page_prewarm_payload_invalid"

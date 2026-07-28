@@ -2017,7 +2017,7 @@ def test_authorized_candidate_browser_audit_requires_exact_acknowledgement(
         document = original_renderer(*args, **kwargs)
         expected = (
             'const contactAcknowledgementText = '
-            '"Worüber möchtest du sprechen?";'
+            '"Worum geht es?";'
         )
         assert expected in document
         return document.replace(
@@ -3580,6 +3580,9 @@ def test_memorial_minimal_browser_voice_exit_gate_roundtrips_tts_to_stt(
         assert result["ttsPlugin"] == "unmixr_clone"
         assert result["assistantText"] in {
             "Worum geht es?",
+            "Ich höre zu. Lass dir Zeit.",
+            "Ich höre zu. Sag es in Ruhe.",
+            "Sprich weiter. Ich höre zu.",
             "Ja. Ich höre dich.",
             "Ich höre dich. Sag es mir in Ruhe.",
             "Ja. Sag mir, was dich gerade beschäftigt.",

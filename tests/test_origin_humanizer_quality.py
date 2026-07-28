@@ -94,6 +94,39 @@ def test_humanizer_quality_rejects_missing_canon_anchors(tmp_path: Path) -> None
     assert "canon_anchors_missing" in receipt["issues"]
 
 
+def test_humanizer_quality_accepts_explicit_story_anchors(tmp_path: Path) -> None:
+    module = load_module()
+    source = tmp_path / "source.md"
+    candidate = tmp_path / "candidate.md"
+    aster_story = (
+        "Aster crossed Lantern Reach with Jun, Mara, and Orin while Halcyon Freight watched the Tideglass route. "
+        "The community kept medicine and flood rescue moving through Glass Harbor. "
+    ) * 20
+    source.write_text(aster_story, encoding="utf-8")
+    candidate.write_text(aster_story, encoding="utf-8")
+
+    receipt = module.build_receipt(
+        source_path=source,
+        candidate_path=candidate,
+        canon_anchors=("Aster", "Jun", "Mara", "Orin", "Lantern Reach", "Halcyon Freight"),
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["findings"]["missingCanonAnchors"] == []
+
+
+def test_humanizer_quality_does_not_treat_become_as_a_fused_token() -> None:
+    module = load_module()
+    evaluation = module.evaluate(
+        ("Aster and Jun become careful route planners for Lantern Reach. " * 20),
+        ("Aster and Jun become careful route planners for Lantern Reach. " * 20),
+        canon_anchors=("Aster", "Jun", "Lantern Reach"),
+    )
+
+    assert evaluation["metrics"]["fusedArtifactCount"] == 0
+    assert "fused_spacing_artifacts_detected" not in evaluation["issues"]
+
+
 def test_humanizer_quality_rejects_too_short_candidate(tmp_path: Path) -> None:
     module = load_module()
     source = tmp_path / "source.md"

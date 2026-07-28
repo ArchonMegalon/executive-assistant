@@ -1,0 +1,238 @@
+{
+  "data_classification": "public",
+  "description": "Synthetic, non-authoritative fixtures for the first governed WorkLLM manual-browser canary.",
+  "execution_policy": {
+    "external_actions_allowed": false,
+    "organization_memory_allowed": false,
+    "provider_file_upload_allowed": false,
+    "provider_web_search_allowed": false,
+    "repository_access_allowed": false
+  },
+  "output_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "authority_statement": {
+        "const": "Candidate only; no action taken.",
+        "type": "string"
+      },
+      "contradictions": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "findings": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "recommendation": {
+        "type": "string"
+      },
+      "summary": {
+        "type": "string"
+      },
+      "uncertainties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "summary",
+      "findings",
+      "contradictions",
+      "uncertainties",
+      "recommendation",
+      "authority_statement"
+    ],
+    "type": "object"
+  },
+  "prompt_template_version": "1",
+  "schema": "executive_assistant.workllm_canary_corpus.v1",
+  "source_kind": "synthetic_fixture",
+  "tasks": [
+    {
+      "case_id": "01",
+      "lane": "research_synthesis",
+      "max_credits": 6,
+      "prepared_context": "Synthetic service-desk sample: 48 requests arrived Monday, 31 were resolved the same day, 9 waited for customer clarification, 5 were duplicate reports, and 3 remained open after two business days. The stated objective is to reduce avoidable waiting without increasing auto-closure.",
+      "prompt_text": "Synthesize the supplied service-desk facts into the required JSON. Separate observations from inferences, identify uncertainties, and recommend one reversible measurement step. Use only the supplied context.",
+      "requested_model_count": 1,
+      "title": "Service-desk waiting synthesis"
+    },
+    {
+      "case_id": "02",
+      "lane": "research_synthesis",
+      "max_credits": 6,
+      "prepared_context": "Synthetic usability sample: twelve participants attempted a three-step setup. Ten finished step one, seven finished step two, and four finished step three. Six participants misread the label on step two; two participants encountered a genuine system error.",
+      "prompt_text": "Synthesize the supplied usability facts into the required JSON. Distinguish label confusion from system failure and propose one bounded follow-up test. Use only the supplied context.",
+      "requested_model_count": 1,
+      "title": "Setup funnel synthesis"
+    },
+    {
+      "case_id": "03",
+      "lane": "research_synthesis",
+      "max_credits": 6,
+      "prepared_context": "Synthetic pilot sample: cohort A received a checklist and completed 18 of 20 tasks with two corrections. Cohort B received a short video and completed 16 of 20 tasks with six corrections. Cohort sizes and prior experience were equal; task duration was not recorded.",
+      "prompt_text": "Synthesize the supplied pilot evidence into the required JSON. Avoid claiming causation, surface the missing duration measure, and recommend a reversible next comparison. Use only the supplied context.",
+      "requested_model_count": 1,
+      "title": "Checklist versus video pilot"
+    },
+    {
+      "case_id": "04",
+      "lane": "research_synthesis",
+      "max_credits": 6,
+      "prepared_context": "Synthetic vendor review: the product page advertises audit logs, role controls, and exports. A public help page documents role controls, mentions audit logs without screenshots, and contains no export instructions. No authenticated account was inspected.",
+      "prompt_text": "Synthesize the supplied vendor evidence into the required JSON. Label advertised, documented, and unverified capabilities separately and recommend the smallest read-only verification step. Use only the supplied context.",
+      "requested_model_count": 1,
+      "title": "Vendor-claim evidence grading"
+    },
+    {
+      "case_id": "05",
+      "lane": "multi_model_compare",
+      "max_credits": 10,
+      "prepared_context": "Synthetic risk register: risk A has high impact and low likelihood with a tested rollback; risk B has medium impact and high likelihood with no owner; risk C has low impact and high likelihood with a documented workaround. Only one risk can receive immediate planning attention.",
+      "prompt_text": "Produce the required JSON as a candidate prioritization. Explain the decision criteria and preserve uncertainty. This case will be shown to two models for comparison; use only the supplied context.",
+      "requested_model_count": 2,
+      "title": "Risk-register prioritization"
+    },
+    {
+      "case_id": "06",
+      "lane": "multi_model_compare",
+      "max_credits": 10,
+      "prepared_context": "Synthetic communication draft facts: a maintenance window begins at 19:00, expected read-only impact is fifteen minutes, rollback starts if health checks fail twice, and no customer action is required. The audience is nontechnical internal staff.",
+      "prompt_text": "Produce the required JSON with a candidate communication approach and the facts it must preserve. This case will be shown to two models for comparison; use only the supplied context.",
+      "requested_model_count": 2,
+      "title": "Maintenance-message approach"
+    },
+    {
+      "case_id": "07",
+      "lane": "multi_model_compare",
+      "max_credits": 10,
+      "prepared_context": "Synthetic evaluation rubric: option A scores 4 for accuracy, 2 for cost, and 5 for reversibility. Option B scores 3 for accuracy, 5 for cost, and 3 for reversibility. Accuracy has weight 0.5, cost 0.2, and reversibility 0.3. Scores are on a five-point scale.",
+      "prompt_text": "Produce the required JSON with the weighted comparison, show the arithmetic in findings, and note rubric limitations. This case will be shown to two models; use only the supplied context.",
+      "requested_model_count": 2,
+      "title": "Weighted option comparison"
+    },
+    {
+      "case_id": "08",
+      "lane": "multi_model_compare",
+      "max_credits": 10,
+      "prepared_context": "Synthetic incident evidence: latency rose at 10:02, a cache deployment completed at 10:01, database load stayed flat, error rate rose from 0.2 percent to 3 percent, and reverting the cache deployment at 10:12 returned both latency and errors to baseline by 10:15.",
+      "prompt_text": "Produce the required JSON with a cautious causal interpretation and alternative explanations. This case will be shown to two models; use only the supplied context.",
+      "requested_model_count": 2,
+      "title": "Incident interpretation comparison"
+    },
+    {
+      "case_id": "09",
+      "lane": "spec_contradiction_audit",
+      "max_credits": 6,
+      "prepared_context": "Synthetic retention specification: section A says raw event payloads are deleted after 30 days. Section B says support may replay any raw event from the previous 90 days. Section C says daily aggregates are retained for one year and cannot reconstruct raw payloads.",
+      "prompt_text": "Audit the supplied specification for contradictions and missing decisions. Return the required JSON without resolving policy or inventing authority.",
+      "requested_model_count": 1,
+      "title": "Retention-window contradiction"
+    },
+    {
+      "case_id": "10",
+      "lane": "spec_contradiction_audit",
+      "max_credits": 6,
+      "prepared_context": "Synthetic approval specification: section A allows an operator to publish a reviewed draft. Section B requires owner approval for every publication. Section C states that automated jobs may publish when an operator has approved the template, but does not define whether template approval satisfies owner approval.",
+      "prompt_text": "Audit the supplied specification for authority contradictions and ambiguous approval scope. Return the required JSON without choosing a policy.",
+      "requested_model_count": 1,
+      "title": "Publication-authority contradiction"
+    },
+    {
+      "case_id": "11",
+      "lane": "spec_contradiction_audit",
+      "max_credits": 6,
+      "prepared_context": "Synthetic retry specification: section A permits three automatic retries for network failures. Section B says every request is non-idempotent. Section C requires the same idempotency key on retries, while section D says the provider does not accept idempotency keys.",
+      "prompt_text": "Audit the supplied retry specification for contradictions and unsafe gaps. Return the required JSON without proposing execution.",
+      "requested_model_count": 1,
+      "title": "Retry and idempotency contradiction"
+    },
+    {
+      "case_id": "12",
+      "lane": "spec_contradiction_audit",
+      "max_credits": 6,
+      "prepared_context": "Synthetic readiness specification: the overview labels the feature production-ready. The acceptance table has 18 of 20 tests passing, with data deletion and rollback tests pending. The release note says no known blockers, while the risk register marks rollback as a release blocker.",
+      "prompt_text": "Audit the supplied readiness statements for contradictions and unsupported promotion language. Return the required JSON without changing release status.",
+      "requested_model_count": 1,
+      "title": "Readiness-claim contradiction"
+    },
+    {
+      "case_id": "13",
+      "lane": "release_evidence_summary",
+      "max_credits": 6,
+      "prepared_context": "Synthetic release evidence: unit tests 412 of 412 passed, integration tests 38 of 40 passed, the two failures affect optional export, security checks passed, rollback was rehearsed successfully, and the release gate requires every integration test to pass or an owner-signed exception.",
+      "prompt_text": "Summarize the supplied release evidence in the required JSON. State what is proven, what is not, and the exact approval dependency. Do not grant release approval.",
+      "requested_model_count": 1,
+      "title": "Integration-test release summary"
+    },
+    {
+      "case_id": "14",
+      "lane": "release_evidence_summary",
+      "max_credits": 6,
+      "prepared_context": "Synthetic localization evidence: English coverage is 100 percent, German coverage is 96 percent, French coverage is 81 percent, and the release threshold is 95 percent for every promoted locale. French is marked preview-only in the current manifest.",
+      "prompt_text": "Summarize the supplied localization evidence in the required JSON. Keep promoted and preview posture distinct and do not widen claims.",
+      "requested_model_count": 1,
+      "title": "Localization release summary"
+    },
+    {
+      "case_id": "15",
+      "lane": "release_evidence_summary",
+      "max_credits": 6,
+      "prepared_context": "Synthetic canary evidence: 20 runs were planned, 19 completed, all completed runs passed schema and safety checks, one run was never executed, and the gate requires at least 20 completed real-provider runs.",
+      "prompt_text": "Summarize the supplied canary evidence in the required JSON. Distinguish quality of completed runs from the unmet sample-size gate.",
+      "requested_model_count": 1,
+      "title": "Incomplete canary summary"
+    },
+    {
+      "case_id": "16",
+      "lane": "release_evidence_summary",
+      "max_credits": 6,
+      "prepared_context": "Synthetic rollback evidence: the kill switch blocked new work within one second, an already-running job completed, its output stayed quarantined, credit reservation was reconciled, and the operating contract requires both new-work blocking and cancellation of running jobs.",
+      "prompt_text": "Summarize the supplied rollback evidence in the required JSON. Identify which requirement passed and which remains unproven.",
+      "requested_model_count": 1,
+      "title": "Rollback-drill summary"
+    },
+    {
+      "case_id": "17",
+      "lane": "sop_draft",
+      "max_credits": 6,
+      "prepared_context": "Synthetic operating constraints: inspect a SaaS account read-only, confirm visible plan and usage, avoid settings changes, avoid uploads, stop on account mismatch or human verification, and record only hashes plus nonsecret facts.",
+      "prompt_text": "Draft a concise candidate SOP in the required JSON. The recommendation may describe reversible steps but must not claim that any step was executed.",
+      "requested_model_count": 1,
+      "title": "Read-only account-review SOP"
+    },
+    {
+      "case_id": "18",
+      "lane": "sop_draft",
+      "max_credits": 6,
+      "prepared_context": "Synthetic evidence constraints: capture a final browser surface, store the screenshot in protected runtime storage, put only its SHA-256 digest in a redacted receipt, bind the receipt to the request digest, and reject missing or duplicated evidence hashes.",
+      "prompt_text": "Draft a concise candidate evidence-capture SOP in the required JSON. Do not add upload, publication, or external-send steps.",
+      "requested_model_count": 1,
+      "title": "Browser-evidence capture SOP"
+    },
+    {
+      "case_id": "19",
+      "lane": "sop_draft",
+      "max_credits": 6,
+      "prepared_context": "Synthetic incident constraints: engage the kill switch, stop new submissions, preserve existing receipts, reconcile reservations, record the reason with secret redaction, notify only when operator action is required, and require manual review before recovery.",
+      "prompt_text": "Draft a concise candidate kill-switch response SOP in the required JSON. Do not imply that recovery is automatic.",
+      "requested_model_count": 1,
+      "title": "Kill-switch response SOP"
+    },
+    {
+      "case_id": "20",
+      "lane": "sop_draft",
+      "max_credits": 6,
+      "prepared_context": "Synthetic review constraints: validate output schema, scan for sensitive data, compare claims to supplied sources, record accepted-candidate, needs-changes, or rejected, and never treat candidate acceptance as canonical approval or publication.",
+      "prompt_text": "Draft a concise candidate human-review SOP in the required JSON. Preserve the distinction between candidate acceptance and canonical authority.",
+      "requested_model_count": 1,
+      "title": "Candidate-review SOP"
+    }
+  ]
+}

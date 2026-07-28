@@ -3,14 +3,14 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-import pytest
 
+import pytest
 from app.domain.models import PlanValidationError, SkillContract
 from app.repositories.provider_bindings import InMemoryProviderBindingRepository
 from app.repositories.task_contracts import InMemoryTaskContractRepository
+from app.services import provider_registry
 from app.services.brain_router import BrainRouterService
 from app.services.planner import PlannerService
-from app.services import provider_registry
 from app.services.provider_registry import ProviderRegistryService
 from app.services.task_contracts import TaskContractService
 from app.services.tool_execution_common import ToolExecutionError
@@ -394,6 +394,65 @@ def test_provider_registry_exposes_google_gmail_oauth_binding(
     assert state.state == "configured"
     assert "oauth_connect" in state.capabilities
     assert "gmail_send" in state.capabilities
+
+
+def test_provider_registry_exposes_configured_non_executable_workllm_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WORKLLM_EMAIL", "workllm-fixture@example.test")
+    monkeypatch.setenv("WORKLLM_PASSWORD", "workllm-fixture-secret")
+
+    registry = ProviderRegistryService()
+    state = registry.binding_state("workllm.io")
+
+    assert state is not None
+    assert state.provider_key == "workllm"
+    assert state.executable is False
+    assert state.auth_mode == "browser_login"
+    assert state.secret_configured is True
+    assert state.state == "configured"
+    assert "multi_llm_chat" in state.capabilities
+    assert "deep_research" in state.capabilities
+    assert "document_chat" in state.capabilities
+    assert "multimedia_chat" in state.capabilities
+    assert "organization_memory" in state.capabilities
+    assert "workspace_agents" in state.capabilities
+
+    payload = registry.registry_read_model()
+    serialized = json.dumps(payload)
+    assert "workllm-fixture@example.test" not in serialized
+    assert "workllm-fixture-secret" not in serialized
+
+
+def test_provider_registry_keeps_workllm_fail_closed_without_verified_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WORKLLM_EMAIL", "workllm-fixture@example.test")
+    monkeypatch.setenv("WORKLLM_PASSWORD", "workllm-fixture-secret")
+
+    registry = ProviderRegistryService()
+
+    with pytest.raises(ToolExecutionError, match="provider_capability_unavailable:deep_research"):
+        registry.route_tool_by_capability(
+            capability_key="deep_research",
+            provider_hints=("WorkLLM",),
+            allowed_tools=("provider.workllm.deep_research",),
+        )
+
+
+def test_provider_registry_requires_complete_workllm_login(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WORKLLM_EMAIL", "workllm-fixture@example.test")
+    monkeypatch.delenv("WORKLLM_PASSWORD", raising=False)
+    monkeypatch.delenv("CHUMMER_EA_WORKLLM_EMAIL", raising=False)
+    monkeypatch.delenv("CHUMMER_EA_WORKLLM_PASSWORD", raising=False)
+
+    state = ProviderRegistryService().binding_state("work_llm")
+
+    assert state is not None
+    assert state.secret_configured is False
+    assert state.state == "catalog_only"
 
 
 def test_provider_registry_routes_onemin_specialist_capability_with_aliases() -> None:
@@ -892,3 +951,16 @@ def test_planner_rejects_non_executable_provider_capability_routes() -> None:
             principal_id="exec-1",
             goal="try a non-executable provider capability",
         )
+
+
+def test_workllm_catalog_binding_remains_non_executable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WORKLLM_EMAIL", "fixture-account")
+    monkeypatch.setenv("WORKLLM_PASSWORD", "fixture-password")
+
+    state = ProviderRegistryService().binding_state("workllm")
+
+    assert state is not None
+    assert state.executable is False
+    assert state.auth_mode == "browser_login"

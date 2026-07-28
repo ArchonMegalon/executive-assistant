@@ -415,6 +415,50 @@ class CandidateRegistryTests(unittest.TestCase):
         self.assertTrue(posture[0]["retention_eligible"])
         self.assertFalse(posture[0]["quarantined"])
 
+    def test_retention_postures_can_quarantine_an_invalid_historical_receipt(
+        self,
+    ) -> None:
+        payload = self._runtime_payload()
+        receipt, digest = self._write_json(
+            self.receipts / "removed-history.json",
+            payload,
+        )
+        entry = self._registry_entry(receipt, digest, payload)
+        self._write_json(
+            self.registry,
+            {
+                "schema": REGISTRY_SCHEMA,
+                "entry_count": 1,
+                "entries": [entry],
+                "pending_count": 0,
+                "pending": [],
+            },
+        )
+        receipt.unlink()
+
+        with self.assertRaises(RuntimeError):
+            registered_candidate_receipt_postures(registry_path=self.registry)
+        posture = registered_candidate_receipt_postures(
+            registry_path=self.registry,
+            quarantine_invalid=True,
+        )
+
+        self.assertEqual(
+            posture,
+            [
+                {
+                    **entry,
+                    "runtime_schema": "unknown",
+                    "legacy": False,
+                    "retention_eligible": False,
+                    "quarantined": True,
+                    "quarantine_reason": "registered_receipt_invalid",
+                    "registry_receipt_invalid": True,
+                    "automatic_retirement_authorized": False,
+                }
+            ],
+        )
+
     def test_new_legacy_v3_and_v4_registration_is_forbidden(self) -> None:
         for schema in (RUNTIME_SCHEMA_V3, RUNTIME_SCHEMA_V4):
             with self.subTest(schema=schema):

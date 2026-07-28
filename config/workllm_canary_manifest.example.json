@@ -1,0 +1,16 @@
+{
+  "account_verification_receipt": "../ea/_completion/workllm/WORKLLM_ACCOUNT_VERIFICATION.generated.json",
+  "governance": {
+    "audit_ledger": "replace-with-protected-governance-audit-jsonl-path",
+    "credit_ledger": "replace-with-protected-credit-ledger-path"
+  },
+  "mode": "manual_browser",
+  "runs": [
+    {
+      "provider_output_surface_artifact": "replace-with-protected-browser-artifact-path",
+      "provider_surface_receipt": "replace-with-browser-run-receipt-path",
+      "run_receipt": "replace-with-local-run-receipt-path"
+    }
+  ],
+  "schema": "executive_assistant.workllm_canary_manifest.v1"
+}

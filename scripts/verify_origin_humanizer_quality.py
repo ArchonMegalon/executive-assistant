@@ -23,7 +23,7 @@ FUSED_ARTIFACT_RE = re.compile(
     r"raindropslooklike|repelthe|somehowseemed|gaveher|"
     r"bloodseeping|hednever|memoriesofher|floodedhermind|"
     r"frustratedcurses|urgedkestreltoleave|alesson|hardway|"
-    r"outweighsthe|itstimeto|become|justamoment|wholescene|"
+    r"outweighsthe|itstimeto|justamoment|wholescene|"
     r"wasyelling|malfunctionedandher|weresuddenlyarmed|theirguns|"
     r"appearingoutofnowhere|reactedquickly|butshewasn|shetargeted|"
     r"blowingit|slammedinto|andgrabbed|haulingherselfup|"
@@ -103,12 +103,17 @@ def _word_count(text: str) -> int:
     return len(_tokens(text))
 
 
-def _missing_anchors(candidate: str) -> list[str]:
+def _missing_anchors(candidate: str, canon_anchors: tuple[str, ...]) -> list[str]:
     lowered = candidate.lower()
-    return [anchor for anchor in CANON_ANCHORS if anchor.lower() not in lowered]
+    return [anchor for anchor in canon_anchors if anchor.lower() not in lowered]
 
 
-def evaluate(source_text: str, candidate_text: str) -> dict[str, Any]:
+def evaluate(
+    source_text: str,
+    candidate_text: str,
+    *,
+    canon_anchors: tuple[str, ...] = CANON_ANCHORS,
+) -> dict[str, Any]:
     source = source_text.strip()
     candidate = candidate_text.strip()
     source_words = _word_count(source)
@@ -120,7 +125,7 @@ def evaluate(source_text: str, candidate_text: str) -> dict[str, Any]:
     overlap_ratio = overlap_count / max(1, len(source_content))
     fused = FUSED_ARTIFACT_RE.findall(candidate)
     preamble = PROVIDER_PREAMBLE_RE.findall(candidate)
-    missing = _missing_anchors(candidate)
+    missing = _missing_anchors(candidate, canon_anchors)
     issues: list[str] = []
     if not candidate:
         issues.append("candidate_empty")
@@ -168,7 +173,12 @@ def evaluate(source_text: str, candidate_text: str) -> dict[str, Any]:
     }
 
 
-def build_receipt(*, source_path: Path, candidate_path: Path) -> dict[str, Any]:
+def build_receipt(
+    *,
+    source_path: Path,
+    candidate_path: Path,
+    canon_anchors: tuple[str, ...] = CANON_ANCHORS,
+) -> dict[str, Any]:
     if not source_path.is_file():
         return {
             "contractName": CONTRACT_NAME,
@@ -188,7 +198,7 @@ def build_receipt(*, source_path: Path, candidate_path: Path) -> dict[str, Any]:
         }
     source = source_path.read_text(encoding="utf-8")
     candidate = candidate_path.read_text(encoding="utf-8")
-    evaluation = evaluate(source, candidate)
+    evaluation = evaluate(source, candidate, canon_anchors=canon_anchors)
     return {
         "contractName": CONTRACT_NAME,
         "provider": "Undetectable Humanizer",
@@ -209,8 +219,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--candidate", required=True, type=Path)
     parser.add_argument("--receipt", type=Path)
+    parser.add_argument(
+        "--canon-anchor",
+        action="append",
+        default=[],
+        help="Required story anchor. Repeat for non-Kestrel Origin dossiers.",
+    )
     args = parser.parse_args(argv)
-    receipt = build_receipt(source_path=args.source, candidate_path=args.candidate)
+    receipt = build_receipt(
+        source_path=args.source,
+        candidate_path=args.candidate,
+        canon_anchors=tuple(args.canon_anchor) or CANON_ANCHORS,
+    )
     if args.receipt:
         args.receipt.parent.mkdir(parents=True, exist_ok=True)
         args.receipt.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")

@@ -55,6 +55,8 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
 
 LIVE_PROMPT_TEXT = "Hallo Manfred, kannst du jetzt mit mir sprechen?"
 MEANINGFUL_PROMPT_TEXT = "Was war dir bei Gerechtigkeit wichtig?"
+DEFAULT_SOURCE_PROOF_ROOT = Path(__file__).resolve().parents[1]
+_SOURCE_PROOF_ROOT = DEFAULT_SOURCE_PROOF_ROOT
 DEFAULT_EXIT_GATE_MAX_FIRST_ANSWER_MS = 10000.0
 DEFAULT_GOLD_MAX_FIRST_ANSWER_MS = 4500.0
 DEFAULT_WARMUP_TIMEOUT_SECONDS = 25.0
@@ -234,14 +236,57 @@ def _utc_now() -> str:
 
 
 def _git_head() -> str:
-    return resolve_source_state_head(Path(__file__).resolve().parents[1])
+    return resolve_source_state_head(_SOURCE_PROOF_ROOT)
+
+
+def _repository_git_head() -> str:
+    try:
+        proc = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(_SOURCE_PROOF_ROOT),
+                "rev-parse",
+                "--verify",
+                "HEAD",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception:
+        return ""
+    value = proc.stdout.strip().lower() if proc.returncode == 0 else ""
+    return value if re.fullmatch(r"[0-9a-f]{40}", value) else ""
+
+
+def _configure_source_proof_root(value: str) -> None:
+    global _SOURCE_PROOF_ROOT
+
+    raw = str(value or "").strip()
+    if not raw:
+        _SOURCE_PROOF_ROOT = DEFAULT_SOURCE_PROOF_ROOT
+        return
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        raise ValueError("source_proof_root_must_be_absolute")
+    try:
+        resolved = candidate.resolve(strict=True)
+    except OSError as exc:
+        raise ValueError("source_proof_root_unavailable") from exc
+    if resolved != candidate or not resolved.is_dir():
+        raise ValueError("source_proof_root_must_be_real_directory")
+    git_path = resolved / ".git"
+    if not git_path.is_file() and not git_path.is_dir():
+        raise ValueError("source_proof_root_not_git_worktree")
+    _SOURCE_PROOF_ROOT = resolved
 
 
 def _git_dirty() -> bool:
-    root = Path(__file__).resolve().parents[1]
     try:
         proc = subprocess.run(
-            ["git", "-C", str(root), "status", "--short"],
+            ["git", "-C", str(_SOURCE_PROOF_ROOT), "status", "--short"],
             check=False,
             capture_output=True,
             text=True,
@@ -253,7 +298,7 @@ def _git_dirty() -> bool:
 
 
 def _source_tree_fingerprint() -> str:
-    root = Path(__file__).resolve().parents[1]
+    root = _SOURCE_PROOF_ROOT
     generated_prefixes = (
         ".codex-design/product/",
         ".codex-studio/published/",
@@ -1814,6 +1859,7 @@ def _with_exit_gate_status(
 ) -> dict[str, object]:
     reasons: list[str] = []
     source_git_head = _git_head()
+    repository_git_head = _repository_git_head()
 
     def add_reason(reason: str) -> None:
         if reason and reason not in reasons:
@@ -1865,10 +1911,11 @@ def _with_exit_gate_status(
         add_reason("gold_requires_real_stt")
     if gold_mode and not _is_source_revision(runtime_source_revision):
         add_reason("runtime_source_revision_missing_or_invalid")
+    elif gold_mode and not _is_source_revision(repository_git_head):
+        add_reason("measurement_repository_revision_missing_or_invalid")
     elif (
         gold_mode
-        and _is_source_revision(source_git_head)
-        and runtime_source_revision != source_git_head
+        and runtime_source_revision != repository_git_head
     ):
         add_reason("runtime_source_revision_source_mismatch")
     if gold_mode and _git_dirty():
@@ -1883,9 +1930,11 @@ def _with_exit_gate_status(
             "generated_by": "scripts/measure_memorial_live_browser.py",
             "source_git_head": source_git_head,
             "head_semantics": "source_state",
+            "repository_git_head": repository_git_head,
+            "repository_git_head_semantics": "git_commit",
             "source_tree_fingerprint": _source_tree_fingerprint(),
             "source_state_fingerprint": resolve_source_worktree_fingerprint(
-                Path(__file__).resolve().parents[1]
+                _SOURCE_PROOF_ROOT
             ),
             "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
             "dirty_worktree": _git_dirty(),
@@ -2001,6 +2050,15 @@ def main() -> int:
     parser.add_argument("--gold-mode", action="store_true", help="Write a stricter memorial browser-gold receipt.")
     parser.add_argument("--require-public-origin", action="store_true", help="Fail gold/browser proof on localhost origins.")
     parser.add_argument(
+        "--source-proof-root",
+        default="",
+        help=(
+            "Optional absolute clean Git worktree whose raw HEAD must match "
+            "the live runtime revision. Use this when the verifier script is "
+            "launched outside the immutable deployed-source checkout."
+        ),
+    )
+    parser.add_argument(
         "--review-session-cookie-file",
         default="",
         help=(
@@ -2011,6 +2069,10 @@ def main() -> int:
     parser.add_argument("--max-first-answer-ms", type=float, default=0.0)
     args = parser.parse_args()
 
+    try:
+        _configure_source_proof_root(args.source_proof_root)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.gold_mode and not args.real_stt and not args.text_prompt:
         parser.error("--gold-mode requires --real-stt")
     if args.gold_mode and not args.require_public_origin:
@@ -2038,7 +2100,7 @@ def main() -> int:
                 review_cookie_file,
                 public_origin=args.base_url,
                 slug=args.slug,
-                expected_source_revision=_git_head(),
+                expected_source_revision=_repository_git_head(),
             )
         except ReviewSessionError as exc:
             parser.error(str(exc))
@@ -2066,7 +2128,7 @@ def main() -> int:
                 review_cookie_file,
                 public_origin=args.base_url,
                 slug=args.slug,
-                expected_source_revision=_git_head(),
+                expected_source_revision=_repository_git_head(),
             )
         except ReviewSessionError as exc:
             parser.error(str(exc))

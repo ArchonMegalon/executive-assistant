@@ -1,0 +1,13 @@
+{
+  "account_ref_sha256": "replace-with-verified-account-sha256",
+  "irreversible_actions_attempted": [],
+  "observed_at": "replace-with-UTC-timestamp",
+  "output_captured": true,
+  "prepared_packet_only": true,
+  "provider_output_surface_sha256": "replace-with-screenshot-or-browser-state-sha256",
+  "request_sha256": "replace-with-task-packet-request-sha256",
+  "schema": "executive_assistant.workllm_browser_run_receipt.v1",
+  "site": "girschele-workspace.workllm.io",
+  "stop_condition": "comparison_ready_for_user_decision",
+  "work_type": "research"
+}

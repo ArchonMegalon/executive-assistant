@@ -27,6 +27,9 @@ data/audiobooks/audiobookshelf/
 data/audiobooks/jobs/
 data/audiobooks/backup-state/
 data/audiobooks/jobs/voice-feedback.json
+data/audiobooks/_operator-intake/
+data/audiobooks/intake/
+data/audiobooks/source-repair/
 *.log
 config/*.local.yml
 config/*.local.json
@@ -136,6 +139,7 @@ state/fastestvpn-proxy-pool/
 state/memorial_blipai_shadow_stt_tokens.json
 state/propertyquarry_actions_runner/
 state/propertyquarry_release_tools/
+state/workllm/
 state/onemin_*refresh*.json
 data/audiobook-mount-guard/
 data/audiobooks/vocallab_provider_verification/

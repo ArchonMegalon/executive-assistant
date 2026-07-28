@@ -169,6 +169,74 @@ def test_unmixr_synthesize_rotates_to_fallback_slot_on_balance_response(monkeypa
     assert seen_auth == ["Bearer primary-key", "Bearer fallback-key"]
 
 
+def test_unmixr_synthesize_can_pin_sanitized_fallback_account_slot(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _clear_unmixr_key_env(monkeypatch)
+    monkeypatch.setenv(
+        "EA_UNMIXR_SLOT_SELECTOR_STATE_FILE",
+        str(tmp_path / "unmixr-slots.json"),
+    )
+    monkeypatch.setenv("UNMIXR_API_KEY", "primary-key")
+    monkeypatch.setenv("UNMIXR_API_KEY_FALLBACK_2", "fallback-key")
+    seen_auth: list[str] = []
+
+    def fake_request(method, url, headers=None, **kwargs):  # noqa: ANN001
+        seen_auth.append(str((headers or {}).get("Authorization") or ""))
+        return _FakeResponse(
+            status_code=200,
+            payload={"audio_url": "https://audio.example/render.wav"},
+        )
+
+    monkeypatch.setattr(memorial_openvoice.requests, "request", fake_request)
+    monkeypatch.setattr(
+        memorial_openvoice.requests,
+        "get",
+        lambda *args, **kwargs: _FakeResponse(
+            status_code=200,
+            content=b"audio-bytes",
+            headers={"Content-Type": "audio/wav"},
+        ),
+    )
+
+    audio, _content_type = memorial_openvoice.unmixr_synthesize_request(
+        text="Worum geht es?",
+        voice_id="voice-1",
+        lang="de-AT",
+        account_slot="UNMIXR_API_KEY_FALLBACK_2",
+    )
+
+    assert audio == b"audio-bytes"
+    assert seen_auth == ["Bearer fallback-key"]
+
+
+def test_unmixr_rejects_unsafe_account_slot_before_provider_call(
+    monkeypatch,
+) -> None:
+    _clear_unmixr_key_env(monkeypatch)
+    monkeypatch.setenv("UNMIXR_API_KEY", "primary-key")
+    provider_called = False
+
+    def fake_request(**kwargs):
+        nonlocal provider_called
+        provider_called = True
+        return _FakeResponse()
+
+    monkeypatch.setattr(memorial_openvoice.requests, "request", fake_request)
+
+    with pytest.raises(HTTPException) as caught:
+        memorial_openvoice.unmixr_synthesize_request(
+            text="Worum geht es?",
+            voice_id="voice-1",
+            lang="de",
+            account_slot="../../secret",
+        )
+
+    assert caught.value.detail == "unmixr_account_slot_invalid"
+    assert provider_called is False
+
+
 def test_unmixr_synthesize_redacts_provider_body_from_exception_and_slot_state(
     monkeypatch,
     tmp_path: Path,
@@ -306,7 +374,7 @@ def test_unmixr_synthesize_includes_validated_pronunciation_dictionary(monkeypat
         {
             "text": "The SME uses Chummer.",
             "voice_id": "voice-1",
-            "language": "en-US",
+            "language": "en",
             "response_type": "url",
             "speaking_rate": "medium",
             "speaking_pitch": "low",
@@ -518,18 +586,18 @@ def test_unmixr_synthesize_recognizes_provider_mp3_with_generic_content_type(
     assert content_type == "audio/mpeg"
 
 
-def test_unmixr_language_preserves_provider_locale_casing(monkeypatch) -> None:
+def test_unmixr_language_projects_bcp47_locale_to_provider_language_code(monkeypatch) -> None:
     monkeypatch.setenv("UNMIXR_LANGUAGE", "en_US")
 
-    assert memorial_openvoice.unmixr_language("en-us") == "en-US"
-    assert memorial_openvoice.unmixr_language("en_US") == "en-US"
-    assert memorial_openvoice.unmixr_language("") == "en-US"
-    assert memorial_openvoice.unmixr_language("de-DE") == "de-DE"
-    assert memorial_openvoice.unmixr_language("de_AT") == "de-AT"
-    assert memorial_openvoice.unmixr_language("de-AT") == "de-AT"
+    assert memorial_openvoice.unmixr_language("en-us") == "en"
+    assert memorial_openvoice.unmixr_language("en_US") == "en"
+    assert memorial_openvoice.unmixr_language("") == "en"
+    assert memorial_openvoice.unmixr_language("de-DE") == "de"
+    assert memorial_openvoice.unmixr_language("de_AT") == "de"
+    assert memorial_openvoice.unmixr_language("de-AT") == "de"
 
 
-def test_unmixr_synthesize_sends_explicit_german_locale_without_changing_voice_id(
+def test_unmixr_synthesize_sends_provider_german_code_without_changing_voice_id(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -562,7 +630,7 @@ def test_unmixr_synthesize_sends_explicit_german_locale_without_changing_voice_i
 
     assert audio.startswith(b"ID3")
     assert content_type == "audio/mpeg"
-    assert seen_payloads[0]["language"] == "de-AT"
+    assert seen_payloads[0]["language"] == "de"
     assert seen_payloads[0]["voice_id"] == "approved-manfred-voice"
     assert seen_payloads[0]["speaking_rate"] == "0.90"
 

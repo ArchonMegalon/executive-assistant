@@ -9,7 +9,7 @@ import shutil
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Sequence
+from typing import Sequence
 
 from app.domain.models import ProviderBindingState, SkillContract, now_utc_iso
 from app.repositories.provider_bindings import ProviderBindingRecord, ProviderBindingRepository
@@ -864,6 +864,50 @@ class ProviderRegistryService:
                 source="runtime",
             ),
             ProviderBinding(
+                provider_key="workllm",
+                display_name="WorkLLM",
+                executable=False,
+                capabilities=(
+                    ProviderCapability(
+                        provider_key="workllm",
+                        capability_key="multi_llm_chat",
+                        tool_name="provider.workllm.multi_llm_chat",
+                        executable=False,
+                    ),
+                    ProviderCapability(
+                        provider_key="workllm",
+                        capability_key="deep_research",
+                        tool_name="provider.workllm.deep_research",
+                        executable=False,
+                    ),
+                    ProviderCapability(
+                        provider_key="workllm",
+                        capability_key="document_chat",
+                        tool_name="provider.workllm.document_chat",
+                        executable=False,
+                    ),
+                    ProviderCapability(
+                        provider_key="workllm",
+                        capability_key="multimedia_chat",
+                        tool_name="provider.workllm.multimedia_chat",
+                        executable=False,
+                    ),
+                    ProviderCapability(
+                        provider_key="workllm",
+                        capability_key="organization_memory",
+                        tool_name="provider.workllm.organization_memory",
+                        executable=False,
+                    ),
+                    ProviderCapability(
+                        provider_key="workllm",
+                        capability_key="workspace_agents",
+                        tool_name="provider.workllm.workspace_agents",
+                        executable=False,
+                    ),
+                ),
+                source="catalog",
+            ),
+            ProviderBinding(
                 provider_key="unmixr",
                 display_name="Unmixr AI",
                 executable=False,
@@ -1043,7 +1087,6 @@ class ProviderRegistryService:
 
     def _provider_state_value(self, binding: ProviderBinding, record: ProviderBindingRecord | None) -> str:
         auth_mode = self._auth_mode(binding)
-        secret_env_names = self._secret_env_names(binding.provider_key)
         secret_configured = self._secret_configured(binding)
         if record is None:
             if binding.executable and secret_configured:
@@ -1269,6 +1312,12 @@ class ProviderRegistryService:
             "prompting_systems": ("PROMPTING_SYSTEMS_API_KEY",),
             "teable": ("TEABLE_API_KEY",),
             "unmixr": ("UNMIXR_API_KEY", "UNMIXR_VOICE_ID"),
+            "workllm": (
+                "WORKLLM_EMAIL",
+                "WORKLLM_PASSWORD",
+                "CHUMMER_EA_WORKLLM_EMAIL",
+                "CHUMMER_EA_WORKLLM_PASSWORD",
+            ),
         }
         return mapping.get(str(provider_key or "").strip(), ())
 
@@ -1283,6 +1332,8 @@ class ProviderRegistryService:
             return "cli"
         if binding.provider_key == "google_gmail":
             return "oauth"
+        if binding.provider_key == "workllm":
+            return "browser_login"
         if binding.provider_key == "amazon":
             auth_mode = str(os.environ.get("AMAZON_AUTH_MODE") or "").strip().lower().replace("-", "_")
             if auth_mode == "secret_file":
@@ -1311,6 +1362,16 @@ class ProviderRegistryService:
                     "EA_PROVIDER_SECRET_KEY",
                 )
             )
+        if auth_mode == "browser_login" and binding.provider_key == "workllm":
+            canonical = all(
+                str(os.environ.get(name) or "").strip()
+                for name in ("WORKLLM_EMAIL", "WORKLLM_PASSWORD")
+            )
+            compatibility = all(
+                str(os.environ.get(name) or "").strip()
+                for name in ("CHUMMER_EA_WORKLLM_EMAIL", "CHUMMER_EA_WORKLLM_PASSWORD")
+            )
+            return canonical or compatibility
         if auth_mode == "secret_file" and binding.provider_key == "amazon":
             password_file = str(os.environ.get("AMAZON_PASSWORD_FILE") or "").strip()
             if password_file:
@@ -2322,6 +2383,8 @@ class ProviderRegistryService:
             "browserly.ai": "browserly",
             "browsely": "browserly",
             "prompting.systems": "prompting_systems",
+            "work_llm": "workllm",
+            "workllm.io": "workllm",
             "gemini": "gemini_vortex",
             "gemini_cli": "gemini_vortex",
             "vortex": "gemini_vortex",

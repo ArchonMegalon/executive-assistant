@@ -13761,3 +13761,191 @@ def test_exact_narration_plan_cache_reuses_only_exact_private_binding(
         refreshed_metrics["receipt_metrics_contract"]
         == pipeline.RECEIPT_METRICS_CONTRACT_NAME
     )
+
+
+def test_audiobookshelf_lookup_maps_trusted_library_path_namespace_and_skips_missing_duplicate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    import_root = tmp_path / "audiobooks"
+    target_path = (
+        import_root
+        / "Chummer Origin Dossier"
+        / "Kestrel - Origin Story"
+        / "Kestrel - Origin Story.m4b"
+    )
+    provider_root = Path("/mnt/pcloud/My Music/Audiobooks")
+    provider_item_path = (
+        provider_root / "Chummer Origin Dossier" / "Kestrel - Origin Story"
+    )
+    monkeypatch.setenv("EA_AUDIOBOOKSHELF_IMPORT_ROOT", str(import_root))
+    monkeypatch.setenv("EA_AUDIOBOOKSHELF_TRUST_LIBRARY_FOLDER_PATHS", "1")
+    monkeypatch.setattr(
+        pipeline,
+        "_audiobookshelf_library_folders",
+        lambda: (provider_root,),
+    )
+    monkeypatch.setattr(pipeline, "_audiobookshelf_library_id", lambda: "library-1")
+    monkeypatch.setattr(
+        pipeline,
+        "_audiobookshelf_json_request",
+        lambda **_kwargs: (
+            200,
+            {
+                "results": [
+                    {
+                        "id": "missing-item",
+                        "path": str(provider_item_path),
+                        "mediaType": "book",
+                        "isMissing": True,
+                        "media": {
+                            "id": "missing-media",
+                            "metadata": {"title": "Kestrel - Origin Story"},
+                            "numAudioFiles": 1,
+                        },
+                    },
+                    {
+                        "id": "active-item",
+                        "path": str(provider_item_path),
+                        "mediaType": "book",
+                        "isMissing": False,
+                        "media": {
+                            "id": "active-media",
+                            "metadata": {"title": "Kestrel - Origin Story"},
+                            "numAudioFiles": 1,
+                        },
+                    },
+                ]
+            },
+            "",
+        ),
+    )
+    metadata = pipeline.EpubMetadata(
+        title="Kestrel - Origin Story",
+        author="Chummer Origin Dossier",
+        language="en-US",
+        source_filename="origin.txt",
+        source_sha256="source-sha",
+    )
+
+    result = pipeline._find_audiobookshelf_imported_item(
+        target_path=target_path,
+        metadata=metadata,
+    )
+
+    assert result["status"] == "item_found"
+    assert result["library_item_id"] == "active-item"
+    assert result["media_item_id"] == "active-media"
+    assert result["match_kind"] == "trusted_library_folder_relative_path"
+
+
+def test_audiobookshelf_absolute_namespace_mismatch_stays_closed_without_trust(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    import_root = tmp_path / "audiobooks"
+    target_path = import_root / "Author" / "Title" / "Title.m4b"
+    monkeypatch.setenv("EA_AUDIOBOOKSHELF_IMPORT_ROOT", str(import_root))
+    metadata = pipeline.EpubMetadata(
+        title="Title",
+        author="Author",
+        language="en-US",
+        source_filename="origin.txt",
+        source_sha256="source-sha",
+    )
+
+    match_kind = pipeline._audiobookshelf_item_import_match_kind(
+        row={
+            "path": "/mnt/provider/Audiobooks/Author/Title",
+            "mediaType": "book",
+            "media": {
+                "id": "media-1",
+                "metadata": {"title": "Title"},
+                "numAudioFiles": 1,
+            },
+        },
+        target_path=target_path,
+        metadata=metadata,
+    )
+
+    assert match_kind == ""
+
+
+def test_origin_audiobook_telegram_delivery_resolves_principal_binding_without_persisted_chat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    monkeypatch.setattr(
+        pipeline,
+        "_telegram_delivery_context_for_job",
+        lambda _job: ("telegram-test-token", "123456789"),
+    )
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {"ok": True, "result": {"message_id": 42}}
+            ).encode("utf-8")
+
+    def fake_urlopen(request, timeout=None):
+        assert request.full_url.endswith("/bottelegram-test-token/sendMessage")
+        return FakeResponse()
+
+    monkeypatch.setattr(pipeline.urllib.request, "urlopen", fake_urlopen)
+
+    receipt = pipeline._send_telegram_audiobook_status(
+        job={"principal_id": "principal-1", "telegram": {}},
+        text="Your Origin Dossier audiobook is ready.",
+    )
+
+    assert receipt["status"] == "sent"
+    assert receipt["message_id"] == 42
+
+
+def test_origin_audiobook_callback_accepts_resolved_principal_binding_without_raw_chat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    monkeypatch.setattr(
+        pipeline,
+        "_telegram_delivery_context_for_job",
+        lambda _job: ("telegram-test-token", "123456789"),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_audiobook_publication_gate_reason",
+        lambda _job: "",
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_audiobook_canary_receipt_hmac_key",
+        lambda _channel: b"test-canary-key",
+    )
+    job = {
+        "principal_id": "principal-1",
+        "telegram": {},
+        "audiobookshelf_import": {
+            "public_share": {
+                "status": "public_share_ready",
+                "absolute_url": "https://audiobookshelf.example/share/origin",
+            }
+        },
+    }
+
+    reason = pipeline._audiobook_public_share_acceptance_callback_block_reason(
+        job
+    )
+
+    assert reason == ""

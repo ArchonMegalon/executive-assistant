@@ -151,3 +151,24 @@ def test_candidate_paths_sort_by_job_created_at_not_probe_mtime(tmp_path: Path, 
     paths = module._candidate_paths(limit=2)
 
     assert paths == [newer, older]
+
+
+def test_public_share_candidate_accepts_telegram_delivered_origin_job() -> None:
+    module = _module()
+    job = {
+        "job_id": "origin-dossier-story",
+        "principal_id": "principal-1",
+        "telegram": {},
+        "audiobookshelf_import": {
+            "public_share": {
+                "status": "public_share_ready",
+                "absolute_url": "https://audiobookshelf.example/share/origin",
+                "telegram_delivery": {
+                    "status": "sent",
+                    "message_id": 42,
+                },
+            },
+        },
+    }
+
+    assert module._is_whatsapp_share_candidate(job) is True

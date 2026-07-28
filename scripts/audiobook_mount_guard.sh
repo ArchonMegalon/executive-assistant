@@ -111,8 +111,8 @@ on_error() {
   local rc=$?
   trap - ERR
   set +e
+  cleanup_recovery_material
   if (( action_started == 1 )); then
-    cleanup_recovery_material
     result_reason="action_command_failed_rc_${rc}"
     write_result "action_failed"
   else
@@ -128,8 +128,8 @@ trap on_error ERR
 on_signal() {
   trap - ERR INT TERM
   set +e
+  cleanup_recovery_material
   if (( action_started == 1 )); then
-    cleanup_recovery_material
     result_reason="action_interrupted_by_signal"
     write_result "action_failed"
   fi
@@ -267,6 +267,152 @@ declare -A observed_image_id
 declare -A observed_inode
 declare -A observed_local_signature
 declare -A created_container_id
+declare -A compose_project
+declare -A compose_working_dir
+declare -A compose_config_files
+declare -A compose_environment_files
+declare -A compose_service
+declare -A recovery_override_by_container
+
+trusted_compose_path() {
+  local path="$1"
+  local expected_type="$2"
+  local owner=""
+  local permissions=""
+  local effective_uid=""
+
+  [[ "${path}" == /* ]] || return 1
+  [[ "${path}" != *$'\n'* && "${path}" != *"|"* ]] || return 1
+  [[ ! -L "${path}" ]] || return 1
+  case "${expected_type}" in
+    directory)
+      [[ -d "${path}" && -x "${path}" ]] || return 1
+      ;;
+    file)
+      [[ -f "${path}" && -r "${path}" ]] || return 1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  owner="$(stat -c '%u' -- "${path}" 2>/dev/null || true)"
+  permissions="$(stat -c '%A' -- "${path}" 2>/dev/null || true)"
+  effective_uid="$(id -u)"
+  [[ "${owner}" == "0" || "${owner}" == "${effective_uid}" ]] || return 1
+  [[ "${permissions}" =~ ^[-d][rwxStTs-]{9}$ ]] || return 1
+  [[ "${permissions:5:1}" != "w" && "${permissions:8:1}" != "w" ]] || return 1
+}
+
+trusted_compose_file_list() {
+  local values="$1"
+  local required="$2"
+  local -a paths=()
+  local path=""
+
+  if [[ -z "${values}" ]]; then
+    [[ "${required}" == "optional" ]]
+    return
+  fi
+  [[ "${values}" != *$'\n'* && "${values}" != *"|"* ]] || return 1
+  IFS=',' read -r -a paths <<<"${values}"
+  (( ${#paths[@]} > 0 && ${#paths[@]} <= 32 )) || return 1
+  for path in "${paths[@]}"; do
+    [[ -n "${path}" ]] || return 1
+    trusted_compose_path "${path}" file || return 1
+  done
+}
+
+resolve_compose_topology() {
+  local container="$1"
+  local expected_container_id="$2"
+  local expected_image_id="$3"
+  local expected_project="$4"
+  local expected_service="$5"
+  local inspect_json=""
+  local row=""
+  local container_id=""
+  local image_id=""
+  local project=""
+  local service=""
+  local working_dir=""
+  local config_files=""
+  local environment_files=""
+
+  inspect_json="$(timeout 8 docker inspect "${container}" 2>/dev/null || true)"
+  if [[ -z "${inspect_json}" ]] ||
+     ! jq -e 'type == "array" and length == 1' >/dev/null 2>&1 <<<"${inspect_json}"; then
+    return 1
+  fi
+  row="$(
+    jq -r \
+      '.[0]
+       | [.Id,
+          .Image,
+          (.Config.Labels["com.docker.compose.project"] // ""),
+          (.Config.Labels["com.docker.compose.service"] // ""),
+          (.Config.Labels["com.docker.compose.project.working_dir"] // ""),
+          (.Config.Labels["com.docker.compose.project.config_files"] // ""),
+          (.Config.Labels["com.docker.compose.project.environment_file"] // "")]
+       | @tsv' <<<"${inspect_json}"
+  )"
+  IFS=$'\t' read -r \
+    container_id image_id project service working_dir config_files environment_files \
+    <<<"${row}"
+  [[ "${container_id}" == "${expected_container_id}" ]] || return 1
+  [[ "${image_id}" == "${expected_image_id}" ]] || return 1
+  [[ "${project}" == "${expected_project}" ]] || return 1
+  [[ "${service}" == "${expected_service}" ]] || return 1
+  [[ "${project}" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || return 1
+  [[ "${service}" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] || return 1
+  trusted_compose_path "${working_dir}" directory || return 1
+  trusted_compose_file_list "${config_files}" required || return 1
+  trusted_compose_file_list "${environment_files}" optional || return 1
+
+  compose_project["${container}"]="${project}"
+  compose_working_dir["${container}"]="${working_dir}"
+  compose_config_files["${container}"]="${config_files}"
+  compose_environment_files["${container}"]="${environment_files}"
+  compose_service["${container}"]="${service}"
+}
+
+run_compose_for_container() {
+  local mode="$1"
+  local container="$2"
+  local override_file="${recovery_override_by_container[$container]}"
+  local -a command=(
+    docker compose
+    --project-name "${compose_project[$container]}"
+    --project-directory "${compose_working_dir[$container]}"
+  )
+  local -a paths=()
+  local path=""
+
+  if [[ -n "${compose_environment_files[$container]}" ]]; then
+    IFS=',' read -r -a paths <<<"${compose_environment_files[$container]}"
+    for path in "${paths[@]}"; do
+      command+=(--env-file "${path}")
+    done
+  fi
+  IFS=',' read -r -a paths <<<"${compose_config_files[$container]}"
+  for path in "${paths[@]}"; do
+    command+=(-f "${path}")
+  done
+  command+=(-f "${override_file}")
+
+  case "${mode}" in
+    preflight)
+      COMPOSE_IGNORE_ORPHANS=true "${command[@]}" config --format json >/dev/null
+      ;;
+    recreate)
+      COMPOSE_IGNORE_ORPHANS=true "${command[@]}" \
+        up -d --no-deps --force-recreate --no-build --pull never \
+        --wait --wait-timeout 180 "${compose_service[$container]}"
+      ;;
+    *)
+      return 2
+      ;;
+  esac
+}
 
 probe_container() {
   local container="$1"
@@ -284,9 +430,25 @@ probe_container() {
     return 0
   fi
   local row
-  row="$(jq -r '.[0] | [.Id,.Image,(.State.Running|tostring),(.State.Paused|tostring),(.State.Restarting|tostring),.State.Status,(.Config.Labels["com.docker.compose.project"] // ""),(.Config.Labels["com.docker.compose.service"] // "")] | @tsv' <<<"${inspect_json}")"
-  local container_id image_id running paused restarting status project service
-  IFS=$'\t' read -r container_id image_id running paused restarting status project service <<<"${row}"
+  row="$(
+    jq -r \
+      '.[0]
+       | [.Id,
+          .Image,
+          (.State.Running | tostring),
+          (.State.Paused | tostring),
+          (.State.Restarting | tostring),
+          .State.Status,
+          (.Config.Labels["com.docker.compose.project"] // ""),
+          (.Config.Labels["com.docker.compose.service"] // ""),
+          ([.Config.Env[]? | select(startswith("EA_DEPLOY_PRIMARY_MODE="))][0] // ""),
+          ([.Config.Env[]? | select(startswith("EA_DEPLOY_ENABLED_MODES="))][0] // "")]
+       | @tsv' <<<"${inspect_json}"
+  )"
+  local container_id image_id running paused restarting status project service primary_mode_entry enabled_modes_entry
+  IFS=$'\t' read -r \
+    container_id image_id running paused restarting status project service \
+    primary_mode_entry enabled_modes_entry <<<"${row}"
   if [[ ! "${container_id}" =~ ^[0-9a-f]{64}$ ]] || [[ ! "${image_id}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
     printf 'unknown|container_identity_invalid||||\n'
     return 0
@@ -301,6 +463,13 @@ probe_container() {
   fi
   if [[ "${project}" != "${expected_project}" || "${service}" != "${expected_service}" ]]; then
     printf 'unknown|compose_identity_mismatch|%s|%s|%s|%s\n' "${container_id}" "${image_id}" "${project}" "${service}"
+    return 0
+  fi
+  if [[ "${project}" == "ea" &&
+        "${primary_mode_entry#EA_DEPLOY_PRIMARY_MODE=}" == "MEMORIAL" &&
+        "${enabled_modes_entry#EA_DEPLOY_ENABLED_MODES=}" == "MEMORIAL" ]]; then
+    printf 'skipped|memorial_mode_without_audiobook_mount|%s|%s|%s|%s\n' \
+      "${container_id}" "${image_id}" "${project}" "${service}"
     return 0
   fi
   local inode
@@ -545,6 +714,9 @@ for index in "${!containers[@]}"; do
     stopped)
       skipped+=("${container}:${field1}")
       ;;
+    skipped)
+      skipped+=("${container}:${field1}")
+      ;;
     unknown)
       unknown+=("${container}:${field1}")
       ;;
@@ -760,6 +932,71 @@ if [[ -n "${reference_incoming_container}" &&
   fi
 fi
 
+# Resolve the exact Compose topology from the still-running container labels.
+# A release may use several overlays and an explicit environment file; falling
+# back to a repository default can silently remove its security and mode
+# bindings. Missing, untrusted, or no-longer-renderable topology fails closed
+# before any container is mutated.
+for container in "${mismatched[@]}"; do
+  selected_index=-1
+  for index in "${!containers[@]}"; do
+    if [[ "${containers[$index]}" == "${container}" ]]; then
+      selected_index="${index}"
+      break
+    fi
+  done
+  (( selected_index >= 0 ))
+  if ! resolve_compose_topology \
+    "${container}" \
+    "${observed_container_id[$container]}" \
+    "${observed_image_id[$container]}" \
+    "${expected_projects[$selected_index]}" \
+    "${expected_services[$selected_index]}"; then
+    cleanup_recovery_material
+    current_count=0
+    current_fingerprint=""
+    result_reason="compose_topology_untrusted_or_unavailable:${container}"
+    write_result "preaction_refused"
+    exit 0
+  fi
+
+  old_container_id="${observed_container_id[$container]}"
+  old_image_id="${observed_image_id[$container]}"
+  image_hex="${old_image_id#sha256:}"
+  recovery_tag="local/ea-audiobook-mount-guard:${container}-${image_hex}"
+  override_file="${state_root}/recovery-${container}-${now_epoch}.json"
+  override_tmp="${override_file}.tmp"
+  recovery_tags+=("${recovery_tag}")
+  recovery_override_files+=("${override_tmp}" "${override_file}")
+  recovery_override_by_container["${container}"]="${override_file}"
+  preparation_failed=0
+  docker image tag "${old_image_id}" "${recovery_tag}" || preparation_failed=1
+  if (( preparation_failed == 0 )); then
+    jq -n \
+      --arg service "${compose_service[$container]}" \
+      --arg image "${recovery_tag}" \
+      '{services:{($service):{image:$image}}}' \
+      >"${override_tmp}" || preparation_failed=1
+  fi
+  if (( preparation_failed == 0 )); then
+    chmod 600 "${override_tmp}" || preparation_failed=1
+  fi
+  if (( preparation_failed == 0 )); then
+    mv -f "${override_tmp}" "${override_file}" || preparation_failed=1
+  fi
+  if (( preparation_failed == 0 )); then
+    run_compose_for_container preflight "${container}" || preparation_failed=1
+  fi
+  if (( preparation_failed != 0 )); then
+    cleanup_recovery_material
+    current_count=0
+    current_fingerprint=""
+    result_reason="compose_topology_render_failed:${container}"
+    write_result "preaction_refused"
+    exit 0
+  fi
+done
+
 last_action_epoch="${now_epoch}"
 last_action_fingerprint="${current_fingerprint}"
 result_reason="recreate_lease_acquired"
@@ -769,46 +1006,7 @@ action_started=1
 for container in "${mismatched[@]}"; do
   old_container_id="${observed_container_id[$container]}"
   old_image_id="${observed_image_id[$container]}"
-  image_hex="${old_image_id#sha256:}"
-  recovery_tag="local/ea-audiobook-mount-guard:${container}-${image_hex}"
-  override_file="${state_root}/recovery-${container}-${now_epoch}.json"
-  override_tmp="${override_file}.tmp"
-  recovery_tags+=("${recovery_tag}")
-  recovery_override_files+=("${override_tmp}" "${override_file}")
-  docker image tag "${old_image_id}" "${recovery_tag}"
-  jq -n \
-    --arg service "${container}" \
-    --arg image "${recovery_tag}" \
-    '{services:{($service):{image:$image}}}' \
-    >"${override_tmp}"
-  chmod 600 "${override_tmp}"
-  mv -f "${override_tmp}" "${override_file}"
-  case "${container}" in
-    ea-api|ea-worker|ea-scheduler|ea-responses-proxy)
-      COMPOSE_IGNORE_ORPHANS=true docker compose \
-        --project-name ea \
-        --project-directory /docker/EA \
-        -f /docker/EA/docker-compose.yml \
-        -f "${override_file}" \
-        up -d --no-deps --force-recreate --no-build --pull never --wait --wait-timeout 180 "${container}"
-      ;;
-    ea-whatsapp-web-action-processor)
-      COMPOSE_IGNORE_ORPHANS=true docker compose \
-        --project-name ea \
-        --project-directory /docker/EA \
-        -f /docker/EA/docker-compose.whatsapp-web-session.yml \
-        -f "${override_file}" \
-        up -d --no-deps --force-recreate --no-build --pull never --wait --wait-timeout 180 ea-whatsapp-web-action-processor
-      ;;
-    audiobookshelf_v2)
-      COMPOSE_IGNORE_ORPHANS=true docker compose \
-        --project-name audiobookshelf \
-        --project-directory /docker/audiobookshelf \
-        -f /docker/audiobookshelf/docker-compose.yml \
-        -f "${override_file}" \
-        up -d --no-deps --force-recreate --no-build --pull never --wait --wait-timeout 180 audiobookshelf_v2
-      ;;
-  esac
+  run_compose_for_container recreate "${container}"
   new_container_id="$(docker inspect -f '{{.Id}}' "${container}")"
   new_image_id="$(docker inspect -f '{{.Image}}' "${container}")"
   [[ "${new_container_id}" != "${old_container_id}" ]]

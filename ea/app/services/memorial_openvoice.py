@@ -134,6 +134,23 @@ def unmixr_api_key_slot_count() -> int:
     return len(_unmixr_api_key_slots())
 
 
+def unmixr_api_key_slot_names() -> tuple[str, ...]:
+    return tuple(name for name, _key in _unmixr_api_key_slots())
+
+
+def _normalize_unmixr_account_slot(value: object) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    if normalized == _UNMIXR_API_KEY_ENV:
+        return normalized
+    if re.fullmatch(r"UNMIXR_API_KEY_FALLBACK_[1-9][0-9]*", normalized):
+        return normalized
+    if re.fullmatch(r"UNMIXR_API_KEYS_[1-9][0-9]*", normalized):
+        return normalized
+    raise HTTPException(status_code=409, detail="unmixr_account_slot_invalid")
+
+
 def _env_bool(name: str, default: bool) -> bool:
     raw = str(os.environ.get(name) or "").strip().lower()
     if not raw:
@@ -327,10 +344,13 @@ def unmixr_language(default: str = "de") -> str:
     normalized = selected.replace("_", "-").strip()
     if not normalized:
         return "de"
-    if "-" not in normalized:
-        return normalized.lower()
-    language, region = normalized.split("-", 1)
-    return f"{language.lower()}-{region.upper()}" if language and region else normalized
+    # Unmixr's short-TTS and cloned-voice metadata use ISO 639 language
+    # identifiers (for example ``de``), while Memorial UI/config values are
+    # BCP-47 locales (for example ``de-AT``). Sending the locale through made
+    # clone renders materially less stable, so keep the regional locale in the
+    # product config and project only its base language to the provider.
+    language = normalized.split("-", 1)[0].strip().lower()
+    return language or "de"
 
 
 def unmixr_speaking_rate() -> str:
@@ -618,13 +638,22 @@ def _unmixr_request(
     json_payload: dict[str, object] | None = None,
     files: list[tuple[str, object]] | None = None,
     data: dict[str, str] | None = None,
+    account_slot: str | None = None,
 ) -> requests.Response:
     slots = _unmixr_api_key_slots()
     if not slots:
         raise HTTPException(status_code=503, detail="unmixr_api_key_missing")
+    requested_slot = _normalize_unmixr_account_slot(account_slot)
     last_response: requests.Response | None = None
     last_exception: requests.RequestException | None = None
-    selected_slots = _selected_unmixr_slots(slots)
+    if requested_slot:
+        selected_slots = [
+            slot for slot in slots if slot[0] == requested_slot
+        ]
+        if not selected_slots:
+            raise HTTPException(status_code=503, detail="unmixr_account_slot_missing")
+    else:
+        selected_slots = _selected_unmixr_slots(slots)
     for index, (slot_name, api_key) in enumerate(selected_slots, start=1):
         try:
             response = requests.request(
@@ -890,7 +919,13 @@ def openvoice_clone_request(
     raise HTTPException(status_code=410, detail="openvoice_tts_pipeline_removed")
 
 
-def unmixr_clone_request(*, slug: str, voice_label: str, sample_paths: list[Path]) -> str:
+def unmixr_clone_request(
+    *,
+    slug: str,
+    voice_label: str,
+    sample_paths: list[Path],
+    account_slot: str | None = None,
+) -> str:
     if not sample_paths:
         raise HTTPException(status_code=400, detail="voice_profile_no_samples")
     if len(sample_paths) != 1:
@@ -905,6 +940,7 @@ def unmixr_clone_request(*, slug: str, voice_label: str, sample_paths: list[Path
         response = _unmixr_request(
             method="POST",
             path="/clone-voice/",
+            account_slot=account_slot,
             data={
                 "name": voice_label,
                 "description": f"{slug} memorial clone",
@@ -938,13 +974,18 @@ def unmixr_clone_request(*, slug: str, voice_label: str, sample_paths: list[Path
     return voice_id
 
 
-def unmixr_voice_metadata_request(*, voice_id: str) -> dict[str, object]:
+def unmixr_voice_metadata_request(
+    *,
+    voice_id: str,
+    account_slot: str | None = None,
+) -> dict[str, object]:
     normalized_voice_id = str(voice_id or "").strip()
     if not normalized_voice_id:
         raise HTTPException(status_code=400, detail="unmixr_voice_id_missing")
     response = _unmixr_request(
         method="GET",
         path=f"/voice/{normalized_voice_id}/",
+        account_slot=account_slot,
     )
     try:
         payload = response.json()
@@ -958,8 +999,15 @@ def unmixr_voice_metadata_request(*, voice_id: str) -> dict[str, object]:
     return payload
 
 
-def unmixr_voice_profile_id(*, voice_id: str) -> str:
-    payload = unmixr_voice_metadata_request(voice_id=voice_id)
+def unmixr_voice_profile_id(
+    *,
+    voice_id: str,
+    account_slot: str | None = None,
+) -> str:
+    payload = unmixr_voice_metadata_request(
+        voice_id=voice_id,
+        account_slot=account_slot,
+    )
     sample_url = str(payload.get("sample_voice_url") or "").strip()
     if not sample_url:
         return ""
@@ -967,13 +1015,18 @@ def unmixr_voice_profile_id(*, voice_id: str) -> str:
     return str(match.group(1) if match else "").strip()
 
 
-def unmixr_delete_clone_profile_request(*, profile_id: str) -> dict[str, object]:
+def unmixr_delete_clone_profile_request(
+    *,
+    profile_id: str,
+    account_slot: str | None = None,
+) -> dict[str, object]:
     normalized_profile_id = str(profile_id or "").strip()
     if not normalized_profile_id:
         raise HTTPException(status_code=400, detail="unmixr_profile_id_missing")
     response = _unmixr_request(
         method="DELETE",
         path=f"/voice-cloning-profile/{normalized_profile_id}/",
+        account_slot=account_slot,
     )
     if response.status_code in {200, 202, 204}:
         return {"status": "deleted", "profile_id": normalized_profile_id}
@@ -1024,6 +1077,7 @@ def unmixr_synthesize_request(
     speaking_pitch: str | None = None,
     speaking_volume: str | None = None,
     pronunciation_dict: dict[str, str] | None = None,
+    account_slot: str | None = None,
 ) -> tuple[bytes, str]:
     normalized_voice_id = str(voice_id or "").strip()
     if not normalized_voice_id:
@@ -1048,6 +1102,7 @@ def unmixr_synthesize_request(
         method="POST",
         path="/short-tts/",
         json_payload=request_payload,
+        account_slot=account_slot,
     )
     try:
         payload = response.json()

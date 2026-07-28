@@ -91,6 +91,10 @@ TELEGRAM_AUDIOBOOK_SOURCE_KINDS = {
     "telegram_epub",
     "telegram_ebook",
 }
+ORIGIN_DOSSIER_SOURCE_KINDS = {
+    "origin_dossier",
+    "origin_dossier_story",
+}
 TELEGRAM_AUDIOBOOK_SOURCE_SUFFIXES = {".azw", ".azw3", ".epub", ".mobi", ".prc"}
 USER_SELECTED_VOICE_DELIVERY_BLOCKING_CODES = {
     "job_not_audiobookshelf_imported",
@@ -1293,12 +1297,17 @@ def _candidate_or_malformed(
 
 def _candidate_in_telegram_audiobook_scope(candidate: dict[str, object]) -> bool:
     source_kind = str(candidate.get("source_kind") or "").strip().lower()
+    job = _as_dict(candidate.get("raw"))
+    source = _as_dict(job.get("source"))
+    if source_kind in ORIGIN_DOSSIER_SOURCE_KINDS:
+        return (
+            str(source.get("rights_basis") or "").strip()
+            == "player_or_gm_approved_origin_story"
+        )
     if source_kind not in TELEGRAM_AUDIOBOOK_SOURCE_KINDS:
         return False
     if source_kind in {"telegram_epub", "telegram_ebook"}:
         return True
-    job = _as_dict(candidate.get("raw"))
-    source = _as_dict(job.get("source"))
     telegram = _as_dict(job.get("telegram"))
     filename = str(source.get("source_filename") or "").strip().lower().split("?", 1)[0]
     if not any(filename.endswith(suffix) for suffix in TELEGRAM_AUDIOBOOK_SOURCE_SUFFIXES):
@@ -1866,9 +1875,9 @@ def build_receipt(
         "output_path": _logical_output_path(output_path),
         "observation_source": observation_source,
         "limit": limit,
-        "source_filter": "telegram_epub_audiobook_sources",
+        "source_filter": "telegram_delivered_audiobook_sources",
         "claim": (
-            "Telegram EPUB audiobook delivery has live proof only when a sanitized job receipt shows the M4B is ready, "
+            "Telegram-delivered audiobook delivery has live proof only when a sanitized job receipt shows the M4B is ready, "
             "Audiobookshelf imported and public-shared it, and Telegram sent the public share link."
         ),
         "status": "pass" if live_pass else "blocked",

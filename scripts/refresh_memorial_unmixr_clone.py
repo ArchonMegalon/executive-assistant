@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -25,6 +27,7 @@ def _load_module(script_name: str):
 _REFRESH_PACKET = _load_module("prepare_memorial_unmixr_refresh_packet.py")
 _COMPARE = _load_module("compare_memorial_unmixr_clones.py")
 _VALIDATE = _load_module("validate_memorial_voice_loop.py")
+_RUNTIME_PLACEHOLDER_RE = re.compile(r"^\$\{([A-Z][A-Z0-9_]*)\}$")
 
 
 def _voice_config_path(slug: str) -> Path:
@@ -37,6 +40,33 @@ def _voice_config_path(slug: str) -> Path:
 
 def _load_json(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _resolve_runtime_reference(value: object) -> str:
+    configured = str(value or "").strip()
+    match = _RUNTIME_PLACEHOLDER_RE.fullmatch(configured)
+    if match is None:
+        return configured
+    env_name = match.group(1)
+    resolved = str(os.environ.get(env_name) or "").strip()
+    if resolved:
+        return resolved
+    try:
+        resolved = subprocess.check_output(
+            [
+                "docker",
+                "exec",
+                "ea-api",
+                "sh",
+                "-lc",
+                f'printf %s "${{{env_name}}}"',
+            ],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except Exception:
+        resolved = ""
+    return resolved
 
 
 def _write_voice_config(path: Path, payload: dict[str, object]) -> None:
@@ -107,6 +137,7 @@ def run_refresh(
     validation_output_path: Path,
     apply_if_better: bool,
     segment_paths: list[Path] | None = None,
+    account_slot: str = "",
 ) -> dict[str, object]:
     slug = _REFRESH_PACKET._safe_slug(slug)
     selected_segments = (
@@ -129,10 +160,50 @@ def run_refresh(
         segment_paths=selected_segments,
         output_dir=packet_output_dir,
     )
+    current_config_path = _voice_config_path(slug)
+    if not current_config_path.is_file():
+        packet["clone_attempt"] = {
+            "status": "blocked",
+            "code": "current_voice_config_missing",
+        }
+        packet_output_path.parent.mkdir(parents=True, exist_ok=True)
+        packet_output_path.write_text(
+            json.dumps(packet, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        return {
+            "slug": slug,
+            "base_url": base_url,
+            "status": "blocked",
+            "code": "current_voice_config_missing",
+            "packet_path": packet_output_path.as_posix(),
+        }
+    current_config = _load_json(current_config_path)
+    current_voice_id = _resolve_runtime_reference(
+        current_config.get("tts_plugin_voice_id")
+    )
+    if not current_voice_id:
+        packet["clone_attempt"] = {
+            "status": "blocked",
+            "code": "current_voice_id_unresolved",
+        }
+        packet_output_path.parent.mkdir(parents=True, exist_ok=True)
+        packet_output_path.write_text(
+            json.dumps(packet, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        return {
+            "slug": slug,
+            "base_url": base_url,
+            "status": "blocked",
+            "code": "current_voice_id_unresolved",
+            "packet_path": packet_output_path.as_posix(),
+        }
     packet["clone_attempt"] = _REFRESH_PACKET.attempt_clone(
         slug=slug,
         voice_label=voice_label,
         segment_paths=selected_segments,
+        account_slot=str(account_slot or "").strip(),
     )
     packet_output_path.parent.mkdir(parents=True, exist_ok=True)
     packet_output_path.write_text(json.dumps(packet, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -149,8 +220,15 @@ def run_refresh(
         return result
 
     new_voice_id = str((attempt or {}).get("voice_id") or "").strip()
-    current_config = _load_json(_voice_config_path(slug))
-    current_voice_id = str(current_config.get("tts_plugin_voice_id") or "").strip()
+    new_account_slot = str(
+        (attempt or {}).get("account_slot")
+        or account_slot
+        or ""
+    ).strip()
+    current_account_slot = str(
+        current_config.get("unmixr_account_slot")
+        or "UNMIXR_API_KEY"
+    ).strip()
     previous_config = dict(current_config)
     compare_report = _COMPARE.compare_unmixr_clones_two_stage(
         slug=slug,
@@ -165,6 +243,14 @@ def run_refresh(
         prompt_timeout_seconds=20.0,
         lead_in_ms=0,
         tail_silence_ms=0,
+        takes_per_prompt=_COMPARE.DEFAULT_TAKES_PER_PROMPT,
+        provider_language=_COMPARE.DEFAULT_PROVIDER_LANGUAGE,
+        pronunciation_dict=dict(_COMPARE.DEFAULT_PRONUNCIATION_DICT),
+        audio_output_dir=compare_output_path.parent / "audio",
+        account_slots_by_voice={
+            current_voice_id: current_account_slot,
+            new_voice_id: new_account_slot,
+        },
     )
     compare_output_path.parent.mkdir(parents=True, exist_ok=True)
     compare_output_path.write_text(json.dumps(compare_report, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -192,8 +278,8 @@ def run_refresh(
             slug=slug,
             base_url=base_url,
             output_dir=validation_output_dir,
-            direct_text="Ja. Ich bin da.",
-            conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
+            direct_text="Klar. Worum geht es?",
+            conversation_question="Hallo Manfred.",
         )
         validation_output_path.parent.mkdir(parents=True, exist_ok=True)
         validation_output_path.write_text(json.dumps(validation_report.as_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
@@ -217,6 +303,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-url", default="http://127.0.0.1:8090")
     parser.add_argument("--voice-label", default="Manfred Hoza Memorial Refresh")
     parser.add_argument("--segment", action="append", default=[])
+    parser.add_argument("--account-slot", default="")
     parser.add_argument("--apply-if-better", action="store_true")
     parser.add_argument("--output-dir", default="/tmp/manfred_unmixr_refresh_run")
     parser.add_argument("--output", default="")
@@ -244,6 +331,7 @@ def main() -> int:
         validation_output_path=output_dir / "validation" / "report.json",
         apply_if_better=bool(args.apply_if_better),
         segment_paths=[Path(item).expanduser() for item in segment_values] or None,
+        account_slot=str(args.account_slot or "").strip(),
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")

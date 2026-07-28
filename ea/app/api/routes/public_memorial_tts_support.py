@@ -189,6 +189,7 @@ def _load_voice_config(
         "unmixr_speaking_rate": "",
         "unmixr_speaking_pitch": "",
         "unmixr_speaking_volume": "",
+        "unmixr_account_slot": "",
         "unmixr_pronunciation_dict": {},
         "tts_backup_candidates": {},
         "consent_basis": "generic_or_owner_consented_voice",
@@ -263,6 +264,9 @@ def _load_voice_config(
                     "unmixr_speaking_volume": text(
                         payload.get("unmixr_speaking_volume"), ""
                     )[:32],
+                    "unmixr_account_slot": text(
+                        payload.get("unmixr_account_slot"), ""
+                    )[:64],
                     "unmixr_pronunciation_dict": dict(
                         payload.get("unmixr_pronunciation_dict") or {}
                     )
@@ -407,6 +411,7 @@ def _normalize_voice_config_payload(
         "unmixr_speaking_rate": "",
         "unmixr_speaking_pitch": "",
         "unmixr_speaking_volume": "",
+        "unmixr_account_slot": "",
         "unmixr_pronunciation_dict": {},
         "tts_backup_candidates": {},
         "consent_basis": "generic_or_owner_consented_voice",
@@ -489,6 +494,12 @@ def _normalize_voice_config_payload(
             else None,
             "",
         )[:32],
+        "unmixr_account_slot": text(
+            payload.get("unmixr_account_slot")
+            if isinstance(payload, dict)
+            else None,
+            "",
+        )[:64],
         "unmixr_pronunciation_dict": dict(
             payload.get("unmixr_pronunciation_dict") or {}
         )
@@ -557,6 +568,10 @@ def _save_voice_config_payload(
         "unmixr_speaking_rate": existing_config.get("unmixr_speaking_rate"),
         "unmixr_speaking_pitch": existing_config.get("unmixr_speaking_pitch"),
         "unmixr_speaking_volume": existing_config.get("unmixr_speaking_volume"),
+        "unmixr_account_slot": existing_config.get("unmixr_account_slot"),
+        "unmixr_pronunciation_dict": dict(
+            existing_config.get("unmixr_pronunciation_dict") or {}
+        ),
         "tts_backup_candidates": dict(
             existing_config.get("tts_backup_candidates") or {}
         ),
@@ -598,6 +613,12 @@ def _save_voice_config_payload(
         value = text(normalized_config.get(field), "")[:32]
         if value:
             stored[field] = value
+    account_slot = text(normalized_config.get("unmixr_account_slot"), "")[:64]
+    if account_slot:
+        stored["unmixr_account_slot"] = account_slot
+    pronunciation_dict = normalized_config.get("unmixr_pronunciation_dict")
+    if isinstance(pronunciation_dict, dict) and pronunciation_dict:
+        stored["unmixr_pronunciation_dict"] = dict(pronunciation_dict)
     stored["tts_backup_candidates"] = dict(
         normalized_config.get("tts_backup_candidates") or {}
     )

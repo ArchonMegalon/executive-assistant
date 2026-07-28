@@ -1,5 +1,5 @@
 [Unit]
-Description=Recover stale pCloud audiobook bind mounts without an AI janitor
+Description=Recover stale pCloud and local audiobook mount generations without an AI janitor
 After=docker.service
 Wants=docker.service
 
@@ -11,7 +11,8 @@ SupplementaryGroups=docker
 UMask=0077
 TimeoutStartSec=25min
 Environment=HOME=/tmp
-ExecStart=/docker/EA/scripts/audiobook_mount_guard.sh
+ExecStartPre=/usr/bin/sha256sum --check --strict --status /etc/ea-audiobook-mount-guard.sha256
+ExecStart=/usr/local/libexec/ea-audiobook-mount-guard
 Nice=10
 IOSchedulingClass=idle
 NoNewPrivileges=true

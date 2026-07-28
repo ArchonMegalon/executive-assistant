@@ -237,3 +237,119 @@ def test_run_refresh_reports_blocked_compare(monkeypatch, tmp_path: Path) -> Non
     assert result["status"] == "blocked"
     assert result["blocked"]["retry_after_seconds"] == 4439
     assert result["applied"] is False
+
+
+def test_run_refresh_resolves_runtime_voice_and_binds_candidate_accounts(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    seg = tmp_path / "seg.wav"
+    seg.write_bytes(b"seg")
+    monkeypatch.setattr(
+        module._REFRESH_PACKET,
+        "build_packet",
+        lambda **kwargs: {"slug": "manfred", "segments": []},
+    )
+    monkeypatch.setattr(
+        module._REFRESH_PACKET,
+        "attempt_clone",
+        lambda **kwargs: {
+            "status": "created",
+            "voice_id": "new-voice",
+            "account_slot": "UNMIXR_API_KEY_FALLBACK_2",
+        },
+    )
+    config_path = tmp_path / "tts_voice.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "tts_plugin_voice_id": "${UNMIXR_VOICE_ID}",
+                "unmixr_account_slot": "UNMIXR_API_KEY",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "_voice_config_path", lambda slug: config_path)
+    monkeypatch.setenv("UNMIXR_VOICE_ID", "runtime-old-voice")
+    compare_calls: list[dict[str, object]] = []
+
+    def compare(**kwargs):
+        compare_calls.append(dict(kwargs))
+        return {
+            "blocked": {"status": "quality_gate_failed"},
+            "winner": {},
+            "recommended_config": {},
+        }
+
+    monkeypatch.setattr(module._COMPARE, "compare_unmixr_clones_two_stage", compare)
+
+    result = module.run_refresh(
+        slug="manfred",
+        base_url="http://127.0.0.1:8090",
+        voice_label="Refresh",
+        packet_output_dir=tmp_path / "packet",
+        packet_output_path=tmp_path / "packet" / "packet.json",
+        compare_output_path=tmp_path / "compare.json",
+        validation_output_dir=tmp_path / "validation",
+        validation_output_path=tmp_path / "validation" / "report.json",
+        apply_if_better=True,
+        segment_paths=[seg],
+        account_slot="UNMIXR_API_KEY_FALLBACK_2",
+    )
+
+    assert result["status"] == "blocked"
+    assert compare_calls[0]["voice_ids"] == [
+        "runtime-old-voice",
+        "new-voice",
+    ]
+    assert compare_calls[0]["account_slots_by_voice"] == {
+        "runtime-old-voice": "UNMIXR_API_KEY",
+        "new-voice": "UNMIXR_API_KEY_FALLBACK_2",
+    }
+
+
+def test_run_refresh_blocks_before_paid_clone_when_current_voice_is_unresolved(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    seg = tmp_path / "seg.wav"
+    seg.write_bytes(b"seg")
+    monkeypatch.setattr(
+        module._REFRESH_PACKET,
+        "build_packet",
+        lambda **kwargs: {"slug": "manfred", "segments": []},
+    )
+    clone_called = False
+
+    def attempt_clone(**kwargs):
+        nonlocal clone_called
+        clone_called = True
+        return {"status": "created", "voice_id": "unexpected"}
+
+    monkeypatch.setattr(module._REFRESH_PACKET, "attempt_clone", attempt_clone)
+    config_path = tmp_path / "tts_voice.json"
+    config_path.write_text(
+        json.dumps({"tts_plugin_voice_id": "${UNMIXR_VOICE_ID}"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "_voice_config_path", lambda slug: config_path)
+    monkeypatch.setattr(module, "_resolve_runtime_reference", lambda value: "")
+
+    result = module.run_refresh(
+        slug="manfred",
+        base_url="http://127.0.0.1:8090",
+        voice_label="Refresh",
+        packet_output_dir=tmp_path / "packet",
+        packet_output_path=tmp_path / "packet" / "packet.json",
+        compare_output_path=tmp_path / "compare.json",
+        validation_output_dir=tmp_path / "validation",
+        validation_output_path=tmp_path / "validation" / "report.json",
+        apply_if_better=True,
+        segment_paths=[seg],
+    )
+
+    assert result["status"] == "blocked"
+    assert result["code"] == "current_voice_id_unresolved"
+    assert clone_called is False

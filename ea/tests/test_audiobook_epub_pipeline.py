@@ -31,6 +31,57 @@ def test_audiobook_cinematic_single_pass_default_disabled() -> None:
         assert audiobook_epub_pipeline._audiobook_cinematic_single_pass() is False
 
 
+def test_audiobook_mastering_default_keeps_post_aac_true_peak_headroom() -> None:
+    with patch.dict(os.environ, {}, clear=True):
+        mastering_filter = (
+            audiobook_epub_pipeline._audiobook_audio_normalization_filter()
+        )
+
+    assert "loudnorm=I=-16:TP=-3.0:LRA=11" in mastering_filter
+
+
+def test_post_codec_repair_retains_extra_lossy_aac_headroom(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    source_path = tmp_path / "source.m4b"
+    output_path = tmp_path / "output.m4b"
+    source_path.write_bytes(b"source")
+    captured: dict[str, object] = {}
+
+    def _fake_run(command, **_kwargs):
+        captured["command"] = list(command)
+        Path(command[-1]).write_bytes(b"repaired")
+        return type("Completed", (), {"returncode": 0})()
+
+    monkeypatch.delenv("EA_AUDIOBOOK_POST_CODEC_REPAIR_FILTER", raising=False)
+    monkeypatch.setattr(pipeline.subprocess, "run", _fake_run)
+    monkeypatch.setattr(
+        pipeline,
+        "_probe_audio_publication_file",
+        lambda _path: {
+            "streams": [
+                {"codec_type": "audio"},
+                {"codec_type": "video"},
+            ],
+            "chapters": [{}],
+        },
+    )
+
+    result = pipeline._repair_audiobook_m4b_true_peak_file(
+        source_path=source_path,
+        output_path=output_path,
+        expected_chapter_count=1,
+    )
+
+    assert result["status"] == "repaired"
+    command = list(captured["command"])
+    assert command[command.index("-af") + 1] == (
+        "loudnorm=I=-16:TP=-4.0:LRA=11"
+    )
+
+
 def test_exact_narration_plan_cache_rejects_tampered_passage_with_stale_hashes(
     tmp_path: Path,
 ) -> None:
@@ -3247,6 +3298,361 @@ def test_continue_job_lock_timeout_returns_retryable_state_without_overwrite(
         "retryable": True,
     }
     assert (tmp_path / "job.json").read_bytes() == before
+
+
+def test_cleanup_defers_while_audiobook_job_transaction_is_active(
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    pipeline._write_job(
+        tmp_path,
+        {
+            "job_id": "active-cleanup-guard",
+            "status": "audiobookshelf_imported",
+            "updated_at": "2026-01-01T00:00:00Z",
+        },
+    )
+    audio_file = tmp_path / "audio" / "master.wav"
+    audio_file.parent.mkdir()
+    audio_file.write_bytes(b"active render bytes")
+
+    with pipeline._exclusive_audiobook_job_lock(tmp_path):
+        result = pipeline.cleanup_audiobook_job_artifacts(
+            tmp_path,
+            force=True,
+        )
+
+    assert result == {
+        "status": "deferred",
+        "reason": "active_audiobook_job_transaction",
+        "removed_bytes": 0,
+        "removed_paths": [],
+        "job_dir_name": tmp_path.name,
+    }
+    assert audio_file.read_bytes() == b"active render bytes"
+
+
+def test_true_peak_repair_rejects_unbound_source_m4b(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    source_path = tmp_path / "original.m4b"
+    source_path.write_bytes(b"not the recorded bytes")
+    recorded_sha = "a" * 64
+    job = {
+        "audio_publication_gate": {
+            "contract_name": pipeline.AUDIOBOOK_PUBLICATION_GATE_CONTRACT_NAME,
+            "status": "fail",
+            "issues": ["true_peak_above_maximum"],
+            "target_file_sha256": recorded_sha,
+        }
+    }
+    monkeypatch.setattr(
+        pipeline,
+        "_probe_audio_publication_file",
+        lambda _path: {},
+    )
+
+    result = pipeline._audiobook_true_peak_repair_preconditions(
+        job=job,
+        source_path=source_path,
+    )
+
+    assert result["status"] == "blocked"
+    assert result["reason"] == "recorded_source_m4b_sha256_mismatch"
+    assert result["expected_source_sha256"] == recorded_sha
+
+
+def test_true_peak_repair_recovers_verified_job_without_provider_rerender(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    source_path = tmp_path / "original.m4b"
+    source_path.write_bytes(b"recorded m4b")
+    source_sha = pipeline._sha256_file(source_path)
+    repaired_sha = "f" * 64
+    plan_sha = "1" * 64
+    source_aggregate_sha = "2" * 64
+    render_signature_sha = "3" * 64
+    cast_sha = "4" * 64
+    mastering_contract_sha = "5" * 64
+    mastering_signature_sha = "6" * 64
+    timeline_sha = "7" * 64
+    source_artifact_sha = "8" * 64
+    job = {
+        "job_id": "true-peak-repair-job",
+        "principal_id": "principal-1",
+        "status": "blocked_external_tts",
+        "metadata": {
+            "title": "Repair Me",
+            "author": "EA",
+            "language": "en-US",
+            "source_filename": "repair.epub",
+            "source_sha256": source_artifact_sha,
+        },
+        "source": {
+            "source_sha256": source_artifact_sha,
+            "player_id": "player-1",
+            "runner_id": "runner-1",
+        },
+        "provider": {"preferred": "unmixr_ai"},
+        "chapters": [
+            {
+                "index": 1,
+                "title": "Chapter 1",
+                "char_count": 100,
+                "sha256": "9" * 64,
+            }
+        ],
+        "audio_publication_gate": {
+            "contract_name": pipeline.AUDIOBOOK_PUBLICATION_GATE_CONTRACT_NAME,
+            "status": "fail",
+            "issues": ["true_peak_above_maximum"],
+            "target_file_sha256": source_sha,
+            "narration_plan": {
+                "contract_name": (
+                    pipeline._AUDIOBOOK_PUBLICATION_REQUIRED_NARRATION_PLAN_CONTRACT_NAME
+                ),
+                "status": "ready",
+                "coverage_complete": True,
+                "source_integrity_verified": True,
+                "plan_sha256": plan_sha,
+                "source_aggregate_sha256": source_aggregate_sha,
+                "render_signature_sha256": render_signature_sha,
+                "dialogue_passage_count": 1,
+                "dialogue_span_count": 1,
+                "speaker_cast": {
+                    "required": True,
+                    "status": "ready",
+                    "distinct_from_narrator": True,
+                    "cast_map_sha256": cast_sha,
+                },
+            },
+            "mastering": {
+                "status": "mastered",
+                "final_track_mode": "cinematic_master",
+                "contract_sha256": mastering_contract_sha,
+                "expected_final_track_count": 1,
+                "final_track_ready_count": 1,
+                "final_track_mastered_this_run_count": 1,
+                "signature_published_or_verified_count": 1,
+                "signature_set_sha256": mastering_signature_sha,
+                "segment_mastering": False,
+                "final_audio_quality_statuses": ["pass"],
+            },
+            "assembly": {
+                "status": "m4b_ready",
+                "expected_chapter_count": 1,
+                "actual_chapter_count": 1,
+                "chapter_count_matches": True,
+                "cinematic": True,
+                "cinematic_timeline_sha256": timeline_sha,
+            },
+        },
+    }
+    pipeline._write_job(tmp_path, job)
+    monkeypatch.setattr(
+        pipeline,
+        "_probe_audio_publication_file",
+        lambda _path: {
+            "streams": [
+                {"codec_type": "audio"},
+                {"codec_type": "video"},
+            ],
+            "chapters": [{}],
+        },
+    )
+
+    def _fake_repair(**kwargs):
+        output_path = Path(kwargs["output_path"])
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"repaired m4b")
+        return {
+            "status": "repaired",
+            "output_file": str(output_path),
+            "output_file_sha256": repaired_sha,
+            "output_file_size": output_path.stat().st_size,
+            "actual_chapter_count": 1,
+            "chapter_count_matches": True,
+            "cover_embedded": True,
+            "normalization_contract_sha256": "a" * 64,
+        }
+
+    monkeypatch.setattr(
+        pipeline,
+        "_repair_audiobook_m4b_true_peak_file",
+        _fake_repair,
+    )
+    imported_path = tmp_path / "library" / "Repair Me.m4b"
+    imported_path.parent.mkdir()
+    imported_path.write_bytes(b"repaired m4b")
+    monkeypatch.setattr(
+        pipeline,
+        "_import_to_audiobookshelf_if_ready",
+        lambda **_kwargs: {
+            "status": "imported",
+            "target_path": str(imported_path),
+        },
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_build_audiobook_publication_gate",
+        lambda **_kwargs: {
+            "contract_name": pipeline.AUDIOBOOK_PUBLICATION_GATE_CONTRACT_NAME,
+            "status": "pass",
+            "issues": [],
+            "target_file_sha256": repaired_sha,
+        },
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "create_player_scoped_audiobook_reference",
+        lambda **_kwargs: {"status": "signed_reference_ready"},
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_create_or_reuse_audiobookshelf_public_share",
+        lambda **_kwargs: {"status": "public_share_ready"},
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "record_audiobook_completed_voice_feedback",
+        lambda _job: None,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_write_current_job_receipt_best_effort",
+        lambda _job_dir: {"status": "written"},
+    )
+
+    result = pipeline.repair_audiobook_true_peak_overshoot(
+        job_dir=tmp_path,
+        source_m4b_path=source_path,
+    )
+
+    assert result["status"] == "audiobookshelf_imported"
+    assert result["render_result"]["provider"] == "unmixr_ai"
+    repair_receipt = result["render_result"]["post_codec_true_peak_repair"]
+    assert repair_receipt["provider_audio_regenerated"] is False
+    assert repair_receipt["source_file_sha256"] == source_sha
+    assert repair_receipt["repaired_file_sha256"] == repaired_sha
+    assert result["audio_publication_gate"]["status"] == "pass"
+    assert result["audiobookshelf_import"]["public_share"]["status"] == (
+        "public_share_ready"
+    )
+
+
+def test_public_share_playback_e2e_is_bound_to_current_share_url(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    share_url = "https://audio.example.test/share/current"
+    pipeline._write_job(
+        tmp_path,
+        {
+            "job_id": "playback-proof",
+            "status": "audiobookshelf_imported",
+            "audio_publication_gate": {"status": "pass", "issues": []},
+            "audiobookshelf_import": {
+                "status": "imported",
+                "public_share": {
+                    "status": "public_share_ready",
+                    "absolute_url": share_url,
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_write_current_job_receipt_best_effort",
+        lambda _job_dir: {"status": "written"},
+    )
+    proof = {
+        "contract_name": (
+            pipeline.AUDIOBOOK_PUBLIC_SHARE_PLAYBACK_E2E_CONTRACT_NAME
+        ),
+        "checked_at": "2026-07-28T11:00:00Z",
+        "status": "pass",
+        "browser": "chromium_playwright",
+        "public_share_url_sha256": pipeline._sha256_bytes(
+            share_url.encode("utf-8")
+        ),
+        "page_response_status": 200,
+        "track_response_status": 206,
+        "track_content_type": "audio/mp4",
+        "duration_seconds": 123.0,
+        "current_time_after_play_seconds": 5.0,
+        "media_error": False,
+        "track_url_sha256": "a" * 64,
+        "track_response_url_sha256": "b" * 64,
+        "raw_url_exposed": False,
+    }
+
+    result = pipeline.record_audiobook_public_share_playback_e2e(
+        job_dir=tmp_path,
+        playback_e2e=proof,
+    )
+
+    assert result["status"] == "pass"
+    assert result["recorded"] is True
+    stored = pipeline._load_job(tmp_path)
+    assert (
+        stored["audiobookshelf_import"]["public_share"]["playback_e2e"]
+        == proof
+    )
+
+
+def test_public_share_playback_e2e_rejects_stale_share_url_hash(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    pipeline._write_job(
+        tmp_path,
+        {
+            "job_id": "stale-playback-proof",
+            "status": "audiobookshelf_imported",
+            "audio_publication_gate": {"status": "pass", "issues": []},
+            "audiobookshelf_import": {
+                "status": "imported",
+                "public_share": {
+                    "status": "public_share_ready",
+                    "absolute_url": "https://audio.example.test/share/current",
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_write_current_job_receipt_best_effort",
+        lambda _job_dir: {"status": "written"},
+    )
+
+    result = pipeline.record_audiobook_public_share_playback_e2e(
+        job_dir=tmp_path,
+        playback_e2e={
+            "contract_name": (
+                pipeline.AUDIOBOOK_PUBLIC_SHARE_PLAYBACK_E2E_CONTRACT_NAME
+            ),
+            "checked_at": "2026-07-28T11:00:00Z",
+            "status": "pass",
+            "public_share_url_sha256": "c" * 64,
+            "raw_url_exposed": False,
+        },
+    )
+
+    assert result == {
+        "status": "blocked",
+        "reason": "playback_e2e_public_share_url_sha256_mismatch",
+        "recorded": False,
+    }
+    stored = pipeline._load_job(tmp_path)
+    assert "playback_e2e" not in (
+        stored["audiobookshelf_import"]["public_share"]
+    )
 
 
 def test_speaker_cast_unknown_uses_neutral_distinct_voice(monkeypatch, tmp_path: Path) -> None:

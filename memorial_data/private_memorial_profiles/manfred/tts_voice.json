@@ -11,6 +11,8 @@
   "unmixr_speaking_pitch": "medium",
   "unmixr_speaking_volume": "medium",
   "unmixr_pronunciation_dict": {
+    "klar": "klaar",
+    "Klar": "Klaar",
     "ordne": "ord-ne",
     "Ordne": "Ord-ne"
   },
@@ -22,7 +24,7 @@
   ],
   "tts_plugin_voice_id": "${UNMIXR_VOICE_ID}",
   "tts_base_voice_variant": "unmixr",
-  "notes": "Aktive Memorial-Stimme ist genau ein autorisierter Unmixr-Klon. Der Ausgang wird für österreichisches Deutsch leicht verlangsamt und behutsam wärmer abgestimmt; die Aussprache von „ordne“ wird ausdrücklich geführt. Andere Sprecher und Fallback-Stimmen bleiben für das Memorial-Gespräch deaktiviert.",
+  "notes": "Aktive Memorial-Stimme ist genau ein autorisierter Unmixr-Klon. Der Ausgang wird für österreichisches Deutsch leicht verlangsamt und behutsam wärmer abgestimmt; die Aussprache von „klar“ und „ordne“ wird ausdrücklich geführt. Andere Sprecher und Fallback-Stimmen bleiben für das Memorial-Gespräch deaktiviert.",
   "synthetic_voice_clone_of_memorial_person": true,
   "tts_mode": "unmixr_clone",
   "consent_basis": "owner_consented_voice_clone",

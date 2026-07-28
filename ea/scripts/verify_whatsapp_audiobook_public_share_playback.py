@@ -65,6 +65,12 @@ def _whatsapp_delivery_sent(job: dict[str, object]) -> bool:
     return str(delivery.get("status") or "").strip() == "sent"
 
 
+def _telegram_delivery_sent(job: dict[str, object]) -> bool:
+    share = _public_share(job)
+    delivery = _as_dict(share.get("telegram_delivery"))
+    return str(delivery.get("status") or "").strip() == "sent"
+
+
 def _is_whatsapp_share_candidate(job: dict[str, object]) -> bool:
     whatsapp = _as_dict(job.get("whatsapp"))
     share = _public_share(job)
@@ -75,6 +81,7 @@ def _is_whatsapp_share_candidate(job: dict[str, object]) -> bool:
             bool(str(whatsapp.get("sender_ref") or "").strip())
             or bool(str(whatsapp.get("session_ref") or "").strip())
             or _whatsapp_delivery_sent(job)
+            or _telegram_delivery_sent(job)
         )
     )
 
@@ -295,6 +302,7 @@ def record_playback_e2e(
     result.setdefault("contract_name", CONTRACT_NAME)
     result.setdefault("checked_at", _now_iso())
     result.setdefault("raw_url_exposed", False)
+    result["public_share_url_sha256"] = _sha256_text(url)
 
     import_result = _as_dict(job.get("audiobookshelf_import"))
     share = _as_dict(import_result.get("public_share"))

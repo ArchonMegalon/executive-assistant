@@ -12,6 +12,11 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+try:
+    import wordninja
+except ImportError:  # The live quality gate remains fail-closed if the optional repair dependency is absent.
+    wordninja = None
+
 SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
@@ -407,6 +412,17 @@ def maybe_request_workflow_repair(*, failure_summary: str, failure_goals: list[s
         print(f"browseract_repair_failed={str(exc)[:240]}", file=sys.stderr)
 
 
+def _task_output_ready(body: dict[str, object]) -> bool:
+    output = body.get("output")
+    if not isinstance(output, dict) or not str(output.get("string") or "").strip():
+        return False
+    steps = _task_steps(body)
+    if not steps:
+        return False
+    terminal_success = {"done", "completed", "success", "succeed", "succeeded", "finished"}
+    return all(str(step.get("status") or "").strip().lower() in terminal_success for step in steps)
+
+
 def wait_for_task(task_id: str, *, timeout_seconds: int = 20) -> dict[str, object]:
     deadline = time.time() + max(30, int(timeout_seconds))
     last_status = ""
@@ -417,6 +433,10 @@ def wait_for_task(task_id: str, *, timeout_seconds: int = 20) -> dict[str, objec
             last_status = status
         if status in {"done", "completed", "success", "succeeded", "finished"}:
             return api_request("GET", "/get-task", query={"task_id": task_id})
+        if status in {"running", "queued", "processing", "in_progress"}:
+            full = api_request("GET", "/get-task", query={"task_id": task_id})
+            if _task_output_ready(full):
+                return full
         finished_at = str(status_body.get("finished_at") or "").strip()
         if not finished_at:
             data = status_body.get("data")
@@ -519,6 +539,27 @@ def _collect_markdown_humanized_candidates(markdown: str, original_text: str) ->
     return candidates
 
 
+def _collect_current_page_humanized_candidates(markdown: str, original_text: str) -> list[str]:
+    lines = [_clean_markdown_line(line) for line in str(markdown or "").splitlines()]
+    candidates: list[str] = []
+    for index, line in enumerate(lines):
+        if not WORD_COUNT_LINE_RE.fullmatch(line):
+            continue
+        captured: list[str] = []
+        for candidate_line in lines[index + 1 :]:
+            if WORD_COUNT_LINE_RE.fullmatch(candidate_line):
+                break
+            if _is_markdown_terminator(candidate_line) or candidate_line.startswith("Switch to Undetectable"):
+                break
+            if candidate_line and not candidate_line.startswith("!["):
+                captured.append(candidate_line)
+        candidate = re.sub(r"\s+", " ", " ".join(captured)).strip()
+        overlap, ratio = _token_overlap_score(original_text, candidate)
+        if candidate and overlap >= 2 and ratio >= 0.12:
+            candidates.append(candidate)
+    return candidates
+
+
 def _collect_humanized_candidates(body: dict[str, object], original_text: str) -> list[str]:
     candidates: list[str] = []
     output = body.get("output")
@@ -549,6 +590,7 @@ def _collect_humanized_candidates(body: dict[str, object], original_text: str) -
                             markdown = str(item.get(field) or "").strip()
                             if markdown:
                                 candidates.extend(_collect_markdown_humanized_candidates(markdown, original_text))
+                                candidates.extend(_collect_current_page_humanized_candidates(markdown, original_text))
     deduped: list[str] = []
     seen: set[str] = set()
     for value in candidates:
@@ -838,6 +880,7 @@ def _spacing_repair_lexicon(original_text: str) -> set[str]:
             "before",
             "blinded",
             "cameras",
+            "cared",
             "echoed",
             "flooded",
             "foreign",
@@ -915,7 +958,21 @@ def _split_spacing_artifact_token(token: str, lexicon: set[str]) -> str:
         best[index] = winner
     resolved = best[0]
     if resolved is None or len(resolved[1]) <= 1:
-        return token
+        if (
+            wordninja is None
+            or len(token) < 18
+            or re.fullmatch(r"[A-Za-z]+(?:['’][A-Za-z]+)*", token) is None
+        ):
+            return token
+        probabilistic_parts = wordninja.split(token)
+        if (
+            len(probabilistic_parts) <= 1
+            or "".join(probabilistic_parts).lower().replace("’", "'") != lowered.replace("’", "'")
+        ):
+            return token
+        if token[0].isupper():
+            probabilistic_parts[0] = probabilistic_parts[0].capitalize()
+        return " ".join(probabilistic_parts)
     threshold = 1 if length <= 4 else length + 2
     if resolved[0] < threshold:
         return token
@@ -952,7 +1009,7 @@ def _content_overlap_ratio(left: str, right: str) -> float:
     return len(left_tokens & _token_set(right)) / max(1, len(left_tokens))
 
 
-def length_normalize_provider_output(text: str, original_text: str, *, max_ratio: float = 1.45) -> str:
+def length_normalize_provider_output(text: str, original_text: str, *, max_ratio: float = 1.35) -> str:
     """Trim only provider-added low-overlap sentences; never synthesize replacement prose."""
     repaired = _repair_spacing_artifacts(text, original_text)
     source_words = max(1, word_count(original_text))
@@ -1009,7 +1066,7 @@ def extract_humanized_text(body: dict[str, object], original_text: str) -> str:
                 raise RuntimeError("browseract:input_binding_mismatch")
             if best_candidate_overlap < 2 or best_candidate_ratio < 0.12:
                 raise RuntimeError("browseract:humanizer_output_mismatch")
-            return _repair_spacing_artifacts(best_value, original_text)
+            return length_normalize_provider_output(best_value, original_text)
     scored: list[tuple[int, int, str]] = []
     for value in candidates:
         if _normalized_text(value) == normalized_original:
@@ -1022,7 +1079,7 @@ def extract_humanized_text(body: dict[str, object], original_text: str) -> str:
         scored.sort(reverse=True)
         best_overlap, _best_len, best_value = scored[0]
         if best_overlap >= 2:
-            return _repair_spacing_artifacts(best_value, original_text)
+            return length_normalize_provider_output(best_value, original_text)
         raise RuntimeError("browseract:humanizer_output_mismatch")
     raise RuntimeError("browseract:no_humanized_text")
 
@@ -1103,21 +1160,63 @@ def cmd_humanize(text: str, target: str) -> int:
     return 0
 
 
+def _resolve_humanize_text(text: str | None, text_file: Path | None) -> str:
+    if text_file is not None:
+        if not text_file.is_file():
+            raise RuntimeError(f"browseract:text_file_missing:{text_file}")
+        try:
+            return text_file.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            raise RuntimeError(f"browseract:text_file_unreadable:{text_file}") from exc
+    return str(text or "")
+
+
+def cmd_repair_spacing(text_file: Path, original_file: Path) -> int:
+    text = _resolve_humanize_text(None, text_file)
+    original = _resolve_humanize_text(None, original_file)
+    print(_repair_spacing_artifacts(text, original))
+    return 0
+
+
+def cmd_extract_task(task_id: str, original_file: Path) -> int:
+    normalized_task_id = str(task_id or "").strip()
+    if not re.fullmatch(r"[0-9]+", normalized_task_id):
+        raise RuntimeError("browseract:invalid_task_id")
+    original = _resolve_humanize_text(None, original_file)
+    body = api_request("GET", "/get-task", query={"task_id": normalized_task_id})
+    if not _task_output_ready(body):
+        raise RuntimeError(f"browseract:task_output_not_ready:{_task_status(body) or 'unknown'}")
+    print(extract_humanized_text(body, original))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="BrowserAct Undetectable Humanizer helper for Chummer6.")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("list-workflows")
     sub.add_parser("check")
     humanize = sub.add_parser("humanize")
-    humanize.add_argument("--text", required=True)
+    humanize_input = humanize.add_mutually_exclusive_group(required=True)
+    humanize_input.add_argument("--text")
+    humanize_input.add_argument("--text-file", type=Path)
     humanize.add_argument("--target", default="")
+    repair_spacing = sub.add_parser("repair-spacing")
+    repair_spacing.add_argument("--text-file", required=True, type=Path)
+    repair_spacing.add_argument("--original-file", required=True, type=Path)
+    extract_task = sub.add_parser("extract-task")
+    extract_task.add_argument("--task-id", required=True)
+    extract_task.add_argument("--original-file", required=True, type=Path)
     args = parser.parse_args()
     if args.command == "list-workflows":
         return cmd_list_workflows()
     if args.command == "check":
         return cmd_check()
     if args.command == "humanize":
-        return cmd_humanize(args.text, args.target)
+        return cmd_humanize(_resolve_humanize_text(args.text, args.text_file), args.target)
+    if args.command == "repair-spacing":
+        return cmd_repair_spacing(args.text_file, args.original_file)
+    if args.command == "extract-task":
+        return cmd_extract_task(args.task_id, args.original_file)
     return 2
 
 

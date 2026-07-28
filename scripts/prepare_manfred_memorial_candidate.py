@@ -235,7 +235,9 @@ HOSTED_CLONE_BACKUP_CANDIDATE_FIELDS = frozenset(
     }
 )
 HOSTED_CLONE_PRONUNCIATION_DICT = {
+    "Klar": "Klaar",
     "Ordne": "Ord-ne",
+    "klar": "klaar",
     "ordne": "ord-ne",
 }
 HOSTED_CLONE_PLACEHOLDER_ID_PATHS = frozenset(
