@@ -2,11 +2,11 @@
 """Verify that bind-mounted EA source trees are readable by the runtime UID.
 
 The production compose topology overlays ``ea/app`` and ``scripts`` onto the
-application image, and one operator service mounts the release root at
-``/app``. Git records a regular source file as ``100644`` but does not preserve
-its group and other read bits separately, nor a checkout root's mode, so a
-host-side ``0600`` file or ``0700`` release root is invisible to the
-clean-worktree release check and can break every freshly restarted runtime.
+application image, and operator services mount the release root at ``/app``.
+Git records a regular source file as ``100644`` but does not preserve its group
+and other read bits separately, nor checkout directory modes, so a host-side
+``0600`` file or ``0700`` source ancestor is invisible to the clean-worktree
+release check and can break every freshly restarted runtime.
 
 This verifier reuses the descriptor-relative, no-follow bind-source guard.  It
 does not read source contents and emits only bounded, secret-free evidence.
@@ -36,10 +36,15 @@ except ImportError:
 
 ROOT = Path(__file__).resolve().parents[1]
 SERVICE = "ea-runtime-source"
-CONTRACT_NAME = "ea.runtime_source_permissions.v3"
+CONTRACT_NAME = "ea.runtime_source_permissions.v4"
+RUNTIME_MOUNT_DIRECTORIES = (".", "ea")
 DEFAULT_SOURCE_BINDINGS = (
     ("ea/app", "/app/app"),
     ("scripts", "/app/scripts"),
+    (
+        "docker-compose.whatsapp-web-session.yml",
+        "/app/docker-compose.whatsapp-web-session.yml",
+    ),
 )
 
 
@@ -47,8 +52,18 @@ def repair_runtime_source_tree_permissions(source: Path) -> int:
     """Normalize public source modes without following links or reading files."""
 
     resolved_source = Path(os.path.abspath(os.fspath(source.expanduser())))
-    if stat.S_ISLNK(resolved_source.lstat().st_mode):
+    source_metadata = resolved_source.lstat()
+    if stat.S_ISLNK(source_metadata.st_mode):
         raise BindSourceGuardError("bind_source_symlink_forbidden")
+    if stat.S_ISREG(source_metadata.st_mode):
+        current_mode = stat.S_IMODE(source_metadata.st_mode)
+        desired_mode = (current_mode | 0o444) & ~0o022
+        if desired_mode == current_mode:
+            return 0
+        resolved_source.chmod(desired_mode, follow_symlinks=False)
+        return 1
+    if not stat.S_ISDIR(source_metadata.st_mode):
+        raise BindSourceGuardError("bind_source_type_invalid")
     repaired = 0
     for current_root, directory_names, file_names in os.walk(
         resolved_source,
@@ -149,7 +164,12 @@ def repair_runtime_source_permissions(
 ) -> int:
     resolved_root = Path(os.path.abspath(os.fspath(root.expanduser())))
     repaired = (
-        repair_runtime_mount_root_permissions(resolved_root) if source is None else 0
+        sum(
+            repair_runtime_mount_root_permissions(resolved_root / relative_path)
+            for relative_path in RUNTIME_MOUNT_DIRECTORIES
+        )
+        if source is None
+        else 0
     )
     return repaired + sum(
         repair_runtime_source_tree_permissions(source_path)
@@ -167,7 +187,8 @@ def verify_runtime_source_tree(
 ) -> dict[str, object]:
     resolved_root = Path(os.path.abspath(os.fspath(root.expanduser())))
     if source is None:
-        verify_runtime_mount_root(resolved_root)
+        for relative_path in RUNTIME_MOUNT_DIRECTORIES:
+            verify_runtime_mount_root(resolved_root / relative_path)
     bindings = _source_bindings(resolved_root, source=source)
     rendered = {
         "services": {
@@ -195,7 +216,9 @@ def verify_runtime_source_tree(
         "contract_name": CONTRACT_NAME,
         "status": "pass",
         "runtime_user": EXPECTED_USER,
-        "runtime_mount_root": "." if source is None else None,
+        "runtime_mount_directories": (
+            list(RUNTIME_MOUNT_DIRECTORIES) if source is None else []
+        ),
         "runtime_mount_root_verified": source is None,
         "source_trees": [label for label, _source, _target in bindings],
         "release_entries_scanned": int(receipt["release_entries_scanned"]),
@@ -220,9 +243,9 @@ def main() -> int:
         "--repair",
         action="store_true",
         help=(
-            "Normalize the release mount root plus public ea/app and scripts "
-            "source modes before the fail-closed verification. Private files "
-            "outside those source trees are never changed."
+            "Normalize public runtime mount ancestors, ea/app, scripts, and "
+            "required compose source modes before fail-closed verification. "
+            "Private files outside those exact paths are never changed."
         ),
     )
     parser.add_argument("--pretty", action="store_true")

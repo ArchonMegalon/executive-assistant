@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import secrets
 from typing import Any
 
 
@@ -15,6 +16,7 @@ DEFAULT_SOURCE = Path("config/whatsapp_audiobook_callback_secret")
 DEFAULT_TARGET = Path(".runtime/secrets/whatsapp_audiobook_callback_secret")
 RUNTIME_UID = 10001
 RUNTIME_GID = 10001
+GENERATED_SECRET_BYTES = 48
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:
@@ -49,7 +51,9 @@ def _chmod_private_dir(path: Path) -> None:
     path.chmod(0o700)
 
 
-def _write_projection(target: Path, payload: str, *, uid: int, gid: int) -> dict[str, Any]:
+def _write_projection(
+    target: Path, payload: str, *, uid: int, gid: int
+) -> dict[str, Any]:
     _chmod_private_dir(target.parent)
     tmp = target.with_name(f".{target.name}.tmp.{os.getpid()}")
     tmp.write_text(payload, encoding="utf-8")
@@ -71,6 +75,24 @@ def _write_projection(target: Path, payload: str, *, uid: int, gid: int) -> dict
     }
 
 
+def _generate_source_secret(source: Path) -> str:
+    """Atomically initialize an owner-only local callback secret."""
+
+    source.parent.mkdir(parents=True, exist_ok=True)
+    if source.exists() and source.is_symlink():
+        raise ValueError("source_secret_symlink_forbidden")
+    payload = secrets.token_urlsafe(GENERATED_SECRET_BYTES)
+    tmp = source.with_name(f".{source.name}.tmp.{os.getpid()}")
+    try:
+        tmp.write_text(f"{payload}\n", encoding="utf-8")
+        tmp.chmod(0o600)
+        os.replace(tmp, source)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+    return payload
+
+
 def materialize_projection(
     *,
     root: Path = ROOT,
@@ -79,11 +101,16 @@ def materialize_projection(
     target: Path | None = None,
     uid: int = RUNTIME_UID,
     gid: int = RUNTIME_GID,
+    generate_missing: bool = False,
 ) -> dict[str, Any]:
     root = root.resolve()
     values = _parse_env_file(env_file or (root / ".env"))
-    source_raw = str(source or os.getenv(SOURCE_ENV) or values.get(SOURCE_ENV) or DEFAULT_SOURCE).strip()
-    target_raw = str(target or os.getenv(TARGET_ENV) or values.get(TARGET_ENV) or DEFAULT_TARGET).strip()
+    source_raw = str(
+        source or os.getenv(SOURCE_ENV) or values.get(SOURCE_ENV) or DEFAULT_SOURCE
+    ).strip()
+    target_raw = str(
+        target or os.getenv(TARGET_ENV) or values.get(TARGET_ENV) or DEFAULT_TARGET
+    ).strip()
     source_path = _resolve(root, source_raw)
     target_path = _resolve(root, target_raw)
     if source_path == target_path:
@@ -94,15 +121,22 @@ def materialize_projection(
     payload = ""
     if source_path.exists():
         payload = source_path.read_text(encoding="utf-8", errors="ignore").strip()
+    source_generated = False
+    if not payload and generate_missing:
+        payload = _generate_source_secret(source_path)
+        source_generated = True
     if not payload:
         status = "skipped"
         reason = "source_secret_missing_or_empty"
 
-    write_result = _write_projection(target_path, f"{payload}\n" if payload else "", uid=uid, gid=gid)
+    write_result = _write_projection(
+        target_path, f"{payload}\n" if payload else "", uid=uid, gid=gid
+    )
     return {
         "status": status,
         "reason": reason,
         "source_env": SOURCE_ENV,
+        "source_generated": source_generated,
         "source_path": str(source_path),
         "target_env": TARGET_ENV,
         "target_path": str(target_path),
@@ -113,12 +147,22 @@ def materialize_projection(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Materialize a container-readable WhatsApp callback secret projection.")
+    parser = argparse.ArgumentParser(
+        description="Materialize a container-readable WhatsApp callback secret projection."
+    )
     parser.add_argument("--env-file", type=Path, default=ROOT / ".env")
     parser.add_argument("--source", type=Path, default=None)
     parser.add_argument("--target", type=Path, default=None)
     parser.add_argument("--uid", type=int, default=RUNTIME_UID)
     parser.add_argument("--gid", type=int, default=RUNTIME_GID)
+    parser.add_argument(
+        "--generate-missing",
+        action="store_true",
+        help=(
+            "Initialize an owner-only local source secret when it is absent or "
+            "empty. The secret value is never included in output."
+        ),
+    )
     parser.add_argument("--pretty", action="store_true")
     return parser.parse_args()
 
@@ -131,6 +175,7 @@ def main() -> int:
         target=args.target,
         uid=args.uid,
         gid=args.gid,
+        generate_missing=args.generate_missing,
     )
     print(json.dumps(result, indent=2 if args.pretty else None, sort_keys=True))
     return 0

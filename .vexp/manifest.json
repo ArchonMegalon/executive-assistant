@@ -1107,7 +1107,7 @@
     "scripts/db_retention.sh": "2adf6fb18c9a7dbc7adb2bfb01540186e2c4676adcd3c3cc478e68110137834a",
     "scripts/db_size.sh": "e837d6409b5854c873828a97f93a2257a2a20ca312b1cb6c9b8670b21ce408e5",
     "scripts/db_status.sh": "63f643d2b232f81ab3eca748df989f42589eeb766ad8a56c670203e254af9d25",
-    "scripts/deploy.sh": "de9f5cc4b6c338f0755b245f1fe66e83c107a5132815633539a31101c7b61482",
+    "scripts/deploy.sh": "e92c32365fc3cc596b817e4e3e418f69a6e99430e47275dabd3e2b0efb9ff50c",
     "scripts/deploy_ea_audiobook_runtime.py": "6f64088eb42451da3c067f084a351e09528c018348e21322e015f141b40051ee",
     "scripts/deploy_ea_memorial.py": "e970353f674a1150e9863c4dc4fb30b896fe2ffa95204816de8bc6ff84e9c6bb",
     "scripts/deploy_ea_memorial_joint.py": "1a7b9ffffd9b55242623d378d0d12946a05cc0cc6c4b2e9fb72cba0ff1fa5973",
@@ -1208,7 +1208,7 @@
     "scripts/materialize_telegram_video_delivery_receipt.py": "fa9b732b8e292f21ac2be09730f9aa2339cf6d13de7373eb5065b8657e55e775",
     "scripts/materialize_vocallab_provider_verification.py": "6f2355d6fef54164a47eb20fe3afb9b9e10ebe2734a1446f0961ec0616581db5",
     "scripts/materialize_weekly_product_pulse.py": "36b82cd47ea63e2c5ed4f67ded202adcd8274afff54998bd918e4fef94468454",
-    "scripts/materialize_whatsapp_callback_secret_runtime_projection.py": "8ce1f4a605a9d5a2be1a65bdee17c03ec05777ced04321ce6df2787d0f433812",
+    "scripts/materialize_whatsapp_callback_secret_runtime_projection.py": "13d9bcf1a8f9e7af61f614234e342a77e986842ef40571d14c89ed0ce2b2aa82",
     "scripts/materialize_whatsapp_web_action_processor_readiness.py": "f0b8adbc666dd0cf35d41e3a12f22bd49c706f604304ed49895c74337cda69aa",
     "scripts/materialize_whole_project_gold_map.py": "b2e69862cbd2f14cd107a87d1945ab4d13c4b7164161fbb24967aa4c156623fb",
     "scripts/materialize_workllm_account_verification.py": "49f8816033e4944b3e5329a8ca32e46651a12bd56e77495f0129fa2e79212bb2",
@@ -1316,7 +1316,7 @@
     "scripts/verify_ea_core_candidate_runtime.py": "f19965db5bc667a243e79635307b67edd6977b6407201adf7ceae9655a5a8245",
     "scripts/verify_ea_operator_readiness.py": "e546e02945bdf22079d23be0ba149b1db3623a35c3850f283883a97e019c9a21",
     "scripts/verify_ea_provider_contract_receipts.py": "af70375bf0934fee9bb7aa7c19a6ad1c2ae0e51bd81275ef1aa5719adf31b4b4",
-    "scripts/verify_ea_runtime_source_permissions.py": "0720bdebc201563e1552de67a38973103d54c4aa9b9b53e6a948cd24b8087193",
+    "scripts/verify_ea_runtime_source_permissions.py": "39040fa2497975bb1dd08fa74a8f65814215578c1cdb8db1e6d8588faaef4ef8",
     "scripts/verify_ea_sendr_campaign_packet.py": "6f34366bdba447b7ae8b4496968f2159fb7e32f71874b4b01e7023af7e355501",
     "scripts/verify_env_no_secrets.py": "cbfff2fb969afdb511aa783b269467a4eec4683bd292823781b0d8545be5d390",
     "scripts/verify_flagship_release_readiness.py": "4e236b3930860002b89ad95a94b67fedd78013b56187b4364460e231277aae8a",
@@ -1781,7 +1781,7 @@
     "tests/test_runtime_dependency_evidence.py": "7f9d0f164a32b48eb8da8fa3c54eb654b13670e663f8d64a2b1a7dccfee32493",
     "tests/test_runtime_image_contracts.py": "62a4704f84d68eb039f1d38b1f1d31e4fb83ea62a0d52da065ca2d7d1474979b",
     "tests/test_runtime_profile.py": "09fae4003169ce2c016ec57889a9ab2657ea7c3abf52c119839d8f1fb7cf45c8",
-    "tests/test_runtime_source_permissions.py": "dd529c6ffcf86f093d1c5f0403189c979dd2efa495571d5f914eef9b1ade55db",
+    "tests/test_runtime_source_permissions.py": "6d74bb8352f3700d00836e2be66ebb453c29d9058e28f9ca416592bdf561ae4e",
     "tests/test_runtime_supply_chain.py": "8d88214fb327961aa78db318d13cf6d51170ee727fb9b32a7391c78c974be740",
     "tests/test_settings.py": "e4cf75166b75fdaa95f0683267330d10d715c1068661f7999a9e789c6da0bcd5",
     "tests/test_skill_bootstrap_routing.py": "3d6d159a60eb1b6006253df50db9c09584ebcae3d4cec3851948b52c09bb2c82",
@@ -1841,7 +1841,7 @@
     "tests/test_whatsapp_audiobook_operator_proof_bundle_verifier.py": "64725727aa214b4b15dea9dbfaa0a3f5ab574dc429555c238f8b178967f75f5f",
     "tests/test_whatsapp_audiobook_public_share_playback.py": "1db72bcabc0aef134800b861152d2b7ae3fba3ddfe451fa05633a475a14f4a0d",
     "tests/test_whatsapp_business_bootstrap.py": "e98d6473fe97ebc7fc9d08f194abb504be27399b995bb892d58b0cf2148a6799",
-    "tests/test_whatsapp_callback_secret_runtime_projection.py": "798a1046ab8900f07818d1bca4dfbb7004b97bd4e30a51f2bee570ebc412c13a",
+    "tests/test_whatsapp_callback_secret_runtime_projection.py": "a8ce1986cd930285d25b62573f1120ccdb5a3180758cadd89e93f0bddbdc5569",
     "tests/test_whatsapp_delivery.py": "082c42c25b2bfa91706ef018202e197d6df2e297559e33ae88054fe0c41aaf87",
     "tests/test_whatsapp_delivery_outbox.py": "851349e14583de987d7fb75369b366f80b0346aa0c0be7c0e6d9978987632369",
     "tests/test_whatsapp_delivery_router.py": "7ac329d085e7d8b8357578d85711014e12b6e97f58373b7303807ebb87042203",
@@ -1878,13 +1878,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "0ce226136b9adde75235d3ac44495189e37213ae",
-  "indexed_at_timestamp": "2026-07-28T17:48:22.729090743+00:00",
+  "indexed_at_commit": "469e51e93484baba55815f6cdcdeb330aaa1de13",
+  "indexed_at_timestamp": "2026-07-28T17:58:36.623403730+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 47186,
+    "total_edges": 47158,
     "total_files": 1877,
-    "total_nodes": 29567
+    "total_nodes": 29571
   },
   "vexp_version": "2.3.1"
 }

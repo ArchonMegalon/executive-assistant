@@ -384,7 +384,8 @@ if [[ -n "${TEABLE_API_KEY:-}" ]]; then
 fi
 
 ensure_runtime_readable_file_projection "ONEMIN_DIRECT_API_KEYS_JSON_FILE"
-"${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_whatsapp_callback_secret_runtime_projection.py" >/dev/null
+"${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_whatsapp_callback_secret_runtime_projection.py" \
+  --generate-missing >/dev/null
 ensure_runtime_writable_dir_projection "EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT" "./data/pocket-ai-audio"
 
 public_origin_line="$(grep -E '^(EA_PUBLIC_APP_BASE_URL|PROPERTYQUARRY_PUBLIC_BASE_URL)=' "${APP_ROOT}/.env" | tail -n1 || true)"
@@ -524,7 +525,8 @@ if [[ -z "${EA_DEPLOYMENT_ID:-${DEPLOYMENT_ID:-${RENDER_GIT_COMMIT:-}}}" ]]; the
   if [[ -z "${deploy_commit_fragment}" ]]; then
     deploy_commit_fragment="unknowncommit"
   fi
-  export EA_DEPLOYMENT_ID="deploy-$(date -u +%Y%m%dT%H%M%SZ)-${deploy_commit_fragment}"
+  EA_DEPLOYMENT_ID="deploy-$(date -u +%Y%m%dT%H%M%SZ)-${deploy_commit_fragment}"
+  export EA_DEPLOYMENT_ID
   export EA_DEPLOYMENT_ID_SOURCE="deploy_script_generated"
 elif [[ -n "${EA_DEPLOYMENT_ID:-}" ]]; then
   export EA_DEPLOYMENT_ID_SOURCE="${EA_DEPLOYMENT_ID_SOURCE:-ea_deploy_id_env}"

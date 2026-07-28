@@ -24,12 +24,15 @@ def _runtime_tree(tmp_path: Path) -> tuple[Path, Path]:
     module.write_text("from __future__ import annotations\n", encoding="utf-8")
     launcher = scripts / "runtime_guard.sh"
     launcher.write_text("#!/usr/bin/env sh\n", encoding="utf-8")
+    compose_file = root / "docker-compose.whatsapp-web-session.yml"
+    compose_file.write_text("services: {}\n", encoding="utf-8")
     root.chmod(0o755)
     source.parent.chmod(0o755)
     source.chmod(0o755)
     scripts.chmod(0o755)
     module.chmod(0o644)
     launcher.chmod(0o755)
+    compose_file.chmod(0o644)
     return root, module
 
 
@@ -40,10 +43,14 @@ def test_runtime_source_tree_passes_without_reading_contents(tmp_path: Path) -> 
 
     assert receipt["status"] == "pass"
     assert receipt["runtime_user"] == "10001:10001"
-    assert receipt["runtime_mount_root"] == "."
+    assert receipt["runtime_mount_directories"] == [".", "ea"]
     assert receipt["runtime_mount_root_verified"] is True
-    assert receipt["source_trees"] == ["ea/app", "scripts"]
-    assert receipt["release_files_scanned"] == 2
+    assert receipt["source_trees"] == [
+        "ea/app",
+        "scripts",
+        "docker-compose.whatsapp-web-session.yml",
+    ]
+    assert receipt["release_files_scanned"] == 3
     assert receipt["file_contents_read"] is False
     assert receipt["secrets_included"] is False
 
@@ -111,6 +118,34 @@ def test_runtime_source_repair_covers_mount_root_without_exposing_private_files(
     assert repaired == 1
     assert stat.S_IMODE(root.stat().st_mode) == 0o755
     assert stat.S_IMODE(private_env.stat().st_mode) == 0o600
+    assert receipt["status"] == "pass"
+
+
+def test_runtime_source_tree_rejects_unsearchable_ea_import_ancestor(
+    tmp_path: Path,
+) -> None:
+    root, _module = _runtime_tree(tmp_path)
+    (root / "ea").chmod(0o700)
+
+    with pytest.raises(
+        BindSourceGuardError,
+        match="bind_source_directory_not_readable_searchable",
+    ):
+        verifier.verify_runtime_source_tree(root)
+
+
+def test_runtime_source_repair_covers_required_root_compose_file(
+    tmp_path: Path,
+) -> None:
+    root, _module = _runtime_tree(tmp_path)
+    compose_file = root / "docker-compose.whatsapp-web-session.yml"
+    compose_file.chmod(0o600)
+
+    repaired = verifier.repair_runtime_source_permissions(root)
+    receipt = verifier.verify_runtime_source_tree(root)
+
+    assert repaired == 1
+    assert stat.S_IMODE(compose_file.stat().st_mode) == 0o644
     assert receipt["status"] == "pass"
 
 

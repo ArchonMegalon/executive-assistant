@@ -10,7 +10,9 @@ SCRIPT = ROOT / "scripts" / "materialize_whatsapp_callback_secret_runtime_projec
 
 
 def _module():
-    spec = importlib.util.spec_from_file_location("materialize_whatsapp_callback_secret_runtime_projection", SCRIPT)
+    spec = importlib.util.spec_from_file_location(
+        "materialize_whatsapp_callback_secret_runtime_projection", SCRIPT
+    )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -18,7 +20,9 @@ def _module():
     return module
 
 
-def test_materializes_ignored_runtime_projection_without_reporting_secret(tmp_path: Path) -> None:
+def test_materializes_ignored_runtime_projection_without_reporting_secret(
+    tmp_path: Path,
+) -> None:
     module = _module()
     source = tmp_path / "config" / "whatsapp_audiobook_callback_secret"
     target = tmp_path / ".runtime" / "secrets" / "whatsapp_audiobook_callback_secret"
@@ -30,6 +34,7 @@ def test_materializes_ignored_runtime_projection_without_reporting_secret(tmp_pa
 
     assert result["status"] == "ready"
     assert result["secret_present"] is True
+    assert result["source_generated"] is False
     assert result["target_parent_mode"] == "0o700"
     assert result["target_mode"] in {"0o400", "0o444"}
     assert target.read_text(encoding="utf-8") == "callback-secret\n"
@@ -48,3 +53,27 @@ def test_missing_source_creates_empty_mount_placeholder(tmp_path: Path) -> None:
     assert result["secret_present"] is False
     assert target.exists()
     assert target.read_text(encoding="utf-8") == ""
+
+
+def test_generate_missing_initializes_private_source_without_reporting_secret(
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    source = tmp_path / "config" / "whatsapp_audiobook_callback_secret"
+    target = tmp_path / ".runtime" / "secrets" / "whatsapp_audiobook_callback_secret"
+
+    result = module.materialize_projection(
+        root=tmp_path,
+        source=source,
+        target=target,
+        generate_missing=True,
+    )
+
+    source_value = source.read_text(encoding="utf-8").strip()
+    assert result["status"] == "ready"
+    assert result["source_generated"] is True
+    assert result["secret_present"] is True
+    assert len(source_value) >= 64
+    assert source_value == target.read_text(encoding="utf-8").strip()
+    assert source_value not in str(result)
+    assert source.stat().st_mode & 0o777 == 0o600
