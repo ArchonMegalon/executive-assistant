@@ -234,6 +234,84 @@ def test_memorial_gold_readiness_passes_with_public_voice_and_browser_receipts(t
     assert readiness.main() == 0
 
 
+def test_memorial_public_voice_gold_can_pass_while_flagship_spatial_is_blocked(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    local_path = tmp_path / "local.json"
+    public_path = tmp_path / "public.json"
+    browser_path = tmp_path / "browser.json"
+    meaningful_browser_path = tmp_path / "meaningful-browser.json"
+    room_path = tmp_path / "room.json"
+    spatial_path = tmp_path / "spatial.json"
+    local_path.write_text(
+        json.dumps(_voice_receipt(base_url="http://127.0.0.1:8090")),
+        encoding="utf-8",
+    )
+    public_path.write_text(json.dumps(_voice_receipt()), encoding="utf-8")
+    browser_path.write_text(json.dumps(_browser_receipt()), encoding="utf-8")
+    meaningful_browser_path.write_text(
+        json.dumps(_browser_receipt(mode="text_prompt")),
+        encoding="utf-8",
+    )
+    room_path.write_text(json.dumps(_room_receipt()), encoding="utf-8")
+    spatial_path.write_text(
+        json.dumps(
+            {
+                "status": "blocked",
+                "slug": "manfred",
+                "public_base_url": "https://8.8.8.8",
+                "runtime_revision": TEST_RUNTIME_REVISION,
+                "source_git_head": "HEAD",
+                "source_state_fingerprint": "unit-source-state",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(readiness, "LOCAL_RECEIPT", local_path)
+    monkeypatch.setattr(readiness, "PUBLIC_RECEIPT", public_path)
+    monkeypatch.setattr(readiness, "BROWSER_RECEIPT", browser_path)
+    monkeypatch.setattr(
+        readiness,
+        "MEANINGFUL_BROWSER_RECEIPT",
+        meaningful_browser_path,
+    )
+    monkeypatch.setattr(readiness, "ROOM_RECEIPT", room_path)
+    monkeypatch.setattr(readiness, "SPATIAL_RECEIPT", spatial_path)
+    monkeypatch.setattr(readiness, "_git_head", lambda: "HEAD")
+    monkeypatch.setattr(
+        readiness,
+        "_run_script_json",
+        lambda script_args: {"status": "pass", "mode": "memorial"},
+    )
+    monkeypatch.setattr(
+        readiness,
+        "_check_spatial_receipt",
+        lambda *args, **kwargs: ["spatial_receipt_not_pass"],
+    )
+
+    assert readiness.main() == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["public_voice_gold_status"] == "pass"
+    assert payload["public_voice_gold_claim_allowed"] is True
+    assert payload["public_voice_gold_issues"] == []
+    assert payload["public_voice_blocker_summary"]["blocked_count"] == 0
+    assert payload["flagship_experience_gold_status"] == "blocked"
+    assert payload["flagship_experience_gold_claim_allowed"] is False
+    assert "spatial_receipt_not_pass" in payload[
+        "flagship_experience_gold_issues"
+    ]
+    assert payload["memorial_voice_gold_claim_allowed"] is True
+    assert (
+        payload["memorial_voice_gold_claim_semantics"]
+        == "legacy_alias_of_public_voice_gold_claim_allowed"
+    )
+
+
 def test_memorial_gold_readiness_requires_meaningful_browser_receipt_by_default(
     tmp_path: Path,
     monkeypatch,

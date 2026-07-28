@@ -40,6 +40,10 @@ def test_whole_project_gold_map_is_conservative_and_complete() -> None:
     assert planes["telegram_video_delivery"]["status"] in {"pass", "bounded_pass", "blocked", "unknown_missing_receipt"}
     assert planes["memorial_voice_demo"]["status"] in {"pass", "separate_risk_zone"}
     assert planes["memorial_public_origin_gold"]["status"] in {"pass", "blocked"}
+    assert planes["memorial_flagship_experience_gold"]["status"] in {
+        "pass",
+        "blocked",
+    }
     assert "design_surface" in receipt["blocking_planes"]
     assert "ltd_provider_lanes" in receipt["blocking_planes"]
     assert any("canonical Chummer product/UI design review receipt" in item for item in planes["design_surface"]["missing_evidence"])
@@ -123,6 +127,23 @@ def test_whole_project_gold_map_is_conservative_and_complete() -> None:
     if planes["memorial_public_origin_gold"]["status"] == "blocked":
         assert any("room/device audio intelligibility" in item for item in receipt["required_next_receipts"])
     memorial_public_plane = planes["memorial_public_origin_gold"]
+    memorial_flagship_plane = planes["memorial_flagship_experience_gold"]
+    assert memorial_public_plane["title"] == "Memorial Public-Origin Voice Gold"
+    assert (
+        memorial_flagship_plane["title"]
+        == "Memorial Flagship Experience Gold"
+    )
+    assert not any(
+        "memorial_spatial_tour_public_origin" in str(path)
+        for path in memorial_public_plane["evidence"]
+    )
+    assert any(
+        "spatial" in str(item).lower() or "3d-tour" in str(item).lower()
+        for item in (
+            memorial_flagship_plane["evidence"]
+            + memorial_flagship_plane["missing_evidence"]
+        )
+    )
     if memorial_public_plane["status"] == "blocked":
         assert "public-origin room/device audio intelligibility receipt with manual attestation" in memorial_public_plane["missing_evidence"]
     assert ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json" not in memorial_public_plane["evidence"]

@@ -176,7 +176,9 @@ def test_memorial_operator_status_materializer_summarizes_blocked_public_gold(tm
         ]
     ) == 0
     payload = __import__("json").loads((tmp_path / "operator_status.json").read_text(encoding="utf-8"))
-    assert payload["current_label"] == "Memorial public-origin gold: blocked"
+    assert payload["current_label"] == "Memorial flagship experience gold: blocked"
+    assert payload["public_voice_gold"] == "blocked"
+    assert payload["flagship_experience_gold"] == "blocked"
     assert payload["local_release_candidate"] == "pass"
     assert payload["public_voice_receipt"] == "missing_or_blocked"
     assert payload["public_browser_meaningful_receipt"] == "missing_or_blocked"
@@ -1238,7 +1240,9 @@ def test_memorial_operator_status_keeps_memorial_pass_when_unrelated_whole_proje
 
     assert module.main(["--output", str(tmp_path / "operator_status.json")]) == 0
     payload = json.loads((tmp_path / "operator_status.json").read_text(encoding="utf-8"))
-    assert payload["current_label"] == "Memorial public-origin gold: pass"
+    assert payload["current_label"] == "Memorial flagship experience gold: pass"
+    assert payload["public_voice_gold"] == "pass"
+    assert payload["flagship_experience_gold"] == "pass"
     assert payload["whole_project_gold"] == "blocked"
     assert payload["status"] == "pass"
 
@@ -1280,7 +1284,9 @@ def test_memorial_operator_status_fails_closed_when_whole_project_verifier_block
     assert module.main(["--output", str(tmp_path / "operator_status.json")]) == 0
     payload = json.loads((tmp_path / "operator_status.json").read_text(encoding="utf-8"))
     assert payload["whole_project_gold"] == "blocked"
-    assert payload["current_label"] == "Memorial public-origin gold: pass"
+    assert payload["current_label"] == "Memorial flagship experience gold: pass"
+    assert payload["public_voice_gold"] == "pass"
+    assert payload["flagship_experience_gold"] == "pass"
     assert payload["status"] == "pass"
 
 

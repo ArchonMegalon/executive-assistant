@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from scripts import source_state_head
-from scripts.materialize_project_mode_manifests import _fresh_enough, _git_head as _source_state_head, _receipt_passes, _recorded_source_head, _room_receipt_passes, _source_fingerprint, _spatial_receipt_passes
+from scripts.materialize_project_mode_manifests import _fresh_enough, _git_head as _source_state_head, _memorial_flagship_experience_gold_status, _memorial_public_voice_gold_status, _receipt_passes, _recorded_source_head, _room_receipt_passes, _source_fingerprint, _spatial_receipt_passes
 from scripts.materialize_project_mode_manifests import main as materialize_project_modes
 from scripts.materialize_project_mode_manifests import project_modes, show_surface_manifest
 from scripts.verify_project_mode_manifests import main as verify_project_modes
@@ -45,20 +45,45 @@ def test_project_modes_name_each_repo_plane_and_first_value_gate() -> None:
     assert ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json" in modes["MEMORIAL"]["public_gold_gates"]
     assert ".codex-studio/published/memorial_room_audio_public_origin.generated.json" in modes["MEMORIAL"]["public_gold_gates"]
     assert ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json" in modes["MEMORIAL"]["public_gold_gates"]
+    assert modes["MEMORIAL"]["public_voice_gold_gates"] == [
+        ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+        ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+        ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+    ]
+    assert modes["MEMORIAL"]["flagship_experience_gold_gates"] == modes["MEMORIAL"]["public_gold_gates"]
+    assert modes["MEMORIAL"]["claim_labels"]["public_voice"] == "Memorial public-origin voice gold"
+    assert modes["MEMORIAL"]["claim_labels"]["flagship"] == "Memorial flagship experience gold"
+    assert (
+        modes["MEMORIAL"]["public_gold_status_semantics"]
+        == "legacy_alias_of_flagship_experience_gold_status"
+    )
     public_gold_gate_paths = [ROOT / path for path in modes["MEMORIAL"]["public_gold_gates"]]
     public_voice_path, public_browser_path, room_path, spatial_path = public_gold_gate_paths
-    expected_public_gold_status = (
-        "public_origin_gold_pass"
+    expected_public_voice_gold_status = (
+        "public_origin_voice_gold_pass"
         if _receipt_passes(public_voice_path, current_head=current_head)
         and _receipt_passes(public_browser_path, current_head=current_head)
         and _room_receipt_passes(room_path, current_head=current_head)
+        else "public_origin_voice_gold_blocked"
+    )
+    expected_flagship_experience_gold_status = (
+        "flagship_experience_gold_pass"
+        if expected_public_voice_gold_status == "public_origin_voice_gold_pass"
         and _spatial_receipt_passes(
             spatial_path,
             current_head=current_head,
             current_fingerprint=_source_fingerprint(),
         )
+        else "flagship_experience_gold_blocked"
+    )
+    expected_public_gold_status = (
+        "public_origin_gold_pass"
+        if expected_flagship_experience_gold_status
+        == "flagship_experience_gold_pass"
         else "public_origin_gold_blocked"
     )
+    assert modes["MEMORIAL"]["public_voice_gold_status"] == expected_public_voice_gold_status
+    assert modes["MEMORIAL"]["flagship_experience_gold_status"] == expected_flagship_experience_gold_status
     assert modes["MEMORIAL"]["public_gold_status"] == expected_public_gold_status
     assert "No internet search for Manfred" in modes["MEMORIAL"]["purpose"]
     assert "/memorials/" in modes["MEMORIAL"]["route_prefixes"]
@@ -73,7 +98,14 @@ def test_show_surface_manifest_keeps_ea_core_demo_from_lab_and_memorial_surfaces
     assert "/memorials/files/*" in payload["forbidden_surfaces"]
     assert "JoggAI" in payload["forbidden_provider_names"]
     assert "Unmixr" in payload["forbidden_provider_names"]
-    assert any("Memorial public-origin gold" in note for note in payload["operator_notes"])
+    assert any(
+        "Memorial public-origin voice gold" in note
+        for note in payload["operator_notes"]
+    )
+    assert any(
+        "Memorial flagship experience gold" in note
+        for note in payload["operator_notes"]
+    )
 
 
 def test_materialized_project_mode_manifests_verify() -> None:
@@ -115,6 +147,68 @@ def test_project_modes_reject_old_room_audio_receipts_without_spoken_loop_checks
     path.write_text(json.dumps(receipt), encoding="utf-8")
 
     assert _room_receipt_passes(path, current_head="HEAD") is True
+
+
+def test_project_modes_keep_spatial_out_of_public_voice_gold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import scripts.materialize_project_mode_manifests as module
+
+    voice = tmp_path / "voice.json"
+    browser = tmp_path / "browser.json"
+    room = tmp_path / "room.json"
+    spatial = tmp_path / "spatial.json"
+    for path in (voice, browser):
+        path.write_text(
+            json.dumps({"status": "pass", "source_git_head": "HEAD"}),
+            encoding="utf-8",
+        )
+    room.write_text(
+        json.dumps(
+            {
+                "status": "pass",
+                "source_git_head": "HEAD",
+                "proof_type": "manual_room_attestation",
+                "manual_attestation": {
+                    "attestation_id": "room-review-001",
+                    "signed_at": "2026-07-28T12:00:00Z",
+                    "ci_must_not_auto_assert": True,
+                },
+                "checks": {
+                    "actual_device_checked": True,
+                    "actual_speaker_checked": True,
+                    "first_syllable_not_clipped": True,
+                    "intelligibility_confirmed": True,
+                    "answer_text_fallback_visible": True,
+                    "no_internet_search_confirmed": True,
+                    "normal_spoken_turn_confirmed": True,
+                    "interruption_behavior_confirmed": True,
+                    "retry_path_confirmed": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    spatial.write_text(
+        json.dumps({"status": "blocked", "failed_codes": ["spatial_missing"]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "MEMORIAL_PUBLIC_VOICE_GATE", voice)
+    monkeypatch.setattr(module, "MEMORIAL_PUBLIC_BROWSER_GATE", browser)
+    monkeypatch.setattr(module, "MEMORIAL_PUBLIC_ROOM_GATE", room)
+    monkeypatch.setattr(module, "MEMORIAL_SPATIAL_PUBLIC_ORIGIN_GATE", spatial)
+
+    assert (
+        _memorial_public_voice_gold_status(current_head="HEAD")
+        == "public_origin_voice_gold_pass"
+    )
+    assert (
+        _memorial_flagship_experience_gold_status(
+            current_head="HEAD",
+            current_fingerprint="source-fingerprint",
+        )
+        == "flagship_experience_gold_blocked"
+    )
 
 
 def test_project_modes_source_head_skips_generated_only_head_commit(monkeypatch: pytest.MonkeyPatch) -> None:

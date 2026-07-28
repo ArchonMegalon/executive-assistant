@@ -148,14 +148,61 @@ def main() -> int:
     public_gold_status = str(by_key["MEMORIAL"].get("public_gold_status") or "")
     if public_gold_status not in {"public_origin_gold_blocked", "public_origin_gold_pass"}:
         raise SystemExit("memorial_public_gold_status_invalid")
+    if (
+        by_key["MEMORIAL"].get("public_gold_status_semantics")
+        != "legacy_alias_of_flagship_experience_gold_status"
+    ):
+        raise SystemExit("memorial_public_gold_status_semantics_invalid")
+    public_voice_gold_status = str(
+        by_key["MEMORIAL"].get("public_voice_gold_status") or ""
+    )
+    if public_voice_gold_status not in {
+        "public_origin_voice_gold_blocked",
+        "public_origin_voice_gold_pass",
+    }:
+        raise SystemExit("memorial_public_voice_gold_status_invalid")
+    flagship_experience_gold_status = str(
+        by_key["MEMORIAL"].get("flagship_experience_gold_status") or ""
+    )
+    if flagship_experience_gold_status not in {
+        "flagship_experience_gold_blocked",
+        "flagship_experience_gold_pass",
+    }:
+        raise SystemExit("memorial_flagship_experience_gold_status_invalid")
+    claim_labels = dict(by_key["MEMORIAL"].get("claim_labels") or {})
+    if claim_labels.get("public_voice") != "Memorial public-origin voice gold":
+        raise SystemExit("memorial_public_voice_gold_label_missing")
+    if claim_labels.get("flagship") != "Memorial flagship experience gold":
+        raise SystemExit("memorial_flagship_experience_gold_label_missing")
     public_gold_gates = [str(item) for item in list(by_key["MEMORIAL"].get("public_gold_gates") or []) if str(item)]
-    expected_public_gates = {
+    public_voice_gold_gates = [
+        str(item)
+        for item in list(
+            by_key["MEMORIAL"].get("public_voice_gold_gates") or []
+        )
+        if str(item)
+    ]
+    flagship_experience_gold_gates = [
+        str(item)
+        for item in list(
+            by_key["MEMORIAL"].get("flagship_experience_gold_gates") or []
+        )
+        if str(item)
+    ]
+    expected_public_voice_gates = {
         ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
         ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
         ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+    }
+    expected_flagship_gates = {
+        *expected_public_voice_gates,
         MEMORIAL_SPATIAL_PUBLIC_ORIGIN_GATE,
     }
-    if set(public_gold_gates) != expected_public_gates:
+    if set(public_voice_gold_gates) != expected_public_voice_gates:
+        raise SystemExit("memorial_public_voice_gold_gates_missing")
+    if set(flagship_experience_gold_gates) != expected_flagship_gates:
+        raise SystemExit("memorial_flagship_experience_gold_gates_missing")
+    if set(public_gold_gates) != expected_flagship_gates:
         raise SystemExit("memorial_public_gold_gates_missing")
     public_gate_payloads: list[tuple[str, dict]] = []
     for public_gate in public_gold_gates:
@@ -187,9 +234,57 @@ def main() -> int:
             )
         )
     )
-    if public_gold_status == "public_origin_gold_pass" and public_gate_pass_count != len(expected_public_gates):
+    public_voice_gate_pass_count = sum(
+        1
+        for public_gate, payload in public_gate_payloads
+        if public_gate in expected_public_voice_gates
+        and str(payload.get("status") or "").strip().lower() == "pass"
+        and (
+            not current_head
+            or _fresh_enough(
+                _recorded_source_head(payload),
+                current_head=current_head,
+            )
+        )
+    )
+    if (
+        public_voice_gold_status == "public_origin_voice_gold_pass"
+        and public_voice_gate_pass_count != len(expected_public_voice_gates)
+    ):
+        raise SystemExit(
+            "memorial_public_voice_gold_pass_without_all_public_voice_gates"
+        )
+    if (
+        public_voice_gold_status == "public_origin_voice_gold_blocked"
+        and public_voice_gate_pass_count == len(expected_public_voice_gates)
+    ):
+        raise SystemExit(
+            "memorial_public_voice_gold_blocked_despite_public_voice_gates"
+        )
+    if (
+        flagship_experience_gold_status == "flagship_experience_gold_pass"
+        and public_gate_pass_count != len(expected_flagship_gates)
+    ):
+        raise SystemExit(
+            "memorial_flagship_experience_gold_pass_without_all_flagship_gates"
+        )
+    if (
+        flagship_experience_gold_status == "flagship_experience_gold_blocked"
+        and public_gate_pass_count == len(expected_flagship_gates)
+    ):
+        raise SystemExit(
+            "memorial_flagship_experience_gold_blocked_despite_flagship_gates"
+        )
+    expected_legacy_status = (
+        "public_origin_gold_pass"
+        if flagship_experience_gold_status == "flagship_experience_gold_pass"
+        else "public_origin_gold_blocked"
+    )
+    if public_gold_status != expected_legacy_status:
+        raise SystemExit("memorial_public_gold_legacy_alias_mismatch")
+    if public_gold_status == "public_origin_gold_pass" and public_gate_pass_count != len(expected_flagship_gates):
         raise SystemExit("memorial_public_gold_pass_without_all_public_gates")
-    if public_gold_status == "public_origin_gold_blocked" and public_gate_pass_count == len(expected_public_gates):
+    if public_gold_status == "public_origin_gold_blocked" and public_gate_pass_count == len(expected_flagship_gates):
         raise SystemExit("memorial_public_gold_blocked_despite_public_gates")
     forbidden = set(show.get("forbidden_surfaces") or [])
     for expected in {"/memorials/*", "/memorials/files/*", "/results/*", "/tours/*"}:

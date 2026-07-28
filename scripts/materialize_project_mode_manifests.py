@@ -163,28 +163,64 @@ def _spatial_receipt_passes(
     )
 
 
-def _memorial_public_gold_status(
+def _memorial_public_voice_gold_status(
     *,
     current_head: str,
-    current_fingerprint: str,
 ) -> str:
     if (
         _receipt_passes(MEMORIAL_PUBLIC_VOICE_GATE, current_head=current_head)
         and _receipt_passes(MEMORIAL_PUBLIC_BROWSER_GATE, current_head=current_head)
         and _room_receipt_passes(MEMORIAL_PUBLIC_ROOM_GATE, current_head=current_head)
+    ):
+        return "public_origin_voice_gold_pass"
+    return "public_origin_voice_gold_blocked"
+
+
+def _memorial_flagship_experience_gold_status(
+    *,
+    current_head: str,
+    current_fingerprint: str,
+) -> str:
+    if (
+        _memorial_public_voice_gold_status(current_head=current_head)
+        == "public_origin_voice_gold_pass"
         and _spatial_receipt_passes(
             MEMORIAL_SPATIAL_PUBLIC_ORIGIN_GATE,
             current_head=current_head,
             current_fingerprint=current_fingerprint,
         )
     ):
-        return "public_origin_gold_pass"
-    return "public_origin_gold_blocked"
+        return "flagship_experience_gold_pass"
+    return "flagship_experience_gold_blocked"
+
+
+def _memorial_public_gold_status(
+    *,
+    current_head: str,
+    current_fingerprint: str,
+) -> str:
+    """Compatibility alias for the stricter flagship-experience status."""
+    flagship_status = _memorial_flagship_experience_gold_status(
+        current_head=current_head,
+        current_fingerprint=current_fingerprint,
+    )
+    return (
+        "public_origin_gold_pass"
+        if flagship_status == "flagship_experience_gold_pass"
+        else "public_origin_gold_blocked"
+    )
 
 
 def project_modes() -> dict[str, Any]:
     source_git_head = _git_head()
     source_fingerprint = _source_fingerprint()
+    public_voice_gold_status = _memorial_public_voice_gold_status(
+        current_head=source_git_head,
+    )
+    flagship_experience_gold_status = _memorial_flagship_experience_gold_status(
+        current_head=source_git_head,
+        current_fingerprint=source_fingerprint,
+    )
     return {
         "contract_name": "ea.project_modes",
         "generated_at": _utc_now(),
@@ -203,13 +239,22 @@ def project_modes() -> dict[str, Any]:
             {
                 "key": "MEMORIAL",
                 "status": _memorial_mode_status(current_head=source_git_head),
-                "public_gold_status": _memorial_public_gold_status(
-                    current_head=source_git_head,
-                    current_fingerprint=source_fingerprint,
+                "public_voice_gold_status": public_voice_gold_status,
+                "flagship_experience_gold_status": flagship_experience_gold_status,
+                "public_gold_status": (
+                    "public_origin_gold_pass"
+                    if flagship_experience_gold_status
+                    == "flagship_experience_gold_pass"
+                    else "public_origin_gold_blocked"
+                ),
+                "public_gold_status_semantics": (
+                    "legacy_alias_of_flagship_experience_gold_status"
                 ),
                 "claim_labels": {
                     "local": "Memorial local release candidate",
-                    "public": "Memorial public-origin gold",
+                    "public_voice": "Memorial public-origin voice gold",
+                    "flagship": "Memorial flagship experience gold",
+                    "public": "Memorial flagship experience gold",
                 },
                 "purpose": "Manfred memorial pages and realtime voice from local memories/conversation sources only. No internet search for Manfred.",
                 "route_prefixes": ["/memorials/", "/memorials/files/"],
@@ -221,6 +266,17 @@ def project_modes() -> dict[str, Any]:
                     ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json",
                 ],
                 "local_release_gate": ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
+                "public_voice_gold_gates": [
+                    ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+                    ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+                    ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+                ],
+                "flagship_experience_gold_gates": [
+                    ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+                    ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+                    ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+                    ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json",
+                ],
                 "public_gold_gates": [
                     ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
                     ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
@@ -276,7 +332,8 @@ def show_surface_manifest() -> dict[str, Any]:
         "operator_notes": [
             "EA core demos must show the office loop first: morning memo, decision queue, commitments, approvals.",
             "Memorial, provider lab, Chummer release control, and property surfaces require explicit separate demo mode.",
-            "Use separate labels: EA receipt-set gold, Memorial local release candidate, and Memorial public-origin gold.",
+            "Use separate labels: EA receipt-set gold, Memorial local release candidate, Memorial public-origin voice gold, and Memorial flagship experience gold.",
+            "Spatial-tour proof belongs to Memorial flagship experience gold; it does not block the narrower public-origin voice-gold label.",
         ],
     }
 

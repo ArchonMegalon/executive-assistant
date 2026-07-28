@@ -1222,11 +1222,28 @@ def main(argv: list[str] | None = None) -> int:
         isinstance(readiness.get("public_spatial_tour_issues"), list)
         and str(readiness.get("public_spatial_tour_receipt") or "").strip()
     )
-    memorial_public_gold_claim_allowed = spatial_readiness_present and not has_any_readiness_issues and (
-        readiness_status == "pass"
-        or (
-            readiness.get("memorial_voice_gold_claim_allowed") is True
+    memorial_public_voice_gold_claim_allowed = bool(
+        readiness.get(
+            "public_voice_gold_claim_allowed",
+            readiness.get("memorial_voice_gold_claim_allowed"),
         )
+    )
+    memorial_flagship_experience_gold_claim_allowed = bool(
+        readiness.get(
+            "flagship_experience_gold_claim_allowed",
+            (
+                spatial_readiness_present
+                and not has_any_readiness_issues
+                and (
+                    readiness_status == "pass"
+                    or readiness.get("memorial_voice_gold_claim_allowed")
+                    is True
+                )
+            ),
+        )
+    )
+    memorial_public_gold_claim_allowed = (
+        memorial_flagship_experience_gold_claim_allowed
     )
     memorial_public_gold_allowed = memorial_public_gold_claim_allowed
     final_status = "pass" if memorial_public_gold_allowed else "blocked"
@@ -1371,7 +1388,24 @@ def main(argv: list[str] | None = None) -> int:
         "source_cleanup": source_cleanup,
         "slug": "manfred",
         "status": final_status,
-        "current_label": "Memorial public-origin gold: pass" if final_status == "pass" else "Memorial public-origin gold: blocked",
+        "current_label": (
+            "Memorial flagship experience gold: pass"
+            if final_status == "pass"
+            else "Memorial flagship experience gold: blocked"
+        ),
+        "public_voice_gold": (
+            "pass"
+            if memorial_public_voice_gold_claim_allowed
+            else "blocked"
+        ),
+        "flagship_experience_gold": (
+            "pass"
+            if memorial_flagship_experience_gold_claim_allowed
+            else "blocked"
+        ),
+        "legacy_public_gold_semantics": (
+            "alias_of_flagship_experience_gold"
+        ),
         "local_release_candidate": "pass" if not list(readiness.get("local_release_issues") or []) else "blocked",
         "public_voice_receipt": "pass" if not list(readiness.get("public_gold_issues") or []) else "missing_or_blocked",
         "public_browser_receipt": "pass" if not list(readiness.get("public_browser_gold_issues") or []) else "missing_or_blocked",
@@ -1386,8 +1420,9 @@ def main(argv: list[str] | None = None) -> int:
         "memorial_public_gold_next_command": memorial_public_gold_next_command,
         "memorial_public_gold_blocker_summary": memorial_public_gold_blocker_summary,
         "operator_notes": [
-            "Use labels only: Memorial local release candidate / Memorial public-origin gold: blocked|pass.",
-            "Public-origin gold requires voice, browser, room, and exact-byte 3D-tour receipts at the current clean source state and public origin.",
+            "Use labels only: Memorial local release candidate / Memorial public-origin voice gold: blocked|pass / Memorial flagship experience gold: blocked|pass.",
+            "Public-origin voice gold requires voice, browser, meaningful-turn, and signed room evidence at the current clean source state and public origin; it does not require the spatial tour.",
+            "Memorial flagship experience gold additionally requires the exact-byte 3D-tour receipt.",
             "The public 3D-tour receipt must bind the pinned PropertyQuarry authority/package, polished v5 candidate-browser interactions, deploy receipt, and all 16 GET/HEAD public route observations; status-only or candidate-only evidence cannot pass.",
             "If public_runtime_mode is blocked, the configured public origin is not currently deployed in MEMORIAL mode; use make deploy-ea-memorial before treating public memorial routes as publishable.",
             "If release_authority.status is blocked while public_runtime_mode is blocked, clear release authority first; memorial deploy claims must not be refreshed from a dirty tree or stale deploy context.",

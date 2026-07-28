@@ -54,6 +54,7 @@ REQUIRED_PLANES = {
     "telegram_video_delivery",
     "memorial_voice_demo",
     "memorial_public_origin_gold",
+    "memorial_flagship_experience_gold",
     "ltd_provider_lanes",
 }
 GENERATED_RECEIPT_PATHS = {
@@ -190,25 +191,44 @@ def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
         current_fingerprint=current_fingerprint,
     )
     spatial_evidence_path = MEMORIAL_SPATIAL_RECEIPT_RELPATH.as_posix()
-    memorial_public_plane_status = str(
-        memorial_public_plane.get("status") or ""
-    ).strip().lower()
-    if spatial_issues:
-        if memorial_public_plane_status != "blocked":
+    memorial_flagship_plane = (
+        by_key.get("memorial_flagship_experience_gold") or {}
+    )
+    memorial_flagship_evidence = [
+        str(item)
+        for item in list(memorial_flagship_plane.get("evidence") or [])
+        if str(item)
+    ]
+    for evidence_text in memorial_flagship_evidence:
+        if not _is_stable_repo_evidence_path(evidence_text):
             issues.append(
-                "memorial public-origin plane must be blocked while the strict public spatial-tour receipt is missing or invalid"
+                "memorial flagship evidence paths must be repo-relative or generated-artifact relative"
+            )
+    memorial_flagship_plane_status = str(
+        memorial_flagship_plane.get("status") or ""
+    ).strip().lower()
+    if spatial_evidence_path in memorial_public_evidence:
+        issues.append(
+            "memorial public-origin voice-gold evidence must not include the spatial-tour receipt"
+        )
+    if spatial_issues:
+        if memorial_flagship_plane_status != "blocked":
+            issues.append(
+                "memorial flagship plane must be blocked while the strict public spatial-tour receipt is missing or invalid"
             )
         spatial_missing = [
             str(item).lower()
-            for item in list(memorial_public_plane.get("missing_evidence") or [])
+            for item in list(
+                memorial_flagship_plane.get("missing_evidence") or []
+            )
         ]
         if not any("spatial" in item or "3d-tour" in item for item in spatial_missing):
             issues.append(
-                "memorial public-origin plane must surface the strict public 3D-tour receipt in missing_evidence"
+                "memorial flagship plane must surface the strict public 3D-tour receipt in missing_evidence"
             )
-    elif spatial_evidence_path not in memorial_public_evidence:
+    elif spatial_evidence_path not in memorial_flagship_evidence:
         issues.append(
-            "passing strict public spatial-tour receipt must be listed as memorial public-origin evidence"
+            "passing strict public spatial-tour receipt must be listed as memorial flagship evidence"
         )
     blocking_planes = [
         key
@@ -248,8 +268,14 @@ def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
         issues.append("missing rule: unknown external planes block whole-project gold claims")
     if "Whole-project gold requires every listed plane to pass" not in rules:
         issues.append("missing rule: whole-project gold must require every listed plane")
-    if "strict public spatial-tour receipt" not in rules:
-        issues.append("missing rule: memorial public-origin gold must require strict spatial-tour proof")
+    if "spatial-tour proof is not part of this narrower claim" not in rules:
+        issues.append(
+            "missing rule: memorial public-origin voice gold must exclude spatial-tour proof"
+        )
+    if "Memorial flagship experience gold additionally requires the strict public spatial-tour receipt" not in rules:
+        issues.append(
+            "missing rule: memorial flagship experience gold must require strict spatial-tour proof"
+        )
     return issues
 
 
