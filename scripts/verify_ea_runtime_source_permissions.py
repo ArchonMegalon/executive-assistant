@@ -2,10 +2,11 @@
 """Verify that bind-mounted EA source trees are readable by the runtime UID.
 
 The production compose topology overlays ``ea/app`` and ``scripts`` onto the
-application image. Git records a regular source file as ``100644`` but does not
-preserve its group and other read bits separately, so a host-side ``0600``
-drift is invisible to the clean-worktree release check and can break every
-freshly restarted runtime.
+application image, and one operator service mounts the release root at
+``/app``. Git records a regular source file as ``100644`` but does not preserve
+its group and other read bits separately, nor a checkout root's mode, so a
+host-side ``0600`` file or ``0700`` release root is invisible to the
+clean-worktree release check and can break every freshly restarted runtime.
 
 This verifier reuses the descriptor-relative, no-follow bind-source guard.  It
 does not read source contents and emits only bounded, secret-free evidence.
@@ -35,7 +36,7 @@ except ImportError:
 
 ROOT = Path(__file__).resolve().parents[1]
 SERVICE = "ea-runtime-source"
-CONTRACT_NAME = "ea.runtime_source_permissions.v2"
+CONTRACT_NAME = "ea.runtime_source_permissions.v3"
 DEFAULT_SOURCE_BINDINGS = (
     ("ea/app", "/app/app"),
     ("scripts", "/app/scripts"),
@@ -79,6 +80,46 @@ def repair_runtime_source_tree_permissions(source: Path) -> int:
     return repaired
 
 
+def _runtime_identity_bits(metadata: os.stat_result) -> int:
+    uid_text, gid_text = EXPECTED_USER.split(":", 1)
+    uid = int(uid_text)
+    gid = int(gid_text)
+    mode = stat.S_IMODE(metadata.st_mode)
+    if metadata.st_uid == uid:
+        return (mode >> 6) & 0o7
+    if metadata.st_gid == gid:
+        return (mode >> 3) & 0o7
+    return mode & 0o7
+
+
+def verify_runtime_mount_root(root: Path) -> None:
+    """Require the whole-worktree /app mount to be readable and searchable."""
+
+    metadata = root.lstat()
+    if stat.S_ISLNK(metadata.st_mode):
+        raise BindSourceGuardError("bind_source_symlink_forbidden")
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise BindSourceGuardError("bind_source_type_invalid")
+    if _runtime_identity_bits(metadata) & 0o5 != 0o5:
+        raise BindSourceGuardError("bind_source_directory_not_readable_searchable")
+
+
+def repair_runtime_mount_root_permissions(root: Path) -> int:
+    """Normalize only the mount root, never private files below it."""
+
+    metadata = root.lstat()
+    if stat.S_ISLNK(metadata.st_mode):
+        raise BindSourceGuardError("bind_source_symlink_forbidden")
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise BindSourceGuardError("bind_source_type_invalid")
+    current_mode = stat.S_IMODE(metadata.st_mode)
+    desired_mode = (current_mode | 0o555) & ~0o022
+    if desired_mode == current_mode:
+        return 0
+    root.chmod(desired_mode, follow_symlinks=False)
+    return 1
+
+
 def _source_bindings(
     root: Path,
     *,
@@ -107,7 +148,10 @@ def repair_runtime_source_permissions(
     source: Path | None = None,
 ) -> int:
     resolved_root = Path(os.path.abspath(os.fspath(root.expanduser())))
-    return sum(
+    repaired = (
+        repair_runtime_mount_root_permissions(resolved_root) if source is None else 0
+    )
+    return repaired + sum(
         repair_runtime_source_tree_permissions(source_path)
         for _label, source_path, _target in _source_bindings(
             resolved_root,
@@ -122,6 +166,8 @@ def verify_runtime_source_tree(
     source: Path | None = None,
 ) -> dict[str, object]:
     resolved_root = Path(os.path.abspath(os.fspath(root.expanduser())))
+    if source is None:
+        verify_runtime_mount_root(resolved_root)
     bindings = _source_bindings(resolved_root, source=source)
     rendered = {
         "services": {
@@ -149,6 +195,8 @@ def verify_runtime_source_tree(
         "contract_name": CONTRACT_NAME,
         "status": "pass",
         "runtime_user": EXPECTED_USER,
+        "runtime_mount_root": "." if source is None else None,
+        "runtime_mount_root_verified": source is None,
         "source_trees": [label for label, _source, _target in bindings],
         "release_entries_scanned": int(receipt["release_entries_scanned"]),
         "release_files_scanned": int(receipt["release_files_scanned"]),
@@ -172,8 +220,9 @@ def main() -> int:
         "--repair",
         action="store_true",
         help=(
-            "Normalize public ea/app and scripts source modes before the "
-            "fail-closed verification."
+            "Normalize the release mount root plus public ea/app and scripts "
+            "source modes before the fail-closed verification. Private files "
+            "outside those source trees are never changed."
         ),
     )
     parser.add_argument("--pretty", action="store_true")

@@ -40,6 +40,8 @@ def test_runtime_source_tree_passes_without_reading_contents(tmp_path: Path) -> 
 
     assert receipt["status"] == "pass"
     assert receipt["runtime_user"] == "10001:10001"
+    assert receipt["runtime_mount_root"] == "."
+    assert receipt["runtime_mount_root_verified"] is True
     assert receipt["source_trees"] == ["ea/app", "scripts"]
     assert receipt["release_files_scanned"] == 2
     assert receipt["file_contents_read"] is False
@@ -78,6 +80,37 @@ def test_runtime_source_repair_covers_scripts_bind_mount(tmp_path: Path) -> None
 
     assert repaired == 1
     assert stat.S_IMODE(launcher.stat().st_mode) == 0o744
+    assert receipt["status"] == "pass"
+
+
+def test_runtime_source_tree_rejects_unsearchable_runtime_mount_root(
+    tmp_path: Path,
+) -> None:
+    root, _module = _runtime_tree(tmp_path)
+    root.chmod(0o700)
+
+    with pytest.raises(
+        BindSourceGuardError,
+        match="bind_source_directory_not_readable_searchable",
+    ):
+        verifier.verify_runtime_source_tree(root)
+
+
+def test_runtime_source_repair_covers_mount_root_without_exposing_private_files(
+    tmp_path: Path,
+) -> None:
+    root, _module = _runtime_tree(tmp_path)
+    private_env = root / ".env"
+    private_env.write_text("SECRET=not-read\n", encoding="utf-8")
+    private_env.chmod(0o600)
+    root.chmod(0o700)
+
+    repaired = verifier.repair_runtime_source_permissions(root)
+    receipt = verifier.verify_runtime_source_tree(root)
+
+    assert repaired == 1
+    assert stat.S_IMODE(root.stat().st_mode) == 0o755
+    assert stat.S_IMODE(private_env.stat().st_mode) == 0o600
     assert receipt["status"] == "pass"
 
 
