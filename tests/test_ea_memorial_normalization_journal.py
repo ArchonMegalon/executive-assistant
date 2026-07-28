@@ -162,9 +162,28 @@ def store(
     return journal.NormalizationRecoveryJournal(operator_anchor=anchor)
 
 
-def _payload(store: journal.NormalizationRecoveryJournal) -> dict[str, object]:
+def _payload(
+    store: journal.NormalizationRecoveryJournal,
+    *,
+    colocated: bool = False,
+) -> dict[str, object]:
     bundle = store.operator_anchor.parent / "retained-bundle"
     transaction_id = "normalize-transaction-001"
+    compose_names = (
+        (
+            "docker-compose.yml",
+            "docker-compose.prod.yml",
+            "docker-compose.memorial.yml",
+            "docker-compose.cloudflared.yml",
+            journal.NORMALIZATION_OVERRIDE_FILENAME,
+        )
+        if colocated
+        else (
+            "docker-compose.yml",
+            "docker-compose.memorial.yml",
+            journal.NORMALIZATION_OVERRIDE_FILENAME,
+        )
+    )
     return store.new_payload(
         transaction_id=transaction_id,
         release_root=store.operator_anchor,
@@ -176,11 +195,7 @@ def _payload(store: journal.NormalizationRecoveryJournal) -> dict[str, object]:
         retained_bundle_manifest_path=bundle / baseline_bundle.MANIFEST_NAME,
         retained_bundle_manifest_sha256=HEX,
         retained_bundle_plan_sha256="b" * 64,
-        ordered_compose_files=[
-            bundle / "docker-compose.yml",
-            bundle / "docker-compose.memorial.yml",
-            bundle / journal.NORMALIZATION_OVERRIDE_FILENAME,
-        ],
+        ordered_compose_files=[bundle / name for name in compose_names],
         environment_file=bundle / ".env",
         environment_local_file=bundle / ".env.local",
         source_revision=REVISION,
@@ -317,6 +332,23 @@ def test_create_read_is_private_durable_and_canonical(
         / interlock.NORMALIZATION_RECOVERY_STATE_DIRECTORY
         / interlock.NORMALIZATION_RECOVERY_JOURNAL_FILENAME
     )
+
+
+def test_colocated_five_file_bundle_is_exactly_journal_bound(
+    store: journal.NormalizationRecoveryJournal,
+) -> None:
+    payload = _payload(store, colocated=True)
+
+    validated = journal.validate_payload(
+        payload,
+        expected_path=store.path,
+        expected_operator_anchor=store.operator_anchor,
+    )
+
+    assert [
+        Path(path).name
+        for path in validated["retained_bundle"]["ordered_compose_files"]
+    ] == list(journal.SUPPORTED_RETAINED_COMPOSE_LAYOUTS[1])
 
 
 def test_absent_state_is_not_created_by_read(

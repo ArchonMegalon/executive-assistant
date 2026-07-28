@@ -46,6 +46,20 @@ MAX_JSON_DEPTH = 32
 MAX_JSON_ITEMS = 50_000
 MAX_JSON_STRING_BYTES = 256 * 1024
 NORMALIZATION_OVERRIDE_FILENAME = "docker-compose.api-baseline-normalization.yml"
+SUPPORTED_RETAINED_COMPOSE_LAYOUTS = (
+    (
+        "docker-compose.yml",
+        "docker-compose.memorial.yml",
+        NORMALIZATION_OVERRIDE_FILENAME,
+    ),
+    (
+        "docker-compose.yml",
+        "docker-compose.prod.yml",
+        "docker-compose.memorial.yml",
+        "docker-compose.cloudflared.yml",
+        NORMALIZATION_OVERRIDE_FILENAME,
+    ),
+)
 RETAINED_BUNDLE_MANIFEST_FILENAME = "baseline-bundle-manifest.json"
 TERMINAL_RECEIPT_CONTRACT_NAME = "ea.memorial_api_baseline_normalization.v2"
 TERMINAL_RECEIPT_VERSION = 2
@@ -1289,7 +1303,7 @@ def validate_payload(
         or not _is_hex(seal.get("manifest_sha256"))
         or not _is_hex(seal.get("plan_sha256"))
         or not isinstance(compose_files, list)
-        or len(compose_files) != 3
+        or len(compose_files) not in {3, 5}
         or not all(isinstance(item, str) for item in compose_files)
         or len(set(compose_files)) != len(compose_files)
         or type(local_present) is not bool
@@ -1306,9 +1320,8 @@ def validate_payload(
         manifest_path.name != RETAINED_BUNDLE_MANIFEST_FILENAME
         or environment_file.name != ".env"
         or (local_file is not None and local_file.name != ".env.local")
-        or compose_paths[0].name != "docker-compose.yml"
-        or compose_paths[1].name != "docker-compose.memorial.yml"
-        or compose_paths[2].name != NORMALIZATION_OVERRIDE_FILENAME
+        or tuple(path.name for path in compose_paths)
+        not in SUPPORTED_RETAINED_COMPOSE_LAYOUTS
     ):
         _fail("normalization_journal_bundle_binding_invalid")
 
