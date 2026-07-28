@@ -587,6 +587,18 @@ def _secret_like_string(value: str) -> bool:
     return False
 
 
+def _safe_projection_path(value: str) -> bool:
+    return (
+        bool(value)
+        and "\x00" not in value
+        and not value.startswith("~")
+        and os.path.isabs(value)
+        and os.path.normpath(value) == value
+        and Path(value) != Path("/")
+        and ".." not in Path(value).parts
+    )
+
+
 def _reject_secret_projection(value: object, *, name: str, key: str = "") -> None:
     if isinstance(value, Mapping):
         for raw_key, item in value.items():
@@ -616,6 +628,8 @@ def _reject_secret_projection(value: object, *, name: str, key: str = "") -> Non
             _reject_secret_projection(item, name=name, key=key)
     elif isinstance(value, str):
         if key == "path" and value in {path for _, path in PUBLIC_EDGE_PROBES}:
+            return
+        if key == "source" and _safe_projection_path(value):
             return
         if _secret_like_string(value):
             _fail(f"normalization_journal_{name}_secret_material_invalid")

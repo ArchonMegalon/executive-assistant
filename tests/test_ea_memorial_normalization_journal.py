@@ -946,6 +946,32 @@ def test_secret_like_values_under_innocuous_keys_are_rejected(
         )
 
 
+def test_secret_scanner_accepts_only_normalized_absolute_mount_sources() -> None:
+    journal._reject_secret_projection(
+        {
+            "source": (
+                "/home/operator/releases/"
+                "opaque_AbCDefghijklmnopqrstuvwxyz0123456789"
+            )
+        },
+        name="api_identity",
+    )
+
+    with pytest.raises(
+        journal.NormalizationJournalError,
+        match="secret_material",
+    ):
+        journal._reject_secret_projection(
+            {
+                "source": (
+                    "opaque_"
+                    + "AbCDefghijklmnopqrstuvwxyz0123456789" * 3
+                )
+            },
+            name="api_identity",
+        )
+
+
 def test_remove_only_accepts_exact_owned_terminal_evidence(
     store: journal.NormalizationRecoveryJournal,
 ) -> None:
