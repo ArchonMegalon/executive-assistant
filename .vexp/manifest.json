@@ -615,7 +615,7 @@
     "ea/app/services/public_urls.py": "e887604cf961e75bc33c979ad57ab8e9acdfbb2c7d2efae1f1b978234dc56637",
     "ea/app/services/pushbullet_delivery.py": "c1b73cd2c49d189907afb6f9ab728bf84e2f596234803b39e7b498d0456c4884",
     "ea/app/services/pushbullet_relay.py": "36f4750c4229c8136bb1fafcb639ffc5b635822ca09ec6c804b87137e0f98422",
-    "ea/app/services/registration_email.py": "3627dc7c2eef4e60345c7e8331557d7cb4bebe0cbafda967c97f974028c9babb",
+    "ea/app/services/registration_email.py": "fa85f726847ffe6eaef82868758e68e050a04ac1da0f03bd6f8ce7dbf2186bb4",
     "ea/app/services/release_materialization_service.py": "ec1bb7861113f2498296ef3968f366e81f2c74ea75086e9771a657e2cb2dfae8",
     "ea/app/services/replanning.py": "b131c3632d731efaa4411f27d1055a18c634e1bb809a84d1657433b2d2aa9e67",
     "ea/app/services/responses_upstream.py": "ab112cb8984e97b60256c6a62d82d2f50724056c8f71f19bb272e27647233999",
@@ -1760,7 +1760,7 @@
     "tests/test_refresh_memorial_unmixr_clone.py": "003d50584823984243c089029af851f23331925e003cca9dd42f0ce6d165003f",
     "tests/test_refresh_memorial_voicewave_backup.py": "13c82e53ca1bcc201ddd544604ef1d7aa82186cca21e2dd5d0d0346983faf9f9",
     "tests/test_refresh_onemin_browseract_balances.py": "019b7aa98457a14dc3f0023b20f6c86a67a9d73d1e07f5fc474a5cde021d85f7",
-    "tests/test_registration_contracts.py": "7994c1596b8b7e800d678f9aaf71b3f8a9d73ec59a62bd9dfa99f541b4b5dd39",
+    "tests/test_registration_contracts.py": "49093b9434205b8b68eb938eb5f38c4d803c3ea171116cf9d80b7458a28deb37",
     "tests/test_release_authority_runtime.py": "40764539f2f419ae087e74f3fe7204136d4743be009bedcdceaad9e3266234ce",
     "tests/test_release_materialization_service.py": "693c42c7454754c656a37ea9ce38c76d3e18d25dfdbaa67d347eb8f6bad10d64",
     "tests/test_repair_public_tour_permissions.py": "285cf7c963470ec55aaad4ec6ebe7417dbcb14abfee2442207800fae469f857f",
@@ -1879,13 +1879,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "1f7489d4407600e71ae3a84695c805c7c83e0e41",
-  "indexed_at_timestamp": "2026-07-29T04:56:28.730751930+00:00",
+  "indexed_at_commit": "7cea3f5b4698dfcab43a3381961db1b3517d9bcc",
+  "indexed_at_timestamp": "2026-07-29T05:08:14.830396999+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 47254,
+    "total_edges": 47257,
     "total_files": 1878,
-    "total_nodes": 29619
+    "total_nodes": 29620
   },
   "vexp_version": "2.3.1"
 }

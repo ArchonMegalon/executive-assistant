@@ -884,6 +884,61 @@ def test_registration_email_falls_back_to_verified_sender_when_domain_is_not_ver
     assert receipt.message_id == "emailit-live-fallback-1"
 
 
+def test_workspace_access_email_records_terminal_provider_error_as_failed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    guard_path = tmp_path / "outbound_email_guard.json"
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "property@example.test")
+    monkeypatch.setenv("EA_EMAIL_DEFAULT_FROM", "property@example.test")
+    monkeypatch.delenv("EA_REGISTRATION_EMAIL_FROM_FALLBACK", raising=False)
+    monkeypatch.setenv("EA_OUTBOUND_EMAIL_GUARD_STATE_PATH", str(guard_path))
+    monkeypatch.setenv("EA_OUTBOUND_EMAIL_AUTH_COOLDOWN_SECONDS", "3600")
+    monkeypatch.setenv("EA_OUTBOUND_EMAIL_FAILURE_COOLDOWN_SECONDS", "60")
+
+    from app.services import registration_email as service
+    from app.services.outbound_email_bounds import _attempt_cooldown_seconds, outbound_email_policy
+
+    class _DomainNotVerified(service.urllib.error.HTTPError):
+        def __init__(self):
+            super().__init__(
+                url=service.EMAILIT_API_BASE,
+                code=422,
+                msg="Unprocessable Entity",
+                hdrs=None,
+                fp=None,
+            )
+
+        def read(self) -> bytes:
+            return b'{"error":"Domain not verified"}'
+
+    monkeypatch.setattr(
+        service.urllib.request,
+        "urlopen",
+        lambda request, timeout=0: (_ for _ in ()).throw(_DomainNotVerified()),
+    )
+
+    with pytest.raises(RuntimeError, match="registration_email_send_failed:422"):
+        service.send_workspace_access_email(
+            recipient_email="founder@example.com",
+            workspace_name="Founder Office",
+            access_url="https://assistant.example.test/workspace-access/test-token",
+            role="principal",
+            display_name="Founder Office",
+            expires_at="2026-03-26T01:00:00+00:00",
+        )
+
+    payload = json.loads(guard_path.read_text(encoding="utf-8"))
+    attempts = next(iter(payload["entries"].values()))
+    assert len(attempts) == 1
+    assert attempts[0]["status"] == "failed"
+    assert _attempt_cooldown_seconds(
+        attempts[0],
+        policy=outbound_email_policy("ea_workspace_access_session"),
+    ) == 60
+
+
 def test_registration_email_can_force_verified_sender_without_primary_attempt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -547,14 +547,13 @@ def _send_emailit_email(
                             provider_error=str(error_payload.get("error") or "too_many_requests"),
                             detail=detail[:600],
                         ) from exc
-                    break
+                    raise RuntimeError(last_error or "registration_email_send_failed") from exc
     except OutboundEmailRateLimitedError as exc:
         raise EmailDeliveryRateLimitedError(
             retry_after_seconds=exc.retry_after_seconds,
             provider_error=exc.reason,
             detail=exc.detail,
         ) from exc
-    raise RuntimeError(last_error or "registration_email_send_failed")
 
 
 def send_registration_email(*, recipient_email: str, verification_code: str, magic_link_url: str, expires_at: int) -> RegistrationEmailReceipt:
