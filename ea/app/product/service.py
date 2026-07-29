@@ -32788,20 +32788,14 @@ class ProductService:
                     invite_note = str(candidate.get("note") or "").strip()
                     invite_expires_at = str(candidate.get("expires_at") or "").strip()
                     if email_delivery_enabled():
-                        with bounded_outbound_email(
-                            kind="ea_workspace_invitation",
+                        receipt = send_workspace_invitation_email(
                             recipient_email=normalized_email,
-                            subject=_workspace_invitation_email_subject(invited_by=invited_by),
-                            provider="emailit",
-                        ):
-                            receipt = send_workspace_invitation_email(
-                                recipient_email=normalized_email,
-                                invite_url=absolute_invite_url,
-                                role=role,
-                                invited_by=invited_by,
-                                note=invite_note,
-                                expires_at=invite_expires_at,
-                            )
+                            invite_url=absolute_invite_url,
+                            role=role,
+                            invited_by=invited_by,
+                            note=invite_note,
+                            expires_at=invite_expires_at,
+                        )
                         provider = receipt.provider
                     elif _workspace_sign_in_gmail_fallback_enabled():
                         with bounded_outbound_email(
@@ -32863,20 +32857,14 @@ class ProductService:
                 absolute_access_url = urllib.parse.urljoin(str(base_url or "").strip(), access_url) if str(base_url or "").strip() else access_url
                 access_expires_at = str(access_session.get("expires_at") or "").strip()
                 if email_delivery_enabled():
-                    with bounded_outbound_email(
-                        kind="ea_workspace_access_session",
+                    receipt = send_workspace_access_email(
                         recipient_email=normalized_email,
-                        subject=_workspace_access_email_subject(workspace_name=workspace_name),
-                        provider="emailit",
-                    ):
-                        receipt = send_workspace_access_email(
-                            recipient_email=normalized_email,
-                            workspace_name=workspace_name,
-                            access_url=absolute_access_url,
-                            role=role,
-                            display_name=display_name,
-                            expires_at=access_expires_at,
-                        )
+                        workspace_name=workspace_name,
+                        access_url=absolute_access_url,
+                        role=role,
+                        display_name=display_name,
+                        expires_at=access_expires_at,
+                    )
                     provider = receipt.provider
                 elif _workspace_sign_in_gmail_fallback_enabled():
                     with bounded_outbound_email(

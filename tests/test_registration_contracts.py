@@ -436,9 +436,11 @@ def test_sign_in_email_link_gmail_fallback_obeys_outbound_bounds(
 
 def test_sign_in_email_link_emailit_obeys_outbound_bounds(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
 ) -> None:
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
     monkeypatch.setenv("EA_OUTBOUND_EMAIL_AUTH_COOLDOWN_SECONDS", "3600")
+    monkeypatch.setenv("EA_OUTBOUND_EMAIL_GUARD_STATE_PATH", str(tmp_path / "outbound_email_guard.json"))
     client = _client(monkeypatch)
     start_workspace(client, mode="personal", workspace_name="Founder Office")
 
@@ -449,19 +451,26 @@ def test_sign_in_email_link_emailit_obeys_outbound_bounds(
     assert issued.status_code == 200
 
     from app.product import service as product_service
-    from app.services.registration_email import RegistrationEmailReceipt
+    from app.services import registration_email
+    from app.services.outbound_email_bounds import outbound_email_guard_summary
 
-    observed: list[dict[str, object]] = []
+    observed: list[object] = []
 
-    def _fake_send_workspace_access_email(**kwargs) -> RegistrationEmailReceipt:
-        observed.append(dict(kwargs))
-        return RegistrationEmailReceipt(
-            provider="emailit",
-            message_id=f"access-message-{len(observed)}",
-            accepted_at="2026-03-26T00:00:00+00:00",
-        )
+    class _Response:
+        def __enter__(self):
+            return self
 
-    monkeypatch.setattr(product_service, "send_workspace_access_email", _fake_send_workspace_access_email)
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"id": "access-message-1"}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=0):
+        observed.append(request)
+        return _Response()
+
+    monkeypatch.setattr(registration_email.urllib.request, "urlopen", _fake_urlopen)
 
     service = product_service.build_product_service(client.app.state.container)
     first = service.request_workspace_sign_in_email_links(
@@ -478,7 +487,10 @@ def test_sign_in_email_link_emailit_obeys_outbound_bounds(
     assert second["status"] == "failed"
     assert second["failed_total"] == 1
     assert len(observed) == 1
-    assert "outbound_email_rate_limited:cooldown" in str(second["items"][0]["error"])
+    assert "registration_email_rate_limited:cooldown" in str(second["items"][0]["error"])
+    guard = outbound_email_guard_summary(state_path=tmp_path / "outbound_email_guard.json")
+    assert guard["attempt_count"] == 1
+    assert guard["categories"]["auth"]["attempt_count"] == 1
 
 
 def test_sign_in_email_link_does_not_disclose_missing_workspace_match(
