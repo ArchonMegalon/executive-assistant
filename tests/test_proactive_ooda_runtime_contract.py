@@ -38,11 +38,18 @@ def test_proactive_ooda_has_deployable_lightweight_service_and_operator_targets(
     assert "run_ooda_exec property-scout-disabled" in deploy_script
     assert "run_ooda_exec teable-resync" in deploy_script
     assert "repair_ooda_runtime_output_permissions()" in deploy_script
-    assert 'chmod -R a+rwX "${APP_ROOT}/.codex-studio/published" "${APP_ROOT}/.runtime"' in deploy_script
+    assert "chmod g+rwX,g+s" in deploy_script
+    assert "chmod g+rw" in deploy_script
+    assert "chmod -R a+rwX" not in deploy_script
     assert "compose up -d --no-build --no-deps --force-recreate ea-proactive-ooda ea-telegram-teable-sync" in deploy_script
     assert "wait_ready ea-proactive-ooda 180" in deploy_script
     assert "bootstrap_proactive_ooda_teable_tables.py\" --create-missing --write-config" in deploy_script
+    assert "EA_OODA_DEPLOY_CLEANUP_APPROVAL_CALLBACKS" in deploy_script
+    assert "cleanup-proactive-approval-callbacks" in deploy_script
+    assert "EA_OODA_DEPLOY_CALLBACK_CLEANUP_TIMEOUT_SECONDS" in deploy_script
     assert "resync_proactive_ooda_teable_projection.py" in deploy_script
+    assert "'gate':'operator-runtime-posture'" in deploy_script
+    assert "'gate':'proactive-gold-acceptance'" in deploy_script
     assert "verify_proactive_ooda_operator_status.py" in deploy_script
     assert "verify_proactive_ooda_gold_acceptance.py" in deploy_script
     assert "_scheduler_property_scout_enabled" in deploy_script

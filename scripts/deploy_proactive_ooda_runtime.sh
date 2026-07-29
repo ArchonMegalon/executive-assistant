@@ -24,8 +24,12 @@ Environment:
   COMPOSE_PROJECT_NAME=ea                 Compose project name (default: ea).
   EA_OODA_DEPLOY_ALLOW_DIRTY_WORKTREE=1   Allow dirty worktree rollout (default: 0).
   EA_OODA_DEPLOY_RESYNC_TEABLE=0          Skip latest-run Teable resync (default: 1).
+  EA_OODA_DEPLOY_CLEANUP_APPROVAL_CALLBACKS=0
+                                            Skip stale callback cleanup (default: 1).
   EA_OODA_DEPLOY_DOCKER_EXEC_TIMEOUT_SECONDS=180
                                             Bound each container-side verifier.
+  EA_OODA_DEPLOY_CALLBACK_CLEANUP_TIMEOUT_SECONDS=600
+                                            Bound governed callback cleanup.
   EA_OODA_DEPLOY_GOLD_TIMEOUT_SECONDS=600 Bound the heavier gold evidence scan.
 EOF
 }
@@ -187,11 +191,23 @@ repair_ooda_runtime_container_output_permissions
 run_ooda_exec property-scout-disabled python -c "from app.runner import _scheduler_property_scout_enabled; raise SystemExit(1 if _scheduler_property_scout_enabled() else 0)"
 run_ooda_exec teable-table-sync-config python -c "import json, os; expected={'proactive_ooda_runs','proactive_ooda_items','proactive_ooda_safe_work'}; enabled=os.environ.get('EA_PROACTIVE_OODA_TEABLE_SYNC_ENABLED','0') == '1'; data=json.loads(os.environ.get('TEABLE_TABLE_SYNC_CONFIG_JSON','{}') or '{}'); missing=sorted(expected-set(data)); raise SystemExit(1 if enabled and missing else 0)"
 
+if [[ "${EA_OODA_DEPLOY_CLEANUP_APPROVAL_CALLBACKS:-1}" == "1" ]]; then
+  callback_cleanup_timeout="${EA_OODA_DEPLOY_CALLBACK_CLEANUP_TIMEOUT_SECONDS:-600}"
+  EA_OODA_DEPLOY_DOCKER_EXEC_TIMEOUT_SECONDS="${callback_cleanup_timeout}" \
+    run_bounded cleanup-approval-callbacks \
+      "${PYTHON_BIN}" "${APP_ROOT}/scripts/ea_live_ops.py" \
+      cleanup-proactive-approval-callbacks \
+      --execute \
+      --format operator \
+      --timeout-seconds "${callback_cleanup_timeout}"
+fi
+
 if [[ "${EA_OODA_DEPLOY_RESYNC_TEABLE:-1}" == "1" ]]; then
   run_ooda_exec teable-resync sh -ec 'if [ "${EA_PROACTIVE_OODA_TEABLE_SYNC_ENABLED:-0}" = "1" ]; then python /app/scripts/resync_proactive_ooda_teable_projection.py --principal-id "$EA_PROACTIVE_OODA_PRINCIPAL_ID" --state-path /data/provider-ledger/proactive_ooda_notified.json --receipt-path /data/provider-ledger/proactive_ooda_latest_run.generated.json --stage-packet-dir /data/provider-ledger/proactive_ooda_stage_packets --safe-work-result-dir /data/provider-ledger/proactive_ooda_safe_work_results --write-receipt --require-enabled; fi'
 fi
 
 run_ooda_exec materialize-operator-status python /app/scripts/materialize_proactive_ooda_operator_status.py --output /tmp/ea_proactive_ooda_operator_status.deploy.json >/dev/null
+run_ooda_exec operator-status-summary python -c "import json,pathlib; d=json.loads(pathlib.Path('/tmp/ea_proactive_ooda_operator_status.deploy.json').read_text()); print(json.dumps({'gate':'operator-runtime-posture','status':d.get('status'),'reason':d.get('reason'),'next_action':d.get('next_action'),'source_git_head':d.get('source_git_head')}, sort_keys=True))"
 run_ooda_exec verify-operator-status python /app/scripts/verify_proactive_ooda_operator_status.py --receipt /tmp/ea_proactive_ooda_operator_status.deploy.json --pretty
 EA_OODA_DEPLOY_DOCKER_EXEC_TIMEOUT_SECONDS="${EA_OODA_DEPLOY_GOLD_TIMEOUT_SECONDS:-600}" \
   run_ooda_exec materialize-gold-acceptance \
@@ -201,6 +217,7 @@ EA_OODA_DEPLOY_DOCKER_EXEC_TIMEOUT_SECONDS="${EA_OODA_DEPLOY_GOLD_TIMEOUT_SECOND
     --stage-packet-dir /data/provider-ledger/proactive_ooda_stage_packets \
     --safe-work-result-dir /data/provider-ledger/proactive_ooda_safe_work_results \
     >/dev/null
+run_ooda_exec gold-status-summary python -c "import json,pathlib; d=json.loads(pathlib.Path('/tmp/ea_proactive_ooda_gold_acceptance.deploy.json').read_text()); print(json.dumps({'gate':'proactive-gold-acceptance','status':d.get('status'),'reason':d.get('reason'),'next_action':d.get('next_action'),'source_git_head':d.get('source_git_head')}, sort_keys=True))"
 run_ooda_exec verify-gold-acceptance python /app/scripts/verify_proactive_ooda_gold_acceptance.py --receipt /tmp/ea_proactive_ooda_gold_acceptance.deploy.json --pretty
 
 run_ooda_exec latest-run-summary python -c "import json,pathlib; p=pathlib.Path('/data/provider-ledger/proactive_ooda_latest_run.generated.json'); d=json.loads(p.read_text()) if p.exists() else {}; r=d.get('receipt') if isinstance(d.get('receipt'),dict) else d; ts=d.get('teable_sync') or r.get('teable_sync') or {}; print(json.dumps({'status':'ok','notification_status':r.get('notification_status'),'error_code':r.get('error_code'),'telegram_message_count':len(r.get('telegram_message_ids') or []),'teable_status':ts.get('status'),'teable_missing_tables':ts.get('missing_tables')}, sort_keys=True))"

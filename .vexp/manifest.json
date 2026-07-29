@@ -1111,7 +1111,7 @@
     "scripts/deploy_ea_audiobook_runtime.py": "6f64088eb42451da3c067f084a351e09528c018348e21322e015f141b40051ee",
     "scripts/deploy_ea_memorial.py": "e970353f674a1150e9863c4dc4fb30b896fe2ffa95204816de8bc6ff84e9c6bb",
     "scripts/deploy_ea_memorial_joint.py": "1a7b9ffffd9b55242623d378d0d12946a05cc0cc6c4b2e9fb72cba0ff1fa5973",
-    "scripts/deploy_proactive_ooda_runtime.sh": "6835df5df04766825ed5b84ea8958c0e80be9f12cd530f6c0e61e07fef1b135f",
+    "scripts/deploy_proactive_ooda_runtime.sh": "2a5b04ba74fabf19a36ac8a15fa736ac94c42e24b37a84df72d069456aeabb41",
     "scripts/diff_openapi.sh": "3e9259551ce0a3ed922cc1f3078c78bec125f0e5112db768cbb9e36aeef51f97",
     "scripts/ea_memorial_baseline_bundle.py": "9a32dd18eb285248376da8250044bfefca5d63051ded14eb7a2857842dab79a7",
     "scripts/ea_memorial_normalization_journal.py": "fc54e69a5401a02d7cd94d77c86b725e993b5b2f436b62c490a94a81e03595e2",
@@ -1710,7 +1710,7 @@
     "tests/test_proactive_ooda_operator_status_verifier.py": "23457c62ccbc6251314989217e3ed7887616a3cf698c6471789b49e08d143356",
     "tests/test_proactive_ooda_receipts.py": "58bea3efe7f4a5514984437203c4fdc050288d3d38a533c360a27d668db279ae",
     "tests/test_proactive_ooda_runtime_artifacts.py": "93e552c0d94dece2486cb3740282faf95c98f34cd504e2dd7266c9454aea237d",
-    "tests/test_proactive_ooda_runtime_contract.py": "a5a58a0ac90686a7756c3cf88fc86f4899bab7a9de4887fa2e9a021737540114",
+    "tests/test_proactive_ooda_runtime_contract.py": "e7f5ad3d00a7f6684debe17cfe4e6a0376d70719ef9b9c6b96dc162824e1898c",
     "tests/test_proactive_ooda_safe_work.py": "7aecbcd5cd0fa0623edadb29688db7e74f784ebaffd36b5e5b066bf34d9af25a",
     "tests/test_proactive_ooda_service.py": "be5217bb785c8a3e8b950a97b75d2c14b6bf7c3f9926b4b72d83837c80af5593",
     "tests/test_proactive_ooda_stage_packets.py": "ec9fbebd00dd51317e5fb66d64129ef2bf7a5959a83593745278ccd84c5b9296",
@@ -1879,11 +1879,11 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "84c5ed4a484c87aa9e36c58929c6541886bd1a8f",
-  "indexed_at_timestamp": "2026-07-29T06:50:41.189516663+00:00",
+  "indexed_at_commit": "3941c0471ddcac1c4b22631b721b866d412b57c7",
+  "indexed_at_timestamp": "2026-07-29T07:16:34.500076634+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 47233,
+    "total_edges": 47273,
     "total_files": 1878,
     "total_nodes": 29627
   },
