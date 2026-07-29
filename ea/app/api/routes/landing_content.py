@@ -89,7 +89,7 @@ FEATURE_CARDS = (
 )
 
 HOW_STEPS = (
-    {"title": "Create the account", "body": "Use email first, then optional Google identity so return access stays simple and narrow."},
+    {"title": "Create the account", "body": "Use secure email access first, then connect Google only if it improves the property workflow."},
     {"title": "Set your search posture", "body": "Define market, budget, household needs, and hard rules before the first sweep runs."},
     {"title": "Review the shortlist", "body": "Keep the first run focused on ranked candidates, research packets, and visible feedback."},
 )
@@ -101,13 +101,13 @@ PERSONAS = (
 )
 
 EA_TRUST_CARDS = (
-    {"title": "Tight account permissions", "body": "Google is optional identity and return access, not a hidden demand for broad mailbox permissions."},
+    {"title": "Tight account permissions", "body": "Workspace access uses secure email. Google is an optional integration later, not a hidden demand for broad mailbox permissions."},
     {"title": "Visible review boundaries", "body": "The product should say clearly what it can read, draft, recommend, or send today, and where approval is still required."},
     {"title": "Durable office context", "body": "People context, commitments, and evidence should stay attached to the office loop instead of drifting across isolated chats and prompts."},
 )
 
 PROPERTY_TRUST_CARDS = (
-    {"title": "Tight account permissions", "body": "Google is optional identity and return access, not a hidden demand for broad mailbox permissions."},
+    {"title": "Tight account permissions", "body": "Workspace access uses secure email. Google is an optional integration later, not a hidden demand for broad mailbox permissions."},
     {"title": "Visible research posture", "body": "The product should make clear which portals were scanned, which assumptions were made, and what still needs verification."},
     {"title": "Saved learning loop", "body": "Feedback, property reasons, and shortlist context stay visible so search quality improves instead of drifting."},
 )
@@ -132,7 +132,7 @@ EA_LANDING_FAQS = (
 PROPERTY_LANDING_FAQS = (
     {
         "question": "What does it connect to?",
-        "answer": "Start with account creation and property preferences. Google is optional for sign-in continuity. Portal coverage and research expand from there.",
+        "answer": "Start with secure email access and property preferences. Google is an optional workspace integration after sign-in. Portal coverage and research expand from there.",
     },
     {
         "question": "Does it auto-research every listing?",
@@ -154,16 +154,16 @@ PRODUCT_MODULES = (
 )
 
 EA_SIGN_IN_NOTES = (
-    "Return through a current session, a secure email link, a workspace invite, or SSO.",
+    "Return through a current session, a secure email link, a workspace invite, or a managed access gateway.",
     "Start at /get-started if this is a first-time account.",
-    "Google connection is optional until it improves the office loop.",
+    "Connect Google from Settings only after secure workspace access is established.",
     "Workspace controls come later from Settings after Today is already useful.",
 )
 
 PROPERTY_SIGN_IN_NOTES = (
-    "Return through a current session, a secure email link, a workspace invite, or SSO.",
+    "Return through a current session, a secure email link, a workspace invite, or a managed access gateway.",
     "Create a property workspace from /register if you are starting fresh.",
-    "Google connection is optional identity and return access, not the required center of the product.",
+    "Connect Google from Settings only after secure workspace access is established.",
     "Shared review, billing, and broader workspace controls come later from Preferences after the first shortlist proves useful.",
 )
 

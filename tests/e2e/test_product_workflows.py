@@ -391,6 +391,7 @@ def product_browser_server() -> Iterator[dict[str, object]]:
     os.environ["EA_ENABLE_PUBLIC_SIDE_SURFACES"] = "0"
     os.environ["EA_ENABLE_PUBLIC_RESULTS"] = "0"
     os.environ["EA_ENABLE_PUBLIC_TOURS"] = "0"
+    os.environ["EMAILIT_API_KEY"] = "browser-test-emailit-key"
 
     app = create_app()
     client = TestClient(app)
@@ -960,18 +961,57 @@ def test_queue_mobile_polish_and_confirmation_in_real_browser(
     assert busy_state == {"busy": "true", "label": "Working…", "disabled": True}
 
 
+def test_sign_in_polish_and_recovery_in_real_browser(
+    page: Page,
+    product_browser_server: dict[str, object],
+) -> None:
+    base_url = str(product_browser_server["base_url"])
+
+    response = page.goto(f"{base_url}/sign-in?return_to=%2Fapp%2Fqueue", wait_until="networkidle")
+    assert response is not None and response.ok
+    assert page.get_by_role("heading", name="Welcome back to your workspace.").count() == 1
+    assert page.get_by_label("Workspace email").get_attribute("autocomplete") == "email"
+    assert page.get_by_role("button", name="Email me a secure link").count() == 1
+    assert page.locator('nav[aria-label="Primary navigation"] a[aria-current="page"]').inner_text() == "Sign in"
+    assert page.locator('.skip-link[href="#public-content"]').count() == 1
+
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth") <= 1
+    assert page.get_by_label("Workspace email").evaluate(
+        "(node) => node.getBoundingClientRect().width <= node.parentElement.getBoundingClientRect().width"
+    )
+    _assert_visual_baseline(page, "sign-in-mobile-page.png", full_page=True)
+
+    page.get_by_label("Workspace email").fill("unmatched-browser@example.test")
+    with page.expect_response(
+        lambda value: "/sign-in/email-link" in value.url and value.request.method == "POST"
+    ) as sign_in_response:
+        page.get_by_role("button", name="Email me a secure link").click()
+    assert sign_in_response.value.status == 303
+    page.wait_for_url(f"{base_url}/sign-in?link_status=requested")
+    page.wait_for_load_state("networkidle")
+    assert page.get_by_role("heading", name="Check your inbox for the newest secure link.").count() == 1
+    feedback = page.locator("[data-access-feedback]")
+    assert feedback.get_attribute("role") == "status"
+    assert feedback.evaluate("(node) => document.activeElement === node")
+    assert page.get_by_text("Use a different email", exact=True).count() == 1
+    assert "unmatched-browser@example.test" not in page.url
+    assert "unmatched-browser@example.test" not in page.content()
+
+
 @pytest.mark.parametrize(
     ("path", "snapshot_name", "full_page"),
     (
         ("/", "landing-page.png", True),
         ("/register", "get-started-page.png", True),
+        ("/sign-in?return_to=%2Fapp%2Fqueue", "sign-in-page.png", True),
         ("/app/today", "today-page.png", True),
         ("/app/queue", "briefing-page.png", False),
         ("/app/queue", "inbox-page.png", True),
         ("/app/commitments", "followups-page.png", True),
         ("/admin/audit-trail", "admin-audit-page.png", True),
     ),
-    ids=("landing", "get-started", "today", "briefing-viewport", "inbox", "followups", "admin-audit"),
+    ids=("landing", "get-started", "sign-in", "today", "briefing-viewport", "inbox", "followups", "admin-audit"),
 )
 def test_core_surface_visual_regression(
     browser: Browser,

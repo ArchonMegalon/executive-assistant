@@ -1,154 +1,450 @@
 {% extends "base_public.html" %}
+{% macro email_link_form() -%}
+<form class="access-form" method="post" action="/sign-in/email-link" data-access-form>
+  <input type="hidden" name="return_to" value="{{ sign_in_return_to }}">
+  <div class="access-field">
+    <label for="sign_in_email">Workspace email</label>
+    <input
+      id="sign_in_email"
+      name="email"
+      type="email"
+      value="{{ sign_in_link_email or '' }}"
+      placeholder="you@company.com"
+      autocomplete="email"
+      autocapitalize="none"
+      spellcheck="false"
+      inputmode="email"
+      enterkeyhint="send"
+      aria-describedby="sign_in_email_help sign_in_email_privacy"
+      {% if not sign_in_link_status and not sign_in_google_error %}autofocus{% endif %}
+      required
+    >
+    <p class="access-help" id="sign_in_email_help">Use the inbox already attached to your workspace.</p>
+  </div>
+  <button class="btn primary access-submit" type="submit" data-access-submit>Email me a secure link</button>
+  <p class="access-privacy" id="sign_in_email_privacy">No password required. For privacy, the confirmation is the same for every valid address.</p>
+  <div class="sr-only" role="status" aria-live="polite" aria-atomic="true" data-access-live></div>
+</form>
+{%- endmacro %}
 {% block content %}
 <style>
-  .access-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(340px, 0.92fr);
-    gap: 18px;
+  .sr-only {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
   }
-  .access-panel,
-  .access-card {
+  .access-shell {
+    width: min(1040px, 100%);
+    margin: 12px auto 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
+    gap: 18px;
+    align-items: start;
+  }
+  .access-panel {
+    position: relative;
+    overflow: hidden;
     border: 1px solid var(--line);
-    border-radius: 16px;
-    background: rgba(255,255,255,0.03);
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(255, 253, 248, 0.98), rgba(253, 249, 241, 0.96));
     box-shadow: var(--shadow);
   }
-  .access-panel,
-  .access-card {
-    padding: 24px;
+  .access-panel::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto;
+    height: 82px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.76), rgba(255,255,255,0));
+    pointer-events: none;
   }
-  .access-card-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px;
+  .access-primary {
+    padding: 32px;
   }
-  .access-card strong {
-    display: block;
-    margin-bottom: 6px;
+  .access-primary > *,
+  .access-guide > * {
+    position: relative;
+    z-index: 1;
+  }
+  .access-primary h1 {
+    max-width: 15ch;
+  }
+  .access-primary .lead {
+    max-width: 56ch;
+  }
+  .access-form-card {
+    margin-top: 24px;
+    padding: 18px;
+    border: 1px solid var(--line);
+    border-radius: 15px;
+    background: rgba(255,255,255,0.46);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.72);
   }
   .access-form {
     display: grid;
-    gap: 12px;
-    margin-top: 18px;
+    gap: 14px;
+  }
+  .access-field {
+    display: grid;
+    gap: 7px;
   }
   .access-form label {
-    display: block;
-    font-size: 0.85rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 650;
   }
   .access-form input {
     width: 100%;
+    min-height: 50px;
+    padding: 0 14px;
+    border: 1px solid var(--line-strong);
+    border-radius: 11px;
+    background: var(--panel);
+    color: var(--text);
+    font: inherit;
+    font-size: 16px;
+    box-shadow: inset 0 1px 2px rgba(38, 32, 22, 0.04);
+    transition: border-color var(--ease), box-shadow var(--ease), background var(--ease);
+  }
+  .access-form input:hover {
+    border-color: var(--accent);
+  }
+  .access-form input::placeholder {
+    color: var(--text-dim);
+  }
+  .access-help,
+  .access-privacy {
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .access-privacy {
+    padding-top: 2px;
+  }
+  .access-submit {
+    width: 100%;
+    min-height: 48px;
+    border: 0;
+    cursor: pointer;
+    font: inherit;
+  }
+  .access-submit:disabled {
+    cursor: wait;
+    opacity: 0.72;
+    transform: none;
   }
   .access-feedback {
-    margin-top: 18px;
-    padding: 14px 16px;
-    border-radius: 14px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    margin-top: 22px;
+    padding: 16px;
     border: 1px solid var(--line);
-    background: rgba(255,255,255,0.03);
+    border-radius: 14px;
+    background: rgba(255,255,255,0.46);
+  }
+  .access-feedback.success {
+    border-color: rgba(39, 107, 83, 0.28);
+    background: rgba(39, 107, 83, 0.08);
+  }
+  .access-feedback.error {
+    border-color: rgba(166, 83, 71, 0.3);
+    background: rgba(166, 83, 71, 0.07);
+  }
+  .access-feedback-mark {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    color: var(--text-soft);
+    font-weight: 700;
+  }
+  .access-feedback.success .access-feedback-mark {
+    color: var(--good);
+  }
+  .access-feedback.error .access-feedback-mark {
+    color: var(--danger);
   }
   .access-feedback strong {
     display: block;
-    margin-bottom: 6px;
+    margin: 2px 0 5px;
   }
-  @media (max-width: 1080px) {
-    .access-grid,
-    .access-card-grid {
+  .access-feedback p {
+    color: var(--text-soft);
+  }
+  .access-resend {
+    margin-top: 14px;
+    border-top: 1px solid rgba(39, 107, 83, 0.2);
+  }
+  .access-resend summary,
+  .access-other summary {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    color: var(--text-soft);
+    font-size: 14px;
+    font-weight: 620;
+    cursor: pointer;
+  }
+  .access-resend .access-form {
+    padding: 14px 0 4px;
+  }
+  .access-guide {
+    padding: 26px;
+  }
+  .access-route {
+    display: grid;
+    gap: 16px;
+    margin-top: 18px;
+  }
+  .access-step {
+    display: grid;
+    grid-template-columns: 32px 1fr;
+    gap: 12px;
+    align-items: start;
+  }
+  .access-step-number {
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    border: 1px solid rgba(189, 139, 47, 0.34);
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .access-step strong {
+    display: block;
+    margin-bottom: 3px;
+    font-size: 14px;
+  }
+  .access-step p {
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .access-trust {
+    margin-top: 22px;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--panel-2);
+  }
+  .access-trust strong {
+    display: block;
+    margin-bottom: 5px;
+  }
+  .access-trust p {
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .access-other {
+    margin-top: 14px;
+    border-top: 1px solid var(--line);
+  }
+  .access-other-body {
+    display: grid;
+    gap: 12px;
+    padding-bottom: 4px;
+  }
+  .access-option {
+    display: grid;
+    gap: 3px;
+  }
+  .access-option strong {
+    font-size: 14px;
+  }
+  .access-option p {
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .access-option a {
+    color: var(--accent-strong);
+    text-decoration: underline;
+    text-decoration-color: rgba(189, 139, 47, 0.45);
+    text-underline-offset: 3px;
+  }
+  @media (max-width: 840px) {
+    .access-shell {
+      grid-template-columns: 1fr;
+      margin-top: 0;
+    }
+  }
+  @media (max-width: 560px) {
+    .access-primary,
+    .access-guide {
+      padding: 22px 18px;
+    }
+    .access-form-card {
+      margin-top: 20px;
+      padding: 15px;
+    }
+    .access-feedback {
       grid-template-columns: 1fr;
     }
   }
 </style>
 
-<section class="access-grid">
-  <section class="access-panel">
-    <div class="kicker">Existing workspace</div>
-    <h1>{% if brand.key == 'propertyquarry' %}Sign in to continue your property search.{% else %}Sign in if you already have workspace access.{% endif %}</h1>
-    <p class="lead">{% if brand.key == 'propertyquarry' %}Return through a current session, a secure email link, a workspace invite, or SSO. New customers start by creating a property research account first.{% else %}Return through a current session, a secure email link, a workspace invite, or SSO. New customers start with a personal workspace first.{% endif %}</p>
-    <div class="cta-row">
-      <a class="btn{% if not sign_in_link_enabled %} primary{% endif %}" href="{% if brand.key == 'propertyquarry' %}/app/properties{% else %}/app/today{% endif %}">Open current session</a>
-      <a class="btn" href="{% if brand.key == 'ea' %}/get-started{% else %}/register{% endif %}">{{ brand.create_label }}</a>
-    </div>
-    {% if sign_in_link_enabled %}
-    <form class="access-form" method="post" action="/sign-in/email-link">
-      <input type="hidden" name="return_to" value="{{ sign_in_return_to }}">
-      <div>
-        <label for="sign_in_email">Email me a fresh access link</label>
-        <input id="sign_in_email" name="email" type="email" value="{{ sign_in_link_email or '' }}" placeholder="you@company.com" autocomplete="email" inputmode="email" aria-describedby="sign_in_email_help" required>
-        <p class="copy" id="sign_in_email_help">Use the inbox already attached to your workspace. The link opens the page you were trying to reach.</p>
-      </div>
-      <div class="cta-row">
-        <button class="btn primary" type="submit">Email me a sign-in link</button>
-      </div>
-    </form>
+<section class="access-shell" aria-labelledby="sign-in-title">
+  <section class="access-panel access-primary">
+    <div class="kicker">Secure workspace access</div>
+    {% if sign_in_link_status == 'requested' %}
+    <h1 id="sign-in-title">Check your inbox for the newest secure link.</h1>
+    <p class="lead">Open the latest message from {{ brand.name }} on this device. It will return you to the workspace page you requested.</p>
     {% else %}
-    <div class="access-feedback">
-      <strong>Email return links are not enabled on this deployment yet.</strong>
-      <p class="copy">Use an existing invite, access link, current session, or SSO until mail delivery is configured.</p>
-    </div>
+    <h1 id="sign-in-title">{% if brand.key == 'propertyquarry' %}Welcome back to your property search.{% else %}Welcome back to your workspace.{% endif %}</h1>
+    <p class="lead">Enter the email already attached to your workspace. We will send a fresh, time-limited link—no password to remember.</p>
     {% endif %}
+
     {% if sign_in_google_error %}
-    <div class="access-feedback" role="status">
-      <strong>Google is connected after workspace access.</strong>
-      <p class="copy">{{ sign_in_google_error }}</p>
+    <div class="access-feedback error" role="alert" tabindex="-1" data-access-feedback>
+      <span class="access-feedback-mark" aria-hidden="true">!</span>
+      <div>
+        <strong>Use secure email for workspace access.</strong>
+        <p>{{ sign_in_google_error }}</p>
+      </div>
     </div>
     {% endif %}
+
     {% if sign_in_link_status %}
-    <div class="access-feedback" {% if sign_in_link_status == 'failed' %}role="alert"{% else %}role="status"{% endif %}>
-      {% if sign_in_link_status == 'requested' %}
-      <strong>Check your inbox.</strong>
-      <p class="copy">If an existing workspace matches that address, a fresh secure link is on its way. It may take a minute to arrive.</p>
-      {% elif sign_in_link_status == 'invalid' %}
-      <strong>Enter a valid email address.</strong>
-      <p class="copy">Use the inbox that already has workspace access or an invite.</p>
-      {% else %}
-      <strong>We could not send a sign-in link.</strong>
-      <p class="copy">Try again in a few minutes, use your current session or an existing invite, or ask the workspace owner to issue a new link.</p>
-      {% endif %}
+    <div
+      class="access-feedback {% if sign_in_link_status == 'requested' %}success{% else %}error{% endif %}"
+      {% if sign_in_link_status == 'requested' %}role="status"{% else %}role="alert"{% endif %}
+      tabindex="-1"
+      data-access-feedback
+    >
+      <span class="access-feedback-mark" aria-hidden="true">{% if sign_in_link_status == 'requested' %}✓{% else %}!{% endif %}</span>
+      <div>
+        {% if sign_in_link_status == 'requested' %}
+        <strong>Request received.</strong>
+        <p>If an existing workspace matches that address, the message should arrive within a minute. Use the newest link; older links may have expired or been replaced.</p>
+        <details class="access-resend">
+          <summary>Use a different email</summary>
+          {{ email_link_form() }}
+        </details>
+        {% elif sign_in_link_status == 'invalid' %}
+        <strong>Enter a valid email address.</strong>
+        <p>Use the inbox that already has workspace access or a current invitation.</p>
+        {% else %}
+        <strong>We could not send a sign-in link.</strong>
+        <p>Wait a few minutes and try again, open a current session, or ask the workspace owner to issue a fresh link.</p>
+        {% endif %}
+      </div>
     </div>
     {% endif %}
-    <div class="summary-strip">
-      <div class="summary">
-        <div class="label">Returning users</div>
-        <strong>Use the same secure path you used before: session, email link, invite, or SSO.</strong>
+
+    {% if sign_in_link_enabled %}
+      {% if sign_in_link_status != 'requested' %}
+      <div class="access-form-card">
+        {{ email_link_form() }}
       </div>
-      <div class="summary">
-        <div class="label">New users</div>
-        <strong>{% if brand.key == 'propertyquarry' %}Start at /register and set up the first search profile before running crawls.{% else %}Start at /get-started and open Today before you add more setup.{% endif %}</strong>
-      </div>
-      <div class="summary">
-      <div class="label">Google</div>
-        <strong>Connect Google from Settings after secure workspace access is established.</strong>
+      {% endif %}
+    {% else %}
+    <div class="access-feedback error" role="alert" tabindex="-1" data-access-feedback>
+      <span class="access-feedback-mark" aria-hidden="true">!</span>
+      <div>
+        <strong>Email access is temporarily unavailable.</strong>
+        <p>Use an existing invite, a current session, or your organization’s access gateway until mail delivery is restored.</p>
       </div>
     </div>
+    {% endif %}
   </section>
 
-  <section class="access-panel">
-    <div class="kicker">What this page is for</div>
-    <h2>{% if brand.key == 'propertyquarry' %}Return to an existing property workspace.{% else %}Return to an existing workspace.{% endif %}</h2>
-    <div class="access-card-grid">
-      <section class="access-card">
-        <strong>Managed access</strong>
-        <p class="copy">If your deployment uses SSO or an access gateway, continue through that identity layer and reopen the workspace from there.</p>
-      </section>
-      <section class="access-card">
-        <strong>Email links</strong>
-        <p class="copy">Workspace invitations, sign-in links, approval links, and delivered actions can all reopen the right workspace directly from email.</p>
-      </section>
-      <section class="access-card">
-        <strong>First visit</strong>
-        <p class="copy">If you do not already have access, the right next step is {% if brand.key == 'propertyquarry' %}/register{% else %}/get-started{% endif %}, not a support ticket or a deeper settings page.</p>
-      </section>
-      <section class="access-card">
-        <strong>{% if brand.key == 'propertyquarry' %}Shared review when needed{% else %}Collaborators when needed{% endif %}</strong>
-        <p class="copy">{% if brand.key == 'propertyquarry' %}Add collaborators, invites, and broader review only after the shortlist and research packet are already proving value.{% else %}Add collaborators, invites, and broader review only after Today, the queue, and commitments are already useful.{% endif %}</p>
-      </section>
+  <aside class="access-panel access-guide" aria-labelledby="access-guide-title">
+    <div class="kicker">What happens next</div>
+    <h2 id="access-guide-title">One link. The right workspace.</h2>
+    <div class="access-route">
+      <div class="access-step">
+        <span class="access-step-number" aria-hidden="true">1</span>
+        <div>
+          <strong>Request a fresh link</strong>
+          <p>Use the same inbox your workspace owner or invitation used.</p>
+        </div>
+      </div>
+      <div class="access-step">
+        <span class="access-step-number" aria-hidden="true">2</span>
+        <div>
+          <strong>Open the newest message</strong>
+          <p>Secure links rotate. If you requested more than one, choose the latest arrival.</p>
+        </div>
+      </div>
+      <div class="access-step">
+        <span class="access-step-number" aria-hidden="true">3</span>
+        <div>
+          <strong>Continue where you left off</strong>
+          <p>The link establishes a current session and returns to the page you were trying to reach.</p>
+        </div>
+      </div>
     </div>
-    <ul class="muted-list">
-      {% for note in sign_in_notes %}
-      <li>{{ note }}</li>
-      {% endfor %}
-    </ul>
-  </section>
+
+    <div class="access-trust">
+      <strong>Google is connected later, from Settings.</strong>
+      <p>Workspace access uses secure email, an invitation, a current session, or a managed access gateway. Google is an optional workspace integration after sign-in.</p>
+    </div>
+
+    <details class="access-other">
+      <summary>Other ways to continue</summary>
+      <div class="access-other-body">
+        <div class="access-option">
+          <strong>Already signed in on this device?</strong>
+          <p><a href="{% if brand.key == 'propertyquarry' %}/app/properties{% else %}/app/today{% endif %}">Try the current session</a>. If it has expired, you will return here.</p>
+        </div>
+        <div class="access-option">
+          <strong>First visit?</strong>
+          <p><a href="{% if brand.key == 'ea' %}/get-started{% else %}/register{% endif %}">{{ brand.create_label }}</a> instead of requesting access to a workspace that does not exist yet.</p>
+        </div>
+        <div class="access-option">
+          <strong>Managed organization?</strong>
+          <p>Open the workspace through your organization’s access gateway, then return to the app.</p>
+        </div>
+      </div>
+    </details>
+  </aside>
 </section>
+
+<script>
+  (() => {
+    const form = document.querySelector('[data-access-form]');
+    const feedback = document.querySelector('[data-access-feedback]');
+
+    if (feedback instanceof HTMLElement) {
+      window.requestAnimationFrame(() => feedback.focus({ preventScroll: true }));
+    }
+
+    if (!(form instanceof HTMLFormElement)) return;
+    const submit = form.querySelector('[data-access-submit]');
+    const live = form.querySelector('[data-access-live]');
+    const originalLabel = submit?.textContent || 'Email me a secure link';
+
+    form.addEventListener('submit', (event) => {
+      if (form.dataset.submitting === 'true') {
+        event.preventDefault();
+        return;
+      }
+      form.dataset.submitting = 'true';
+      form.setAttribute('aria-busy', 'true');
+      if (submit instanceof HTMLButtonElement) {
+        submit.disabled = true;
+        submit.textContent = 'Sending secure link…';
+      }
+      if (live) live.textContent = 'Sign-in link request started.';
+    });
+
+    window.addEventListener('pageshow', () => {
+      form.removeAttribute('data-submitting');
+      form.removeAttribute('aria-busy');
+      if (submit instanceof HTMLButtonElement) {
+        submit.disabled = false;
+        submit.textContent = originalLabel;
+      }
+    });
+  })();
+</script>
 {% endblock %}

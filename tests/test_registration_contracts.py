@@ -285,7 +285,10 @@ def test_sign_in_email_link_reissues_workspace_access_for_existing_email(
     assert "founder%40example.com" not in response.headers["location"]
     followup = client.get(response.headers["location"])
     assert followup.status_code == 200
-    assert "Check your inbox." in followup.text
+    assert "Check your inbox for the newest secure link." in followup.text
+    assert "Request received." in followup.text
+    assert "Use a different email" in followup.text
+    assert "Use the newest link" in followup.text
     assert "founder@example.com" not in followup.text
     assert observed["recipient_email"] == "founder@example.com"
     assert observed["workspace_name"] == "Founder Office"
@@ -509,7 +512,8 @@ def test_sign_in_email_link_does_not_disclose_missing_workspace_match(
     assert "link_status=requested" in response.headers["location"]
     followup = client.get(response.headers["location"])
     assert followup.status_code == 200
-    assert "Check your inbox." in followup.text
+    assert "Check your inbox for the newest secure link." in followup.text
+    assert "Request received." in followup.text
     assert "No existing workspace matched" not in followup.text
 
 
@@ -522,9 +526,19 @@ def test_sign_in_page_uses_secure_email_return_path(monkeypatch: pytest.MonkeyPa
     assert response.status_code == 200
     assert 'action="/sign-in/email-link"' in response.text
     assert 'name="return_to" value="/app/queue"' in response.text
-    assert "Email me a sign-in link" in response.text
+    assert "Email me a secure link" in response.text
+    assert 'autocomplete="email"' in response.text
+    assert 'autocapitalize="none"' in response.text
+    assert 'enterkeyhint="send"' in response.text
+    assert 'aria-describedby="sign_in_email_help sign_in_email_privacy"' in response.text
+    assert 'class="skip-link" href="#public-content"' in response.text
+    assert 'id="public-content" tabindex="-1"' in response.text
+    assert 'aria-label="Primary navigation"' in response.text
+    assert 'aria-current="page">Sign in</a>' in response.text
+    assert "No password required." in response.text
+    assert "Google is an optional workspace integration after sign-in." in response.text
     assert 'action="/sign-in/google"' not in response.text
-    assert "Connect Google from Settings after secure workspace access is established." in response.text
+    assert "Continue with Google" not in response.text
 
 
 def test_legacy_sign_in_google_redirects_to_secure_email_recovery(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -560,7 +574,7 @@ def test_sign_in_page_does_not_advertise_unavailable_email_or_google(monkeypatch
     assert response.status_code == 200
     assert 'action="/sign-in/google"' not in response.text
     assert "Continue with Google" not in response.text
-    assert "Email return links are not enabled on this deployment yet." in response.text
+    assert "Email access is temporarily unavailable." in response.text
     assert 'placeholder="you@company.com"' not in response.text
 
 

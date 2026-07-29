@@ -31,7 +31,7 @@
       --line-strong: #b9ad9a;
       --text: #191714;
       --text-soft: #6c675f;
-      --text-dim: #958e83;
+      --text-dim: #756f66;
       --accent: #bd8b2f;
       --accent-soft: rgba(189, 139, 47, 0.13);
       --accent-strong: #9f7424;
@@ -62,6 +62,24 @@
       text-rendering: optimizeLegibility;
     }
     a { color: inherit; text-decoration: none; }
+    .skip-link {
+      position: fixed;
+      top: 10px;
+      left: 12px;
+      z-index: 100;
+      padding: 10px 14px;
+      border: 1px solid var(--accent);
+      border-radius: 10px;
+      background: var(--panel);
+      color: var(--text);
+      font-weight: 650;
+      box-shadow: var(--shadow);
+      transform: translateY(calc(-100% - 18px));
+      transition: transform var(--ease-emphasis);
+    }
+    .skip-link:focus {
+      transform: translateY(0);
+    }
     a:focus-visible,
     button:focus-visible,
     input:focus-visible,
@@ -794,6 +812,7 @@
 </style>
 </head>
 <body>
+  <a class="skip-link" href="#public-content">Skip to main content</a>
   {% if brand.key == 'ea' %}<span hidden>Wake up to a clear morning memo, not a wall of inbox noise.</span>{% endif %}
   {% if brand.key == 'ea' %}<span hidden>Nothing sends without your review.</span>{% endif %}
   {% if brand.key == 'ea' and current_nav == 'security' %}<span hidden>See what Executive Assistant can do before you let it act.</span>{% endif %}
@@ -803,19 +822,24 @@
         <span class="brand-mark">{{ brand.mark }}</span>
         <span>{{ brand.name }}</span>
       </a>
-      <nav class="nav">
+      <nav class="nav" aria-label="Primary navigation">
         {% for item in public_nav %}
-        <a href="{{ item.href }}" class="{% if current_nav == item.key %}active{% endif %}">{{ item.label }}</a>
+        <a href="{{ item.href }}" class="{% if current_nav == item.key %}active{% endif %}"{% if current_nav == item.key %} aria-current="page"{% endif %}>{{ item.label }}</a>
         {% endfor %}
       </nav>
       <div class="actions">
+        {% if current_nav == 'sign-in' %}
+        <a class="btn ghost" href="{% if brand.key == 'ea' %}/get-started{% else %}/register{% endif %}">{{ brand.create_label }}</a>
+        <a class="btn primary" href="/sign-in" aria-current="page">{{ brand.sign_in_label }}</a>
+        {% else %}
         <a class="btn ghost" href="{% if access_identity %}{{ brand.app_home or '/app/today' }}{% else %}/sign-in{% endif %}">{% if access_identity %}Open current session{% else %}{{ brand.sign_in_label }}{% endif %}</a>
         <a class="btn primary" href="{% if brand.key == 'ea' %}/get-started{% else %}/register{% endif %}">{{ brand.create_label }}</a>
+        {% endif %}
       </div>
     </div>
   </header>
 
-  <main>
+  <main id="public-content" tabindex="-1">
     <div class="wrap">
       {% block content %}{% endblock %}
     </div>
@@ -824,7 +848,7 @@
   <footer>
     <div class="wrap footer">
       <div>{{ brand.name }}</div>
-      <nav>
+      <nav aria-label="Footer navigation">
         {% for item in public_nav %}
         <a href="{{ item.href }}">{{ item.label }}</a>
         {% endfor %}
