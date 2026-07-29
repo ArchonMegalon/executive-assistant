@@ -318,6 +318,19 @@ def test_base_compose_gives_pocket_sync_a_writable_durable_archive() -> None:
         assert expected_volume in volumes, service_name
 
 
+def test_proactive_ooda_deploy_keeps_runtime_outputs_group_writable() -> None:
+    compose = _load_yaml(ROOT / "docker-compose.yml")
+    proactive = dict((compose.get("services") or {}).get("ea-proactive-ooda") or {})
+    deploy = (ROOT / "scripts" / "deploy_proactive_ooda_runtime.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "1000" in [str(item) for item in list(proactive.get("group_add") or [])]
+    assert 'chmod -R g+rwX "${output_dirs[@]}"' in deploy
+    assert 'find "${output_dirs[@]}" -type d -exec chmod g+s {} +' in deploy
+    assert 'chmod -R a+rwX "${APP_ROOT}/.codex-studio/published"' not in deploy
+
+
 def test_deploy_verifies_the_effective_pocket_archive_host_root() -> None:
     deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
     runtime_gates = (ROOT / "scripts" / "runtime_hard_exit_gates.sh").read_text(

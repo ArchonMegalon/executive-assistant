@@ -66,8 +66,18 @@ compose() {
 }
 
 repair_ooda_runtime_output_permissions() {
-  mkdir -p "${APP_ROOT}/.codex-studio/published" "${APP_ROOT}/.runtime"
-  chmod -R a+rwX "${APP_ROOT}/.codex-studio/published" "${APP_ROOT}/.runtime"
+  local output_dirs=(
+    "${APP_ROOT}/.codex-studio/published"
+    "${APP_ROOT}/.runtime"
+  )
+  mkdir -p "${output_dirs[@]}"
+
+  # The runtime user is added to host group 1000 by Compose. Keep generated
+  # outputs writable by that shared group and make directories setgid so files
+  # created by UID 10001 inherit the host-writable group. Do not make runtime
+  # receipts or dedupe state world-writable.
+  chmod -R g+rwX "${output_dirs[@]}"
+  find "${output_dirs[@]}" -type d -exec chmod g+s {} +
 }
 
 run_bounded() {
