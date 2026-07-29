@@ -70,14 +70,17 @@ repair_ooda_runtime_output_permissions() {
     "${APP_ROOT}/.codex-studio/published"
     "${APP_ROOT}/.runtime"
   )
+  local host_uid
+  host_uid="$(id -u)"
   mkdir -p "${output_dirs[@]}"
 
   # The runtime user is added to host group 1000 by Compose. Keep generated
   # outputs writable by that shared group and make directories setgid so files
   # created by UID 10001 inherit the host-writable group. Do not make runtime
-  # receipts or dedupe state world-writable.
-  chmod -R g+rwX "${output_dirs[@]}"
-  find "${output_dirs[@]}" -type d -exec chmod g+s {} +
+  # receipts or dedupe state world-writable. Restrict the host-side repair to
+  # host-owned paths; container-owned paths are repaired by the runtime user.
+  find "${output_dirs[@]}" -type d -user "${host_uid}" -exec chmod g+rwX,g+s {} +
+  find "${output_dirs[@]}" -type f -user "${host_uid}" -exec chmod g+rw {} +
 }
 
 run_bounded() {
@@ -101,6 +104,17 @@ run_ooda_exec() {
   local label="$1"
   shift
   run_bounded "${label}" docker exec ea-proactive-ooda "$@"
+}
+
+repair_ooda_runtime_container_output_permissions() {
+  run_ooda_exec repair-output-permissions sh -ec '
+    runtime_uid="$(id -u)"
+    for output_dir in /app/.codex-studio/published /app/.runtime; do
+      [ -d "${output_dir}" ] || continue
+      find "${output_dir}" -type d -user "${runtime_uid}" -exec chmod g+rwX,g+s {} +
+      find "${output_dir}" -type f -user "${runtime_uid}" -exec chmod g+rw {} +
+    done
+  '
 }
 
 env_file_value() {
@@ -167,6 +181,7 @@ wait_ready ea-teable-relay 60
 compose up -d --no-build --no-deps --force-recreate ea-proactive-ooda ea-telegram-teable-sync
 wait_ready ea-proactive-ooda 180
 wait_ready ea-telegram-teable-sync 60
+repair_ooda_runtime_container_output_permissions
 
 run_ooda_exec property-scout-disabled python -c "from app.runner import _scheduler_property_scout_enabled; raise SystemExit(1 if _scheduler_property_scout_enabled() else 0)"
 run_ooda_exec teable-table-sync-config python -c "import json, os; expected={'proactive_ooda_runs','proactive_ooda_items','proactive_ooda_safe_work'}; enabled=os.environ.get('EA_PROACTIVE_OODA_TEABLE_SYNC_ENABLED','0') == '1'; data=json.loads(os.environ.get('TEABLE_TABLE_SYNC_CONFIG_JSON','{}') or '{}'); missing=sorted(expected-set(data)); raise SystemExit(1 if enabled and missing else 0)"

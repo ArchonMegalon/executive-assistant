@@ -258,6 +258,15 @@ def test_source_state_head_reads_git_head_without_git_binary(
     assert source_state_head.resolve_source_state_head(tmp_path) == "a" * 40
 
 
+def test_source_state_head_uses_stamped_release_revision_without_git_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(source_state_head, "_git_stdout", lambda *_args, **_kwargs: "")
+    monkeypatch.setenv("EA_SOURCE_REVISION", "b" * 40)
+
+    assert source_state_head.resolve_source_state_head(tmp_path) == "b" * 40
+
+
 def test_source_worktree_metadata_reports_source_dirty_without_generated_noise(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

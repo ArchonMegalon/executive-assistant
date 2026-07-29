@@ -73,7 +73,11 @@ def resolve_source_state_head(
     read_git = git_stdout or _git_stdout
     head = read_git(repo_root, "rev-parse", "HEAD")
     if not head:
-        return _read_git_head_from_files(repo_root)
+        head = _read_git_head_from_files(repo_root)
+    if not head:
+        # Production images intentionally omit .git, but Compose stamps the
+        # exact release revision into the container environment.
+        return _normalize_git_sha(os.getenv("EA_SOURCE_REVISION", ""))
 
     commits = [
         line.strip()

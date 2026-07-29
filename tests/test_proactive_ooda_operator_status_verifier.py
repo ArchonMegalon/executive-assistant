@@ -911,6 +911,33 @@ def test_proactive_ooda_operator_status_verifier_rejects_live_receipt_overclaim_
     assert "degraded source_coverage without a higher-priority blocker requires receipt.next_action to match source_coverage.next_action" in issues
 
 
+def test_proactive_ooda_operator_status_verifier_prioritizes_callback_hygiene_over_source_coverage(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    payload = _base_payload()
+    payload.update(
+        {
+            "source_git_head": "source-head-123",
+            "status": "blocked_local_runtime",
+            "reason": "approval_callback_noncurrent_pending",
+            "summary": "Proactive OODA approval-callback hygiene needs cleanup before operator follow-through can resume.",
+            "next_action": "cleanup_proactive_approval_callbacks",
+            "operator_action_state": "recovery_required",
+            "source_coverage": _degraded_source_coverage(),
+            "approval_capture_surface": {
+                "callback_hygiene_ready": False,
+                "callback_hygiene_blocking_reason": "approval_callback_noncurrent_pending",
+                "callback_hygiene_next_action": "cleanup_proactive_approval_callbacks",
+            },
+        }
+    )
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    assert verifier.verify(receipt, root=tmp_path) == []
+
+
 def test_proactive_ooda_operator_status_verifier_rejects_ready_live_receipt_with_pending_approval_surface_but_clear_operator_state(
     tmp_path: Path, monkeypatch
 ) -> None:

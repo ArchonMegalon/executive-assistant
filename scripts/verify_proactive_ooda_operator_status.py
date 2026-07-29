@@ -166,6 +166,7 @@ def _higher_priority_recovery_present(receipt: dict[str, Any]) -> bool:
     safe_work_results = dict(receipt.get("safe_work_results") or {})
     safe_work_audit = dict(receipt.get("safe_work_audit") or {})
     current_artifact_filter = dict(receipt.get("current_artifact_filter") or {})
+    approval_capture_surface = dict(receipt.get("approval_capture_surface") or {})
     return bool(
         str(receipt.get("delivery_route_error") or "").strip()
         or str(delivery_route.get("route_error") or "").strip()
@@ -180,6 +181,7 @@ def _higher_priority_recovery_present(receipt: dict[str, Any]) -> bool:
         or _is_suppressed_projection_recovery(receipt)
         or _is_google_workspace_recovery(receipt)
         or _provider_cost_pressure_requires_recovery(receipt)
+        or not bool(approval_capture_surface.get("callback_hygiene_ready", True))
     )
 
 

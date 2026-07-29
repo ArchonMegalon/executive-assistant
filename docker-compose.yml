@@ -715,6 +715,14 @@ services:
       - /bin/sh
       - -ec
       - |
+        repair_shared_output_permissions() {
+          runtime_uid="$$(id -u)"
+          for output_dir in /app/.codex-studio/published /app/.runtime; do
+            [ -d "$${output_dir}" ] || continue
+            find "$${output_dir}" -type d -user "$${runtime_uid}" -exec chmod g+rwX,g+s {} +
+            find "$${output_dir}" -type f -user "$${runtime_uid}" -exec chmod g+rw {} +
+          done
+        }
         failures=0
         while :; do
           if [ "$${EA_PROACTIVE_OODA_ENABLED:-0}" = "1" ]; then
@@ -728,6 +736,7 @@ services:
               fi
             fi
           fi
+          repair_shared_output_permissions
           sleep "$${EA_PROACTIVE_OODA_INTERVAL_SECONDS:-900}"
         done
     healthcheck:
