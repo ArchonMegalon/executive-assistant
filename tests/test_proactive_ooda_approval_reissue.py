@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
+import runpy
 from types import SimpleNamespace
 
+from app.services import proactive_ooda_approval_capture
 from app.services.proactive_ooda_approval_reissue import (
     current_proactive_ooda_approval_request,
     reissue_current_proactive_ooda_approval,
@@ -35,6 +38,39 @@ def _bundle(*, live_pending: int = 0, live_pending_age_seconds: int = 0) -> dict
 
 def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def test_default_proactive_ooda_root_skips_inaccessible_optional_candidate(monkeypatch) -> None:
+    module_path = Path(proactive_ooda_approval_capture.__file__).resolve()
+    inaccessible_marker = next(
+        candidate / "scripts" / "run_proactive_ooda.py"
+        for candidate in module_path.parents
+        if candidate.name == "ea"
+    )
+    real_is_file = Path.is_file
+
+    def _is_file(path: Path) -> bool:
+        if path == inaccessible_marker:
+            raise PermissionError(path)
+        return real_is_file(path)
+
+    monkeypatch.setattr(Path, "is_file", _is_file)
+
+    resolved = proactive_ooda_approval_capture.default_proactive_ooda_root()
+
+    assert resolved.name != "ea"
+    assert (resolved / "scripts" / "run_proactive_ooda.py").is_file()
+
+
+def test_reissue_cli_keeps_canonical_runtime_root_ahead_of_compatibility_layout(monkeypatch) -> None:
+    script_path = Path(__file__).resolve().parents[1] / "scripts" / "reissue_proactive_ooda_approval.py"
+    monkeypatch.setattr("sys.path", list(__import__("sys").path))
+
+    namespace = runpy.run_path(script_path.as_posix(), run_name="reissue_cli_test")
+
+    assert namespace["sys"].path.index(namespace["ROOT"].as_posix()) < namespace["sys"].path.index(
+        namespace["EA_ROOT"].as_posix()
+    )
 
 
 def test_current_proactive_ooda_approval_request_requires_staged_decision_packet() -> None:

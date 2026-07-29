@@ -10,7 +10,9 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 EA_ROOT = ROOT / "ea"
-for candidate in (str(ROOT), str(EA_ROOT)):
+# Insert the compatibility layout first so the canonical runtime root keeps
+# precedence when both /app/app and /app/ea/app exist.
+for candidate in (str(EA_ROOT), str(ROOT)):
     if candidate not in sys.path:
         sys.path.insert(0, candidate)
 

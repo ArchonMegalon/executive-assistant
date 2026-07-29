@@ -577,7 +577,7 @@
     "ea/app/services/premium_delivery.py": "c9f2ba35903ac74fa672d58754ed53a660ea7712a293680b27d3f55e354a34ca",
     "ea/app/services/premium_dossier.py": "fc730b8d36c2ed1863db58406d74a2698aa3356b188a74f9c6223e592920bb8e",
     "ea/app/services/proactive_horizon.py": "b0132347c3e1ca41433aa5438c05e1f9387cfa283097c47cf893dd327c5ca304",
-    "ea/app/services/proactive_ooda_approval_capture.py": "35811e2370138757e81df24ec1128080c3eb0a6ff81f444fbe9661211b313854",
+    "ea/app/services/proactive_ooda_approval_capture.py": "65cd79df9924c4de8f25008bbce024bf764b31560bd04010db4a69575aa812fd",
     "ea/app/services/proactive_ooda_approval_outcomes.py": "c728c2b1e77fc12b9fac8e9e08ca0461f8fa6a1b934288d649c5ab1154b983db",
     "ea/app/services/proactive_ooda_approval_reissue.py": "7e7e89ffddbba26a28859c893ca881a53a92e85c6da6eb6b97d594b5da79e945",
     "ea/app/services/proactive_ooda_browser_actions.py": "a4b77cf71e41f92ee55e0ef0e44c311e5540c613cdeab08921215cf4c203227c",
@@ -1260,7 +1260,7 @@
     "scripts/refresh_ltds_via_api.sh": "66c35f66ad6cef66c2a48c0deaef1d50c178491f1b48fa1b84e0eed869f34be9",
     "scripts/refresh_memorial_unmixr_clone.py": "4aef4673d9c26bedebe25a2185b11c30a9b009d99c08ce3e569f7977a1903580",
     "scripts/refresh_onemin_browseract_balances.py": "3708db0d7fb0d491b14055627631d9375bdce70d352daff62c57623a670ce7fa",
-    "scripts/reissue_proactive_ooda_approval.py": "e77defc77f124a85cef6be6692a9831f74d6ed6c2d7f980e0518ecde835ce985",
+    "scripts/reissue_proactive_ooda_approval.py": "e4c693c1ff14ee6a256ca3b8aa36007b2ca669abe76eefe338c9d762a81a0e68",
     "scripts/release_authority_probe.sh": "916cdc08535f573ff8965f2ea2c2a891d0c0aa1266300e385db7adcca8fa32c0",
     "scripts/release_v115_rag.sh": "e4ea203a04290ac75eec98525261a6171cccd8ee23f80e18814dc897155c1bf5",
     "scripts/render_magicfit_property_flythrough.py": "4d27d3838ac207e6ea8ff6de5b2dd0f989ee69ba1d409f93aa09118fe57ad9a5",
@@ -1695,7 +1695,7 @@
     "tests/test_principal_fallback_contracts.py": "fc685d16325c505af7610341b617e344f8c0d3e790fbe7a005a4a40ebbd78f24",
     "tests/test_principal_scoped_rewrite.py": "64d223dc3d10d3610923b4292c1ab170f444d0e72746d6621f8def1d08d88ba2",
     "tests/test_proactive_ooda_approval_outcomes.py": "5940a9b53dce0f9115197016eea86e8c5342be5eef9d6be6bd361106a10c0eeb",
-    "tests/test_proactive_ooda_approval_reissue.py": "f13e9465c8ae58712017f8edc7d77f79db72c3864485310b8c7d668f616300f7",
+    "tests/test_proactive_ooda_approval_reissue.py": "2995c97d9147b039da5f0de801a2bea7a3f164629a17e9ec730f7273d1ab4c95",
     "tests/test_proactive_ooda_browser_actions.py": "067764ed03d3498c199562473257bd5db03af4358c3205bf51f69f3e73b5d7f1",
     "tests/test_proactive_ooda_context_grounding.py": "99c9738b7961ea5f5d084f7630875c3df8b9daa53ebca29b56d2f080743fe902",
     "tests/test_proactive_ooda_delivery.py": "04c5cfb2f9b6789419d9e2b7532f973a3a71f370ff248734685cd4e4115512f2",
@@ -1879,13 +1879,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "3941c0471ddcac1c4b22631b721b866d412b57c7",
-  "indexed_at_timestamp": "2026-07-29T07:16:34.500076634+00:00",
+  "indexed_at_commit": "d6ed06aeedb56ca67019acf0ac09fd3816098803",
+  "indexed_at_timestamp": "2026-07-29T10:39:39.097795739+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 47273,
+    "total_edges": 47274,
     "total_files": 1878,
-    "total_nodes": 29627
+    "total_nodes": 29629
   },
   "vexp_version": "2.3.1"
 }

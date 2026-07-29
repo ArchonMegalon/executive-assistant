@@ -25,8 +25,14 @@ from app.services.proactive_ooda_teable_sync import (
 def default_proactive_ooda_root() -> Path:
     current = Path(__file__).resolve()
     for candidate in current.parents:
-        if (candidate / "scripts" / "run_proactive_ooda.py").is_file():
-            return candidate
+        try:
+            if (candidate / "scripts" / "run_proactive_ooda.py").is_file():
+                return candidate
+        except OSError:
+            # Optional image-layout candidates can be intentionally private to
+            # their owning user. Keep walking toward the canonical /app root
+            # instead of failing before a readable runtime marker is reached.
+            continue
     return current.parents[3]
 
 
