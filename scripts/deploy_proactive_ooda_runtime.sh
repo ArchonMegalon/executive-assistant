@@ -26,6 +26,7 @@ Environment:
   EA_OODA_DEPLOY_RESYNC_TEABLE=0          Skip latest-run Teable resync (default: 1).
   EA_OODA_DEPLOY_DOCKER_EXEC_TIMEOUT_SECONDS=180
                                             Bound each container-side verifier.
+  EA_OODA_DEPLOY_GOLD_TIMEOUT_SECONDS=600 Bound the heavier gold evidence scan.
 EOF
 }
 
@@ -192,7 +193,14 @@ fi
 
 run_ooda_exec materialize-operator-status python /app/scripts/materialize_proactive_ooda_operator_status.py --output /tmp/ea_proactive_ooda_operator_status.deploy.json >/dev/null
 run_ooda_exec verify-operator-status python /app/scripts/verify_proactive_ooda_operator_status.py --receipt /tmp/ea_proactive_ooda_operator_status.deploy.json --pretty
-run_ooda_exec materialize-gold-acceptance python /app/scripts/materialize_proactive_ooda_gold_acceptance.py --output /tmp/ea_proactive_ooda_gold_acceptance.deploy.json >/dev/null
+EA_OODA_DEPLOY_DOCKER_EXEC_TIMEOUT_SECONDS="${EA_OODA_DEPLOY_GOLD_TIMEOUT_SECONDS:-600}" \
+  run_ooda_exec materialize-gold-acceptance \
+    python /app/scripts/materialize_proactive_ooda_gold_acceptance.py \
+    --output /tmp/ea_proactive_ooda_gold_acceptance.deploy.json \
+    --run-receipt /data/provider-ledger/proactive_ooda_latest_run.generated.json \
+    --stage-packet-dir /data/provider-ledger/proactive_ooda_stage_packets \
+    --safe-work-result-dir /data/provider-ledger/proactive_ooda_safe_work_results \
+    >/dev/null
 run_ooda_exec verify-gold-acceptance python /app/scripts/verify_proactive_ooda_gold_acceptance.py --receipt /tmp/ea_proactive_ooda_gold_acceptance.deploy.json --pretty
 
 run_ooda_exec latest-run-summary python -c "import json,pathlib; p=pathlib.Path('/data/provider-ledger/proactive_ooda_latest_run.generated.json'); d=json.loads(p.read_text()) if p.exists() else {}; r=d.get('receipt') if isinstance(d.get('receipt'),dict) else d; ts=d.get('teable_sync') or r.get('teable_sync') or {}; print(json.dumps({'status':'ok','notification_status':r.get('notification_status'),'error_code':r.get('error_code'),'telegram_message_count':len(r.get('telegram_message_ids') or []),'teable_status':ts.get('status'),'teable_missing_tables':ts.get('missing_tables')}, sort_keys=True))"

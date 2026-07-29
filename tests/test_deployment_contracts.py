@@ -329,8 +329,14 @@ def test_proactive_ooda_deploy_keeps_runtime_outputs_group_writable() -> None:
     assert "1000" in [str(item) for item in list(proactive.get("group_add") or [])]
     assert "repair_shared_output_permissions()" in command
     assert '-user "$${runtime_uid}" -exec chmod g+rw {} +' in command
+    assert "permission_guard &" in command
+    assert "EA_PROACTIVE_OODA_PERMISSION_REPAIR_INTERVAL_SECONDS:-30" in command
     assert "repair_ooda_runtime_container_output_permissions" in deploy
     assert '-user "${runtime_uid}" -exec chmod g+rw {} +' in deploy
+    assert 'EA_OODA_DEPLOY_GOLD_TIMEOUT_SECONDS:-600' in deploy
+    assert "--run-receipt /data/provider-ledger/proactive_ooda_latest_run.generated.json" in deploy
+    assert "--stage-packet-dir /data/provider-ledger/proactive_ooda_stage_packets" in deploy
+    assert "--safe-work-result-dir /data/provider-ledger/proactive_ooda_safe_work_results" in deploy
     assert "a+rwX" not in deploy
 
 

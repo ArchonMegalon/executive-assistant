@@ -723,6 +723,15 @@ services:
             find "$${output_dir}" -type f -user "$${runtime_uid}" -exec chmod g+rw {} +
           done
         }
+        permission_guard() {
+          while :; do
+            repair_shared_output_permissions
+            sleep "$${EA_PROACTIVE_OODA_PERMISSION_REPAIR_INTERVAL_SECONDS:-30}"
+          done
+        }
+        permission_guard &
+        permission_guard_pid="$$!"
+        trap 'kill "$${permission_guard_pid}" 2>/dev/null || true' EXIT INT TERM
         failures=0
         while :; do
           if [ "$${EA_PROACTIVE_OODA_ENABLED:-0}" = "1" ]; then

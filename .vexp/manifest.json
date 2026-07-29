@@ -1111,7 +1111,7 @@
     "scripts/deploy_ea_audiobook_runtime.py": "6f64088eb42451da3c067f084a351e09528c018348e21322e015f141b40051ee",
     "scripts/deploy_ea_memorial.py": "e970353f674a1150e9863c4dc4fb30b896fe2ffa95204816de8bc6ff84e9c6bb",
     "scripts/deploy_ea_memorial_joint.py": "1a7b9ffffd9b55242623d378d0d12946a05cc0cc6c4b2e9fb72cba0ff1fa5973",
-    "scripts/deploy_proactive_ooda_runtime.sh": "ebd22a16cd128574c1593100299241846f138ebaa004be653ee6d6ab130ae6b6",
+    "scripts/deploy_proactive_ooda_runtime.sh": "6835df5df04766825ed5b84ea8958c0e80be9f12cd530f6c0e61e07fef1b135f",
     "scripts/diff_openapi.sh": "3e9259551ce0a3ed922cc1f3078c78bec125f0e5112db768cbb9e36aeef51f97",
     "scripts/ea_memorial_baseline_bundle.py": "9a32dd18eb285248376da8250044bfefca5d63051ded14eb7a2857842dab79a7",
     "scripts/ea_memorial_normalization_journal.py": "fc54e69a5401a02d7cd94d77c86b725e993b5b2f436b62c490a94a81e03595e2",
@@ -1497,7 +1497,7 @@
     "tests/test_compose_portable_storage_defaults.py": "29651a201bbac6862eba6009fa204bcfe43390b789ecafe67746d502c50467a6",
     "tests/test_continuous_improvement_goal_posture.py": "a9e0a9859a500fb01324ca32f42d100132cdac53bd2b2a652934fb9313975a77",
     "tests/test_crezlo_email_runtime_defaults.py": "e0f72bb694c5bd82c7660eae441779b3965c81eac2ff69f69639a17424c52d06",
-    "tests/test_deployment_contracts.py": "d87ea12c599bb6a8e92068d86b0d9c3e06117b0fce4c294f435de658dd8506c4",
+    "tests/test_deployment_contracts.py": "095bed90277a87bc1e3159804a9ed92daaeb969e1c8038d04a881b892dfbf0bc",
     "tests/test_design_mirror_bundle_contracts.py": "54ebbfb48b84edc0a5bb80ca1b90f2baf2df62dd30d169a8803951f3f882a6a9",
     "tests/test_di_container.py": "d0725ef67f804e324eb8d7f8ac0ff9f9d9974423f77dcf428e9159ef028e885f",
     "tests/test_docs_and_verifier_path_portability.py": "7041e44b34d2ce71c0dee311df5e639078dcfebd47be1a543acac11ce9a21f55",
@@ -1879,11 +1879,11 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "4dbff237249f23bbe52722c6cc053c97ce0c42c7",
-  "indexed_at_timestamp": "2026-07-29T06:20:56.704932727+00:00",
+  "indexed_at_commit": "57c0e336c422b111420d7a22dc8825a9994b51f9",
+  "indexed_at_timestamp": "2026-07-29T06:34:52.955705470+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 47268,
+    "total_edges": 47153,
     "total_files": 1878,
     "total_nodes": 29625
   },
