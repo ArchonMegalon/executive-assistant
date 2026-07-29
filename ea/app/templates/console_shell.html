@@ -13,10 +13,12 @@
   .console-stage,
   .console-support-grid {
     grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+    align-items: start;
   }
   .console-section-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     margin-top: 14px;
+    align-items: start;
   }
   .console-panel,
   .console-focus,
@@ -261,7 +263,7 @@
     margin: 0;
   }
   .console-action {
-    min-height: 40px;
+    min-height: 44px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -295,6 +297,15 @@
   .console-action.danger:hover {
     border-color: rgba(166, 83, 71, 0.5);
     background: rgba(166, 83, 71, 0.12);
+  }
+  .console-action.danger.is-confirming {
+    border-color: rgba(166, 83, 71, 0.72);
+    background: rgba(166, 83, 71, 0.16);
+    color: #873f36;
+    box-shadow: 0 0 0 3px rgba(166, 83, 71, 0.1);
+  }
+  .console-action.is-submitting {
+    cursor: wait;
   }
   .console-action:active {
     transform: translateY(0);
@@ -627,6 +638,54 @@
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
+  }
+  .console-disclosure {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, rgba(255,255,255,0.46), rgba(244,236,223,0.7));
+    overflow: hidden;
+  }
+  .console-disclosure summary {
+    min-height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 12px 14px;
+    color: var(--text);
+    cursor: pointer;
+    list-style: none;
+    font-weight: 620;
+  }
+  .console-disclosure summary::-webkit-details-marker {
+    display: none;
+  }
+  .console-disclosure summary::after {
+    content: "+";
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--text-soft);
+    background: var(--panel);
+    font-size: 18px;
+    font-weight: 400;
+  }
+  .console-disclosure[open] summary::after {
+    content: "−";
+  }
+  .console-disclosure summary:hover {
+    background: rgba(189, 139, 47, 0.06);
+  }
+  .console-disclosure-body {
+    padding: 0 14px 14px;
+    border-top: 1px solid var(--line);
+  }
+  .console-disclosure-body .console-copy {
+    margin-top: 12px;
   }
   .console-progress {
     display: grid;
@@ -1004,28 +1063,30 @@
           </label>
           <label class="console-field">
             <span>Due at</span>
-            <input id="extract_due_at" name="due_at" placeholder="YYYY-MM-DDTHH:MM:SS+00:00">
+            <input id="extract_due_at" name="due_at" placeholder="2026-07-30T09:00+02:00">
           </label>
         </div>
         <div class="console-field-grid">
           <label class="console-field">
-            <span>Kind</span>
+            <span>Work type</span>
             <select id="extract_kind" name="kind">
               <option value="commitment" selected>Commitment</option>
-              <option value="follow_up">Commitment</option>
+              <option value="follow_up">Follow-up</option>
             </select>
           </label>
           <label class="console-field">
-            <span>Stakeholder ID (optional)</span>
-            <input id="extract_stakeholder_id" name="stakeholder_id" placeholder="Link directly to a known stakeholder">
+            <span>Relationship reference (optional)</span>
+            <input id="extract_stakeholder_id" name="stakeholder_id" placeholder="Link to a known person reference">
           </label>
         </div>
         <input type="hidden" name="return_to" value="/app/queue">
-        <button class="console-action" type="submit">Capture item</button>
+        <button class="console-action primary" type="submit">Capture item</button>
       </form>
     </div>
-    <div class="console-callout">
-      <div class="console-kicker">Create a commitment</div>
+    <details class="console-disclosure" data-console-disclosure="manual-commitment">
+      <summary>Create manually</summary>
+      <div class="console-disclosure-body">
+      <p class="console-copy">Start with a title when there is no note or thread to capture.</p>
       <form class="console-form" method="post" action="/app/actions/commitments/create">
         <label class="console-field">
           <span>Title</span>
@@ -1042,27 +1103,28 @@
           </label>
           <label class="console-field">
             <span>Due at</span>
-            <input id="create_followup_due_at" name="due_at" placeholder="YYYY-MM-DDTHH:MM:SS+00:00">
+            <input id="create_followup_due_at" name="due_at" placeholder="2026-07-30T09:00+02:00">
           </label>
         </div>
         <div class="console-field-grid">
           <label class="console-field">
-            <span>Kind</span>
+            <span>Work type</span>
             <select id="create_followup_kind" name="kind">
-              <option value="follow_up" selected>Commitment</option>
+              <option value="follow_up" selected>Follow-up</option>
               <option value="commitment">Commitment</option>
             </select>
           </label>
           <label class="console-field">
-            <span>Stakeholder ID (optional)</span>
-            <input id="create_followup_stakeholder_id" name="stakeholder_id" placeholder="Link directly to a known stakeholder">
+            <span>Relationship reference (optional)</span>
+            <input id="create_followup_stakeholder_id" name="stakeholder_id" placeholder="Link to a known person reference">
           </label>
         </div>
         <input type="hidden" name="channel_hint" value="email">
         <input type="hidden" name="return_to" value="/app/commitments">
-        <button class="console-action" type="submit">Create commitment</button>
+        <button class="console-action primary" type="submit">Create commitment</button>
       </form>
-    </div>
+      </div>
+    </details>
   </aside>
 </section>
 {% elif current_nav == 'commitments' %}
@@ -1084,8 +1146,10 @@
     {% if c1 and c1['items'] %}
       {{ rows(c1['items'], 'Context', 'This is why these items are still in the queue.') }}
     {% endif %}
-    <div class="console-callout">
-      <div class="console-kicker">Create a commitment</div>
+    <details class="console-disclosure" data-console-disclosure="new-commitment">
+      <summary>Create a commitment</summary>
+      <div class="console-disclosure-body">
+      <p class="console-copy">Add the promise, owner context, and due time when the work is ready to enter the ledger.</p>
       <form class="console-form" method="post" action="/app/actions/commitments/create">
         <label class="console-field">
           <span>Title</span>
@@ -1102,27 +1166,28 @@
           </label>
           <label class="console-field">
             <span>Due at</span>
-            <input id="create_followup_due_at" name="due_at" placeholder="YYYY-MM-DDTHH:MM:SS+00:00">
+            <input id="create_followup_due_at" name="due_at" placeholder="2026-07-30T09:00+02:00">
           </label>
         </div>
         <div class="console-field-grid">
           <label class="console-field">
-            <span>Kind</span>
+            <span>Work type</span>
             <select id="create_followup_kind" name="kind">
-              <option value="follow_up" selected>Commitment</option>
+              <option value="follow_up" selected>Follow-up</option>
               <option value="commitment">Commitment</option>
             </select>
           </label>
           <label class="console-field">
-            <span>Stakeholder ID (optional)</span>
-            <input id="create_followup_stakeholder_id" name="stakeholder_id" placeholder="Link directly to a known stakeholder">
+            <span>Relationship reference (optional)</span>
+            <input id="create_followup_stakeholder_id" name="stakeholder_id" placeholder="Link to a known person reference">
           </label>
         </div>
         <input type="hidden" name="channel_hint" value="email">
         <input type="hidden" name="return_to" value="/app/commitments">
-        <button class="console-action" type="submit">Create commitment</button>
+        <button class="console-action primary" type="submit">Create commitment</button>
       </form>
-    </div>
+      </div>
+    </details>
   </aside>
 </section>
 {% elif current_nav == 'people' %}

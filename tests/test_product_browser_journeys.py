@@ -17,6 +17,9 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
 
     today = client.get("/app/today")
     assert today.status_code == 200
+    assert 'class="route-progress"' in today.text
+    assert 'id="workspace-live-region"' in today.text
+    assert "requires confirmation. Activate again to continue." in today.text
     assert "Morning Memo" in today.text
     assert "Send board materials" in today.text
     assert "Approve reply to Sofia N." in today.text
@@ -29,11 +32,16 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     queue = client.get("/app/queue")
     assert queue.status_code == 200
     assert "Queue" in queue.text
+    assert 'data-console-disclosure="manual-commitment"' in queue.text
+    assert "Create manually" in queue.text
+    assert "Relationship reference (optional)" in queue.text
+    assert "Follow-up" in queue.text
     assert "Choose board memo owner" in queue.text
     assert "Board memo delivery window" in queue.text
 
     commitments = client.get("/app/commitments")
     assert commitments.status_code == 200
+    assert 'data-console-disclosure="new-commitment"' in commitments.text
     assert "What is blocked outside the office loop" in commitments.text
     assert "Prepare board follow-up handoff" in commitments.text
     assert "Confirm investor meeting time" in commitments.text

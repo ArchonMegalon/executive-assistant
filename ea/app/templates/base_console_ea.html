@@ -38,6 +38,36 @@
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; }
     html { scroll-padding-top: 24px; }
+    .sr-only {
+      position: absolute !important;
+      width: 1px !important;
+      height: 1px !important;
+      padding: 0 !important;
+      margin: -1px !important;
+      overflow: hidden !important;
+      clip: rect(0, 0, 0, 0) !important;
+      white-space: nowrap !important;
+      border: 0 !important;
+    }
+    .route-progress {
+      position: fixed;
+      inset: 0 0 auto;
+      z-index: 120;
+      height: 3px;
+      background: linear-gradient(90deg, var(--accent), #e2c17b 72%, var(--good));
+      box-shadow: 0 2px 10px rgba(189, 139, 47, 0.28);
+      opacity: 0;
+      pointer-events: none;
+      transform: scaleX(0);
+      transform-origin: left;
+      transition:
+        transform 1.6s cubic-bezier(0.16, 1, 0.3, 1),
+        opacity var(--ease-fast);
+    }
+    body.is-navigating .route-progress {
+      opacity: 1;
+      transform: scaleX(0.82);
+    }
     body {
       background:
         radial-gradient(circle at top right, rgba(189, 139, 47, 0.12), transparent 30rem),
@@ -1311,6 +1341,8 @@
 </style>
 </head>
 <body>
+  <div class="route-progress" aria-hidden="true"></div>
+  <div class="sr-only" id="workspace-live-region" role="status" aria-live="polite" aria-atomic="true"></div>
   <a class="skip-link" href="#workspace-content">Skip to workspace</a>
   <div class="console">
     <aside class="sidebar" aria-label="Workspace navigation">
@@ -1358,5 +1390,137 @@
       {% endfor %}
     {% endfor %}
   </nav>
+  <script>
+    (() => {
+      const liveRegion = document.getElementById('workspace-live-region');
+      const armedTimers = new WeakMap();
+
+      const announce = (message) => {
+        if (!liveRegion) return;
+        liveRegion.textContent = '';
+        window.requestAnimationFrame(() => {
+          liveRegion.textContent = String(message || '');
+        });
+      };
+
+      const actionLabel = (node) => String(
+        node?.dataset.originalActionLabel || node?.textContent || 'Action'
+      ).trim();
+
+      const resetConfirmation = (node) => {
+        if (!(node instanceof HTMLElement) || node.dataset.confirmArmed !== 'true') return;
+        const timer = armedTimers.get(node);
+        if (timer) window.clearTimeout(timer);
+        armedTimers.delete(node);
+        node.textContent = actionLabel(node);
+        node.classList.remove('is-confirming');
+        node.removeAttribute('data-confirm-armed');
+        if (node.dataset.originalAriaLabel) {
+          node.setAttribute('aria-label', node.dataset.originalAriaLabel);
+        } else {
+          node.removeAttribute('aria-label');
+        }
+      };
+
+      const resetAllConfirmations = (exceptNode = null) => {
+        document.querySelectorAll('[data-confirm-armed="true"]').forEach((node) => {
+          if (node !== exceptNode) resetConfirmation(node);
+        });
+      };
+
+      const armConfirmation = (node) => {
+        if (!(node instanceof HTMLElement)) return;
+        resetAllConfirmations(node);
+        const label = actionLabel(node);
+        node.dataset.originalActionLabel = label;
+        node.dataset.originalAriaLabel = node.getAttribute('aria-label') || '';
+        node.dataset.confirmArmed = 'true';
+        node.classList.add('is-confirming');
+        node.textContent = `Confirm ${label.toLowerCase()}`;
+        node.setAttribute('aria-label', `Confirm ${label}`);
+        announce(`${label} requires confirmation. Activate again to continue.`);
+        node.focus();
+        const timer = window.setTimeout(() => resetConfirmation(node), 6000);
+        armedTimers.set(node, timer);
+      };
+
+      document.addEventListener('click', (event) => {
+        const action = event.target instanceof Element
+          ? event.target.closest('a.console-action.danger, button.console-action.danger')
+          : null;
+        if (!(action instanceof HTMLElement)) return;
+        if (action.dataset.confirmArmed !== 'true') {
+          event.preventDefault();
+          armConfirmation(action);
+        }
+      });
+
+      document.addEventListener('submit', (event) => {
+        const form = event.target;
+        if (!(form instanceof HTMLFormElement)) return;
+        const submitter = event.submitter instanceof HTMLElement ? event.submitter : null;
+        const dangerAction = submitter?.matches('.console-action.danger')
+          ? submitter
+          : form.querySelector('.console-action.danger[type="submit"]');
+        if (dangerAction instanceof HTMLElement && dangerAction.dataset.confirmArmed !== 'true') {
+          event.preventDefault();
+          armConfirmation(dangerAction);
+          return;
+        }
+        if (form.dataset.submitting === 'true') {
+          event.preventDefault();
+          return;
+        }
+        form.dataset.submitting = 'true';
+        form.setAttribute('aria-busy', 'true');
+        if (submitter instanceof HTMLButtonElement) {
+          const label = actionLabel(submitter);
+          submitter.dataset.originalActionLabel = label;
+          submitter.textContent = 'Working…';
+          submitter.classList.add('is-submitting');
+          announce(`${label} started.`);
+        }
+        window.requestAnimationFrame(() => {
+          form.querySelectorAll('button[type="submit"], input[type="submit"]').forEach((node) => {
+            node.disabled = true;
+          });
+        });
+      });
+
+      document.addEventListener('click', (event) => {
+        if (event.defaultPrevented || event.button !== 0) return;
+        const link = event.target instanceof Element ? event.target.closest('a[href]') : null;
+        if (!(link instanceof HTMLAnchorElement)) return;
+        if (link.target || link.hasAttribute('download')) return;
+        const url = new URL(link.href, window.location.href);
+        if (url.origin !== window.location.origin) return;
+        if (url.pathname === window.location.pathname && url.search === window.location.search && url.hash) return;
+        document.body.classList.add('is-navigating');
+      });
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          resetAllConfirmations();
+          announce('Action cancelled.');
+        }
+      });
+
+      window.addEventListener('pageshow', () => {
+        document.body.classList.remove('is-navigating');
+        resetAllConfirmations();
+        document.querySelectorAll('form[data-submitting="true"]').forEach((form) => {
+          form.removeAttribute('data-submitting');
+          form.removeAttribute('aria-busy');
+          form.querySelectorAll('button, input[type="submit"]').forEach((node) => {
+            node.disabled = false;
+            if (node instanceof HTMLButtonElement && node.dataset.originalActionLabel) {
+              node.textContent = node.dataset.originalActionLabel;
+              node.classList.remove('is-submitting');
+            }
+          });
+        });
+      });
+    })();
+  </script>
 </body>
 </html>

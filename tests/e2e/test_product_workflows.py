@@ -564,8 +564,12 @@ def test_draft_rejection_in_real_browser(page: Page, product_browser_server: dic
     response = page.goto(f"{base_url}/app/queue", wait_until="networkidle")
     assert response is not None and response.ok
     assert "sofia@example.com" in page.content()
+    reject_button = page.locator(".console-row", has_text="Approve reply to Sofia N.").get_by_role("button", name="Reject").first
+    reject_button.click()
+    assert reject_button.inner_text() == "Confirm reject"
+    assert "Approve reply to Sofia N." in page.content()
     with page.expect_response(lambda value: "/app/actions/drafts/" in value.url and value.request.method == "POST") as reject_response:
-        page.locator(".console-row", has_text="Approve reply to Sofia N.").get_by_role("button", name="Reject").first.click()
+        reject_button.click()
     assert reject_response.value.status == 303
     page.wait_for_url(f"{base_url}/app/queue")
     page.wait_for_load_state("networkidle")
@@ -578,8 +582,12 @@ def test_follow_up_drop_in_real_browser(page: Page, product_browser_server: dict
     response = page.goto(f"{base_url}/app/commitments", wait_until="networkidle")
     assert response is not None and response.ok
     assert "Confirm investor meeting time" in page.content()
+    drop_button = page.locator(".console-row", has_text="Confirm investor meeting time").get_by_role("button", name="Drop").first
+    drop_button.click()
+    assert drop_button.inner_text() == "Confirm drop"
+    assert "Confirm investor meeting time" in page.content()
     with page.expect_response(lambda value: "/app/actions/queue/follow_up:" in value.url and value.request.method == "POST") as drop_response:
-        page.locator(".console-row", has_text="Confirm investor meeting time").get_by_role("button", name="Drop").first.click()
+        drop_button.click()
     assert drop_response.value.status == 303
     page.wait_for_url(f"{base_url}/app/commitments")
     page.wait_for_load_state("networkidle")
@@ -804,6 +812,7 @@ def test_people_memory_correction_and_handoff_actions_in_real_browser(page: Page
 
     response = page.goto(f"{base_url}/app/commitments", wait_until="networkidle")
     assert response is not None and response.ok
+    page.locator('[data-console-disclosure="new-commitment"] summary').click()
     page.locator("#create_followup_title").fill("Confirm board dinner date")
     page.locator("#create_followup_details").fill("Manual follow-up from the browser surface.")
     page.locator("#create_followup_counterparty").fill("Sofia N.")
@@ -883,6 +892,53 @@ def test_operator_scoped_browser_queue_hides_other_operator_work(browser: Browse
         assert "Coordinate shared follow-up queue" not in page.content()
     finally:
         context.close()
+
+
+def test_queue_mobile_polish_and_confirmation_in_real_browser(
+    page: Page,
+    product_browser_server: dict[str, object],
+) -> None:
+    base_url = str(product_browser_server["base_url"])
+    page.emulate_media(reduced_motion="reduce")
+    page.set_viewport_size({"width": 390, "height": 844})
+
+    response = page.goto(f"{base_url}/app/queue", wait_until="networkidle")
+    assert response is not None and response.ok
+    assert page.locator(".ea-mobile-nav").is_visible()
+    assert page.locator('[data-console-disclosure="manual-commitment"]').is_visible()
+    assert page.get_by_role("button", name="Capture item").evaluate(
+        "(node) => node.getBoundingClientRect().height"
+    ) >= 44
+    assert page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth") <= 1
+    _assert_visual_baseline(page, "queue-mobile-page.png", full_page=False)
+
+    reject_button = page.locator(".console-row", has_text="Approve reply to Sofia N.").get_by_role("button", name="Reject").first
+    reject_button.click()
+    assert reject_button.inner_text() == "Confirm reject"
+    page.keyboard.press("Escape")
+    assert reject_button.inner_text() == "Reject"
+    busy_state = page.evaluate(
+        """async () => {
+          const form = document.createElement('form');
+          const button = document.createElement('button');
+          button.type = 'submit';
+          button.className = 'console-action primary';
+          button.textContent = 'Save test';
+          form.addEventListener('submit', (event) => event.preventDefault());
+          form.append(button);
+          document.body.append(form);
+          button.click();
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+          const result = {
+            busy: form.getAttribute('aria-busy'),
+            label: button.textContent,
+            disabled: button.disabled,
+          };
+          form.remove();
+          return result;
+        }"""
+    )
+    assert busy_state == {"busy": "true", "label": "Working…", "disabled": True}
 
 
 @pytest.mark.parametrize(
