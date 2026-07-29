@@ -38,6 +38,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SERVICE = "ea-runtime-source"
 CONTRACT_NAME = "ea.runtime_source_permissions.v5"
 RUNTIME_MOUNT_DIRECTORIES = (".", "ea")
+RUNTIME_SUPPLEMENTAL_GIDS = frozenset({1000})
 DEFAULT_SOURCE_BINDINGS = (
     ("ea/app", "/app/app"),
     ("scripts", "/app/scripts"),
@@ -59,7 +60,7 @@ def repair_runtime_source_tree_permissions(source: Path) -> int:
         raise BindSourceGuardError("bind_source_symlink_forbidden")
     if stat.S_ISREG(source_metadata.st_mode):
         current_mode = stat.S_IMODE(source_metadata.st_mode)
-        desired_mode = (current_mode | 0o444) & ~0o022
+        desired_mode = current_mode | _runtime_read_mode(source_metadata)
         if desired_mode == current_mode:
             return 0
         resolved_source.chmod(desired_mode, follow_symlinks=False)
@@ -85,16 +86,32 @@ def repair_runtime_source_tree_permissions(source: Path) -> int:
             if not directory and not stat.S_ISREG(metadata.st_mode):
                 raise BindSourceGuardError("bind_source_type_invalid")
             current_mode = stat.S_IMODE(metadata.st_mode)
-            desired_mode = (
-                (current_mode | 0o555) & ~0o022
+            desired_mode = current_mode | (
+                _runtime_read_mode(metadata, directory=True)
                 if directory
-                else (current_mode | 0o444) & ~0o022
+                else _runtime_read_mode(metadata)
             )
             if desired_mode == current_mode:
                 continue
             entry.chmod(desired_mode, follow_symlinks=False)
             repaired += 1
     return repaired
+
+
+def _runtime_read_mode(
+    metadata: os.stat_result,
+    *,
+    directory: bool = False,
+) -> int:
+    uid_text, gid_text = EXPECTED_USER.split(":", 1)
+    uid = int(uid_text)
+    primary_gid = int(gid_text)
+    required = 0o5 if directory else 0o4
+    if metadata.st_uid == uid:
+        return required << 6
+    if metadata.st_gid in {primary_gid, *RUNTIME_SUPPLEMENTAL_GIDS}:
+        return required << 3
+    return required
 
 
 def _runtime_identity_bits(metadata: os.stat_result) -> int:
@@ -104,7 +121,7 @@ def _runtime_identity_bits(metadata: os.stat_result) -> int:
     mode = stat.S_IMODE(metadata.st_mode)
     if metadata.st_uid == uid:
         return (mode >> 6) & 0o7
-    if metadata.st_gid == gid:
+    if metadata.st_gid in {gid, *RUNTIME_SUPPLEMENTAL_GIDS}:
         return (mode >> 3) & 0o7
     return mode & 0o7
 
@@ -130,7 +147,7 @@ def repair_runtime_mount_root_permissions(root: Path) -> int:
     if not stat.S_ISDIR(metadata.st_mode):
         raise BindSourceGuardError("bind_source_type_invalid")
     current_mode = stat.S_IMODE(metadata.st_mode)
-    desired_mode = (current_mode | 0o555) & ~0o022
+    desired_mode = current_mode | _runtime_read_mode(metadata, directory=True)
     if desired_mode == current_mode:
         return 0
     root.chmod(desired_mode, follow_symlinks=False)
@@ -196,7 +213,7 @@ def verify_runtime_source_tree(
         "services": {
             SERVICE: {
                 "user": EXPECTED_USER,
-                "group_add": [],
+                "group_add": [str(gid) for gid in sorted(RUNTIME_SUPPLEMENTAL_GIDS)],
                 "volumes": [
                     {
                         "type": "bind",
@@ -218,6 +235,7 @@ def verify_runtime_source_tree(
         "contract_name": CONTRACT_NAME,
         "status": "pass",
         "runtime_user": EXPECTED_USER,
+        "runtime_supplemental_gids": sorted(RUNTIME_SUPPLEMENTAL_GIDS),
         "runtime_mount_directories": (
             list(RUNTIME_MOUNT_DIRECTORIES) if source is None else []
         ),

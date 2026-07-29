@@ -55,6 +55,7 @@ def test_runtime_source_tree_passes_without_reading_contents(tmp_path: Path) -> 
 
     assert receipt["status"] == "pass"
     assert receipt["runtime_user"] == "10001:10001"
+    assert receipt["runtime_supplemental_gids"] == [1000]
     assert receipt["runtime_mount_directories"] == [".", "ea"]
     assert receipt["runtime_mount_root_verified"] is True
     assert receipt["source_trees"] == [
@@ -87,7 +88,7 @@ def test_runtime_source_repair_normalizes_0600_without_making_source_writable(
     receipt = verifier.verify_runtime_source_tree(root)
 
     assert repaired == 1
-    assert stat.S_IMODE(module.stat().st_mode) == 0o644
+    assert stat.S_IMODE(module.stat().st_mode) == 0o640
     assert receipt["status"] == "pass"
 
 
@@ -100,7 +101,7 @@ def test_runtime_source_repair_covers_scripts_bind_mount(tmp_path: Path) -> None
     receipt = verifier.verify_runtime_source_tree(root)
 
     assert repaired == 1
-    assert stat.S_IMODE(launcher.stat().st_mode) == 0o744
+    assert stat.S_IMODE(launcher.stat().st_mode) == 0o740
     assert receipt["status"] == "pass"
 
 
@@ -130,7 +131,7 @@ def test_runtime_source_repair_covers_mount_root_without_exposing_private_files(
     receipt = verifier.verify_runtime_source_tree(root)
 
     assert repaired == 1
-    assert stat.S_IMODE(root.stat().st_mode) == 0o755
+    assert stat.S_IMODE(root.stat().st_mode) == 0o750
     assert stat.S_IMODE(private_env.stat().st_mode) == 0o600
     assert receipt["status"] == "pass"
 
@@ -159,7 +160,7 @@ def test_runtime_source_repair_covers_required_root_compose_file(
     receipt = verifier.verify_runtime_source_tree(root)
 
     assert repaired == 1
-    assert stat.S_IMODE(compose_file.stat().st_mode) == 0o644
+    assert stat.S_IMODE(compose_file.stat().st_mode) == 0o640
     assert receipt["status"] == "pass"
 
 
@@ -174,7 +175,21 @@ def test_runtime_source_repair_covers_read_only_release_evidence(
     receipt = verifier.verify_runtime_source_tree(root)
 
     assert repaired == 1
-    assert stat.S_IMODE(receipt_file.stat().st_mode) == 0o644
+    assert stat.S_IMODE(receipt_file.stat().st_mode) == 0o640
+    assert receipt["status"] == "pass"
+
+
+def test_runtime_source_repair_preserves_existing_group_private_write_access(
+    tmp_path: Path,
+) -> None:
+    root, module = _runtime_tree(tmp_path)
+    module.chmod(0o660)
+
+    repaired = verifier.repair_runtime_source_tree_permissions(root / "ea" / "app")
+    receipt = verifier.verify_runtime_source_tree(root)
+
+    assert repaired == 0
+    assert stat.S_IMODE(module.stat().st_mode) == 0o660
     assert receipt["status"] == "pass"
 
 
