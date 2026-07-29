@@ -3,7 +3,6 @@
 {% set is_property_console_form = console_form.get('variant') == 'property_search' %}
 <style>
   .console-stage,
-  .console-section-grid,
   .console-support-grid,
   .console-list,
   .console-metric-grid {
@@ -16,9 +15,14 @@
     align-items: start;
   }
   .console-section-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-count: 2;
+    column-gap: 14px;
     margin-top: 14px;
-    align-items: start;
+  }
+  .console-section-grid > .console-section {
+    width: 100%;
+    break-inside: avoid;
+    margin: 0 0 14px;
   }
   .console-panel,
   .console-focus,
@@ -121,7 +125,7 @@
   .console-brief-metric strong {
     display: block;
     margin: 0;
-    font-size: 15px;
+    font-size: 1.08rem;
     color: var(--text);
   }
   .console-brief-metric:hover {
@@ -657,6 +661,16 @@
     list-style: none;
     font-weight: 620;
   }
+  .console-disclosure summary > span {
+    display: grid;
+    gap: 2px;
+  }
+  .console-disclosure summary small {
+    color: var(--text-dim);
+    font-size: 12px;
+    font-weight: 450;
+    line-height: 1.4;
+  }
   .console-disclosure summary::-webkit-details-marker {
     display: none;
   }
@@ -763,9 +777,11 @@
   }
   @media (max-width: 1080px) {
     .console-stage,
-    .console-support-grid,
-    .console-section-grid {
+    .console-support-grid {
       grid-template-columns: 1fr;
+    }
+    .console-section-grid {
+      column-count: 1;
     }
     .console-brief-strip {
       grid-template-columns: 1fr;
@@ -979,9 +995,9 @@
 <section class="console-stage today-stage">
   <section class="console-today-main">
     {% if stats %}
-    <div class="console-brief-strip">
+    <div class="console-brief-strip" role="list" aria-label="Office pulse">
       {% for stat in stats[:3] %}
-      <div class="console-brief-metric">
+      <div class="console-brief-metric" role="listitem">
         <span>{{ stat.label }}</span>
         <strong>{{ stat.value }}</strong>
       </div>
@@ -992,13 +1008,12 @@
       <div class="console-kicker">Today</div>
       <h2>{{ c0.title if c0 else console_title }}</h2>
       <p class="console-copy">{{ c0.body if c0 and c0.body else console_summary }}</p>
-      {% if stats %}
-      <div class="console-metric-grid">
-        {% for stat in stats %}
-        <div class="console-metric">
+      {% if stats|length > 3 %}
+      <div class="console-metric-grid" role="list" aria-label="Additional office indicators">
+        {% for stat in stats[3:] %}
+        <div class="console-metric" role="listitem">
           <span class="label">{{ stat.label }}</span>
           <strong>{{ stat.value }}</strong>
-          <span>Visible without leaving the office loop.</span>
         </div>
         {% endfor %}
       </div>
@@ -1049,8 +1064,14 @@
     {% if c1 and c1['items'] %}
       {{ rows(c1['items'], 'Ready', 'This work is staged to move, not to sit in another hidden backlog.') }}
     {% endif %}
-    <div class="console-callout">
-      <div class="console-kicker">Capture from note</div>
+    <details class="console-disclosure" data-console-disclosure="capture-commitment">
+      <summary>
+        <span>
+          Capture from note
+          <small>Turn a note, thread, or meeting takeaway into reviewable work.</small>
+        </span>
+      </summary>
+      <div class="console-disclosure-body">
       <form class="console-form" method="post" action="/app/actions/commitments/extract">
         <label class="console-field">
           <span>Note or thread snippet</span>
@@ -1082,7 +1103,8 @@
         <input type="hidden" name="return_to" value="/app/queue">
         <button class="console-action primary" type="submit">Capture item</button>
       </form>
-    </div>
+      </div>
+    </details>
     <details class="console-disclosure" data-console-disclosure="manual-commitment">
       <summary>Create manually</summary>
       <div class="console-disclosure-body">

@@ -32274,7 +32274,12 @@ class ProductService:
         if existing is not None and str(existing.status or "").strip().lower() == "active" and "operator" in existing_role_set:
             return resolved_operator_id
         if existing is None:
-            status = self._container.onboarding.status(principal_id=normalized_principal)
+            try:
+                status = self._container.onboarding.status(principal_id=normalized_principal)
+            except Exception:
+                # Access recovery may need to self-heal an operator even while
+                # optional onboarding providers are degraded.
+                status = {}
             workspace = dict(status.get("workspace") or {})
             plan = workspace_plan_for_mode(str(workspace.get("mode") or "personal"))
             active = self._container.orchestrator.list_operator_profiles(
@@ -32473,6 +32478,12 @@ class ProductService:
         normalized_email = str(email or "").strip().lower()
         if not normalized_email:
             return ()
+        canonical_principal_ids = list(
+            google_oauth_service.principal_ids_for_email(
+                container=self._container,
+                email=normalized_email,
+            )
+        )
         principal_last_seen: dict[str, str] = {}
         for row in self._container.channel_runtime.list_recent_observations(limit=max(int(observation_limit), 100)):
             payload = dict(row.payload or {})
@@ -32489,9 +32500,26 @@ class ProductService:
             previous = str(principal_last_seen.get(principal_id) or "").strip()
             if not previous or created_at > previous:
                 principal_last_seen[principal_id] = created_at
+        ordered_principal_ids = [
+            *canonical_principal_ids,
+            *(
+                principal_id
+                for principal_id, _last_seen_at in sorted(
+                    principal_last_seen.items(),
+                    key=lambda item: item[1],
+                    reverse=True,
+                )
+                if principal_id not in canonical_principal_ids
+            ),
+        ]
         candidates: list[dict[str, object]] = []
-        for principal_id, last_seen_at in sorted(principal_last_seen.items(), key=lambda item: item[1], reverse=True):
-            status = self._container.onboarding.status(principal_id=principal_id)
+        for principal_id in ordered_principal_ids:
+            try:
+                status = self._container.onboarding.status(principal_id=principal_id)
+            except Exception:
+                # Authentication recovery must not depend on the health or file
+                # permissions of optional connector manifests.
+                status = {}
             workspace = dict(status.get("workspace") or {})
             workspace_name = str(workspace.get("name") or "Executive Workspace").strip() or "Executive Workspace"
             preferred_grant = self.resolve_workspace_access_grant(
@@ -32726,6 +32754,7 @@ class ProductService:
         email: str,
         base_url: str = "",
         expires_in_hours: int = 72,
+        default_target: str = "/app/today",
     ) -> dict[str, object]:
         normalized_email = str(email or "").strip().lower()
         if "@" not in normalized_email or "." not in normalized_email.rsplit("@", 1)[-1]:
@@ -32828,7 +32857,7 @@ class ProductService:
                     operator_id=str(candidate.get("operator_id") or "").strip(),
                     source_kind="sign_in_email",
                     expires_in_hours=expires_in_hours,
-                    default_target="/app/settings/access",
+                    default_target=str(default_target or "").strip() or "/app/today",
                 )
                 access_url = str(access_session.get("access_url") or "").strip()
                 absolute_access_url = urllib.parse.urljoin(str(base_url or "").strip(), access_url) if str(base_url or "").strip() else access_url

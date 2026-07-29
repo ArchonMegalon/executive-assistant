@@ -66,29 +66,19 @@
     <h1>{% if brand.key == 'propertyquarry' %}Sign in to continue your property search.{% else %}Sign in if you already have workspace access.{% endif %}</h1>
     <p class="lead">{% if brand.key == 'propertyquarry' %}Return through a current session, a secure email link, a workspace invite, or SSO. New customers start by creating a property research account first.{% else %}Return through a current session, a secure email link, a workspace invite, or SSO. New customers start with a personal workspace first.{% endif %}</p>
     <div class="cta-row">
-      <a class="btn primary" href="{% if brand.key == 'propertyquarry' %}/app/properties{% else %}/app/today{% endif %}">Open current session</a>
+      <a class="btn{% if not sign_in_link_enabled %} primary{% endif %}" href="{% if brand.key == 'propertyquarry' %}/app/properties{% else %}/app/today{% endif %}">Open current session</a>
       <a class="btn" href="{% if brand.key == 'ea' %}/get-started{% else %}/register{% endif %}">{{ brand.create_label }}</a>
     </div>
-    <form class="access-form" method="post" action="/sign-in/google">
-      <label>Continue with Google</label>
-      <div class="cta-row">
-        <button class="btn primary" type="submit">Continue with Google</button>
-      </div>
-    </form>
-    {% if sign_in_google_error %}
-    <div class="access-feedback">
-      <strong>Google sign-in could not start.</strong>
-      <p class="copy">{{ sign_in_google_error }}</p>
-    </div>
-    {% endif %}
     {% if sign_in_link_enabled %}
     <form class="access-form" method="post" action="/sign-in/email-link">
+      <input type="hidden" name="return_to" value="{{ sign_in_return_to }}">
       <div>
         <label for="sign_in_email">Email me a fresh access link</label>
-        <input id="sign_in_email" name="email" type="email" value="{{ sign_in_link_email or '' }}" placeholder="you@company.com" required>
+        <input id="sign_in_email" name="email" type="email" value="{{ sign_in_link_email or '' }}" placeholder="you@company.com" autocomplete="email" inputmode="email" aria-describedby="sign_in_email_help" required>
+        <p class="copy" id="sign_in_email_help">Use the inbox already attached to your workspace. The link opens the page you were trying to reach.</p>
       </div>
       <div class="cta-row">
-        <button class="btn" type="submit">Email me a sign-in link</button>
+        <button class="btn primary" type="submit">Email me a sign-in link</button>
       </div>
     </form>
     {% else %}
@@ -97,23 +87,23 @@
       <p class="copy">Use an existing invite, access link, current session, or SSO until mail delivery is configured.</p>
     </div>
     {% endif %}
+    {% if sign_in_google_error %}
+    <div class="access-feedback" role="status">
+      <strong>Google is connected after workspace access.</strong>
+      <p class="copy">{{ sign_in_google_error }}</p>
+    </div>
+    {% endif %}
     {% if sign_in_link_status %}
-    <div class="access-feedback">
-      {% if sign_in_link_status == 'sent' %}
-      <strong>Secure access links sent.</strong>
-      <p class="copy">We sent {{ sign_in_link_count }} secure {{ 'link' if sign_in_link_count == 1 else 'links' }} to {{ sign_in_link_email }}.</p>
-      {% elif sign_in_link_status == 'partial' %}
-      <strong>Some links were sent.</strong>
-      <p class="copy">We sent {{ sign_in_link_count }} secure links to {{ sign_in_link_email }}. {{ sign_in_link_failed_total }} delivery {{ 'failed' if sign_in_link_failed_total == 1 else 'failures' }} still need attention.</p>
-      {% elif sign_in_link_status == 'not_found' %}
-      <strong>No existing workspace matched that email.</strong>
-      <p class="copy">We could not find workspace access for {{ sign_in_link_email }}. Start at {% if brand.key == 'propertyquarry' %}/register{% else %}/get-started{% endif %} if this is a first-time account.</p>
+    <div class="access-feedback" {% if sign_in_link_status == 'failed' %}role="alert"{% else %}role="status"{% endif %}>
+      {% if sign_in_link_status == 'requested' %}
+      <strong>Check your inbox.</strong>
+      <p class="copy">If an existing workspace matches that address, a fresh secure link is on its way. It may take a minute to arrive.</p>
       {% elif sign_in_link_status == 'invalid' %}
       <strong>Enter a valid email address.</strong>
       <p class="copy">Use the inbox that already has workspace access or an invite.</p>
       {% else %}
       <strong>We could not send a sign-in link.</strong>
-      <p class="copy">{{ sign_in_link_error or 'Use your current session, an existing invite, or ask the workspace owner to issue a new link.' }}</p>
+      <p class="copy">Try again in a few minutes, use your current session or an existing invite, or ask the workspace owner to issue a new link.</p>
       {% endif %}
     </div>
     {% endif %}
@@ -128,7 +118,7 @@
       </div>
       <div class="summary">
       <div class="label">Google</div>
-        <strong>Google can reopen an existing workspace with identity-only scope.</strong>
+        <strong>Connect Google from Settings after secure workspace access is established.</strong>
       </div>
     </div>
   </section>

@@ -28,16 +28,30 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert 'class="console-main" id="workspace-content" tabindex="-1"' in today.text
     assert 'class="ea-mobile-nav" aria-label="Workspace navigation"' in today.text
     assert 'aria-current="page"' in today.text
+    assert today.text.count("Memo items") == 1
+    assert today.text.count("Queue items") == 1
+    pulse_labels = re.findall(
+        r'<div class="console-brief-metric" role="listitem">\s*<span>([^<]+)</span>',
+        today.text,
+    )
+    assert pulse_labels == ["Memo items", "Queue items", "Commitments"]
+    assert 'role="list" aria-label="Office pulse"' in today.text
+    assert 'aria-label="Additional office indicators"' in today.text
 
     queue = client.get("/app/queue")
     assert queue.status_code == 200
     assert "Queue" in queue.text
+    assert 'data-console-disclosure="capture-commitment"' in queue.text
+    assert "Turn a note, thread, or meeting takeaway into reviewable work." in queue.text
     assert 'data-console-disclosure="manual-commitment"' in queue.text
     assert "Create manually" in queue.text
     assert "Relationship reference (optional)" in queue.text
     assert "Follow-up" in queue.text
     assert "Choose board memo owner" in queue.text
     assert "Board memo delivery window" in queue.text
+    assert "column-count: 2" in queue.text
+    assert "break-inside: avoid" in queue.text
+    assert "centerActiveMobileNavItem" in queue.text
 
     commitments = client.get("/app/commitments")
     assert commitments.status_code == 200

@@ -1099,7 +1099,7 @@
       .console { grid-template-columns: 1fr; }
       .sidebar { display: none; }
       .console-main {
-        padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+        padding-bottom: calc(112px + env(safe-area-inset-bottom, 0px));
       }
       .ea-mobile-nav {
         position: fixed;
@@ -1112,6 +1112,8 @@
         padding: 8px;
         overflow-x: auto;
         overscroll-behavior-inline: contain;
+        scroll-padding-inline: 8px;
+        scroll-snap-type: inline proximity;
         scrollbar-width: none;
         border: 1px solid rgba(185, 173, 154, 0.78);
         border-radius: 18px;
@@ -1137,6 +1139,7 @@
         line-height: 1.2;
         text-align: center;
         white-space: nowrap;
+        scroll-snap-align: center;
         transition: border-color var(--ease), background var(--ease), color var(--ease), transform var(--ease);
       }
       .ea-mobile-nav a:hover {
@@ -1393,6 +1396,7 @@
   <script>
     (() => {
       const liveRegion = document.getElementById('workspace-live-region');
+      const mobileNav = document.querySelector('.ea-mobile-nav');
       const armedTimers = new WeakMap();
 
       const announce = (message) => {
@@ -1401,6 +1405,14 @@
         window.requestAnimationFrame(() => {
           liveRegion.textContent = String(message || '');
         });
+      };
+
+      const centerActiveMobileNavItem = () => {
+        if (!(mobileNav instanceof HTMLElement) || mobileNav.offsetParent === null) return;
+        const activeItem = mobileNav.querySelector('[aria-current="page"]');
+        if (!(activeItem instanceof HTMLElement)) return;
+        const targetLeft = activeItem.offsetLeft - ((mobileNav.clientWidth - activeItem.offsetWidth) / 2);
+        mobileNav.scrollLeft = Math.max(0, targetLeft);
       };
 
       const actionLabel = (node) => String(
@@ -1508,6 +1520,7 @@
       window.addEventListener('pageshow', () => {
         document.body.classList.remove('is-navigating');
         resetAllConfirmations();
+        centerActiveMobileNavItem();
         document.querySelectorAll('form[data-submitting="true"]').forEach((form) => {
           form.removeAttribute('data-submitting');
           form.removeAttribute('aria-busy');
@@ -1520,6 +1533,7 @@
           });
         });
       });
+      window.addEventListener('resize', centerActiveMobileNavItem, { passive: true });
     })();
   </script>
 </body>

@@ -275,19 +275,81 @@ def test_sign_in_email_link_reissues_workspace_access_for_existing_email(
 
     response = client.post(
         "/sign-in/email-link",
-        data={"email": "Founder@Example.com"},
+        data={"email": "Founder@Example.com", "return_to": "/app/queue"},
         follow_redirects=False,
     )
 
     assert response.status_code == 303
-    assert "link_status=sent" in response.headers["location"]
-    assert "link_count=1" in response.headers["location"]
+    assert "link_status=requested" in response.headers["location"]
+    assert "link_count" not in response.headers["location"]
+    assert "founder%40example.com" not in response.headers["location"]
     followup = client.get(response.headers["location"])
     assert followup.status_code == 200
-    assert "Secure access links sent." in followup.text
-    assert "founder@example.com" in followup.text
+    assert "Check your inbox." in followup.text
+    assert "founder@example.com" not in followup.text
     assert observed["recipient_email"] == "founder@example.com"
     assert observed["workspace_name"] == "Founder Office"
+    assert str(observed["access_url"]).startswith("https://assistant.example.test/workspace-access/")
+    access_path = urllib.parse.urlparse(str(observed["access_url"])).path
+    opened = client.get(access_path, follow_redirects=False)
+    assert opened.status_code == 303
+    assert opened.headers["location"] == "/app/queue"
+
+
+def test_sign_in_email_link_resolves_canonical_principal_without_observation_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    client = _client(monkeypatch)
+    start_workspace(client, mode="personal", workspace_name="Canonical Office")
+
+    issued = client.post(
+        "/app/api/access-sessions",
+        json={"email": "canonical@example.com", "role": "principal", "display_name": "Canonical Office"},
+    )
+    assert issued.status_code == 200
+
+    from app.product import service as product_service
+    from app.services import google_oauth as google_service
+    from app.services.registration_email import RegistrationEmailReceipt
+
+    principal_id = str(issued.json()["principal_id"])
+    monkeypatch.setattr(
+        google_service,
+        "principal_ids_for_email",
+        lambda **kwargs: (principal_id,) if kwargs["email"] == "canonical@example.com" else (),
+    )
+    monkeypatch.setattr(
+        client.app.state.container.channel_runtime,
+        "list_recent_observations",
+        lambda **kwargs: [],
+    )
+    monkeypatch.setattr(
+        client.app.state.container.onboarding,
+        "status",
+        lambda **kwargs: (_ for _ in ()).throw(PermissionError("optional connector manifest unreadable")),
+    )
+    observed: dict[str, object] = {}
+
+    def _fake_send_workspace_access_email(**kwargs) -> RegistrationEmailReceipt:
+        observed.update(kwargs)
+        return RegistrationEmailReceipt(
+            provider="emailit",
+            message_id="canonical-access-message",
+            accepted_at="2026-03-26T00:00:00+00:00",
+        )
+
+    monkeypatch.setattr(product_service, "send_workspace_access_email", _fake_send_workspace_access_email)
+
+    response = client.post(
+        "/sign-in/email-link",
+        data={"email": "canonical@example.com", "return_to": "/app/queue"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert "link_status=requested" in response.headers["location"]
+    assert observed["recipient_email"] == "canonical@example.com"
     assert str(observed["access_url"]).startswith("https://assistant.example.test/workspace-access/")
 
 
@@ -419,7 +481,7 @@ def test_sign_in_email_link_emailit_obeys_outbound_bounds(
     assert "outbound_email_rate_limited:cooldown" in str(second["items"][0]["error"])
 
 
-def test_sign_in_email_link_reports_missing_workspace_match(
+def test_sign_in_email_link_does_not_disclose_missing_workspace_match(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
@@ -432,23 +494,28 @@ def test_sign_in_email_link_reports_missing_workspace_match(
     )
 
     assert response.status_code == 303
-    assert "link_status=not_found" in response.headers["location"]
+    assert "link_status=requested" in response.headers["location"]
     followup = client.get(response.headers["location"])
     assert followup.status_code == 200
-    assert "No existing workspace matched that email." in followup.text
+    assert "Check your inbox." in followup.text
+    assert "No existing workspace matched" not in followup.text
 
 
-def test_sign_in_page_offers_google_return_path(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sign_in_page_uses_secure_email_return_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
     client = _client(monkeypatch)
 
-    response = client.get("/sign-in")
+    response = client.get("/sign-in?return_to=%2Fapp%2Fqueue")
 
     assert response.status_code == 200
-    assert "Continue with Google" in response.text
-    assert "Google can reopen an existing workspace with identity-only scope." in response.text
+    assert 'action="/sign-in/email-link"' in response.text
+    assert 'name="return_to" value="/app/queue"' in response.text
+    assert "Email me a sign-in link" in response.text
+    assert 'action="/sign-in/google"' not in response.text
+    assert "Connect Google from Settings after secure workspace access is established." in response.text
 
 
-def test_sign_in_google_reopens_existing_workspace_after_callback(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_legacy_sign_in_google_redirects_to_secure_email_recovery(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://assistant.example.test/google/callback")
@@ -461,60 +528,27 @@ def test_sign_in_google_reopens_existing_workspace_after_callback(monkeypatch: p
     start_workspace(client, mode="personal", workspace_name="Principal Assistant Workspace")
 
     sign_in_start = client.post(
-        "/sign-in/google",
+        "/sign-in/google?return_to=%2Fapp%2Fqueue",
         follow_redirects=False,
     )
     assert sign_in_start.status_code == 303
-    auth_url = sign_in_start.headers["location"]
-    assert auth_url.startswith("https://accounts.google.com/o/oauth2/v2/auth")
-    parsed = urllib.parse.urlparse(auth_url)
+    assert sign_in_start.headers["location"].startswith("/sign-in?")
+    parsed = urllib.parse.urlparse(sign_in_start.headers["location"])
     query = urllib.parse.parse_qs(parsed.query)
-    assert query["redirect_uri"][0] == "https://assistant.example.test/google/callback"
-
-    from app.services import google_oauth as google_service
-
-    monkeypatch.setattr(
-        google_service,
-        "_exchange_google_code_for_tokens",
-        lambda **kwargs: {
-            "access_token": "access-token",
-            "refresh_token": "refresh-token",
-            "scope": "openid email profile",
-            "expires_in": 3600,
-        },
-    )
-    monkeypatch.setattr(
-        google_service,
-        "_fetch_google_userinfo",
-        lambda access_token: {
-            "sub": "google-sub-signin",
-            "email": "principal.user@example.test",
-        },
-    )
-
-    callback = client.get(
-        "/google/callback",
-        params={"code": "code-123", "state": query["state"][0]},
-        follow_redirects=False,
-    )
-    assert callback.status_code == 303
-    assert callback.headers["location"].startswith("/workspace-access/")
-
-    opened = client.get(callback.headers["location"], follow_redirects=False)
-    assert opened.status_code == 303
-    assert opened.headers["location"] == "/app/today"
-    assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
+    assert query["return_to"] == ["/app/queue"]
+    assert "secure email link" in query["google_error"][0]
 
 
-def test_sign_in_page_does_not_require_email_field_for_google(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sign_in_page_does_not_advertise_unavailable_email_or_google(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
     client = _client(monkeypatch)
 
     response = client.get("/sign-in")
 
     assert response.status_code == 200
-    assert 'action="/sign-in/google"' in response.text
-    assert "Continue with Google" in response.text
-    assert 'id="google_sign_in_email"' not in response.text
+    assert 'action="/sign-in/google"' not in response.text
+    assert "Continue with Google" not in response.text
+    assert "Email return links are not enabled on this deployment yet." in response.text
     assert 'placeholder="you@company.com"' not in response.text
 
 

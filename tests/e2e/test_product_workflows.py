@@ -537,6 +537,7 @@ def test_draft_and_commitment_workflows_in_real_browser(page: Page, product_brow
     response = page.goto(f"{base_url}/app/queue", wait_until="networkidle")
     assert response is not None and response.ok
 
+    page.locator('[data-console-disclosure="capture-commitment"] summary').click()
     page.locator("#extract_source_text").fill("Please send the revised board packet to Sofia tomorrow morning.")
     page.locator("#extract_counterparty").fill("Sofia N.")
     with page.expect_response(lambda value: "/app/actions/commitments/extract" in value.url and value.request.method == "POST") as extract_response:
@@ -905,12 +906,30 @@ def test_queue_mobile_polish_and_confirmation_in_real_browser(
     response = page.goto(f"{base_url}/app/queue", wait_until="networkidle")
     assert response is not None and response.ok
     assert page.locator(".ea-mobile-nav").is_visible()
+    capture_disclosure = page.locator('[data-console-disclosure="capture-commitment"]')
+    assert capture_disclosure.is_visible()
+    assert capture_disclosure.get_attribute("open") is None
     assert page.locator('[data-console-disclosure="manual-commitment"]').is_visible()
-    assert page.get_by_role("button", name="Capture item").evaluate(
+    assert capture_disclosure.locator("summary").evaluate(
         "(node) => node.getBoundingClientRect().height"
     ) >= 44
     assert page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth") <= 1
+    assert page.locator('.ea-mobile-nav a[aria-current="page"]').evaluate(
+        """(node) => {
+          const nav = node.closest('.ea-mobile-nav');
+          const itemRect = node.getBoundingClientRect();
+          const navRect = nav.getBoundingClientRect();
+          return itemRect.left >= navRect.left && itemRect.right <= navRect.right;
+        }"""
+    )
     _assert_visual_baseline(page, "queue-mobile-page.png", full_page=False)
+    page.evaluate("() => window.scrollTo(0, document.documentElement.scrollHeight)")
+    nav_box = page.locator(".ea-mobile-nav").bounding_box()
+    content_bottom = page.locator(".console-section-grid > .console-section").evaluate_all(
+        "(nodes) => Math.max(...nodes.map((node) => node.getBoundingClientRect().bottom))"
+    )
+    assert nav_box is not None
+    assert content_bottom <= nav_box["y"] - 8
 
     reject_button = page.locator(".console-row", has_text="Approve reply to Sofia N.").get_by_role("button", name="Reject").first
     reject_button.click()
@@ -967,6 +986,22 @@ def test_core_surface_visual_regression(
     try:
         response = page.goto(f"{base_url}{path}", wait_until="networkidle")
         assert response is not None and response.ok
+        if path == "/app/queue" and full_page:
+            masonry = page.locator(".console-section-grid")
+            assert masonry.evaluate("(node) => getComputedStyle(node).columnCount") == "2"
+            layout = masonry.evaluate(
+                """(node) => {
+                  const cards = [...node.children];
+                  return {
+                    containerHeight: node.getBoundingClientRect().height,
+                    cardHeightTotal: cards.reduce(
+                      (total, card) => total + card.getBoundingClientRect().height,
+                      0,
+                    ),
+                  };
+                }"""
+            )
+            assert layout["containerHeight"] < layout["cardHeightTotal"] * 0.75
         _assert_visual_baseline(page, snapshot_name, full_page=full_page)
     finally:
         context.close()
@@ -1104,6 +1139,7 @@ def test_commitment_candidate_can_be_edited_before_accept_in_real_browser(page: 
     response = page.goto(f"{base_url}/app/queue", wait_until="networkidle")
     assert response is not None and response.ok
 
+    page.locator('[data-console-disclosure="capture-commitment"] summary').click()
     page.locator("#extract_source_text").fill("Please send the revised board packet to Sofia tomorrow morning.")
     page.locator("#extract_counterparty").fill("Sofia N.")
     with page.expect_response(lambda value: "/app/actions/commitments/extract" in value.url and value.request.method == "POST") as extract_response:

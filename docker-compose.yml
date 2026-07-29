@@ -78,6 +78,15 @@ services:
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
       - EA_OUTBOUND_EMAIL_GUARD_STATE_PATH=${EA_OUTBOUND_EMAIL_GUARD_STATE_PATH:-/data/provider-ledger/outbound_email_guard.json}
       - EA_EMAILIT_MAX_429_RETRY_ATTEMPTS=${EA_EMAILIT_MAX_429_RETRY_ATTEMPTS:-0}
+      # Secure return links are the primary browser sign-in path. Compose reads
+      # these values from the local, untracked .env and passes them explicitly;
+      # env_file entries above contain runtime service secrets but do not
+      # automatically inherit Compose's .env values.
+      - EMAILIT_API_KEY=${EMAILIT_API_KEY:-}
+      - EA_EMAIL_DEFAULT_FROM=${EA_EMAIL_DEFAULT_FROM:-}
+      - EA_EMAIL_DEFAULT_NAME=${EA_EMAIL_DEFAULT_NAME:-}
+      - EA_REGISTRATION_EMAIL_FROM=${EA_REGISTRATION_EMAIL_FROM:-}
+      - EA_REGISTRATION_EMAIL_NAME=${EA_REGISTRATION_EMAIL_NAME:-}
       - EA_SCHEDULER_TELEGRAM_ASYNC_IDLE_INTERVAL_SECONDS=${EA_SCHEDULER_TELEGRAM_ASYNC_IDLE_INTERVAL_SECONDS:-30}
       - EA_SCHEDULER_WHATSAPP_ASYNC_IDLE_INTERVAL_SECONDS=${EA_SCHEDULER_WHATSAPP_ASYNC_IDLE_INTERVAL_SECONDS:-30}
       - EA_SCHEDULER_ASYNC_IDLE_LOG_INTERVAL_SECONDS=${EA_SCHEDULER_ASYNC_IDLE_LOG_INTERVAL_SECONDS:-300}

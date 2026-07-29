@@ -359,6 +359,12 @@ def _principal_db_ids_for_email(*, container: "AppContainer" | None, email: str)
     return tuple(ordered)
 
 
+def principal_ids_for_email(*, container: "AppContainer" | None, email: str) -> tuple[str, ...]:
+    """Resolve canonical workspace principals for an existing account email."""
+
+    return _principal_db_ids_for_email(container=container, email=email)
+
+
 def _principal_db_email(*, container: "AppContainer" | None, principal_id: str) -> str:
     normalized_principal = str(principal_id or "").strip()
     if not normalized_principal:
@@ -394,7 +400,7 @@ def _canonical_google_signin_principal_id(*, container: "AppContainer" | None, g
     normalized_email = str(google_email or "").strip().lower()
     if not normalized_email:
         return ""
-    matches = _principal_db_ids_for_email(container=container, email=normalized_email)
+    matches = principal_ids_for_email(container=container, email=normalized_email)
     if len(matches) == 1:
         return matches[0]
     return f"cf-email:{normalized_email}"

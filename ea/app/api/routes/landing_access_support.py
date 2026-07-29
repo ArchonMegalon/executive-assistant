@@ -27,7 +27,6 @@ from app.api.routes.landing_public_support import (
 from app.container import AppContainer
 from app.product.service import build_product_service, workspace_sign_in_email_delivery_available
 from app.services.cloudflare_access import CloudflareAccessIdentity
-from app.services.google_oauth import browser_google_oauth_redirect_uri, build_google_oauth_start
 from app.services.public_branding import request_brand
 
 
@@ -79,11 +78,15 @@ def sign_in_page(
     principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
     link_status = str(request.query_params.get("link_status") or "").strip()
     link_email = str(request.query_params.get("link_email") or "").strip()
-    link_count = int(request.query_params.get("link_count") or 0)
-    link_failed_total = int(request.query_params.get("link_failed_total") or 0)
-    link_error = str(request.query_params.get("link_error") or "").strip()
     google_error = str(request.query_params.get("google_error") or "").strip()
     brand = request_brand(request)
+    sign_in_return_to = _brand_safe_return_target(
+        brand,
+        _normalize_browser_return_to(
+            request.query_params.get("return_to"),
+            default=str(brand.get("app_home") or "/app/today"),
+        ),
+    )
     return _render_public_template(
         request,
         "sign_in.html",
@@ -99,10 +102,8 @@ def sign_in_page(
                 "sign_in_link_enabled": workspace_sign_in_email_delivery_available(),
                 "sign_in_link_status": link_status,
                 "sign_in_link_email": link_email,
-                "sign_in_link_count": link_count,
-                "sign_in_link_failed_total": link_failed_total,
-                "sign_in_link_error": link_error,
                 "sign_in_google_error": google_error,
+                "sign_in_return_to": sign_in_return_to,
             },
         ),
     )
@@ -114,32 +115,37 @@ async def sign_in_email_link(
 ) -> RedirectResponse:
     form_data = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     email = _form_value(form_data, "email", "").lower()
+    brand = request_brand(request)
+    return_to = _brand_safe_return_target(
+        brand,
+        _normalize_browser_return_to(
+            _form_value(form_data, "return_to", ""),
+            default=str(brand.get("app_home") or "/app/today"),
+        ),
+    )
     product = build_product_service(container)
     try:
         result = product.request_workspace_sign_in_email_links(
             email=email,
             base_url=_public_app_base_url(request),
+            default_target=return_to,
         )
-    except ValueError as exc:
+    except ValueError:
         return RedirectResponse(
-            "/sign-in?" + urllib.parse.urlencode({"link_status": "invalid", "link_email": email, "link_error": str(exc or "workspace_sign_in_email_invalid")}),
+            "/sign-in?" + urllib.parse.urlencode({"link_status": "invalid"}),
             status_code=303,
         )
-    except RuntimeError as exc:
+    except RuntimeError:
         return RedirectResponse(
-            "/sign-in?" + urllib.parse.urlencode({"link_status": "failed", "link_email": email, "link_error": str(exc or "workspace_sign_in_email_delivery_not_configured")}),
+            "/sign-in?" + urllib.parse.urlencode({"link_status": "failed"}),
             status_code=303,
         )
-    query = {
-        "link_status": str(result.get("status") or "failed").strip() or "failed",
-        "link_email": str(result.get("email") or email).strip().lower(),
-        "link_count": str(int(result.get("sent_total") or 0)),
-        "link_failed_total": str(int(result.get("failed_total") or 0)),
-    }
-    if str(query["link_status"]) == "failed":
-        first_error = next((str(item.get("error") or "").strip() for item in list(result.get("items") or []) if str(item.get("error") or "").strip()), "")
-        if first_error:
-            query["link_error"] = first_error
+    internal_status = str(result.get("status") or "failed").strip() or "failed"
+    # Do not turn the public form into an account-enumeration endpoint. A valid
+    # request gets the same confirmation whether or not a matching workspace
+    # exists; delivery failures remain honest without exposing provider detail.
+    public_status = "requested" if internal_status in {"sent", "partial", "not_found"} else "failed"
+    query = {"link_status": public_status}
     return RedirectResponse("/sign-in?" + urllib.parse.urlencode(query), status_code=303)
 
 
@@ -147,17 +153,25 @@ async def sign_in_google(
     request: Request,
     container: AppContainer = Depends(get_container),
 ) -> RedirectResponse:
-    try:
-        packet = build_google_oauth_start(
-            principal_id="",
-            scope_bundle="identity",
-            redirect_uri_override=browser_google_oauth_redirect_uri(public_base_url=_public_app_base_url(request)),
-            return_to="/sign-in?google_connected=1",
-            browser_source="sign_in",
-        )
-    except RuntimeError as exc:
-        return RedirectResponse("/sign-in?" + urllib.parse.urlencode({"google_error": str(exc or "google_oauth_not_ready")}), status_code=303)
-    return RedirectResponse(str(packet.auth_url), status_code=303)
+    del container
+    brand = request_brand(request)
+    return_to = _brand_safe_return_target(
+        brand,
+        _normalize_browser_return_to(
+            request.query_params.get("return_to"),
+            default=str(brand.get("app_home") or "/app/today"),
+        ),
+    )
+    return RedirectResponse(
+        "/sign-in?"
+        + urllib.parse.urlencode(
+            {
+                "google_error": "Use the secure email link for workspace access. Connect Google from Settings after you sign in.",
+                "return_to": return_to,
+            }
+        ),
+        status_code=303,
+    )
 
 
 def register_page(

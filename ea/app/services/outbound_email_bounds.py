@@ -86,6 +86,29 @@ def _guard_max_keys() -> int:
     return max(1, _env_int("EA_OUTBOUND_EMAIL_GUARD_MAX_KEYS", 2048))
 
 
+def _failed_attempt_cooldown_seconds(policy: OutboundEmailPolicy) -> int:
+    configured = max(1, _env_int("EA_OUTBOUND_EMAIL_FAILURE_COOLDOWN_SECONDS", 60))
+    return min(configured, policy.cooldown_seconds)
+
+
+def _attempt_cooldown_seconds(
+    attempt: Mapping[str, object],
+    *,
+    policy: OutboundEmailPolicy,
+) -> int:
+    status = str(attempt.get("status") or "").strip().lower()
+    if status == "failed":
+        try:
+            provider_retry_after = max(int(attempt.get("retry_after_seconds") or 0), 0)
+        except (TypeError, ValueError):
+            provider_retry_after = 0
+        return min(
+            policy.window_seconds,
+            max(_failed_attempt_cooldown_seconds(policy), provider_retry_after),
+        )
+    return policy.cooldown_seconds
+
+
 def outbound_email_policy(kind: str) -> OutboundEmailPolicy:
     normalized = str(kind or "").strip().lower()
     if normalized in _AUTH_KINDS:
@@ -264,10 +287,11 @@ def _reserve_attempt(
         attempts = raw_attempts if isinstance(raw_attempts, list) else []
         attempts = _prune_attempts(attempts, now=now, window_seconds=policy.window_seconds)
         recent_attempt = attempts[-1] if attempts else None
-        if recent_attempt is not None and policy.cooldown_seconds > 0:
+        if recent_attempt is not None:
+            cooldown_seconds = _attempt_cooldown_seconds(recent_attempt, policy=policy)
             retry_after = int(
                 max(
-                    float(recent_attempt.get("attempted_at") or 0.0) + float(policy.cooldown_seconds) - now,
+                    float(recent_attempt.get("attempted_at") or 0.0) + float(cooldown_seconds) - now,
                     0.0,
                 )
             )
@@ -277,7 +301,7 @@ def _reserve_attempt(
                     reason="cooldown",
                     detail=(
                         f"kind={normalized_kind} category={policy.category} recipient={normalized_email} "
-                        f"cooldown_seconds={policy.cooldown_seconds}"
+                        f"cooldown_seconds={cooldown_seconds}"
                     ),
                 )
         if len(attempts) >= policy.max_per_window:
@@ -314,7 +338,13 @@ def _reserve_attempt(
     }
 
 
-def _finish_attempt(context: dict[str, object], *, status: str, error: str = "") -> None:
+def _finish_attempt(
+    context: dict[str, object],
+    *,
+    status: str,
+    error: str = "",
+    retry_after_seconds: int = 0,
+) -> None:
     if not context:
         return
     attempt_id = str(context.get("attempt_id") or "").strip()
@@ -339,6 +369,8 @@ def _finish_attempt(context: dict[str, object], *, status: str, error: str = "")
             item["completed_at"] = time.time()
             if error:
                 item["error"] = str(error or "").strip()[:240]
+            if retry_after_seconds > 0:
+                item["retry_after_seconds"] = int(retry_after_seconds)
             break
 
 
@@ -402,9 +434,9 @@ def outbound_email_guard_summary(
         category_row["entry_count"] += 1
         category_row["attempt_count"] += len(normalized_attempts)
 
-        cooldown_active = bool(
-            latest_attempt > 0.0 and latest_attempt + float(policy.cooldown_seconds) > effective_now
-        )
+        latest_attempt_row = normalized_attempts[-1]
+        cooldown_seconds = _attempt_cooldown_seconds(latest_attempt_row, policy=policy)
+        cooldown_active = bool(latest_attempt > 0.0 and latest_attempt + float(cooldown_seconds) > effective_now)
         if cooldown_active:
             active_cooldown_count += 1
             category_row["active_cooldown_count"] += 1
@@ -465,7 +497,16 @@ def bounded_outbound_email(
     try:
         yield
     except Exception as exc:
-        _finish_attempt(context, status="failed", error=str(exc))
+        try:
+            retry_after_seconds = max(int(getattr(exc, "retry_after_seconds", 0) or 0), 0)
+        except (TypeError, ValueError):
+            retry_after_seconds = 0
+        _finish_attempt(
+            context,
+            status="failed",
+            error=str(exc),
+            retry_after_seconds=retry_after_seconds,
+        )
         raise
     else:
         _finish_attempt(context, status="sent")

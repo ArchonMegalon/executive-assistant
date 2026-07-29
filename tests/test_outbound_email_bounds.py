@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from app.services import outbound_email_bounds
 
 
@@ -75,3 +77,89 @@ def test_outbound_email_guard_summary_prunes_stale_entries_and_caps_retained_key
         "ea_property_match_delivery|latest@example.com",
         "ea_registration_verification|recent@example.com",
     ]
+
+
+def test_failed_delivery_uses_short_retry_cooldown_but_sent_delivery_keeps_full_cooldown(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    guard_path = tmp_path / "outbound_email_guard.json"
+    now = [1_000.0]
+    monkeypatch.setenv("EA_OUTBOUND_EMAIL_GUARD_STATE_PATH", str(guard_path))
+    monkeypatch.setenv("EA_OUTBOUND_EMAIL_AUTH_COOLDOWN_SECONDS", "600")
+    monkeypatch.setenv("EA_OUTBOUND_EMAIL_FAILURE_COOLDOWN_SECONDS", "30")
+    monkeypatch.setattr(outbound_email_bounds.time, "time", lambda: now[0])
+
+    with pytest.raises(RuntimeError, match="provider unavailable"):
+        with outbound_email_bounds.bounded_outbound_email(
+            kind="ea_workspace_access_session",
+            recipient_email="operator@example.com",
+            provider="emailit",
+        ):
+            raise RuntimeError("provider unavailable")
+
+    now[0] = 1_010.0
+    with pytest.raises(outbound_email_bounds.OutboundEmailRateLimitedError) as retry_error:
+        with outbound_email_bounds.bounded_outbound_email(
+            kind="ea_workspace_access_session",
+            recipient_email="operator@example.com",
+            provider="emailit",
+        ):
+            pass
+    assert retry_error.value.retry_after_seconds == 20
+
+    now[0] = 1_031.0
+    with outbound_email_bounds.bounded_outbound_email(
+        kind="ea_workspace_access_session",
+        recipient_email="operator@example.com",
+        provider="emailit",
+    ):
+        pass
+
+    now[0] = 1_061.0
+    with pytest.raises(outbound_email_bounds.OutboundEmailRateLimitedError) as cooldown_error:
+        with outbound_email_bounds.bounded_outbound_email(
+            kind="ea_workspace_access_session",
+            recipient_email="operator@example.com",
+            provider="emailit",
+        ):
+            pass
+    assert cooldown_error.value.retry_after_seconds == 570
+
+
+def test_provider_retry_after_is_preserved_for_failed_delivery(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    class ProviderRateLimit(RuntimeError):
+        retry_after_seconds = 300
+
+    guard_path = tmp_path / "outbound_email_guard.json"
+    now = [2_000.0]
+    monkeypatch.setenv("EA_OUTBOUND_EMAIL_GUARD_STATE_PATH", str(guard_path))
+    monkeypatch.setenv("EA_OUTBOUND_EMAIL_AUTH_COOLDOWN_SECONDS", "600")
+    monkeypatch.setenv("EA_OUTBOUND_EMAIL_AUTH_WINDOW_SECONDS", "3600")
+    monkeypatch.setenv("EA_OUTBOUND_EMAIL_FAILURE_COOLDOWN_SECONDS", "30")
+    monkeypatch.setattr(outbound_email_bounds.time, "time", lambda: now[0])
+
+    with pytest.raises(ProviderRateLimit):
+        with outbound_email_bounds.bounded_outbound_email(
+            kind="ea_workspace_access_session",
+            recipient_email="operator@example.com",
+            provider="emailit",
+        ):
+            raise ProviderRateLimit("provider cooldown")
+
+    now[0] = 2_100.0
+    with pytest.raises(outbound_email_bounds.OutboundEmailRateLimitedError) as retry_error:
+        with outbound_email_bounds.bounded_outbound_email(
+            kind="ea_workspace_access_session",
+            recipient_email="operator@example.com",
+            provider="emailit",
+        ):
+            pass
+    assert retry_error.value.retry_after_seconds == 200
+
+    payload = json.loads(guard_path.read_text(encoding="utf-8"))
+    attempts = payload["entries"]["ea_workspace_access_session|operator@example.com"]
+    assert attempts[-1]["retry_after_seconds"] == 300

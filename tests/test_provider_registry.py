@@ -329,6 +329,27 @@ def test_provider_registry_onemin_manifest_config_path_uses_config_root(
     assert provider_registry._onemin_manifest_path() == manifest
 
 
+def test_provider_registry_onemin_manifest_permission_error_is_optional(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = tmp_path / "onemin_api_keys.local.json"
+    monkeypatch.setenv("ONEMIN_DIRECT_API_KEYS_JSON_FILE", manifest.as_posix())
+
+    from app.services import provider_registry
+
+    original_exists = provider_registry.Path.exists
+
+    def _permission_guard(path: Path) -> bool:
+        if path == manifest:
+            raise PermissionError("manifest is intentionally private")
+        return original_exists(path)
+
+    monkeypatch.setattr(provider_registry.Path, "exists", _permission_guard)
+
+    assert provider_registry._onemin_manifest_path() is None
+
+
 def test_provider_registry_exposes_executable_onemin_specialist_binding(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
