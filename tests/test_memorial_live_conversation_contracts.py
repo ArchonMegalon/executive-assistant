@@ -9511,12 +9511,8 @@ def test_memorial_conversation_only_primary_action_is_not_inert_during_landing_w
         'preparing ? "Gespräch wird vorbereitet …" : "Gespräch beginnen"'
         in source
     )
-    assert (
-        "!memorialProviderWorkAllowed\n"
-        "            || preparing\n"
-        "            || requestInFlight"
-        in source
-    )
+    assert "const disabled = Boolean(\n            preparing\n            || requestInFlight" in source
+    assert "if (memorialVoiceAccessAllowed && !memorialProviderWorkAllowed) return;" in source
     assert (
         "|| (!active && !memorialLandingReady && !memorialConversationRetryAvailable)"
         not in source

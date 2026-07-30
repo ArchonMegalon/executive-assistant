@@ -18251,10 +18251,9 @@ def _minimal_public_memorial_html(
           // an inert control. Accept the visitor's first click, expose the
           // preparing state immediately, and let startConversationSession()
           // join the in-flight readiness promise before opening the microphone.
-          // Provider-free candidate proofs remain fail-closed.
+          // The click handler separately retains the provider-work gate.
           const disabled = Boolean(
-            !memorialProviderWorkAllowed
-            || preparing
+            preparing
             || requestInFlight
           );
           conversationButton.textContent = label;

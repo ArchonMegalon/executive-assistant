@@ -1615,7 +1615,7 @@
     "tests/test_memorial_helper_path_defaults.py": "2ba8a09bb6a582c7539c05100ba31d3122e8dca4e99af6f3dc2125002b9371a4",
     "tests/test_memorial_joggai_asset_receipts.py": "a75f2e0f6d6007360f8fd6d60ea34c2fcbd2e8b1c91faa5d0bf77557f3904429",
     "tests/test_memorial_joggai_provider_contracts.py": "c3296ddc605f566bb3542d6ae753dff6ecf7485d250d0b76bdfe0f8663b6c402",
-    "tests/test_memorial_live_conversation_contracts.py": "2d83ff10328b4fe9b41463e4f35c9363141fb5ed0591afd3cd3a62bf0a872cd5",
+    "tests/test_memorial_live_conversation_contracts.py": "74486c6f2c81511417b6415753c16cc1d983ae01b610aac359ab79f2a456bcdd",
     "tests/test_memorial_memory_room.py": "0e62ad6426cdc59b601bc07076911560d70e16afec27e30941f92dd3a9372089",
     "tests/test_memorial_memory_service.py": "014b6ffee6acbed953fa5645696e72b3acc9e78af250581834723ec63daf0cc1",
     "tests/test_memorial_openvoice_voicewave.py": "fe04a133ee2aa3a6d73290ad0b0aede73ea47c981aaf4175038fecc323e34ce1",
@@ -1879,8 +1879,8 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "33913efbe2e3fcd8c0e83013cf04589231d1c45e",
-  "indexed_at_timestamp": "2026-07-30T15:46:22.828579227+00:00",
+  "indexed_at_commit": "9f0840c6b597afc35c1ec9a3f851f8d1a3fc80a4",
+  "indexed_at_timestamp": "2026-07-30T15:53:20.510859954+00:00",
   "schema_version": 3,
   "stats": {
     "total_edges": 47313,
