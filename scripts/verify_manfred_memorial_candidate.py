@@ -59,6 +59,7 @@ PAGE_PREWARM_REQUEST_COUNT_BOUNDS = {
 }
 PASSIVE_BROWSER_QUIET_WINDOW_MS = 2_200
 PAGE_PREWARM_READY_TIMEOUT_MS = 60_000
+PAGE_PREWARM_SYNTHESIS_RESPONSE_TIMEOUT_MS = 90_000
 SAME_ORIGIN_APPLICATION_RESOURCE_TYPES = frozenset(
     {"eventsource", "fetch", "ping", "xhr"}
 )
@@ -462,6 +463,28 @@ def _valid_page_prewarm_request_counts(
         lower <= value[path] <= upper
         for path, (lower, upper) in PAGE_PREWARM_REQUEST_COUNT_BOUNDS.items()
     )
+
+
+def _wait_for_page_prewarm_synthesis_responses(
+    page: object,
+    response_records: list[object],
+    *,
+    timeout_ms: int = PAGE_PREWARM_SYNTHESIS_RESPONSE_TIMEOUT_MS,
+) -> list[object]:
+    deadline = time.monotonic() + (max(1, timeout_ms) / 1_000)
+    while True:
+        responses = [
+            response
+            for response in response_records
+            if urlparse(str(getattr(response, "url", "") or "")).path
+            == "/memorials/manfred/speech-synthesize"
+        ]
+        if responses:
+            return responses
+        remaining_ms = int((deadline - time.monotonic()) * 1_000)
+        if remaining_ms <= 0:
+            return []
+        page.wait_for_timeout(min(250, max(1, remaining_ms)))
 
 
 def _sanitized_browser_request_path(value: object) -> str:
@@ -1849,18 +1872,25 @@ def audit_browser_surface(
                         f"status={status_payloads!r}:"
                         f"synthesis={synthesis_payloads!r}"
                     )
-                synthesis_responses = [
-                    response_record
-                    for response_record in response_records
-                    if urlparse(response_record.url).path
-                    == "/memorials/manfred/speech-synthesize"
-                ]
+                synthesis_responses = (
+                    _wait_for_page_prewarm_synthesis_responses(
+                        page,
+                        response_records,
+                    )
+                )
                 if len(synthesis_responses) != 1:
                     raise RuntimeError(
                         "candidate_browser_page_prewarm_synthesis_response_invalid"
                     )
                 synthesis_response = synthesis_responses[0]
                 try:
+                    synthesis_response_finished_error = (
+                        synthesis_response.finished()
+                    )
+                    if synthesis_response_finished_error:
+                        raise RuntimeError(
+                            str(synthesis_response_finished_error)
+                        )
                     synthesis_response_type = _normalized_content_type(
                         synthesis_response.headers.get("content-type")
                     )
@@ -1869,11 +1899,14 @@ def audit_browser_surface(
                     raise RuntimeError(
                         "candidate_browser_page_prewarm_synthesis_response_invalid"
                     ) from exc
+                synthesis_response_is_wave = _is_riff_wave_payload(
+                    synthesis_response_body
+                )
                 if (
                     synthesis_response.status != 200
                     or synthesis_response_type
                     not in PAGE_PREWARM_WAVE_CONTENT_TYPES
-                    or not _is_riff_wave_payload(synthesis_response_body)
+                    or not synthesis_response_is_wave
                 ):
                     raise RuntimeError(
                         "candidate_browser_page_prewarm_synthesis_response_invalid"

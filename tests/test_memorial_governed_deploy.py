@@ -6983,6 +6983,35 @@ def test_candidate_verifier_browser_flag_is_explicit() -> None:
     assert args.browser_audit is True
 
 
+def test_candidate_verifier_waits_for_delayed_page_prewarm_synthesis() -> None:
+    from scripts import verify_manfred_memorial_candidate as candidate
+
+    class Response:
+        url = "https://myexternalbrain.com/memorials/manfred/speech-synthesize"
+
+    responses: list[object] = []
+
+    class Page:
+        wait_calls: list[int] = []
+
+        def wait_for_timeout(self, timeout_ms: int) -> None:
+            self.wait_calls.append(timeout_ms)
+            responses.append(Response())
+
+    page = Page()
+
+    observed = candidate._wait_for_page_prewarm_synthesis_responses(
+        page,
+        responses,
+        timeout_ms=1_000,
+    )
+
+    assert observed == responses
+    assert len(observed) == 1
+    assert page.wait_calls
+    assert max(page.wait_calls) <= 250
+
+
 @pytest.mark.parametrize("expect_page_prewarm", [False, True])
 def test_candidate_origin_only_requests_expected_page_prewarm_and_keeps_conversation_idle(
     release_root: Path,
