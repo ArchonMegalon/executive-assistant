@@ -162,6 +162,8 @@ router = APIRouter(tags=["public-memorials"])
 logger = logging.getLogger(__name__)
 
 _MAX_SPEECH_UPLOAD_BYTES = 12 * 1024 * 1024
+_MEMORIAL_CHAT_UPSTREAM_DEADLINE_SECONDS = 24.0
+_MEMORIAL_CHAT_BROWSER_TIMEOUT_MS = 35_000
 _ONEMIN_SPEECH_AUDIO_TYPES = {
     "audio/x-m4a",
     "audio/mpeg",
@@ -9439,6 +9441,9 @@ def _memorial_chat_answer(
             messages=messages,
             requested_model=requested_model,
             max_output_tokens=160,
+            request_deadline_monotonic=(
+                time.monotonic() + _MEMORIAL_CHAT_UPSTREAM_DEADLINE_SECONDS
+            ),
         )
         generated = _compact_memorial_spoken_answer(
             _naturalize_memorial_spoken_uncertainty(
@@ -9487,7 +9492,17 @@ def _memorial_chat_answer(
             fallback_used = True
             fallback_reason = "memorial_values_guardrail"
         if not generated:
-            raise RuntimeError("empty_upstream_answer")
+            return _memorial_chat_fallback_answer(
+                payload,
+                normalized_question,
+                private_profile,
+                slug=slug or _text(payload.get("slug"), ""),
+                memory_runtime=memory_runtime,
+                personal_memory_context=personal_memory_context,
+                llm_model=requested_model,
+                fallback_reason="upstream_empty_answer",
+                difficult_memory_mode=difficult_memory_mode,
+            )
         response = {
             "person_name": person_name,
             "mode": "memorial_first_person_memory_chat",
@@ -19886,7 +19901,10 @@ def _minimal_public_memorial_html(
         if (!normalizedText) throw new Error("text_required");
         const controller = new AbortController();
         activeFetchController = controller;
-        const timeoutId = window.setTimeout(() => controller.abort(), 10000);
+        const timeoutId = window.setTimeout(
+          () => controller.abort(),
+          {_MEMORIAL_CHAT_BROWSER_TIMEOUT_MS},
+        );
         try {{
           const response = await fetch(memorialChatEndpoint, {{
             method: "POST",

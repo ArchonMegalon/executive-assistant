@@ -999,6 +999,54 @@ def test_sign_in_polish_and_recovery_in_real_browser(
     assert "unmatched-browser@example.test" not in page.content()
 
 
+def test_google_sign_in_redirect_reaches_identity_provider_in_real_browser(
+    page: Page,
+    product_browser_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_url = str(product_browser_server["base_url"])
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "browser-google-client-id")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "browser-google-client-secret")
+    monkeypatch.setenv(
+        "EA_GOOGLE_OAUTH_REDIRECT_URI",
+        f"{base_url}/v1/providers/google/oauth/callback",
+    )
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "browser-google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "browser-provider-secret-key")
+    console_errors: list[str] = []
+    page.on(
+        "console",
+        lambda message: console_errors.append(message.text)
+        if message.type == "error"
+        else None,
+    )
+    response = page.goto(
+        f"{base_url}/sign-in?return_to=%2Fapp%2Fqueue",
+        wait_until="networkidle",
+    )
+    assert response is not None and response.ok
+    with (
+        page.expect_response(
+            lambda value: "/sign-in/google" in value.url
+            and value.request.method == "POST"
+        ) as sign_in_response,
+        page.expect_request(
+            lambda value: urllib.parse.urlparse(value.url).hostname
+            == "accounts.google.com"
+        ) as google_request,
+    ):
+        page.get_by_role("button", name="Continue with Google").click()
+
+    assert sign_in_response.value.status == 303
+    assert google_request.value.method == "GET"
+    assert google_request.value.is_navigation_request()
+    assert not [
+        message
+        for message in console_errors
+        if "content security policy" in message.lower()
+    ]
+
+
 @pytest.mark.parametrize(
     ("path", "snapshot_name", "full_page"),
     (

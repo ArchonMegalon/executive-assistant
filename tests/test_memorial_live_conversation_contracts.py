@@ -2982,9 +2982,11 @@ def test_memorial_chat_live_openings_route_to_model_without_memory_fallback(
     from app.api.routes import public_memorials
 
     seen_messages: list[list[dict[str, str]]] = []
+    seen_deadlines: list[float] = []
 
-    def _fake_generate_text(*, messages, requested_model, max_output_tokens):
+    def _fake_generate_text(*, messages, requested_model, max_output_tokens, **kwargs):
         seen_messages.append(messages)
+        seen_deadlines.append(float(kwargs["request_deadline_monotonic"]))
         prompt = messages[-1]["content"].lower()
         if "schach" in prompt or "e2 auf e4" in prompt:
             text = "e4 ist sauber. Ich antworte mit e7 auf e5."
@@ -3012,10 +3014,41 @@ def test_memorial_chat_live_openings_route_to_model_without_memory_fallback(
     assert "[Erinnerung]" not in body["answer"]
     assert "gesendet:" not in body["answer"].lower()
     assert seen_messages
+    assert 20.0 < seen_deadlines[-1] - time.monotonic() <= 24.0
     evidence_block = seen_messages[-1][1]["content"]
     assert "Antwortmodus: gegenwärtige Live-Interaktion." in evidence_block
     assert "Erinnerungsgedaechtnis:" not in evidence_block
     assert "Eigene archivierte Erinnerungen" not in evidence_block
+
+
+def test_memorial_chat_empty_provider_answer_returns_grounded_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "generate_text",
+        lambda **kwargs: SimpleNamespace(
+            text="",
+            provider_key="unit-test-empty",
+            model="unit-test-empty",
+        ),
+    )
+    client = _client(principal_id="exec-memorial-empty-provider")
+
+    response = client.post(
+        f"/memorials/{slug}/chat",
+        json={"question": "Wie klingt deine Stimme jetzt?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"]
+    assert body["llm_fallback_used"] is True
+    assert body["fallback_reason"] == "upstream_empty_answer"
 
 
 def test_memorial_chat_falls_back_without_waiting_for_stalled_redis_rate_backend(
@@ -3687,7 +3720,7 @@ def test_memorial_chat_current_weather_ignores_present_world_search_even_when_en
 
     seen = {"generate_text": 0}
 
-    def _fake_generate_text(*, messages, requested_model, max_output_tokens):
+    def _fake_generate_text(*, messages, requested_model, max_output_tokens, **kwargs):
         seen["generate_text"] += 1
         return SimpleNamespace(
             text="Das sehe ich nicht aus mir heraus. Ich habe aber gerade aktuelle Quellen dazu gefunden. Stand jetzt sind es in Wien etwa 24 Grad und leicht bewoelkt.",
@@ -3759,7 +3792,7 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
             "transcriber": "unit-test",
         }
 
-    def _fake_generate_text(*, messages, requested_model, max_output_tokens):
+    def _fake_generate_text(*, messages, requested_model, max_output_tokens, **kwargs):
         seen_messages.append(messages)
         return SimpleNamespace(text="Ja, ich bin da. Sprich einfach los.", provider_key="unit-test-model", model="unit-test-model")
 
@@ -4709,7 +4742,7 @@ def test_memorial_conversation_turn_requests_gemini_for_live_voice_without_expli
             "transcriber": "unit-test",
         }
 
-    def _fake_generate_text(*, messages, requested_model, max_output_tokens):
+    def _fake_generate_text(*, messages, requested_model, max_output_tokens, **kwargs):
         seen_requested_models.append(requested_model)
         return SimpleNamespace(text="Ja, ich bin da. Sprich einfach los.", provider_key="unit-test-model", model="unit-test-model")
 
@@ -6035,7 +6068,7 @@ def test_memorial_chat_strips_llm_meta_self_reference_from_answer(
     slug = _setup_memorial(monkeypatch, tmp_path)
     from app.api.routes import public_memorials
 
-    def _fake_generate_text(*, messages, requested_model, max_output_tokens):
+    def _fake_generate_text(*, messages, requested_model, max_output_tokens, **kwargs):
         return SimpleNamespace(
             text="Ich bin ein LLM und kann nur eine rekonstruktive Erinnerung liefern. Meine Stimme klingt ruhig und trocken.",
             provider_key="unit-test-model",
@@ -6191,6 +6224,7 @@ def test_blocked_voice_release_renders_polished_text_only_memorial_guide(
     assert "KI-gestützten, synthetischen Manfred-Stimme" not in page
     assert "const memorialVoiceReleaseAllowed = false;" in page
     assert "const memorialPagePrewarmEnabled = false;" in page
+    assert "() => controller.abort(),\n          35000," in page
     assert 'if (!memorialVoiceReleaseAllowed) return null;' in page
     assert 'if (!memorialVoiceReleaseAllowed) throw new Error("memorial_voice_release_not_verified");' in page
     assert "memorialVoiceReleaseAllowed && isPwaLaunch" in page

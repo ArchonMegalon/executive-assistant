@@ -579,6 +579,21 @@ def _assert_minimal_memorial_single_button(page: Page, label: str) -> None:
     assert page.locator("#memorial-contribution-management").count() == 0
 
 
+def _assert_memorial_text_recovery(page: Page, label: str) -> None:
+    conversation = page.locator("#memorial-conversation")
+    assert conversation.is_visible()
+    assert conversation.inner_text().strip() == label
+    assert conversation.get_attribute("aria-label") == label
+    assert conversation.get_attribute("title") == label
+    text_form = page.locator("#memorial-text-turn-form")
+    assert text_form.is_visible()
+    assert text_form.get_attribute("inert") is None
+    assert text_form.get_attribute("aria-hidden") is None
+    assert page.locator("#memorial-text-turn-input").is_enabled()
+    assert page.locator("#memorial-text-turn-submit").is_enabled()
+    assert page.locator("button:visible").count() == 2
+
+
 def test_memorial_private_review_cookie_reaches_readiness_from_same_origin_browser_get_only(
     browser: Browser,
     memorial_browser_server: dict[str, object],
@@ -1313,7 +1328,7 @@ def test_memorial_browser_explains_microphone_permission_denial_and_resets_prima
         assert conversation.get_attribute("aria-label") == "Gespräch beginnen"
         assert conversation.get_attribute("title") == "Gespräch beginnen"
         assert conversation.get_attribute("aria-pressed") == "false"
-        _assert_minimal_memorial_single_button(page, "Gespräch beginnen")
+        _assert_memorial_text_recovery(page, "Gespräch beginnen")
         assert "Textfrage" not in (page.locator("#memorial-speech-detail").text_content() or "")
 
         conversation.click()
@@ -1328,13 +1343,13 @@ def test_memorial_browser_explains_microphone_permission_denial_and_resets_prima
             }""",
             timeout=7000,
         )
-        _assert_minimal_memorial_single_button(page, "Gespräch beginnen")
+        _assert_memorial_text_recovery(page, "Gespräch beginnen")
     finally:
         context.close()
 
 
 @pytest.mark.parametrize("failure_stage", ("stt", "tts"))
-def test_memorial_browser_all_provider_errors_keep_conversation_as_only_visible_button(
+def test_memorial_browser_all_provider_errors_offer_text_recovery(
     browser: Browser,
     memorial_browser_server: dict[str, object],
     monkeypatch: pytest.MonkeyPatch,
@@ -1371,7 +1386,7 @@ def test_memorial_browser_all_provider_errors_keep_conversation_as_only_visible_
             }""",
             timeout=12000,
         )
-        _assert_minimal_memorial_single_button(page, "Gespräch beginnen")
+        _assert_memorial_text_recovery(page, "Gespräch beginnen")
         assert page.locator("#memorial-speech-note").is_visible()
         assert page.locator("#memorial-speech-message").get_attribute("role") == "status"
         assert int(page.evaluate("() => window.__memorialGetUserMediaCalls || 0")) == 1
@@ -1388,7 +1403,7 @@ def test_memorial_browser_all_provider_errors_keep_conversation_as_only_visible_
             }""",
             timeout=12000,
         )
-        _assert_minimal_memorial_single_button(page, "Gespräch beginnen")
+        _assert_memorial_text_recovery(page, "Gespräch beginnen")
     finally:
         context.close()
 
@@ -1477,7 +1492,7 @@ def test_memorial_browser_voice_warmup_failure_stays_minimal_and_exposes_recover
             }""",
             timeout=7000,
         )
-        _assert_minimal_memorial_single_button(page, "Gespräch beginnen")
+        _assert_memorial_text_recovery(page, "Gespräch beginnen")
         assert len(warmup_requests) == 2
 
         conversation.click()
@@ -1493,7 +1508,7 @@ def test_memorial_browser_voice_warmup_failure_stays_minimal_and_exposes_recover
             timeout=7000,
         )
         assert len(warmup_requests) == 3
-        _assert_minimal_memorial_single_button(page, "Gespräch beginnen")
+        _assert_memorial_text_recovery(page, "Gespräch beginnen")
     finally:
         context.close()
 

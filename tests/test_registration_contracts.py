@@ -545,6 +545,11 @@ def test_sign_in_page_offers_google_identity_with_secure_email_fallback(monkeypa
     assert 'action="/sign-in/google"' in response.text
     assert "Continue with Google" in response.text
     assert "Use a secure email link instead" in response.text
+    assert (
+        response.headers["content-security-policy"]
+        == "frame-ancestors 'none'; base-uri 'self'; "
+        "form-action 'self' https://accounts.google.com"
+    )
 
 
 def test_sign_in_google_starts_identity_oauth_with_safe_return(monkeypatch: pytest.MonkeyPatch) -> None:

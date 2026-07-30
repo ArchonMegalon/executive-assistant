@@ -7,11 +7,13 @@
     type="submit"
     data-access-submit
     data-submitting-label="Opening Google…"
+    data-submitting-timeout="15000"
   >
     <span class="access-google-mark" aria-hidden="true">G</span>
     <span>Continue with Google</span>
   </button>
   <p class="access-privacy">Identity only. This sign-in does not grant Gmail, Calendar, Drive, or Contacts access.</p>
+  <div class="sr-only" role="status" aria-live="polite" aria-atomic="true" data-access-live></div>
 </form>
 {%- endmacro %}
 {% macro email_link_form() -%}
@@ -494,8 +496,21 @@
       if (!(form instanceof HTMLFormElement)) return;
       const submit = form.querySelector('[data-access-submit]');
       const live = form.querySelector('[data-access-live]');
-      const originalLabel = submit?.textContent || 'Continue';
+      const originalContent = submit?.innerHTML || 'Continue';
       const submittingLabel = submit?.getAttribute('data-submitting-label') || 'Sending secure link…';
+      const submittingTimeout = Number(submit?.getAttribute('data-submitting-timeout') || 0);
+      let resetTimer = 0;
+
+      const resetSubmittingState = () => {
+        if (resetTimer) window.clearTimeout(resetTimer);
+        resetTimer = 0;
+        form.removeAttribute('data-submitting');
+        form.removeAttribute('aria-busy');
+        if (submit instanceof HTMLButtonElement) {
+          submit.disabled = false;
+          submit.innerHTML = originalContent;
+        }
+      };
 
       form.addEventListener('submit', (event) => {
         if (form.dataset.submitting === 'true') {
@@ -509,16 +524,15 @@
           submit.textContent = submittingLabel;
         }
         if (live) live.textContent = 'Sign-in request started.';
-      });
-
-      window.addEventListener('pageshow', () => {
-        form.removeAttribute('data-submitting');
-        form.removeAttribute('aria-busy');
-        if (submit instanceof HTMLButtonElement) {
-          submit.disabled = false;
-          submit.textContent = originalLabel;
+        if (submittingTimeout > 0) {
+          resetTimer = window.setTimeout(() => {
+            resetSubmittingState();
+            if (live) live.textContent = 'Google did not open. Try the button again.';
+          }, submittingTimeout);
         }
       });
+
+      window.addEventListener('pageshow', resetSubmittingState);
     });
   })();
 </script>

@@ -36,6 +36,12 @@ from app.services.google_oauth import (
 from app.services.public_branding import request_brand
 
 
+_GOOGLE_IDENTITY_FORM_CSP = (
+    "frame-ancestors 'none'; base-uri 'self'; "
+    "form-action 'self' https://accounts.google.com"
+)
+
+
 def _brand_create_account_href(brand: dict[str, str]) -> str:
     return "/register" if str(brand.get("key") or "").strip().lower() == "propertyquarry" else "/get-started"
 
@@ -114,7 +120,8 @@ def sign_in_page(
             default=str(brand.get("app_home") or "/app/today"),
         ),
     )
-    return _render_public_template(
+    google_identity_enabled = _google_identity_sign_in_available()
+    response = _render_public_template(
         request,
         "sign_in.html",
         **_public_context(
@@ -127,7 +134,7 @@ def sign_in_page(
             extra={
                 "sign_in_notes": sign_in_notes_for_brand(brand["key"]),
                 "sign_in_link_enabled": workspace_sign_in_email_delivery_available(),
-                "sign_in_google_enabled": _google_identity_sign_in_available(),
+                "sign_in_google_enabled": google_identity_enabled,
                 "sign_in_link_status": link_status,
                 "sign_in_link_email": link_email,
                 "sign_in_google_error": google_error,
@@ -135,6 +142,12 @@ def sign_in_page(
             },
         ),
     )
+    if google_identity_enabled:
+        # The form posts to this app and then receives a 303 to Google's
+        # identity endpoint. CSP applies across that redirect chain, so the
+        # provider must be explicitly allowed on this page.
+        response.headers["Content-Security-Policy"] = _GOOGLE_IDENTITY_FORM_CSP
+    return response
 
 
 async def sign_in_email_link(
