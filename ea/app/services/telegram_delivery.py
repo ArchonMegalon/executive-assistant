@@ -163,7 +163,8 @@ def _telegram_send_json(*, token: str, method: str, payload: dict[str, object], 
                 body = json.loads(response.read().decode("utf-8"))
             if not bool(body.get("ok")):
                 raise RuntimeError(_telegram_api_error_code(method=method, body=body))
-            return dict(body.get("result") or {})
+            result = body.get("result")
+            return dict(result) if isinstance(result, dict) else {}
         except Exception as exc:
             last_error = exc
             error_code = _telegram_api_error_code_for_exception(method=method, exc=exc)

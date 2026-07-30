@@ -60,7 +60,10 @@ def _repo_root() -> Path:
 
 
 def supported_source_video_edit_summary() -> str:
-    return "realistic flame overlays, brief burn accents, speed changes, louder audio, and mute/remove-audio edits"
+    return (
+        "speed changes, louder audio, and mute/remove-audio edits; "
+        "fire/flame edits require a verified photoreal render lane"
+    )
 
 
 def parse_source_video_edit_plan(text: str) -> dict[str, object]:
@@ -761,6 +764,8 @@ def render_local_source_video_edit(*, video_url: str, instruction_text: str) -> 
     plan = parse_source_video_edit_plan(instruction_text)
     if not plan:
         raise RuntimeError("source_video_edit_unsupported")
+    if bool(plan.get("fire_overlay")):
+        raise RuntimeError("source_video_photoreal_fire_renderer_required")
     normalized_url = str(video_url or "").strip()
     if not normalized_url:
         raise RuntimeError("source_video_url_missing")

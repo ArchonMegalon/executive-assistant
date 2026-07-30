@@ -90,8 +90,27 @@ def test_parse_source_video_edit_plan_supports_combined_speed_and_audio_request(
 def test_supported_source_video_edit_summary_mentions_current_capabilities() -> None:
     summary = telegram_video_effects.supported_source_video_edit_summary()
     assert "flame" in summary
+    assert "verified photoreal render lane" in summary
     assert "speed" in summary
     assert "audio" in summary
+
+
+def test_fire_render_fails_closed_without_verified_photoreal_lane(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        telegram_video_effects,
+        "_download_video",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("download must not start for an unverified fire renderer")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="source_video_photoreal_fire_renderer_required"):
+        telegram_video_effects.render_local_source_video_edit(
+            video_url="https://api.telegram.org/file/bot/video/source.mp4",
+            instruction_text="Make the ring look like real flames.",
+        )
 
 
 def test_extract_source_video_reference_packet_requires_url() -> None:

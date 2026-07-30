@@ -627,10 +627,10 @@
     "ea/app/services/task_contracts.py": "6ae42ab8e7b04632344f0ba5ef70ed95904d5f4ddfe1d0a12021ce22493dae84",
     "ea/app/services/teable_projection_adapter.py": "784471022ce0f8ca929d24b12c804e32f64a42709df8c75314a0f63a8aae6165",
     "ea/app/services/telegram_business_signal_ingest.py": "204308d3a071aa2e507acad045c3affaffc00ffb53f3a24f485700452710fbbf",
-    "ea/app/services/telegram_delivery.py": "947d78fa53bd0624840927c70b6900d3ff8f9a63ac6e74746be9b0e427d9711b",
+    "ea/app/services/telegram_delivery.py": "1393b33c7ab8e37f5478b8689563fef1a447463cf1c0314c8c3c1c0a65399c96",
     "ea/app/services/telegram_onboarding_service.py": "b5d3089cdaf251ee02480c85520e4e2c2f81880b64b86a50b7dcd5e0f22ccb24",
     "ea/app/services/telegram_session_service.py": "f805e2b7f6d0d3fc25132aad79101631926a7fd5c5631a2bf1c0d54c92930fd5",
-    "ea/app/services/telegram_video_effects.py": "ec488e5f65115955e00c043413f1c35f7d8869de0ee0aaee3c0d1e618b4ba3cc",
+    "ea/app/services/telegram_video_effects.py": "532d0b722cf4056fbebad8977bead0854df017c34e642d543bce0140a3799927",
     "ea/app/services/tool_execution.py": "8b2057714b9584fee1096c072b7c4511fc71a79e3bfc7448b5dc82881c53051e",
     "ea/app/services/tool_execution_artifact_adapter.py": "23ddec2ef9844d3a781886d542ea313727fe223868303a02bc22521897d64459",
     "ea/app/services/tool_execution_artifact_module.py": "44b936045d16cb4a50d21e264fe111f0be2381845c77fd20d5cdee134f0807a8",
@@ -1808,13 +1808,13 @@
     "tests/test_telegram_audiobook_live_delivery_verifier.py": "07fa5f71f7ebde08c8131812b40741642b434b2a8227f9f6acbe18105cae1603",
     "tests/test_telegram_audiobook_live_readiness.py": "97cb6019b410d8d0acc2a166619c8a9928897dae37ec1daed06561055831cbd3",
     "tests/test_telegram_business_signal_readiness.py": "242e05745eee2e0818301fbad86b9595b98de4be0193a2a534695514eaee3d56",
-    "tests/test_telegram_delivery_service.py": "34f96835876766cfa727ce6797490e4ddcf19356be36d201465e285c67cf4557",
+    "tests/test_telegram_delivery_service.py": "870de9d192a5bdd806703dbb605aaf8c854429f94e19cc05fdf5edcd9f4a0fcb",
     "tests/test_telegram_media_prompt.py": "07914657e704bf0662d432908bd38d60b1f54380fe1808c2ceafdd2af0693757",
     "tests/test_telegram_principal_resolution.py": "a33120c4a19f44b31953847ca21849e4790f6b49b8b9b6fd23838071650ac500",
     "tests/test_telegram_teable_sync.py": "7670955a8c3ba5d80914a507b00f451350dcdc2243f77e37b0a70e67549f181e",
     "tests/test_telegram_video_delivery_live_receipt.py": "e57868e229dcfe3168f72c7e78e7d39ebb5bd21b2311b8b955a9258e2929f172",
     "tests/test_telegram_video_delivery_receipt.py": "db7273a4b57724e6cce78d5a47b1026680e793fb2109b01aa5a181b35105259a",
-    "tests/test_telegram_video_effects.py": "0f18e92ec8fa5849f869841b600da2303ca1213cc8795dc250e4917917c4fc79",
+    "tests/test_telegram_video_effects.py": "7fc5c349888a11668ad1d8e574a5a7807f60556044a8dc3ecaa38ec16af4f5fd",
     "tests/test_test_harness_runtime_reset.py": "431a6f7962a568d6866c2508fcc70eb435be57db74022664fb5b080fa134eaa8",
     "tests/test_tool_execution.py": "3995536048618b2ab12983a4624a98c5b6ee7f3eb7d96510fa668e5148fb7d7c",
     "tests/test_tool_execution_teable_adapter.py": "f6ae0cd86c2248fa3321049a418a1e36ee92522b496d8d480981ac2321e77a1e",
@@ -1879,13 +1879,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "b3f25deefb1e3db0d6b7ad59be8b85386ad5ca85",
-  "indexed_at_timestamp": "2026-07-30T11:47:39.974378087+00:00",
+  "indexed_at_commit": "db99e8a55ddaa6e8df8241628791c054764a6cbc",
+  "indexed_at_timestamp": "2026-07-30T13:17:28.690698818+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 47305,
+    "total_edges": 47309,
     "total_files": 1878,
-    "total_nodes": 29640
+    "total_nodes": 29642
   },
   "vexp_version": "2.3.1"
 }
