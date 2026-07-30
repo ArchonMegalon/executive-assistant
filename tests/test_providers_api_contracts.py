@@ -2378,6 +2378,24 @@ def test_telegram_render_magicfit_video_reply_prefers_dockerized_playwright_runt
     assert str(script_path) in executed[0]
 
 
+def test_magicfit_video_duration_probe_records_observed_media_duration(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from scripts import render_magicfit_property_flythrough as magicfit_script
+
+    video_path = tmp_path / "scene.mp4"
+    video_path.write_bytes(b"video")
+    monkeypatch.setattr(magicfit_script.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(
+        magicfit_script.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="5.085000\n"),
+    )
+
+    assert magicfit_script.probe_video_duration_seconds(video_path) == 5.085
+
+
 def test_telegram_magicfit_fallback_requires_runtime_lane_approval(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

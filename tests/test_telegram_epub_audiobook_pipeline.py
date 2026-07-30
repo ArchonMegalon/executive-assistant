@@ -1453,6 +1453,39 @@ def test_receipt_prefers_top_level_cache_aggregate_over_shared_chapter_rows(
     assert receipt["render"]["cache"]["stale_master_rebuilt_count"] == 1
 
 
+def test_successful_audiobook_receipt_does_not_claim_external_tts_blocker(
+    tmp_path: Path,
+) -> None:
+    from app.services.audiobook_epub_pipeline import build_audiobook_job_receipt
+
+    (tmp_path / "audio").mkdir()
+    (tmp_path / "output").mkdir()
+    job = {
+        "job_id": "successful-receipt",
+        "status": "m4b_ready",
+        "next_action": "continue_audiobook_job",
+        "render_result": {
+            "status": "rendered",
+            "provider": "unmixr_ai",
+        },
+        "merge_result": {
+            "status": "m4b_ready",
+        },
+    }
+    (tmp_path / "job.json").write_text(json.dumps(job), encoding="utf-8")
+
+    receipt = build_audiobook_job_receipt(
+        job_dir=tmp_path,
+        observed_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    assert receipt["render"]["external_tts_blocker_code"] == ""
+    assert receipt["render"]["external_tts_blocker_reason_sha256"] == ""
+    assert receipt["render"]["external_tts_blocker_retryable"] is False
+    assert receipt["scheduler_resume"]["external_tts_blocker_code"] == ""
+    assert receipt["scheduler_resume"]["external_tts_blocker_retryable"] is False
+
+
 def test_cinematic_semantic_pass_preserves_exact_source_whitespace(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

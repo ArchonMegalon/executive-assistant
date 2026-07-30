@@ -13778,7 +13778,22 @@ def build_audiobook_job_receipt(*, job_dir: Path, observed_at: datetime | None =
     )
     voice_sample_delivery = dict(telegram.get("voice_sample_delivery") or {})
     retry_after = str(render_result.get("provider_retry_after") or "").strip()
-    external_tts_blocker_reason = str(render_result.get("reason") or job.get("next_action") or "").strip()
+    job_status = str(job.get("status") or "").strip()
+    render_status = str(render_result.get("status") or "").strip()
+    external_tts_blocker_active = (
+        job_status in {"blocked_external_tts", "waiting_provider_throttle"}
+        or render_status
+        in {
+            "blocked",
+            "provider_pacing_wait",
+            "provider_throttled",
+        }
+    )
+    external_tts_blocker_reason = (
+        str(render_result.get("reason") or job.get("next_action") or "").strip()
+        if external_tts_blocker_active
+        else ""
+    )
     raw_next_action = str(job.get("next_action") or "").strip()
     scheduler_next_action = raw_next_action
     receipt_next_action = raw_next_action

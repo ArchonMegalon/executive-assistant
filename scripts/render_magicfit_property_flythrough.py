@@ -5,6 +5,8 @@ import argparse
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -113,6 +115,33 @@ def download(url: str, out_path: Path) -> None:
         for chunk in response.iter_content(chunk_size=1024 * 128):
             if chunk:
                 handle.write(chunk)
+
+
+def probe_video_duration_seconds(path: Path) -> float | None:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+    try:
+        completed = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        duration = float(completed.stdout.strip()) if completed.returncode == 0 else 0.0
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    return round(duration, 3) if duration > 0 else None
 
 
 def maybe_login(page) -> None:
@@ -246,12 +275,17 @@ def run() -> int:
                 raise RuntimeError("magicfit_video_url_not_found")
             print("magicfit: download clip", flush=True)
             download(video_url, out_path)
+            observed_duration = probe_video_duration_seconds(out_path)
             payload = {
                 "provider": "MagicFit",
                 "video_output_url": video_url,
                 "output_file": str(out_path),
                 "duration_seconds_requested": int(args.duration or 10),
-                "duration_seconds_magicfit": provider_duration,
+                "duration_seconds_magicfit_requested": provider_duration,
+                "duration_seconds_magicfit": observed_duration,
+                "duration_observation_status": (
+                    "ffprobe_verified" if observed_duration is not None else "unverified"
+                ),
                 "aspect_label": args.aspect_label,
                 "prompt": prompt,
                 "page_url": page.url,
