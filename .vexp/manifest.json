@@ -253,7 +253,7 @@
     "ea/Dockerfile.property": "c20041a369456c54382f2c53c6963cb86b5d93540e5e211e6219b7012d73d27a",
     "ea/app/__init__.py": "b960faa1d8cc0c38513ea6d1999c20db42d700d13464355e40f06de0ac5173df",
     "ea/app/api/__init__.py": "39711543afe34f893c680a9e38ef70029ff6448ef30b77037f8c029569bf315e",
-    "ea/app/api/app.py": "7d23b199a1e0e1537e942175bdc0b9cffa3228fe4887f18f8b8a0e80026c3690",
+    "ea/app/api/app.py": "da75dc08385c0e99c948306853b37569923ae2851720447be407b4b20da9b27e",
     "ea/app/api/dependencies.py": "abff2c91442d1d84f3b5fd2558f632465e2f187261b3133274524ff4b3988c3f",
     "ea/app/api/errors.py": "c52de72ecfd87e47dc5b8a6d14a2b5087c1d6ba595341e4bfe6f6be5f8c4a016",
     "ea/app/api/public_http.py": "4382f58c3dd8f0d804e4e20bb63b5b279ae0a0aa14d477b9fb9f7d0d21b7b6ac",
@@ -261,7 +261,7 @@
     "ea/app/api/routes/admin_outreach.py": "d1b738e6db275ad3fb1ea365c004fa258961fa72158752bf0459ecde4582a6fa",
     "ea/app/api/routes/admin_view_models.py": "ac7da39790888ceb86975b7456fb8ddfb64905d8f6e65077e62bc4d72bcc062d",
     "ea/app/api/routes/audiobook_player.py": "3041dbfe9ec4fb64d1a81613c13ca83455da690fa4f2605d0214c0700779f36d",
-    "ea/app/api/routes/channels.py": "84942f354c62d936eaadad3d72cb57fa51414b09f1b725687b2d2482f549c7c7",
+    "ea/app/api/routes/channels.py": "04079aa60d595722c458a2a82eabe4d31ea54fdd2fc88e71bf5e3a339db9c3e2",
     "ea/app/api/routes/connectors.py": "e9d20a618c27bf8c6d28ec7a46b65ed751e47891e4f0cb0f4c2886501c46c90a",
     "ea/app/api/routes/delivery.py": "2626f5af2e0f8b6e11204995ff65999647cd544a1458fd4082a068db5323a4fb",
     "ea/app/api/routes/evidence.py": "f21164418bd46ddfe1b288e8229ff64187efbb490e1645e60d4dcc441b1740e6",
@@ -1431,7 +1431,7 @@
     "tests/test_analyze_nonverbia_custom_project.py": "00807f13ea0ab11a208c7d56122f3b7c8bb29a70be433b0827c2727752c9ec08",
     "tests/test_analyze_voicewave_workspace.py": "d5981cced58cc22058c116eb6696153dd68d370055512121e88eed032f7d1c53",
     "tests/test_api_error_logging.py": "a50a0d2c6af39259863fec4241caafe6bf7d1c82be2e80e0d01b7979e0756787",
-    "tests/test_app_factory_contracts.py": "ea61c9a903032302c1c0dc99a44e363f3144f6063a4088550d5c09556ed599ef",
+    "tests/test_app_factory_contracts.py": "70dba34d36be0236d0a42cae4d7459c84569f5dfe9ff4262770a2448992ac63c",
     "tests/test_approvals_repo.py": "2e375554f25be1546a6de24c8df63d1587b5fa3def41291d59aa46e568c5be27",
     "tests/test_approvethis_external_approval.py": "7dd8dd865075f16a33dfb01c103b4dde4e2ab240cbb692136c8e5d99270fbdf9",
     "tests/test_architecture_contracts.py": "1000fd8e3ec33eaeccd4653259be6217efc3268045faa3f7b484e4be6c700f8d",
@@ -1879,13 +1879,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "6d3fe60cbd11f23a54f05186abf5f9228d6e5ff5",
-  "indexed_at_timestamp": "2026-07-30T07:20:37.851233078+00:00",
+  "indexed_at_commit": "93b0e56956b7bf32a3870f0fcc5beff0a88b45d6",
+  "indexed_at_timestamp": "2026-07-30T11:29:53.807306480+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 47300,
+    "total_edges": 47305,
     "total_files": 1878,
-    "total_nodes": 29637
+    "total_nodes": 29639
   },
   "vexp_version": "2.3.1"
 }

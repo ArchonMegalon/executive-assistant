@@ -53,8 +53,10 @@ def test_app_factory_uses_helper_mount_functions() -> None:
 
     assert "def _include_public_routes(" in source
     assert "def _include_authenticated_routes(" in source
+    assert "def _include_secret_verified_ingress_routes(" in source
     assert "_include_public_routes(" in source
     assert "_include_authenticated_routes(" in source
+    assert "_include_secret_verified_ingress_routes(" in source
 
 
 def test_app_factory_omits_optional_public_routes_by_default() -> None:
@@ -119,14 +121,25 @@ def test_app_factory_mounts_optional_public_routes_when_enabled() -> None:
     assert len(warmup_status_operation_ids) == 2
 
 
-def test_app_factory_omits_legacy_authenticated_routes_by_default_in_prod() -> None:
+def test_app_factory_keeps_secret_verified_telegram_ingress_when_legacy_routes_are_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-test-token")
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "telegram-test-secret")
     client = _client(runtime_mode="dev", legacy_runtime_surfaces_enabled=False)
     route_paths = {route.path for route in client.app.routes}
 
     assert "/v1/memory/candidates" not in route_paths
     assert "/v1/rewrite/artifact" not in route_paths
-    assert "/v1/channels/telegram/ingest" not in route_paths
+    assert "/v1/channels/telegram/ingest" in route_paths
     assert "/v1/responses" not in route_paths
+    rejected = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "wrong-secret"},
+        json={"update_id": 1},
+    )
+    assert rejected.status_code == 403
+    assert rejected.json()["error"]["details"] == "telegram_secret_invalid"
 
 
 def test_app_factory_mounts_legacy_authenticated_routes_when_explicitly_enabled() -> None:
@@ -137,3 +150,20 @@ def test_app_factory_mounts_legacy_authenticated_routes_when_explicitly_enabled(
     assert "/v1/rewrite/artifact" in route_paths
     assert "/v1/channels/telegram/ingest" in route_paths
     assert "/v1/responses" in route_paths
+
+
+def test_telegram_ingress_fails_closed_when_secret_is_not_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-test-token")
+    monkeypatch.delenv("EA_TELEGRAM_INGEST_SECRET", raising=False)
+    monkeypatch.delenv("EA_TELEGRAM_BOT_REGISTRY_JSON", raising=False)
+    client = _client(runtime_mode="dev", legacy_runtime_surfaces_enabled=False)
+
+    response = client.post(
+        "/v1/channels/telegram/ingest",
+        json={"update_id": 1},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["details"] == "telegram_ingest_secret_not_configured"

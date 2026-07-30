@@ -140,6 +140,14 @@ def _include_authenticated_routes(
     app.include_router(internal_sendr_webhook_router, dependencies=auth_dependency)
 
 
+def _include_secret_verified_ingress_routes(
+    app: FastAPI,
+    *,
+    telegram_ingest_router: APIRouter,
+) -> None:
+    app.include_router(telegram_ingest_router)
+
+
 def _include_legacy_authenticated_routes(
     app: FastAPI,
     *,
@@ -183,6 +191,7 @@ def create_app() -> FastAPI:
     from app.api.routes.audiobook_player import router as audiobook_player_router
     from app.api.routes.admin_outreach import router as admin_outreach_router
     from app.api.routes.channels import router as channels_router
+    from app.api.routes.channels import telegram_ingest_router
     from app.api.routes.connectors import router as connectors_router
     from app.api.routes.delivery import router as delivery_router
     from app.api.routes.evidence import router as evidence_router
@@ -271,6 +280,10 @@ def create_app() -> FastAPI:
         runtime_router=runtime_router,
         admin_outreach_router=admin_outreach_router,
         internal_sendr_webhook_router=internal_sendr_webhook_router,
+    )
+    _include_secret_verified_ingress_routes(
+        app,
+        telegram_ingest_router=telegram_ingest_router,
     )
     from app.api.routes.responses import router as responses_router
 

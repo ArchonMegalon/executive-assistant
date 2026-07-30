@@ -114,6 +114,7 @@ from app.services.proactive_ooda_telegram_approval import (
 )
 
 router = APIRouter(prefix="/v1/channels", tags=["channels"])
+telegram_ingest_router = APIRouter(prefix="/v1/channels", tags=["telegram-ingress"])
 _telegram = TelegramObservationAdapter()
 _SAFE_MATH_RE = re.compile(r"^[0-9\.\+\-\*\/\(\)\s=\?]+$")
 _TELEGRAM_ASSISTANT_ACK = "Let me check that and get back to you here."
@@ -307,7 +308,7 @@ def _resolve_telegram_bot_config(*, bot_key: str = "", provided_secret: str = ""
 def _require_telegram_ingest_secret(*, config: dict[str, object], provided: str, header_value: str) -> None:
     expected = str(config.get("secret") or os.getenv("EA_TELEGRAM_INGEST_SECRET") or "").strip()
     if not expected:
-        return
+        raise HTTPException(status_code=503, detail="telegram_ingest_secret_not_configured")
     candidates = (str(header_value or "").strip(), str(provided or "").strip())
     for candidate in candidates:
         if candidate and hmac.compare_digest(candidate, expected):
@@ -10040,8 +10041,8 @@ class TelegramBusinessIngestOut(BaseModel):
     allowed_updates: list[str] = Field(default_factory=list)
 
 
-@router.post("/telegram/business/ingest/{bot_key}")
-@router.post("/telegram/business/ingest")
+@telegram_ingest_router.post("/telegram/business/ingest/{bot_key}")
+@telegram_ingest_router.post("/telegram/business/ingest")
 def ingest_telegram_business(
     request: Request,
     body: dict[str, object] = Body(default_factory=dict),
@@ -10101,8 +10102,8 @@ def ingest_telegram_business(
     )
 
 
-@router.post("/telegram/ingest/{bot_key}")
-@router.post("/telegram/ingest")
+@telegram_ingest_router.post("/telegram/ingest/{bot_key}")
+@telegram_ingest_router.post("/telegram/ingest")
 def ingest_telegram(
     request: Request,
     body: dict[str, object] = Body(default_factory=dict),
