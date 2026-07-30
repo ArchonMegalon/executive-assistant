@@ -26,6 +26,8 @@ OUTPUT_ROOT = Path(os.environ.get("EA_UI_SERVICE_WORKER_OUTPUT_ROOT") or RUNTIME
 SHARED_TEMP_ROOT = Path(os.environ.get("EA_UI_SERVICE_SHARED_TEMP_ROOT") or RUNTIME_ROOT / "worker_shared").expanduser()
 DEFAULT_EMAIL = os.environ.get("EA_UI_SERVICE_LOGIN_EMAIL", "").strip()
 DEFAULT_PASSWORD = os.environ.get("EA_UI_SERVICE_LOGIN_PASSWORD", "").strip()
+OUTLINE_MARKERS = ("PHASE 2: STRUCTURE", "Refine Your Outline")
+FULL_MANUSCRIPT_BLOCKER = "first_book_full_manuscript_export_pending"
 
 
 def _load_packet(path: str | None) -> dict[str, object]:
@@ -201,6 +203,28 @@ def _image_data_uri(path: Path) -> str:
     return f"data:image/png;base64,{encoded}"
 
 
+def _classify_generation_state(browser_output: dict[str, object]) -> dict[str, object]:
+    body_text = str(browser_output.get("bodyText") or "").strip()
+    outline_ready = any(marker.casefold() in body_text.casefold() for marker in OUTLINE_MARKERS)
+    if outline_ready:
+        return {
+            "render_status": "outline_ready",
+            "generation_stage": "outline_review",
+            "deliverable_kind": "outline_review_capture",
+            "full_manuscript_ready": False,
+            "blocker": FULL_MANUSCRIPT_BLOCKER,
+            "next_safe_action": "Review the outline, generate every chapter in First Book AI, then export the complete manuscript.",
+        }
+    return {
+        "render_status": "partial",
+        "generation_stage": "framework_capture_incomplete",
+        "deliverable_kind": "diagnostic_capture",
+        "full_manuscript_ready": False,
+        "blocker": "first_book_outline_not_confirmed",
+        "next_safe_action": "Inspect the First Book AI editor state before attempting full manuscript generation.",
+    }
+
+
 def _standalone_html(*, packet: dict[str, object], browser_output: dict[str, object], screenshot_data_uri: str) -> str:
     title = html.escape(str(packet.get("title") or browser_output.get("title") or "Booka Book").strip())
     body_text = html.escape(str(browser_output.get("bodyText") or "").strip())
@@ -249,7 +273,7 @@ def _standalone_html(*, packet: dict[str, object], browser_output: dict[str, obj
     <main>
       <section class="panel">
         <h1>{title}</h1>
-        <p>First Book AI output captured by EA and republished as a browser-openable artifact.</p>
+        <p>First Book AI outline-review state captured by EA. This artifact is not a completed manuscript.</p>
         <div class="meta">
           <div class="chip">Audience: {audience or "n/a"}</div>
           <div class="chip">Goal: {goal or "n/a"}</div>
@@ -306,11 +330,17 @@ def main() -> int:
         cleanup = cleanup_ui_service_run_dir(run_dir=run_dir, asset_path=html_path)
     result_title = str(packet.get("result_title") or packet.get("title") or "First Book AI result").strip() or "First Book AI result"
     body_text = str(browser_output.get("bodyText") or "").strip()
-    render_status = "completed" if "PHASE 2: STRUCTURE" in body_text or "Refine Your Outline" in body_text else "partial"
+    generation_state = _classify_generation_state(browser_output)
+    render_status = str(generation_state["render_status"])
     result = {
         "service_key": "booka_book",
         "result_title": result_title,
         "render_status": render_status,
+        "generation_stage": generation_state["generation_stage"],
+        "deliverable_kind": generation_state["deliverable_kind"],
+        "full_manuscript_ready": generation_state["full_manuscript_ready"],
+        "blocker": generation_state["blocker"],
+        "next_safe_action": generation_state["next_safe_action"],
         "asset_path": str(html_path),
         "mime_type": "text/html",
         "editor_url": str(browser_output.get("url") or "").strip(),
@@ -325,6 +355,11 @@ def main() -> int:
             "html_path": str(html_path),
             "result_title": result_title,
             "render_status": render_status,
+            "generation_stage": generation_state["generation_stage"],
+            "deliverable_kind": generation_state["deliverable_kind"],
+            "full_manuscript_ready": generation_state["full_manuscript_ready"],
+            "blocker": generation_state["blocker"],
+            "next_safe_action": generation_state["next_safe_action"],
         },
     }
     if cleanup:
