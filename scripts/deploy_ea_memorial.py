@@ -3886,8 +3886,7 @@ class MemorialDeployLane:
             raise DeployError("forward_recovery_capsule_topology_invalid")
         capsule_path = prior_files[0]
         if (
-            prior_root != self.receipt_dir
-            or not capsule_path.is_absolute()
+            not capsule_path.is_absolute()
             or ".." in capsule_path.parts
             or os.path.normpath(str(capsule_path)) != str(capsule_path)
             or capsule_path.parent != prior_root
@@ -7669,7 +7668,12 @@ class MemorialDeployLane:
         )
         self._rollback_recovery_document = document
 
-    def _clear_rollback_artifacts(self, *, terminal_status: str) -> None:
+    def _clear_rollback_artifacts(
+        self,
+        *,
+        terminal_status: str,
+        retain_capsule: bool = False,
+    ) -> None:
         if self._rollback_capsule_seal is not None and (
             self._rollback_recovery_seal is None
         ):
@@ -7687,7 +7691,7 @@ class MemorialDeployLane:
                     reason_prefix="rollback_recovery_journal",
                 )
                 self._rollback_recovery_document = journal
-        if self._rollback_capsule_seal is not None:
+        if self._rollback_capsule_seal is not None and not retain_capsule:
             self._remove_private_artifact(
                 self.rollback_capsule_path,
                 self._rollback_capsule_seal,
@@ -7702,6 +7706,10 @@ class MemorialDeployLane:
             capsule = dict(self.receipt.get("rollback_capsule") or {})
             capsule["status"] = terminal_status
             self.receipt["rollback_capsule"] = capsule
+        elif self._rollback_capsule_seal is not None:
+            capsule = dict(self.receipt.get("rollback_capsule") or {})
+            capsule["status"] = terminal_status
+            self.receipt["rollback_capsule"] = capsule
         if self._rollback_recovery_seal is not None:
             self._remove_private_artifact(
                 self.joint_recovery_journal_path,
@@ -7712,10 +7720,14 @@ class MemorialDeployLane:
             self._rollback_recovery_document = None
             self.receipt["rollback_recovery"] = {"status": terminal_status}
         rollback = dict(self.receipt.get("rollback") or {})
-        rollback["availability"] = "retired"
-        rollback["capsule_available"] = False
-        if rollback.get("status") == "available":
-            rollback["status"] = terminal_status
+        if retain_capsule:
+            rollback["availability"] = "forward_recovery"
+            rollback["capsule_available"] = True
+        else:
+            rollback["availability"] = "retired"
+            rollback["capsule_available"] = False
+            if rollback.get("status") == "available":
+                rollback["status"] = terminal_status
         self.receipt["rollback"] = rollback
 
     def _verify_active_recovery_baseline(
@@ -11745,7 +11757,8 @@ class MemorialDeployLane:
                     )
                     self.receipt["completed_at"] = _utc_now()
                     self._clear_rollback_artifacts(
-                        terminal_status="retired_after_verified_rollback"
+                        terminal_status="retained_after_verified_rollback",
+                        retain_capsule=True,
                     )
                     self._write_receipt()
                     raise DeployError(

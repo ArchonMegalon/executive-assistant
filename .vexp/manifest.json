@@ -1109,7 +1109,7 @@
     "scripts/db_status.sh": "63f643d2b232f81ab3eca748df989f42589eeb766ad8a56c670203e254af9d25",
     "scripts/deploy.sh": "4377634ba44ccc6c30fba3881841b804c65d0bd8b528650d16ea5491e8aa915b",
     "scripts/deploy_ea_audiobook_runtime.py": "6f64088eb42451da3c067f084a351e09528c018348e21322e015f141b40051ee",
-    "scripts/deploy_ea_memorial.py": "e970353f674a1150e9863c4dc4fb30b896fe2ffa95204816de8bc6ff84e9c6bb",
+    "scripts/deploy_ea_memorial.py": "1b34ca6e5104eef2a96ed599e8b4891c04933c2d6377287cfe11e6b09811451e",
     "scripts/deploy_ea_memorial_joint.py": "1a7b9ffffd9b55242623d378d0d12946a05cc0cc6c4b2e9fb72cba0ff1fa5973",
     "scripts/deploy_proactive_ooda_runtime.sh": "2a5b04ba74fabf19a36ac8a15fa736ac94c42e24b37a84df72d069456aeabb41",
     "scripts/diff_openapi.sh": "3e9259551ce0a3ed922cc1f3078c78bec125f0e5112db768cbb9e36aeef51f97",
@@ -1337,7 +1337,7 @@
     "scripts/verify_magicfit_motion_and_people_action.py": "89b888a244e7df414ed5d3c2f9562da44a49dcb5307b09a7a8e539e04aba787b",
     "scripts/verify_magicfit_provider.py": "6fa277348ec9f0709e06de3a9330f9535a1173007a4143400157c17121c80b9b",
     "scripts/verify_magicfit_public_safety.py": "7a42c91adecccb6eca30035c6ec03cb8def4f730905fc8c4325fa7af6fd0bd1a",
-    "scripts/verify_manfred_memorial_candidate.py": "edf451e7b8a29222ce85401e0c1cdb48ce61b472086816ac6df7f79087bd2955",
+    "scripts/verify_manfred_memorial_candidate.py": "b448e42edb05a31b3fdefd7b994c24d5b573e93758fdbc26f91a0ac0271e8e10",
     "scripts/verify_manfred_spatial_candidate_browser.py": "5d5f178a4b67d519c8a185d748e9e435ec1924326db08c8b3dc78f000fd97c9b",
     "scripts/verify_memorial_deploy_readiness.py": "a8f2fe4de9de243e3d09d915fe90514def5b205808bd2883c11ab6aee0d8ff0c",
     "scripts/verify_memorial_gold_readiness.py": "981afdbb8fc35cb7b288a1ff5d8bd416b836faa7b012016c10366fd5e4a4b7a3",
@@ -1611,7 +1611,7 @@
     "tests/test_memorial_flagship_preflight.py": "1afdcab2209b829c7662f86dcb059b1913adf40b9273e877248f83c780d0f063",
     "tests/test_memorial_fliplink_publisher.py": "31bec15e989f4d9c4e771f2369e885a3e9919e50b69686bcdc09d1fa53f38a76",
     "tests/test_memorial_gold_readiness.py": "9768fd079fb0ce6220efb6884eca2932e4e93022644ed40b60dedd1a6eabc159",
-    "tests/test_memorial_governed_deploy.py": "188f0541be558533f388ab530edcbfe243aa70a035203a4e215e459448e76aa6",
+    "tests/test_memorial_governed_deploy.py": "060cf2a9ac00549c39306bdc8152617b14010e0b97ab84cdd244b5a9a81b447c",
     "tests/test_memorial_helper_path_defaults.py": "2ba8a09bb6a582c7539c05100ba31d3122e8dca4e99af6f3dc2125002b9371a4",
     "tests/test_memorial_joggai_asset_receipts.py": "a75f2e0f6d6007360f8fd6d60ea34c2fcbd2e8b1c91faa5d0bf77557f3904429",
     "tests/test_memorial_joggai_provider_contracts.py": "c3296ddc605f566bb3542d6ae753dff6ecf7485d250d0b76bdfe0f8663b6c402",
@@ -1879,13 +1879,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "db99e8a55ddaa6e8df8241628791c054764a6cbc",
-  "indexed_at_timestamp": "2026-07-30T13:17:28.690698818+00:00",
+  "indexed_at_commit": "7e58292a7dd43ff8ca609d42f0f11f6bfecdc4a1",
+  "indexed_at_timestamp": "2026-07-30T14:05:33.663347069+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 47309,
+    "total_edges": 47073,
     "total_files": 1878,
-    "total_nodes": 29642
+    "total_nodes": 29643
   },
   "vexp_version": "2.3.1"
 }

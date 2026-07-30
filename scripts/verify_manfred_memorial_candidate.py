@@ -58,6 +58,7 @@ PAGE_PREWARM_REQUEST_COUNT_BOUNDS = {
     "/memorials/manfred/warmup-status": (1, 64),
 }
 PASSIVE_BROWSER_QUIET_WINDOW_MS = 2_200
+PAGE_PREWARM_READY_TIMEOUT_MS = 60_000
 SAME_ORIGIN_APPLICATION_RESOURCE_TYPES = frozenset(
     {"eventsource", "fetch", "ping", "xhr"}
 )
@@ -1676,7 +1677,7 @@ def audit_browser_surface(
                         && String(button.textContent || "").trim() === "Gespräch beginnen"
                       );
                     }""",
-                    timeout=30_000,
+                    timeout=PAGE_PREWARM_READY_TIMEOUT_MS,
                 )
             else:
                 page.wait_for_timeout(900)

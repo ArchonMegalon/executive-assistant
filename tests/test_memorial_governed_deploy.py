@@ -6196,11 +6196,17 @@ def test_public_failure_rolls_back_once_with_base_and_prod_only(
     assert "docker-compose.prod.yml" not in " ".join(rollback)
     payload = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
     assert payload["status"] == "failed_rolled_back"
-    assert payload["rollback_capsule"]["status"] == ("retired_after_verified_rollback")
-    assert payload["rollback_recovery"]["status"] == ("retired_after_verified_rollback")
-    assert not lane.rollback_capsule_path.exists()
+    assert payload["rollback_capsule"]["status"] == (
+        "retained_after_verified_rollback"
+    )
+    assert payload["rollback_recovery"]["status"] == (
+        "retained_after_verified_rollback"
+    )
+    assert lane.rollback_capsule_path.exists()
     assert not lane.joint_recovery_journal_path.exists()
     assert payload["rollback"]["status"] == "pass"
+    assert payload["rollback"]["availability"] == "forward_recovery"
+    assert payload["rollback"]["capsule_available"] is True
     rollback_openapi = payload["rollback"]["openapi"]
     assert rollback_openapi["matches_predeploy_contract"] is True
     assert rollback_openapi["restored_retirement_operations"] == list(
@@ -7822,6 +7828,40 @@ def test_recovered_capsule_topology_uses_only_canonical_release_layers(
     ]
     assert str(capsule_path) not in configured_layers
     assert not any("up" in call for call in runner.calls)
+
+
+def test_recovered_capsule_topology_accepts_prior_receipt_directory(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, prior_receipt_root, capsule_path = _recovered_capsule_live_runner(
+        release_root
+    )
+    current_receipt_root = (
+        release_root / ".runtime" / "deployments" / "memorial-next"
+    )
+    current_receipt_root.mkdir(parents=True, mode=0o700)
+    current_receipt_root.chmod(0o700)
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    receipt = _lane(
+        release_root,
+        runner,
+        receipt_dir=current_receipt_root,
+    ).deploy(preflight_only=True)
+
+    assert receipt["status"] == "preflight_only_pass"
+    assert receipt["forward_topology_source"]["working_dir"] == str(
+        prior_receipt_root
+    )
+    assert receipt["forward_topology_source"]["compose_config_files"] == [
+        str(capsule_path)
+    ]
+    assert capsule_path.exists()
 
 
 @pytest.mark.parametrize(
