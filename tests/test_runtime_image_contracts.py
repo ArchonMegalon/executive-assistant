@@ -130,6 +130,20 @@ def test_core_runtime_image_omits_host_docker_tooling() -> None:
     assert 'mv /tmp/docker/docker /usr/local/bin/docker' not in dockerfile
 
 
+def test_api_video_render_outputs_use_writable_artifact_volume() -> None:
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert (
+        "EA_TELEGRAM_SOURCE_VIDEO_EDIT_ROOT="
+        "${EA_TELEGRAM_SOURCE_VIDEO_EDIT_ROOT:-/data/artifacts/telegram_video_edits}"
+    ) in compose
+    assert (
+        "EA_UI_SERVICE_WORKER_OUTPUT_ROOT="
+        "${EA_UI_SERVICE_WORKER_OUTPUT_ROOT:-/data/artifacts/browseract_ui_worker_outputs}"
+    ) in compose
+    assert "ea_artifacts:/data/artifacts" in compose
+
+
 def test_operator_runtime_image_carries_host_docker_tooling() -> None:
     dockerfile = (APP_ROOT / "Dockerfile.operator").read_text(encoding="utf-8")
 

@@ -169,6 +169,8 @@ services:
       - EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL=${EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL:-}
       - EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_FILE=/run/secrets/whatsapp_audiobook_callback_secret
       - HOME=/home/ea
+      - EA_TELEGRAM_SOURCE_VIDEO_EDIT_ROOT=${EA_TELEGRAM_SOURCE_VIDEO_EDIT_ROOT:-/data/artifacts/telegram_video_edits}
+      - EA_UI_SERVICE_WORKER_OUTPUT_ROOT=${EA_UI_SERVICE_WORKER_OUTPUT_ROOT:-/data/artifacts/browseract_ui_worker_outputs}
       - EA_UI_SERVICE_SHARED_TEMP_ROOT=${EA_UI_SERVICE_SHARED_TEMP_ROOT:-/data/artifacts/browseract_ui_worker_shared}
       - VOICEWAVE_RUNTIME_TMP_ROOT=${VOICEWAVE_RUNTIME_TMP_ROOT:-/data/artifacts/voicewave_runtime_tmp}
       - TEABLE_BASE_URL=${TEABLE_RUNTIME_BASE_URL:-https://app.teable.ai}

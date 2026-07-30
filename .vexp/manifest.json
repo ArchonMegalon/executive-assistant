@@ -1780,7 +1780,7 @@
     "tests/test_runner.py": "2d75ded90de7d2b1266d407f678a1999e9b690299a567ed66377f20560a577ec",
     "tests/test_runtime_api.py": "7be3e2843288aa2abae65731b833412a1fbae5305bfef7e93d18a0fb96facc6f",
     "tests/test_runtime_dependency_evidence.py": "dd517df3ea54612a6f57176fa43a2f9ccd2e5905ad716129b49a332baad23991",
-    "tests/test_runtime_image_contracts.py": "62a4704f84d68eb039f1d38b1f1d31e4fb83ea62a0d52da065ca2d7d1474979b",
+    "tests/test_runtime_image_contracts.py": "288d74aa73262849ce3aa6749d19c213ef3d7e76c3e5318b3f1c79f0f3f87f3e",
     "tests/test_runtime_profile.py": "09fae4003169ce2c016ec57889a9ab2657ea7c3abf52c119839d8f1fb7cf45c8",
     "tests/test_runtime_source_permissions.py": "0be14b3adaf8c5dcb05d7970b830acba8f28f36eb0ac6eaa038619044babc353",
     "tests/test_runtime_supply_chain.py": "8d88214fb327961aa78db318d13cf6d51170ee727fb9b32a7391c78c974be740",
@@ -1879,13 +1879,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "93b0e56956b7bf32a3870f0fcc5beff0a88b45d6",
-  "indexed_at_timestamp": "2026-07-30T11:29:53.807306480+00:00",
+  "indexed_at_commit": "b3f25deefb1e3db0d6b7ad59be8b85386ad5ca85",
+  "indexed_at_timestamp": "2026-07-30T11:47:39.974378087+00:00",
   "schema_version": 3,
   "stats": {
     "total_edges": 47305,
     "total_files": 1878,
-    "total_nodes": 29639
+    "total_nodes": 29640
   },
   "vexp_version": "2.3.1"
 }
