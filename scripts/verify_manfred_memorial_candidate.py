@@ -1697,6 +1697,7 @@ def audit_browser_surface(
                       return Boolean(
                         button
                         && !button.disabled
+                        && button.dataset.conversationState === "ready"
                         && String(button.textContent || "").trim() === "Gespräch beginnen"
                       );
                     }""",

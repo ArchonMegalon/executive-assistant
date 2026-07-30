@@ -7012,6 +7012,17 @@ def test_candidate_verifier_waits_for_delayed_page_prewarm_synthesis() -> None:
     assert max(page.wait_calls) <= 250
 
 
+def test_candidate_verifier_waits_for_explicit_ready_state_when_button_is_clickable_during_warmup() -> None:
+    import inspect
+
+    from scripts import verify_manfred_memorial_candidate as candidate
+
+    source = inspect.getsource(candidate.audit_browser_surface)
+
+    assert 'button.dataset.conversationState === "ready"' in source
+    assert 'String(button.textContent || "").trim() === "Gespräch beginnen"' in source
+
+
 @pytest.mark.parametrize("expect_page_prewarm", [False, True])
 def test_candidate_origin_only_requests_expected_page_prewarm_and_keeps_conversation_idle(
     release_root: Path,
