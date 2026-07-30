@@ -549,7 +549,17 @@ def public_memorial_file(slug: str, asset_path: str) -> FileResponse:
     methods=["GET", "HEAD"],
     include_in_schema=False,
 )
-def manfred_memorial_singular_alias(request: Request) -> Response:
+@router.api_route(
+    "/memorial",
+    methods=["GET", "HEAD"],
+    include_in_schema=False,
+)
+@router.api_route(
+    "/memorials",
+    methods=["GET", "HEAD"],
+    include_in_schema=False,
+)
+def manfred_memorial_entry_alias(request: Request) -> Response:
     rejection = _memorial_transport_rejection(request)
     if rejection is not None:
         return rejection

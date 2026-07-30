@@ -195,15 +195,15 @@ class MemorialRuntimeTests(unittest.TestCase):
         self.assertIn('id="memorial-speech-audio" preload="none" aria-hidden="true"', rendered)
         self.assertNotIn(" autoplay", rendered)
         self.assertIn(
-            "Du sprichst mit einer KI-Version von Manfred.",
+            "Du sprichst mit einer KI-Rekonstruktion von Manfred.",
             rendered,
         )
-        self.assertIn("Die Stimme ist synthetisch;", rendered)
+        self.assertIn("Die Stimme ist künstlich erzeugt.", rendered)
         self.assertIn(
-            "dein Mikrofon startet erst nach deinem Klick.",
+            "Dein Mikrofon überträgt Audio erst nach „Gespräch beginnen“.",
             rendered,
         )
-        self.assertNotIn("Sie ist nicht Manfred und spricht nicht für ihn.", rendered)
+        self.assertIn("Sie ist nicht Manfred und spricht nicht für ihn.", rendered)
         self.assertIn(
             'data-conversation-state="preparing" '
             'title="Gespräch beginnen" '

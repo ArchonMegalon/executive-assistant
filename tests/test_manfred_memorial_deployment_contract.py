@@ -1203,7 +1203,7 @@ def test_candidate_keeps_governed_spatial_http_routes_retired(
     assert "/v1/internal/governed-spatial-render/build" not in paths
 
 
-def test_public_memorial_singular_alias_is_permanent_safe_and_schema_hidden(
+def test_public_memorial_entry_aliases_are_permanent_safe_and_schema_hidden(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     public_origin = "https://memorial.example.test"
@@ -1217,20 +1217,21 @@ def test_public_memorial_singular_alias_is_permanent_safe_and_schema_hidden(
     app.include_router(router)
     client = TestClient(app, base_url=public_origin)
 
-    for method in ("GET", "HEAD"):
-        response = client.request(
-            method,
-            "/memorial/manfred?from=family",
-            follow_redirects=False,
-        )
-        assert response.status_code == 308
-        assert response.headers["location"] == "/memorials/manfred?from=family"
-        assert response.headers["cache-control"] == "no-store"
-        assert response.headers["referrer-policy"] == "no-referrer"
-        assert response.headers["x-content-type-options"] == "nosniff"
-        assert response.headers["x-robots-tag"] == "noindex, nofollow"
-        if method == "HEAD":
-            assert response.content == b""
+    for alias_path in ("/memorial", "/memorials", "/memorial/manfred"):
+        for method in ("GET", "HEAD"):
+            response = client.request(
+                method,
+                f"{alias_path}?from=family",
+                follow_redirects=False,
+            )
+            assert response.status_code == 308
+            assert response.headers["location"] == "/memorials/manfred?from=family"
+            assert response.headers["cache-control"] == "no-store"
+            assert response.headers["referrer-policy"] == "no-referrer"
+            assert response.headers["x-content-type-options"] == "nosniff"
+            assert response.headers["x-robots-tag"] == "noindex, nofollow"
+            if method == "HEAD":
+                assert response.content == b""
 
     duplicate_query = client.get(
         "/memorial/manfred?tag=one&tag=two",
@@ -1249,7 +1250,10 @@ def test_public_memorial_singular_alias_is_permanent_safe_and_schema_hidden(
         assert rejected.status_code == 404
         assert "location" not in rejected.headers
 
-    assert "/memorial/manfred" not in app.openapi()["paths"]
+    assert all(
+        alias_path not in app.openapi()["paths"]
+        for alias_path in ("/memorial", "/memorials", "/memorial/manfred")
+    )
 
 
 def test_candidate_alias_verifier_inspects_exact_get_and_head_first_hops() -> None:
