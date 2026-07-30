@@ -1337,7 +1337,7 @@
     "scripts/verify_magicfit_motion_and_people_action.py": "89b888a244e7df414ed5d3c2f9562da44a49dcb5307b09a7a8e539e04aba787b",
     "scripts/verify_magicfit_provider.py": "6fa277348ec9f0709e06de3a9330f9535a1173007a4143400157c17121c80b9b",
     "scripts/verify_magicfit_public_safety.py": "7a42c91adecccb6eca30035c6ec03cb8def4f730905fc8c4325fa7af6fd0bd1a",
-    "scripts/verify_manfred_memorial_candidate.py": "24a7c8298b9ee9f9eb44e66fc935fcc3f0c714374afb4dad01cd42687727cc24",
+    "scripts/verify_manfred_memorial_candidate.py": "eb606d0be0aa35439dd2a83fd51a9ba762fabf0af5984733f9e2a0f583b2728e",
     "scripts/verify_manfred_spatial_candidate_browser.py": "5d5f178a4b67d519c8a185d748e9e435ec1924326db08c8b3dc78f000fd97c9b",
     "scripts/verify_memorial_deploy_readiness.py": "a8f2fe4de9de243e3d09d915fe90514def5b205808bd2883c11ab6aee0d8ff0c",
     "scripts/verify_memorial_gold_readiness.py": "981afdbb8fc35cb7b288a1ff5d8bd416b836faa7b012016c10366fd5e4a4b7a3",
@@ -1879,11 +1879,11 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "69bccbdc649fe474947b1a75cab06e31275464c9",
-  "indexed_at_timestamp": "2026-07-30T14:47:34.901222451+00:00",
+  "indexed_at_commit": "c268c5a3b5470e346fad4537a2fd02d1854558cd",
+  "indexed_at_timestamp": "2026-07-30T15:06:42.527856240+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 47174,
+    "total_edges": 47313,
     "total_files": 1878,
     "total_nodes": 29645
   },
