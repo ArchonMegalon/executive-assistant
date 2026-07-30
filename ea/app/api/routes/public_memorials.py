@@ -18242,12 +18242,21 @@ def _minimal_public_memorial_html(
             !memorialLandingReady
             && !memorialConversationRetryAvailable,
           );
-          const preparing = Boolean(activeConversationStart) || readinessPending;
+          const preparing = Boolean(activeConversationStart);
           const active = recordingActive || conversationSessionActive;
-          const label = active ? "Gespräch beenden" : "Gespräch beginnen";
-          const disabled =
-            preparing
-            || (!active && !memorialLandingReady && !memorialConversationRetryAvailable);
+          const label = active
+            ? "Gespräch beenden"
+            : (preparing ? "Gespräch wird vorbereitet …" : "Gespräch beginnen");
+          // Automatic landing warmup must never turn the primary action into
+          // an inert control. Accept the visitor's first click, expose the
+          // preparing state immediately, and let startConversationSession()
+          // join the in-flight readiness promise before opening the microphone.
+          // Provider-free candidate proofs remain fail-closed.
+          const disabled = Boolean(
+            !memorialProviderWorkAllowed
+            || preparing
+            || requestInFlight
+          );
           conversationButton.textContent = label;
           conversationButton.setAttribute("aria-label", label);
           conversationButton.setAttribute("title", label);
@@ -18262,9 +18271,19 @@ def _minimal_public_memorial_html(
             "aria-busy",
             preparing || requestInFlight ? "true" : "false",
           );
-          if (preparing) conversationButton.dataset.conversationState = "preparing";
-          conversationButton.classList.toggle("is-readying", disabled);
-          if (heroActions) heroActions.classList.toggle("is-readying", disabled);
+          conversationButton.dataset.conversationState = active
+            ? "listening"
+            : (preparing ? "preparing" : (readinessPending ? "warming" : "ready"));
+          conversationButton.classList.toggle(
+            "is-readying",
+            !active && (preparing || readinessPending),
+          );
+          if (heroActions) {{
+            heroActions.classList.toggle(
+              "is-readying",
+              !active && (preparing || readinessPending),
+            );
+          }}
           suppressMinimalActionControls();
           return;
         }}

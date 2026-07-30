@@ -9502,6 +9502,28 @@ def test_memorial_landing_does_not_enable_conversation_on_warmup_timeout() -> No
     assert "new Promise((resolve) => window.setTimeout(resolve, 12000))" not in source
 
 
+def test_memorial_conversation_only_primary_action_is_not_inert_during_landing_warmup() -> None:
+    source = PUBLIC_MEMORIALS_SOURCE.read_text(encoding="utf-8")
+
+    assert "const preparing = Boolean(activeConversationStart);" in source
+    assert "const preparing = Boolean(activeConversationStart) || readinessPending;" not in source
+    assert (
+        'preparing ? "Gespräch wird vorbereitet …" : "Gespräch beginnen"'
+        in source
+    )
+    assert (
+        "!memorialProviderWorkAllowed\n"
+        "            || preparing\n"
+        "            || requestInFlight"
+        in source
+    )
+    assert (
+        "|| (!active && !memorialLandingReady && !memorialConversationRetryAvailable)"
+        not in source
+    )
+    assert '(readinessPending ? "warming" : "ready")' in source
+
+
 def test_memorial_fast_tts_selector_skips_fast_path_for_recently_warm_lane(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.api.routes import public_memorials
 
