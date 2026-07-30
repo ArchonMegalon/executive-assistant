@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import copy
 import hashlib
 import http.server
@@ -171,18 +170,39 @@ class _FakeCanvas:
     def __init__(self, page: _FakePage) -> None:
         self.page = page
 
-    def evaluate(self, script: str, *, timeout: int) -> str:
-        assert "readPixels" in script
-        assert "isContextLost" in script
-        assert 'toDataURL("image/png")' in script
+    def evaluate(
+        self,
+        script: str,
+        expected: dict[str, int],
+        *,
+        timeout: int,
+    ) -> dict[str, object]:
+        assert "readPixels" not in script
+        assert "getRenderMetrics" in script
+        assert 'element.matches("#viewport canvas")' in script
+        assert expected == {"index": self.page.active}
         assert timeout == browser_gate._CAMERA_PROBE_TIMEOUT_MS
         self.page.camera_probe_indices.append(self.page.active)
         self.page.camera_probe_timeouts.append(timeout)
         if self.page.camera_probe_failure_index == self.page.active:
             raise TimeoutError("private renderer timeout detail")
-        value = 7 if self.page.static_pixels else self.page.active + 1
-        png = b"\x89PNG\r\n\x1a\n" + bytes([value]) * 128
-        return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+        value = 7 if self.page.static_camera else self.page.active + 1
+        return {
+            "active_route_index": self.page.active,
+            "view_mode": "room",
+            "is_transitioning": False,
+            "frame_count": 42,
+            "render_calls": 7,
+            "render_triangles": 256,
+            "sample_width": 1440,
+            "sample_height": 1000,
+            "camera_target_distance": 4.5,
+            "camera_position": {
+                "x": float(value),
+                "y": float(value + 1),
+                "z": float(value + 2),
+            },
+        }
 
 
 class _FakeLiveStatus:
@@ -198,7 +218,7 @@ class _FakePage:
         self,
         labels: list[str],
         *,
-        static_pixels: bool = False,
+        static_camera: bool = False,
         actionability_failure_index: int | None = None,
         camera_probe_failure_index: int | None = None,
         locator_counts: dict[int, int] | None = None,
@@ -206,7 +226,7 @@ class _FakePage:
         diagnostic_failure: bool = False,
     ) -> None:
         self.labels = labels
-        self.static_pixels = static_pixels
+        self.static_camera = static_camera
         self.actionability_failure_index = actionability_failure_index
         self.camera_probe_failure_index = camera_probe_failure_index
         self.locator_counts = dict(locator_counts or {})
@@ -389,13 +409,14 @@ def test_browser_gate_binds_asset_requests_to_the_exact_candidate_origin() -> No
         )
 
 
-def test_route_gate_interacts_all_stops_and_binds_unique_camera_pixels() -> None:
+def test_route_gate_interacts_all_stops_and_binds_unique_camera_states() -> None:
     page = _FakePage(LABELS)
     rows = browser_gate._route_interactions(page, LABELS)
 
     assert [row["label"] for row in rows] == LABELS
-    assert len({row["camera_canvas_screenshot_sha256"] for row in rows}) == 9
+    assert len({row["camera_pose_sha256"] for row in rows}) == 9
     assert all(row["active_state_verified"] is True for row in rows)
+    assert all(row["render_frame_verified"] is True for row in rows)
     assert page.clicked_indices == [*range(1, 9), 0]
     assert page.click_calls == [
         {
@@ -648,9 +669,9 @@ def test_route_contract_binds_exact_labels_indices_and_enabled_count() -> None:
     )
 
 
-def test_route_gate_rejects_static_camera_pixels() -> None:
+def test_route_gate_rejects_static_camera_pose() -> None:
     with pytest.raises(RuntimeError, match="camera_state_static"):
-        browser_gate._route_interactions(_FakePage(LABELS, static_pixels=True), LABELS)
+        browser_gate._route_interactions(_FakePage(LABELS, static_camera=True), LABELS)
 
 
 def test_viewer_status_poll_is_bounded_and_csp_safe() -> None:
@@ -1519,7 +1540,8 @@ def _valid_receipt() -> dict[str, object]:
                     "live_region_verified": True,
                     "playwright_actionability_verified": True,
                     "click_handler_state_change_verified": True,
-                    "camera_canvas_screenshot_sha256": f"{index + 1:064x}",
+                    "camera_pose_sha256": f"{index + 1:064x}",
+                    "render_frame_verified": True,
                 }
                 for index, label in enumerate(LABELS)
             ]
@@ -1938,14 +1960,14 @@ def test_strict_receipt_validator_rejects_unbound_or_partial_evidence(
             surfaces = dict(receipt["surfaces"])
             reduced = dict(surfaces["reduced_motion"])
             interactions = list(reduced["route_interactions"])
-            interactions[1]["camera_canvas_screenshot_sha256"] = interactions[0][
-                "camera_canvas_screenshot_sha256"
+            interactions[1]["camera_pose_sha256"] = interactions[0][
+                "camera_pose_sha256"
             ]
         elif mutation == "camera_type":
             surfaces = dict(receipt["surfaces"])
             reduced = dict(surfaces["reduced_motion"])
             interactions = list(reduced["route_interactions"])
-            interactions[0]["camera_canvas_screenshot_sha256"] = int("1" * 64)
+            interactions[0]["camera_pose_sha256"] = int("1" * 64)
         elif mutation == "top_float":
             receipt["surface_count"] = 4.0
         elif mutation == "package_float":

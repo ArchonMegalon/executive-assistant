@@ -183,7 +183,7 @@ def _candidate_promotion_evidence() -> dict[str, object]:
             "html_json_viewer_200": True,
             "proof_only_404": True,
             "release_verifier_pass": True,
-            "browser_schema": "ea.manfred_spatial_candidate_browser.v5",
+            "browser_schema": "ea.manfred_spatial_candidate_browser.v6",
             "browser_pass": True,
             "identity_bound": True,
             "package_sha256": deploy._spatial_package_sha256(SPATIAL_TEST_FILES),
@@ -1468,7 +1468,8 @@ def _exact_spatial_browser_receipt(
                     "live_region_verified": True,
                     "playwright_actionability_verified": True,
                     "click_handler_state_change_verified": True,
-                    "camera_canvas_screenshot_sha256": f"{index + 1:064x}",
+                    "camera_pose_sha256": f"{index + 1:064x}",
+                    "render_frame_verified": True,
                 }
                 for index, label in enumerate(route_labels)
             ]
@@ -1601,7 +1602,7 @@ def _exact_spatial_browser_receipt(
         sort_keys=True,
     ).encode("utf-8")
     return {
-        "schema": "ea.manfred_spatial_candidate_browser.v5",
+        "schema": "ea.manfred_spatial_candidate_browser.v6",
         "status": "pass",
         "slug": slug,
         "candidate_origin": candidate_origin,

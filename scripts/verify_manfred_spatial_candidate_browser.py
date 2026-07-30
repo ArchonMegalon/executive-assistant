@@ -4,8 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
-import binascii
 import hashlib
 import json
 import math
@@ -38,7 +36,7 @@ from scripts.measure_memorial_live_browser import (  # noqa: E402
 )
 
 
-RECEIPT_SCHEMA = "ea.manfred_spatial_candidate_browser.v5"
+RECEIPT_SCHEMA = "ea.manfred_spatial_candidate_browser.v6"
 _SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -208,45 +206,45 @@ _ROUTE_ACTIONABILITY_DIAGNOSTIC_SCRIPT = """
   };
 }
 """
-_BOUNDED_CANVAS_SCREENSHOT_SCRIPT = """
-element => {
-  const gl =
-    element.getContext("webgl2") ||
-    element.getContext("webgl") ||
-    element.getContext("experimental-webgl");
-  const attributes = gl && gl.getContextAttributes();
-  const bufferWidth = Number(gl && gl.drawingBufferWidth || 0);
-  const bufferHeight = Number(gl && gl.drawingBufferHeight || 0);
-  const width = Math.min(160, bufferWidth);
-  const height = Math.min(96, bufferHeight);
+_CAMERA_STATE_PROOF_SCRIPT = """
+(element, expected) => {
+  const debug = window.__pqReconstructionDebug;
+  const metrics = debug && typeof debug.getRenderMetrics === "function"
+    ? debug.getRenderMetrics()
+    : null;
+  const position = metrics && metrics.cameraPosition;
   if (
-    !gl ||
-    gl.isContextLost() ||
-    !attributes ||
-    attributes.preserveDrawingBuffer !== true ||
-    width < 1 ||
-    height < 1
+    !element ||
+    !element.isConnected ||
+    !element.matches("#viewport canvas") ||
+    !metrics ||
+    metrics.ready !== true ||
+    Number(metrics.activeRouteIndex) !== Number(expected.index) ||
+    metrics.viewMode !== "room" ||
+    metrics.isTransitioning === true ||
+    !position ||
+    Number(metrics.frameCount || 0) < 1 ||
+    Number(metrics.renderCalls || 0) < 1 ||
+    Number(metrics.renderTriangles || 0) < 1 ||
+    Number(metrics.sampleWidth || 0) < 1 ||
+    Number(metrics.sampleHeight || 0) < 1
   ) return null;
-  const pixels = new Uint8Array(width * height * 4);
-  const x = Math.floor((bufferWidth - width) / 2);
-  const y = Math.floor((bufferHeight - height) / 2);
-  gl.readPixels(x, y, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-  if (gl.getError() !== gl.NO_ERROR) return null;
-  const proof = document.createElement("canvas");
-  proof.width = width;
-  proof.height = height;
-  const context = proof.getContext("2d");
-  if (!context) return null;
-  const image = context.createImageData(width, height);
-  for (let row = 0; row < height; row += 1) {
-    const source = pixels.subarray(
-      row * width * 4,
-      (row + 1) * width * 4,
-    );
-    image.data.set(source, (height - row - 1) * width * 4);
-  }
-  context.putImageData(image, 0, 0);
-  return proof.toDataURL("image/png");
+  return {
+    active_route_index: Number(metrics.activeRouteIndex),
+    view_mode: String(metrics.viewMode || ""),
+    is_transitioning: metrics.isTransitioning === true,
+    frame_count: Number(metrics.frameCount || 0),
+    render_calls: Number(metrics.renderCalls || 0),
+    render_triangles: Number(metrics.renderTriangles || 0),
+    sample_width: Number(metrics.sampleWidth || 0),
+    sample_height: Number(metrics.sampleHeight || 0),
+    camera_target_distance: Number(metrics.cameraTargetDistance),
+    camera_position: {
+      x: Number(position.x),
+      y: Number(position.y),
+      z: Number(position.z),
+    },
+  };
 }
 """
 _VIEWER_STATUS_SCRIPT = """
@@ -1446,29 +1444,71 @@ def _route_interactions(
         )
         canvas = page.locator("#viewport canvas")  # type: ignore[attr-defined]
         try:
-            data_url = canvas.evaluate(
-                _BOUNDED_CANVAS_SCREENSHOT_SCRIPT,
+            camera_state = canvas.evaluate(
+                _CAMERA_STATE_PROOF_SCRIPT,
+                {"index": index},
                 timeout=_CAMERA_PROBE_TIMEOUT_MS,
             )
         except Exception:
             raise RuntimeError(
                 "manfred_candidate_spatial_browser_camera_probe_failed"
             ) from None
-        prefix = "data:image/png;base64,"
-        if type(data_url) is not str or not data_url.startswith(prefix):
+        if not isinstance(camera_state, dict) or set(camera_state) != {
+            "active_route_index",
+            "camera_position",
+            "camera_target_distance",
+            "frame_count",
+            "is_transitioning",
+            "render_calls",
+            "render_triangles",
+            "sample_height",
+            "sample_width",
+            "view_mode",
+        }:
             raise RuntimeError("manfred_candidate_spatial_browser_camera_probe_failed")
-        try:
-            screenshot = base64.b64decode(
-                data_url[len(prefix) :],
-                validate=True,
+        position = camera_state.get("camera_position")
+        finite_number = lambda value: (  # noqa: E731
+            type(value) in {int, float} and math.isfinite(float(value))
+        )
+        if (
+            type(camera_state.get("active_route_index")) is not int
+            or camera_state.get("active_route_index") != index
+            or camera_state.get("view_mode") != "room"
+            or camera_state.get("is_transitioning") is not False
+            or any(
+                type(camera_state.get(name)) is not int
+                or int(camera_state.get(name) or 0) < 1
+                for name in (
+                    "frame_count",
+                    "render_calls",
+                    "render_triangles",
+                    "sample_height",
+                    "sample_width",
+                )
             )
-        except (binascii.Error, ValueError) as exc:
-            raise RuntimeError(
-                "manfred_candidate_spatial_browser_camera_probe_failed"
-            ) from exc
-        if not screenshot.startswith(b"\x89PNG\r\n\x1a\n"):
+            or not finite_number(camera_state.get("camera_target_distance"))
+            or not 0 < float(camera_state["camera_target_distance"]) <= 100_000
+            or not isinstance(position, dict)
+            or set(position) != {"x", "y", "z"}
+            or any(
+                not finite_number(position.get(axis))
+                or abs(float(position[axis])) > 100_000
+                for axis in ("x", "y", "z")
+            )
+        ):
             raise RuntimeError("manfred_candidate_spatial_browser_camera_probe_failed")
-        digest = hashlib.sha256(screenshot).hexdigest()
+        camera_pose = {
+            axis: position[axis]
+            for axis in ("x", "y", "z")
+        }
+        digest = hashlib.sha256(
+            json.dumps(
+                camera_pose,
+                allow_nan=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
         if digest in observed_digests:
             raise RuntimeError("manfred_candidate_spatial_browser_camera_state_static")
         observed_digests.add(digest)
@@ -1480,7 +1520,8 @@ def _route_interactions(
                 "live_region_verified": True,
                 "playwright_actionability_verified": True,
                 "click_handler_state_change_verified": True,
-                "camera_canvas_screenshot_sha256": digest,
+                "camera_pose_sha256": digest,
+                "render_frame_verified": True,
             }
         )
     if len(observed_digests) != _EXPECTED_ROUTE_STOP_COUNT:
@@ -2960,24 +3001,25 @@ def validate_spatial_candidate_browser_receipt(
         for index, raw_row in enumerate(interactions):
             if not isinstance(raw_row, dict) or set(raw_row) != {
                 "active_state_verified",
-                "camera_canvas_screenshot_sha256",
+                "camera_pose_sha256",
                 "click_handler_state_change_verified",
                 "index",
                 "label",
                 "live_region_verified",
                 "playwright_actionability_verified",
+                "render_frame_verified",
             }:
                 raise RuntimeError(
                     "manfred_candidate_spatial_browser_receipt_surfaces_invalid"
                 )
             row = dict(raw_row)
-            screenshot_digest = row.get("camera_canvas_screenshot_sha256")
+            camera_pose_digest = row.get("camera_pose_sha256")
             if (
                 not exact_int(row.get("index"), index)
                 or row.get("label") != expected_labels[index]
-                or type(screenshot_digest) is not str
-                or not _SHA256_RE.fullmatch(screenshot_digest)
-                or screenshot_digest in interaction_digests
+                or type(camera_pose_digest) is not str
+                or not _SHA256_RE.fullmatch(camera_pose_digest)
+                or camera_pose_digest in interaction_digests
                 or any(
                     row.get(key) is not True
                     for key in (
@@ -2985,13 +3027,14 @@ def validate_spatial_candidate_browser_receipt(
                         "click_handler_state_change_verified",
                         "live_region_verified",
                         "playwright_actionability_verified",
+                        "render_frame_verified",
                     )
                 )
             ):
                 raise RuntimeError(
                     "manfred_candidate_spatial_browser_receipt_surfaces_invalid"
                 )
-            interaction_digests.add(screenshot_digest)
+            interaction_digests.add(camera_pose_digest)
         if collect_routes and len(interaction_digests) != _EXPECTED_ROUTE_STOP_COUNT:
             raise RuntimeError(
                 "manfred_candidate_spatial_browser_receipt_surfaces_invalid"

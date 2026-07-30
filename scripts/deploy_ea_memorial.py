@@ -122,6 +122,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - direct script execution
 
 try:
     from scripts.verify_manfred_spatial_candidate_browser import (
+        RECEIPT_SCHEMA as SPATIAL_BROWSER_RECEIPT_SCHEMA,
         validate_spatial_candidate_browser_receipt,
     )
 except ModuleNotFoundError as exc:  # pragma: no cover - direct script execution
@@ -131,6 +132,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - direct script execution
     }:
         raise
     from verify_manfred_spatial_candidate_browser import (  # type: ignore[no-redef]
+        RECEIPT_SCHEMA as SPATIAL_BROWSER_RECEIPT_SCHEMA,
         validate_spatial_candidate_browser_receipt,
     )
 
@@ -9485,7 +9487,7 @@ class MemorialDeployLane:
                 "html_json_viewer_200": True,
                 "proof_only_404": True,
                 "release_verifier_pass": True,
-                "browser_schema": "ea.manfred_spatial_candidate_browser.v5",
+                "browser_schema": SPATIAL_BROWSER_RECEIPT_SCHEMA,
                 "browser_pass": True,
                 "identity_bound": True,
                 "package_sha256": spatial_package_sha256,
@@ -10686,8 +10688,7 @@ class MemorialDeployLane:
             or spatial.get("html_json_viewer_200") is not True
             or spatial.get("proof_only_404") is not True
             or spatial.get("release_verifier_pass") is not True
-            or spatial.get("browser_schema")
-            != "ea.manfred_spatial_candidate_browser.v5"
+            or spatial.get("browser_schema") != SPATIAL_BROWSER_RECEIPT_SCHEMA
             or spatial.get("browser_pass") is not True
             or spatial.get("identity_bound") is not True
             or SHA256_HEX_PATTERN.fullmatch(str(spatial.get("package_sha256") or ""))
