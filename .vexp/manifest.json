@@ -1337,7 +1337,7 @@
     "scripts/verify_magicfit_motion_and_people_action.py": "89b888a244e7df414ed5d3c2f9562da44a49dcb5307b09a7a8e539e04aba787b",
     "scripts/verify_magicfit_provider.py": "6fa277348ec9f0709e06de3a9330f9535a1173007a4143400157c17121c80b9b",
     "scripts/verify_magicfit_public_safety.py": "7a42c91adecccb6eca30035c6ec03cb8def4f730905fc8c4325fa7af6fd0bd1a",
-    "scripts/verify_manfred_memorial_candidate.py": "a4b6498089919860704e0d476795a7ab0d7b915b70409ba96f033ce85099f5ba",
+    "scripts/verify_manfred_memorial_candidate.py": "edf451e7b8a29222ce85401e0c1cdb48ce61b472086816ac6df7f79087bd2955",
     "scripts/verify_manfred_spatial_candidate_browser.py": "5d5f178a4b67d519c8a185d748e9e435ec1924326db08c8b3dc78f000fd97c9b",
     "scripts/verify_memorial_deploy_readiness.py": "a8f2fe4de9de243e3d09d915fe90514def5b205808bd2883c11ab6aee0d8ff0c",
     "scripts/verify_memorial_gold_readiness.py": "981afdbb8fc35cb7b288a1ff5d8bd416b836faa7b012016c10366fd5e4a4b7a3",
@@ -1411,7 +1411,7 @@
     "tests/e2e/test_memorial_browser.py": "f0bf8a4a343961ebc320fbb0676d58a9c7adfc2ea9781f633fa2abd6a0fb7af1",
     "tests/e2e/test_memorial_flagship_exit_gates.py": "c826abb0196b1cf63eaee77e91475f123c9c37b20065a73e47a935feb098a403",
     "tests/e2e/test_memorial_flagship_operator_tools.py": "54cb7e92cb169332848162fb79a3f1bf86f6c61c17d18c3e10e999fc644dbfb1",
-    "tests/e2e/test_memorial_minimal_browser.py": "29659cee62c5ca6a8fbf41445729a0344e2ffc056c2bdf6ae248a2fb5459cc20",
+    "tests/e2e/test_memorial_minimal_browser.py": "0ac4d024e489f5845bea9cacb9b3297260c79676f0a262d8e94892d446e79dee",
     "tests/e2e/test_memorial_showtime_cli.py": "0f92a59f294f70743ed3104611ea9c8677f0015877f15ccc615a2165f5ad6c13",
     "tests/e2e/test_product_workflows.py": "059e616a32c7323936e0c7009004f93d833dfff6eeb45f5181122b1656ac87c0",
     "tests/e2e/test_propertyquarry_greenfield_browser.py": "5c1bc4ade981738e9827d18cdb8f3d7c3a2d6d9a49b4b4eadbd915e5767740de",
@@ -1879,11 +1879,11 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "f2cb05684d69891d92f0d6356ffc17ab393a7c8b",
-  "indexed_at_timestamp": "2026-07-30T05:00:10.847305885+00:00",
+  "indexed_at_commit": "877d88686d20c12ea08cd9174adef1c5bdfd1fec",
+  "indexed_at_timestamp": "2026-07-30T05:49:18.147119169+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 47275,
+    "total_edges": 47293,
     "total_files": 1878,
     "total_nodes": 29634
   },

@@ -14442,9 +14442,9 @@ def _minimal_public_memorial_html(
     hero_actions_class = "" if voice_access_blocked else " is-readying"
     conversation_button_class = "" if voice_access_blocked else " is-readying"
     conversation_button_label = (
-        "Gespräch beginnen"
-        if conversation_only
-        else ("Frage schreiben" if voice_access_blocked else "Gespräch starten")
+        "Frage schreiben"
+        if voice_access_blocked
+        else ("Gespräch beginnen" if conversation_only else "Gespräch starten")
     )
     initial_conversation_preparing = conversation_only and not voice_access_blocked
     initial_conversation_state = (
@@ -14456,7 +14456,7 @@ def _minimal_public_memorial_html(
         "true" if initial_conversation_preparing else "false"
     )
     initial_conversation_status = (
-        "Sprechen ist derzeit nicht verfügbar."
+        "Schreiben ist bereit."
         if voice_access_blocked
         else (
             "Gespräch wird vorbereitet."
@@ -15813,7 +15813,6 @@ def _minimal_public_memorial_html(
         text-align: center;
         font: 500 13px/1.55 ui-sans-serif, system-ui, sans-serif;
       }}
-      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] #memorial-text-turn-form,
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] details.conversation-settings,
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] #memorial-retry-button,
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] #memorial-chat-tools,
@@ -15822,7 +15821,7 @@ def _minimal_public_memorial_html(
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] #memorial-install-hint,
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] #memorial-contribution,
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] #memorial-contribution-management,
-      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] button:not(#memorial-conversation) {{
+      .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] button:not(#memorial-conversation):not(#memorial-text-turn-submit) {{
         display: none !important;
       }}
       .memorial-theme-minimal[data-public-memorial-surface="conversation-only"] .text-turn-form {{
@@ -16259,6 +16258,7 @@ def _minimal_public_memorial_html(
       let memorialWarmupPromise = null;
       let memorialLandingReady = !memorialVoiceReleaseAllowed;
       let memorialInteractionStarted = false;
+      let memorialTextFallbackVisible = false;
       let memorialConversationRetryAvailable = false;
       let activeConversationStart = null;
       let conversationSessionActive = false;
@@ -17616,7 +17616,6 @@ def _minimal_public_memorial_html(
       function suppressMinimalActionControls() {{
         if (!memorialConversationOnly) return;
         for (const element of [
-          textTurnForm,
           conversationSettings,
           contributionDisclosure,
           contributionManagement,
@@ -17626,7 +17625,12 @@ def _minimal_public_memorial_html(
           element.setAttribute("inert", "");
           element.setAttribute("aria-hidden", "true");
         }}
-        if (textTurnForm) {{
+        if (memorialTextFallbackVisible) {{
+          activateProtectedForm(textTurnForm);
+        }} else if (textTurnForm) {{
+          textTurnForm.hidden = true;
+          textTurnForm.setAttribute("inert", "");
+          textTurnForm.setAttribute("aria-hidden", "true");
           textTurnForm.setAttribute("aria-disabled", "true");
           textTurnForm.dataset.jsReady = "false";
         }}
@@ -17646,13 +17650,10 @@ def _minimal_public_memorial_html(
 
       function revealTextFallback(options = {{}}) {{
         memorialInteractionStarted = true;
-        if (memorialConversationOnly) {{
-          suppressMinimalActionControls();
-          revealConversationRegion(speechNote);
-          return;
-        }}
+        memorialTextFallbackVisible = true;
         activateProtectedForm(textTurnForm);
         revealConversationRegion(speechNote);
+        suppressMinimalActionControls();
         const shouldFocus = options.focus !== false;
         if (shouldFocus && textTurnInput) {{
           window.requestAnimationFrame(() => textTurnInput.focus());
@@ -18202,21 +18203,21 @@ def _minimal_public_memorial_html(
         }}
         if (memorialConversationOnly) {{
           if (memorialVoiceAuthorizationBlocked) {{
-            const label = "Gespräch beginnen";
+            const label = requestInFlight ? "Antwort wird vorbereitet …" : "Frage schreiben";
             conversationButton.textContent = label;
             conversationButton.setAttribute("aria-label", label);
             conversationButton.setAttribute("title", label);
-            conversationButton.disabled = true;
-            conversationButton.setAttribute("aria-disabled", "true");
+            conversationButton.disabled = requestInFlight;
+            conversationButton.setAttribute("aria-disabled", requestInFlight ? "true" : "false");
             conversationButton.setAttribute("aria-pressed", "false");
-            conversationButton.setAttribute("aria-expanded", "false");
-            conversationButton.setAttribute("aria-busy", "false");
-            conversationButton.dataset.conversationState = "blocked";
-            conversationButton.classList.remove("is-readying");
-            if (heroActions) heroActions.classList.remove("is-readying");
+            conversationButton.setAttribute("aria-expanded", memorialTextFallbackVisible ? "true" : "false");
+            conversationButton.setAttribute("aria-busy", requestInFlight ? "true" : "false");
+            conversationButton.dataset.conversationState = requestInFlight ? "working" : "ready";
+            conversationButton.classList.toggle("is-readying", requestInFlight);
+            if (heroActions) heroActions.classList.toggle("is-readying", requestInFlight);
             if (conversationDock) {{
-              conversationDock.dataset.conversationState = "blocked";
-              conversationDock.setAttribute("aria-busy", "false");
+              conversationDock.dataset.conversationState = requestInFlight ? "working" : "ready";
+              conversationDock.setAttribute("aria-busy", requestInFlight ? "true" : "false");
             }}
             suppressMinimalActionControls();
             return;
@@ -20034,14 +20035,9 @@ def _minimal_public_memorial_html(
         memorialInteractionStarted = true;
         revealConversationRegion(speechNote);
         if (memorialVoiceAuthorizationBlocked || !memorialVoiceReleaseAllowed) {{
-          if (!memorialConversationOnly) {{
-            revealTextFallback();
-            if (textTurnForm) textTurnForm.scrollIntoView({{ block: "nearest", behavior: memorialReducedMotionQuery.matches ? "auto" : "smooth" }});
-            setSpeechStatus("Schreiben ist bereit.", "idle", "Sprechen ist derzeit nicht verfügbar.");
-          }} else {{
-            suppressMinimalActionControls();
-            setSpeechStatus("Sprechen ist derzeit nicht verfügbar.", "error", "");
-          }}
+          revealTextFallback();
+          if (textTurnForm) textTurnForm.scrollIntoView({{ block: "nearest", behavior: memorialReducedMotionQuery.matches ? "auto" : "smooth" }});
+          setSpeechStatus("Schreiben ist bereit.", "idle", "Sprechen ist derzeit nicht verfügbar.");
           return;
         }}
         if (
@@ -20235,7 +20231,9 @@ def _minimal_public_memorial_html(
         const question = String((textTurnInput && textTurnInput.value) || "").trim();
         if (!question || requestInFlight) return;
         if (conversationSessionActive || recordingActive) abortActiveTurn();
-        if (!memorialLandingReady) void ensureMemorialReady("text_turn");
+        if (!memorialLandingReady && !memorialVoiceAuthorizationBlocked) {{
+          void ensureMemorialReady("text_turn");
+        }}
         stopSpeechPlayback();
         activeGeneration += 1;
         const generation = activeGeneration;
@@ -20281,7 +20279,18 @@ def _minimal_public_memorial_html(
 
       function toggleConversation() {{
         if (memorialVoiceAuthorizationBlocked || !memorialVoiceAccessAllowed) {{
-          if (!memorialConversationOnly) void startConversationSession();
+          revealTextFallback();
+          if (textTurnForm) {{
+            textTurnForm.scrollIntoView({{
+              block: "nearest",
+              behavior: memorialReducedMotionQuery.matches ? "auto" : "smooth",
+            }});
+          }}
+          setSpeechStatus(
+            "Schreiben ist bereit.",
+            "idle",
+            "Sprechen ist derzeit nicht verfügbar.",
+          );
           return;
         }}
         // A provider-free signed candidate may render the exact public

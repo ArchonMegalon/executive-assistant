@@ -113,7 +113,7 @@ VOICE_BROWSER_STATE_TRIPLES = frozenset(
         ("blocked", "text-only", ""),
     }
 )
-CONVERSATION_ONLY_BLOCKED_ACTION_LABEL = "Gespräch beginnen"
+CONVERSATION_ONLY_BLOCKED_ACTION_LABEL = "Frage schreiben"
 CONVERSATION_ONLY_TEXT_PLACEHOLDER = "Was möchtest du fragen?"
 _CANDIDATE_HREF_MAX_CHARS = 4096
 _CANDIDATE_HREF_MAX_DECODE_ROUNDS = 4
@@ -1358,7 +1358,11 @@ def verify_conversation_only_page_html(page_body: bytes) -> dict[str, object]:
     conversation_button_label = " ".join(
         " ".join(parser._id_text.get("memorial-conversation", ())).split()
     )
-    expected_conversation_button_label = "Gespräch beginnen"
+    expected_conversation_button_label = (
+        CONVERSATION_ONLY_BLOCKED_ACTION_LABEL
+        if parser.voice_access == "text-only"
+        else "Gespräch beginnen"
+    )
     expected_conversation_state = (
         "blocked" if parser.voice_access == "text-only" else "preparing"
     )
@@ -1638,6 +1642,25 @@ def audit_browser_surface(
             observed_source_revision = str(
                 response.headers.get("x-ea-source-revision") or ""
             ).strip()
+            text_only_fallback = expected_voice_access == "text-only"
+            expected_conversation_label = (
+                CONVERSATION_ONLY_BLOCKED_ACTION_LABEL
+                if text_only_fallback
+                else "Gespräch beginnen"
+            )
+            expected_visible_button_ids = (
+                ["memorial-conversation", "memorial-text-turn-submit"]
+                if text_only_fallback
+                else ["memorial-conversation"]
+            )
+            expected_visible_button_labels = (
+                [CONVERSATION_ONLY_BLOCKED_ACTION_LABEL, "Senden"]
+                if text_only_fallback
+                else ["Gespräch beginnen"]
+            )
+            expected_visible_non_button_control_ids = (
+                ["memorial-text-turn-input"] if text_only_fallback else []
+            )
             if (
                 expected_source_revision is not None
                 and observed_source_revision != expected_source_revision
@@ -2127,15 +2150,15 @@ def audit_browser_surface(
                 or accessibility.get("personal_memory_optin_present") is not True
                 or accessibility.get("personal_memory_checked") is True
                 or accessibility.get("personal_memory_forget_present") is not True
-                or accessibility.get("conversation_enabled")
-                != (expected_voice_access != "text-only")
+                or accessibility.get("conversation_enabled") is not True
                 or accessibility.get("conversation_label")
-                != CONVERSATION_ONLY_BLOCKED_ACTION_LABEL
+                != expected_conversation_label
                 or accessibility.get("visible_button_ids")
-                != ["memorial-conversation"]
+                != expected_visible_button_ids
                 or accessibility.get("visible_button_labels")
-                != [CONVERSATION_ONLY_BLOCKED_ACTION_LABEL]
+                != expected_visible_button_labels
                 or accessibility.get("visible_non_button_control_ids")
+                != expected_visible_non_button_control_ids
                 or accessibility.get("voice_release") != expected_voice_release
                 or accessibility.get("voice_access") != expected_voice_access
                 or accessibility.get("evaluation_status")
@@ -2143,8 +2166,8 @@ def audit_browser_surface(
                 or "ist nicht Manfred" not in str(accessibility.get("guidance") or "")
                 or "spricht nicht für ihn"
                 not in str(accessibility.get("guidance") or "")
-                or accessibility.get("text_form_visible") is not False
-                or accessibility.get("text_input_focused") is not False
+                or accessibility.get("text_form_visible") is not text_only_fallback
+                or accessibility.get("text_input_focused") is not text_only_fallback
                 or accessibility.get("retry_visible") is not False
                 or accessibility.get("settings_visible") is not False
                 or accessibility.get("answer_tools_visible") is not False
