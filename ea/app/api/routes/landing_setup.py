@@ -443,6 +443,7 @@ def google_oauth_browser_callback(
             detail="Google did not return a valid OAuth code and state.",
             status_code=400,
         )
+    state_payload: dict[str, object] = {}
     try:
         state_payload = read_google_oauth_state(state)
         product = build_product_service(container)
@@ -491,6 +492,27 @@ def google_oauth_browser_callback(
         account = complete_google_oauth_callback(container=container, code=code, state=state)
     except RuntimeError as exc:
         detail = str(exc or "google_oauth_callback_failed")
+        if (
+            str(state_payload.get("browser_source") or "").strip() == "sign_in"
+            and detail == "google_sign_in_workspace_not_found"
+        ):
+            return_to = _normalize_browser_return_to(
+                str(state_payload.get("return_to") or ""),
+                default="/app/today",
+            )
+            return RedirectResponse(
+                "/sign-in?"
+                + urllib.parse.urlencode(
+                    {
+                        "google_error": (
+                            "This Google account is not attached to an existing workspace. "
+                            "Choose the approved workspace account or use a secure email link."
+                        ),
+                        "return_to": return_to,
+                    }
+                ),
+                status_code=303,
+            )
         if detail == "google_oauth_state_expired" and str(state or "").strip():
             try:
                 expired_state = read_google_oauth_state_unchecked(state)

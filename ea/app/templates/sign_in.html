@@ -1,4 +1,19 @@
 {% extends "base_public.html" %}
+{% macro google_sign_in_form() -%}
+<form class="access-form access-google-form" method="post" action="/sign-in/google" data-access-form>
+  <input type="hidden" name="return_to" value="{{ sign_in_return_to }}">
+  <button
+    class="btn primary access-submit access-google-submit"
+    type="submit"
+    data-access-submit
+    data-submitting-label="Opening Google…"
+  >
+    <span class="access-google-mark" aria-hidden="true">G</span>
+    <span>Continue with Google</span>
+  </button>
+  <p class="access-privacy">Identity only. This sign-in does not grant Gmail, Calendar, Drive, or Contacts access.</p>
+</form>
+{%- endmacro %}
 {% macro email_link_form() -%}
 <form class="access-form" method="post" action="/sign-in/email-link" data-access-form>
   <input type="hidden" name="return_to" value="{{ sign_in_return_to }}">
@@ -136,6 +151,53 @@
     cursor: wait;
     opacity: 0.72;
     transform: none;
+  }
+  .access-google-submit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+  }
+  .access-google-mark {
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: #fff;
+    color: #3158a5;
+    font-size: 14px;
+    font-weight: 800;
+    box-shadow: 0 1px 3px rgba(38, 32, 22, 0.18);
+  }
+  .access-divider {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 10px;
+    align-items: center;
+    margin: 16px 0 4px;
+    color: var(--text-dim);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .access-divider::before,
+  .access-divider::after {
+    content: "";
+    height: 1px;
+    background: var(--line);
+  }
+  .access-email-fallback summary {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    color: var(--text-soft);
+    font-size: 14px;
+    font-weight: 620;
+    cursor: pointer;
+  }
+  .access-email-fallback .access-form {
+    padding-top: 12px;
   }
   .access-feedback {
     display: grid;
@@ -300,14 +362,14 @@
     <p class="lead">Open the latest message from {{ brand.name }} on this device. It will return you to the workspace page you requested.</p>
     {% else %}
     <h1 id="sign-in-title">{% if brand.key == 'propertyquarry' %}Welcome back to your property search.{% else %}Welcome back to your workspace.{% endif %}</h1>
-    <p class="lead">Enter the email already attached to your workspace. We will send a fresh, time-limited link—no password to remember.</p>
+    <p class="lead">{% if sign_in_google_enabled %}Continue with the Google identity already approved for this workspace. Secure email remains available as a fallback.{% else %}Enter the email already attached to your workspace. We will send a fresh, time-limited link—no password to remember.{% endif %}</p>
     {% endif %}
 
     {% if sign_in_google_error %}
     <div class="access-feedback error" role="alert" tabindex="-1" data-access-feedback>
       <span class="access-feedback-mark" aria-hidden="true">!</span>
       <div>
-        <strong>Use secure email for workspace access.</strong>
+        <strong>Google sign-in needs attention.</strong>
         <p>{{ sign_in_google_error }}</p>
       </div>
     </div>
@@ -340,7 +402,18 @@
     </div>
     {% endif %}
 
-    {% if sign_in_link_enabled %}
+    {% if sign_in_link_status != 'requested' and sign_in_google_enabled %}
+    <div class="access-form-card">
+      {{ google_sign_in_form() }}
+      {% if sign_in_link_enabled %}
+      <div class="access-divider" aria-hidden="true">or</div>
+      <details class="access-email-fallback" {% if sign_in_link_status %}open{% endif %}>
+        <summary>Use a secure email link instead</summary>
+        {{ email_link_form() }}
+      </details>
+      {% endif %}
+    </div>
+    {% elif sign_in_link_enabled %}
       {% if sign_in_link_status != 'requested' %}
       <div class="access-form-card">
         {{ email_link_form() }}
@@ -359,20 +432,20 @@
 
   <aside class="access-panel access-guide" aria-labelledby="access-guide-title">
     <div class="kicker">What happens next</div>
-    <h2 id="access-guide-title">One link. The right workspace.</h2>
+    <h2 id="access-guide-title">{% if sign_in_google_enabled %}One identity. The right workspace.{% else %}One link. The right workspace.{% endif %}</h2>
     <div class="access-route">
       <div class="access-step">
         <span class="access-step-number" aria-hidden="true">1</span>
         <div>
-          <strong>Request a fresh link</strong>
-          <p>Use the same inbox your workspace owner or invitation used.</p>
+          <strong>{% if sign_in_google_enabled %}Continue with Google{% else %}Request a fresh link{% endif %}</strong>
+          <p>{% if sign_in_google_enabled %}Choose the Google account already approved for this workspace.{% else %}Use the same inbox your workspace owner or invitation used.{% endif %}</p>
         </div>
       </div>
       <div class="access-step">
         <span class="access-step-number" aria-hidden="true">2</span>
         <div>
-          <strong>Open the newest message</strong>
-          <p>Secure links rotate. If you requested more than one, choose the latest arrival.</p>
+          <strong>{% if sign_in_google_enabled %}Verify identity only{% else %}Open the newest message{% endif %}</strong>
+          <p>{% if sign_in_google_enabled %}The sign-in scope identifies your account; it does not open workspace data such as Gmail or Calendar.{% else %}Secure links rotate. If you requested more than one, choose the latest arrival.{% endif %}</p>
         </div>
       </div>
       <div class="access-step">
@@ -385,8 +458,8 @@
     </div>
 
     <div class="access-trust">
-      <strong>Google is connected later, from Settings.</strong>
-      <p>Workspace access uses secure email, an invitation, a current session, or a managed access gateway. Google is an optional workspace integration after sign-in.</p>
+      <strong>{% if sign_in_google_enabled %}Google identity stays narrow.{% else %}Google is connected later, from Settings.{% endif %}</strong>
+      <p>{% if sign_in_google_enabled %}Signing in requests only identity scopes. Any Gmail, Calendar, Drive, or Contacts connection remains a separate, explicit Settings action.{% else %}Workspace access uses secure email, an invitation, a current session, or a managed access gateway. Google is an optional workspace integration after sign-in.{% endif %}</p>
     </div>
 
     <details class="access-other">
@@ -411,39 +484,41 @@
 
 <script>
   (() => {
-    const form = document.querySelector('[data-access-form]');
     const feedback = document.querySelector('[data-access-feedback]');
 
     if (feedback instanceof HTMLElement) {
       window.requestAnimationFrame(() => feedback.focus({ preventScroll: true }));
     }
 
-    if (!(form instanceof HTMLFormElement)) return;
-    const submit = form.querySelector('[data-access-submit]');
-    const live = form.querySelector('[data-access-live]');
-    const originalLabel = submit?.textContent || 'Email me a secure link';
+    document.querySelectorAll('[data-access-form]').forEach((form) => {
+      if (!(form instanceof HTMLFormElement)) return;
+      const submit = form.querySelector('[data-access-submit]');
+      const live = form.querySelector('[data-access-live]');
+      const originalLabel = submit?.textContent || 'Continue';
+      const submittingLabel = submit?.getAttribute('data-submitting-label') || 'Sending secure link…';
 
-    form.addEventListener('submit', (event) => {
-      if (form.dataset.submitting === 'true') {
-        event.preventDefault();
-        return;
-      }
-      form.dataset.submitting = 'true';
-      form.setAttribute('aria-busy', 'true');
-      if (submit instanceof HTMLButtonElement) {
-        submit.disabled = true;
-        submit.textContent = 'Sending secure link…';
-      }
-      if (live) live.textContent = 'Sign-in link request started.';
-    });
+      form.addEventListener('submit', (event) => {
+        if (form.dataset.submitting === 'true') {
+          event.preventDefault();
+          return;
+        }
+        form.dataset.submitting = 'true';
+        form.setAttribute('aria-busy', 'true');
+        if (submit instanceof HTMLButtonElement) {
+          submit.disabled = true;
+          submit.textContent = submittingLabel;
+        }
+        if (live) live.textContent = 'Sign-in request started.';
+      });
 
-    window.addEventListener('pageshow', () => {
-      form.removeAttribute('data-submitting');
-      form.removeAttribute('aria-busy');
-      if (submit instanceof HTMLButtonElement) {
-        submit.disabled = false;
-        submit.textContent = originalLabel;
-      }
+      window.addEventListener('pageshow', () => {
+        form.removeAttribute('data-submitting');
+        form.removeAttribute('aria-busy');
+        if (submit instanceof HTMLButtonElement) {
+          submit.disabled = false;
+          submit.textContent = originalLabel;
+        }
+      });
     });
   })();
 </script>

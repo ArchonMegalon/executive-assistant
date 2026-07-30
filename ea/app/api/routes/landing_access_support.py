@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import urllib.parse
 
 from fastapi import Depends, HTTPException, Request
@@ -27,6 +28,11 @@ from app.api.routes.landing_public_support import (
 from app.container import AppContainer
 from app.product.service import build_product_service, workspace_sign_in_email_delivery_available
 from app.services.cloudflare_access import CloudflareAccessIdentity
+from app.services.google_oauth import (
+    browser_google_oauth_redirect_uri,
+    build_google_oauth_start,
+    load_google_oauth_config,
+)
 from app.services.public_branding import request_brand
 
 
@@ -41,6 +47,27 @@ def _brand_safe_return_target(brand: dict[str, str], target: str) -> str:
     if is_property_app_surface_path(urllib.parse.urlsplit(normalized_target).path):
         return str(brand.get("app_home") or "/app/today")
     return normalized_target
+
+
+def _google_identity_sign_in_available() -> bool:
+    try:
+        load_google_oauth_config()
+    except RuntimeError:
+        return False
+    return True
+
+
+def _google_sign_in_error_redirect(*, return_to: str) -> RedirectResponse:
+    return RedirectResponse(
+        "/sign-in?"
+        + urllib.parse.urlencode(
+            {
+                "google_error": "Google sign-in is temporarily unavailable. Use a secure email link or try again shortly.",
+                "return_to": return_to,
+            }
+        ),
+        status_code=303,
+    )
 
 
 def _trusted_public_actor(
@@ -100,6 +127,7 @@ def sign_in_page(
             extra={
                 "sign_in_notes": sign_in_notes_for_brand(brand["key"]),
                 "sign_in_link_enabled": workspace_sign_in_email_delivery_available(),
+                "sign_in_google_enabled": _google_identity_sign_in_available(),
                 "sign_in_link_status": link_status,
                 "sign_in_link_email": link_email,
                 "sign_in_google_error": google_error,
@@ -154,24 +182,34 @@ async def sign_in_google(
     container: AppContainer = Depends(get_container),
 ) -> RedirectResponse:
     del container
+    form_data = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     brand = request_brand(request)
     return_to = _brand_safe_return_target(
         brand,
         _normalize_browser_return_to(
-            request.query_params.get("return_to"),
+            _form_value(form_data, "return_to", str(request.query_params.get("return_to") or "")),
             default=str(brand.get("app_home") or "/app/today"),
         ),
     )
-    return RedirectResponse(
-        "/sign-in?"
-        + urllib.parse.urlencode(
-            {
-                "google_error": "Use the secure email link for workspace access. Connect Google from Settings after you sign in.",
-                "return_to": return_to,
-            }
-        ),
-        status_code=303,
-    )
+    expected_google_email = ""
+    if str(brand.get("key") or "").strip().lower() == "ea":
+        expected_google_email = str(
+            os.environ.get("EA_GOOGLE_OAUTH_EXPECTED_EMAIL")
+            or os.environ.get("EA_GOOGLE_WORKSPACE_EXPECTED_EMAIL")
+            or ""
+        ).strip().lower()
+    try:
+        packet = build_google_oauth_start(
+            principal_id="",
+            scope_bundle="identity",
+            redirect_uri_override=browser_google_oauth_redirect_uri(public_base_url=_public_app_base_url(request)),
+            return_to=return_to,
+            browser_source="sign_in",
+            expected_google_email=expected_google_email,
+        )
+    except RuntimeError:
+        return _google_sign_in_error_redirect(return_to=return_to)
+    return RedirectResponse(packet.auth_url, status_code=303)
 
 
 def register_page(

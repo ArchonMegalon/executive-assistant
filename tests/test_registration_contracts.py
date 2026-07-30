@@ -517,8 +517,13 @@ def test_sign_in_email_link_does_not_disclose_missing_workspace_match(
     assert "No existing workspace matched" not in followup.text
 
 
-def test_sign_in_page_uses_secure_email_return_path(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sign_in_page_offers_google_identity_with_secure_email_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://assistant.example.test/google/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
     client = _client(monkeypatch)
 
     response = client.get("/sign-in?return_to=%2Fapp%2Fqueue")
@@ -536,37 +541,50 @@ def test_sign_in_page_uses_secure_email_return_path(monkeypatch: pytest.MonkeyPa
     assert 'aria-label="Primary navigation"' in response.text
     assert 'aria-current="page">Sign in</a>' in response.text
     assert "No password required." in response.text
-    assert "Google is an optional workspace integration after sign-in." in response.text
-    assert 'action="/sign-in/google"' not in response.text
-    assert "Continue with Google" not in response.text
+    assert "Google identity stays narrow." in response.text
+    assert 'action="/sign-in/google"' in response.text
+    assert "Continue with Google" in response.text
+    assert "Use a secure email link instead" in response.text
 
 
-def test_legacy_sign_in_google_redirects_to_secure_email_recovery(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sign_in_google_starts_identity_oauth_with_safe_return(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://assistant.example.test/google/callback")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
     monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_EXPECTED_EMAIL", "work.tibor.girschele@gmail.com")
     client = _client(monkeypatch)
 
-    existing_principal = "user-4a1702ea0e8d9ec5"
-    client.headers.update({"X-EA-Principal-ID": existing_principal})
-    start_workspace(client, mode="personal", workspace_name="Principal Assistant Workspace")
-
     sign_in_start = client.post(
-        "/sign-in/google?return_to=%2Fapp%2Fqueue",
+        "/sign-in/google",
+        data={"return_to": "https://evil.example/phish"},
         follow_redirects=False,
     )
     assert sign_in_start.status_code == 303
-    assert sign_in_start.headers["location"].startswith("/sign-in?")
+    assert sign_in_start.headers["location"].startswith("https://accounts.google.com/o/oauth2/v2/auth?")
     parsed = urllib.parse.urlparse(sign_in_start.headers["location"])
     query = urllib.parse.parse_qs(parsed.query)
-    assert query["return_to"] == ["/app/queue"]
-    assert "secure email link" in query["google_error"][0]
+    assert query["scope"] == ["openid email profile"]
+    assert query["login_hint"] == ["work.tibor.girschele@gmail.com"]
+    assert query["prompt"] == ["select_account"]
+    from app.services.google_oauth import read_google_oauth_state
+
+    state = read_google_oauth_state(query["state"][0])
+    assert state["principal_id"] == ""
+    assert state["scope_bundle"] == "identity"
+    assert state["browser_source"] == "sign_in"
+    assert state["return_to"] == "/app/today"
+    assert state["expected_google_email"] == "work.tibor.girschele@gmail.com"
 
 
 def test_sign_in_page_does_not_advertise_unavailable_email_or_google(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
+    monkeypatch.delenv("EA_GOOGLE_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("EA_GOOGLE_OAUTH_REDIRECT_URI", raising=False)
+    monkeypatch.delenv("EA_GOOGLE_OAUTH_STATE_SECRET", raising=False)
+    monkeypatch.delenv("EA_PROVIDER_SECRET_KEY", raising=False)
     client = _client(monkeypatch)
 
     response = client.get("/sign-in")

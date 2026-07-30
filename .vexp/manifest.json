@@ -275,7 +275,7 @@
     "ea/app/api/routes/internal_sendr_webhook.py": "d45d11cc62325e6f3b8d204fe31b3a184a9a7d40287a858677cea40ee77fb430",
     "ea/app/api/routes/landing.py": "0f2e67afb01700d2a7d8679f552715d2c325b4d35f31a1f05726fa3a71f325ad",
     "ea/app/api/routes/landing_access.py": "0940e07099789817d2b2be694a4d9ec21debd3b6cf314b21858db1dd1ad19989",
-    "ea/app/api/routes/landing_access_support.py": "c26090df25f0d413917caf59191150db7733fd3a0ad4a36b6f03e5082240fb53",
+    "ea/app/api/routes/landing_access_support.py": "a932a36f0155e58bc8e757d2c9518461261f32d536db674d6d474a2c56822438",
     "ea/app/api/routes/landing_actions.py": "616e196466c1958e4f91244e115f8517393fd475561e05e37ce1f71f69462141",
     "ea/app/api/routes/landing_archive_support.py": "7da35610f8127952d44a55e69fbaeb4594ec1fd499e8cbf9e1f1c622f4c7a518",
     "ea/app/api/routes/landing_browser.py": "9c0ba3dbefcb1c1e6789972e806d8bbabaac2ac545d63dcb814775a7b3cf7b9b",
@@ -291,7 +291,7 @@
     "ea/app/api/routes/landing_public.py": "9cdec2e988d5ba353ad854080511c97cf46c7d4c6f50cc21ae70e662f016f667",
     "ea/app/api/routes/landing_public_pages_support.py": "c6c18c1893f616b6693509ce5971f4b1637224870904bf6c4dc136c7304f1a28",
     "ea/app/api/routes/landing_public_support.py": "0ef12077e04f841da3dd7e22db0ad8c025dd3e4be233c3b16c679abf8f10e7e2",
-    "ea/app/api/routes/landing_setup.py": "25ad8d5ae13b81b937bf8f0ede22954b16bac683114cd2751c274759ee96956a",
+    "ea/app/api/routes/landing_setup.py": "b441288c67743f76afa500907f94fe8af6aff47d0630e8b5aee182f9ac67cafa",
     "ea/app/api/routes/landing_shared_support.py": "8e1697aca7ca39fe3a124e0d0d54b717e6f227262a9d9e6626f447cc54744d54",
     "ea/app/api/routes/landing_view_models.py": "19bec737749e4976bc5c337a5cd742c6bb439a351b95d9f03bef50b2eda93369",
     "ea/app/api/routes/landing_workspace.py": "ecc78174a6b43b3f4a4761fa5365175f0f5797f77de990aee3b6b4b387c1ac82",
@@ -524,7 +524,7 @@
     "ea/app/services/fliplink/service.py": "9482e2570922003fe84e135e602ffcc1e6c97446be05dd6eaa16b39c476c4451",
     "ea/app/services/fliplink/webhooks.py": "07554ca59d6368ab10786021c469472fb9a2c6e911044f6475e7dce2de795751",
     "ea/app/services/fliplink_client.py": "66d0e5d3137eca63c61b78db9aa35a73d3816a05b42f6066f9a0e909bc5656bd",
-    "ea/app/services/google_oauth.py": "914f20349fc53aae3bf7091653101f832744565151766a279a7171d5b73a1e9a",
+    "ea/app/services/google_oauth.py": "27ed085542a360f2e32c708ad17f2f22b2fd61c9dce5933d1899a63a32574a27",
     "ea/app/services/google_oauth_service.py": "665f48b2fd94b9e1834200b31f5a0850391484793501be940c56c14c7f041ad4",
     "ea/app/services/governed_spatial_contract.py": "901e83ebe2bdbfc26b80ea59b8dfe04cc6a83e882307ac78a1647865fce418f8",
     "ea/app/services/governed_spatial_crypto.py": "840265afa0a41391822135d75a5deaca6e98f74bc502449d06b3c27c2275c962",
@@ -1669,7 +1669,7 @@
     "tests/test_operate_workllm_manual_canary.py": "4361430a867ea222ee18e5cf448b64e003452df50a4e947446c5f44abc3d2584",
     "tests/test_operator_action_required_dedupe_proof.py": "d44ac47b3ae411c677233cfa4970294367927cca56ce647fbb71dc0439514a3b",
     "tests/test_operator_action_required_digest.py": "00cd9a7eb83cb7ababa982d47e7cee510daecd316bca00b90fee5727182289f2",
-    "tests/test_operator_bootstrap_flow.py": "d32cef28f9fb8ad613f820ab365678201bd5cb2445fa4648b3840334110f6e59",
+    "tests/test_operator_bootstrap_flow.py": "dc4a353d509f7e93c6d8eef0fffd93da438b52b2432860d7b7cfb99f071e64eb",
     "tests/test_operator_contracts.py": "fed2bb16d0ae36c841fccbd028144fdeba3190f95e51455904a71393c9ed4b5c",
     "tests/test_operator_profile_bootstrap_atomic.py": "cafd9ab90e575d613d3640124daa7787e6f337629c5585c1af9d9495f1011265",
     "tests/test_origin_humanizer_quality.py": "0700de5d8ad3ae2f4e7b1acfee1f33fbf384ea33cdd7845908d43b5d90199b9d",
@@ -1760,7 +1760,7 @@
     "tests/test_refresh_memorial_unmixr_clone.py": "003d50584823984243c089029af851f23331925e003cca9dd42f0ce6d165003f",
     "tests/test_refresh_memorial_voicewave_backup.py": "13c82e53ca1bcc201ddd544604ef1d7aa82186cca21e2dd5d0d0346983faf9f9",
     "tests/test_refresh_onemin_browseract_balances.py": "019b7aa98457a14dc3f0023b20f6c86a67a9d73d1e07f5fc474a5cde021d85f7",
-    "tests/test_registration_contracts.py": "9ca3a665b30745e17e6cbdb7f5cdee410cd223871998fef09fd8c83599e73cb3",
+    "tests/test_registration_contracts.py": "69cbb526e656fbe261a5a362927e6586d8fc47c7b14bc6a8f65a8a4f96f97140",
     "tests/test_release_authority_runtime.py": "40764539f2f419ae087e74f3fe7204136d4743be009bedcdceaad9e3266234ce",
     "tests/test_release_materialization_service.py": "693c42c7454754c656a37ea9ce38c76d3e18d25dfdbaa67d347eb8f6bad10d64",
     "tests/test_repair_public_tour_permissions.py": "285cf7c963470ec55aaad4ec6ebe7417dbcb14abfee2442207800fae469f857f",
@@ -1879,13 +1879,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "d6ed06aeedb56ca67019acf0ac09fd3816098803",
-  "indexed_at_timestamp": "2026-07-29T10:39:39.097795739+00:00",
+  "indexed_at_commit": "e3c7d1e50d62453086cdea0f62ed55ba30fc0bd6",
+  "indexed_at_timestamp": "2026-07-30T03:05:51.173508107+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 47274,
+    "total_edges": 47186,
     "total_files": 1878,
-    "total_nodes": 29629
+    "total_nodes": 29634
   },
   "vexp_version": "2.3.1"
 }

@@ -403,7 +403,23 @@ def _canonical_google_signin_principal_id(*, container: "AppContainer" | None, g
     matches = principal_ids_for_email(container=container, email=normalized_email)
     if len(matches) == 1:
         return matches[0]
-    return f"cf-email:{normalized_email}"
+    if container is None:
+        return ""
+    candidate_principal_id = f"cf-email:{normalized_email}"
+    try:
+        active_profiles = container.orchestrator.list_operator_profiles(
+            principal_id=candidate_principal_id,
+            status="active",
+            limit=100,
+        )
+    except Exception:
+        active_profiles = ()
+    # Google sign-in is authentication for an already provisioned workspace,
+    # not an implicit registration path. A canonical account row or an active
+    # operator profile must exist before OAuth starts minting app sessions.
+    if tuple(active_profiles):
+        return candidate_principal_id
+    return ""
 
 
 def _principal_alias_candidates(
@@ -820,6 +836,8 @@ def complete_google_oauth_callback(
                 container=container,
                 google_email=google_email,
             )
+            if not principal_id:
+                raise RuntimeError("google_sign_in_workspace_not_found")
         else:
             raise RuntimeError("google_oauth_principal_missing")
 

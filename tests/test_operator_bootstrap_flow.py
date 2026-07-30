@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import urllib.parse
 from types import SimpleNamespace
 
 from app.api.routes.landing_shared_support import operator_bootstrap_defaults
@@ -166,6 +167,81 @@ def test_google_sign_in_callback_issues_operator_session_when_operator_profile_e
     )
     assert proactive.status_code == 200
     assert "Proactive OODA Approval" in proactive.text
+
+
+def test_google_sign_in_principal_resolution_fails_closed_for_unprovisioned_account(monkeypatch) -> None:
+    from app.services import google_oauth as google_service
+
+    class _Orchestrator:
+        @staticmethod
+        def list_operator_profiles(**_kwargs):
+            return ()
+
+    container = SimpleNamespace(orchestrator=_Orchestrator())
+    monkeypatch.setattr(google_service, "principal_ids_for_email", lambda **_kwargs: ())
+
+    assert (
+        google_service._canonical_google_signin_principal_id(
+            container=container,
+            google_email="unknown@example.com",
+        )
+        == ""
+    )
+
+
+def test_google_sign_in_principal_resolution_accepts_provisioned_operator(monkeypatch) -> None:
+    from app.services import google_oauth as google_service
+
+    class _Orchestrator:
+        @staticmethod
+        def list_operator_profiles(**_kwargs):
+            return (SimpleNamespace(operator_id="operator-work"),)
+
+    container = SimpleNamespace(orchestrator=_Orchestrator())
+    monkeypatch.setattr(google_service, "principal_ids_for_email", lambda **_kwargs: ())
+
+    assert google_service._canonical_google_signin_principal_id(
+        container=container,
+        google_email="work.tibor.girschele@gmail.com",
+    ) == "cf-email:work.tibor.girschele@gmail.com"
+
+
+def test_google_sign_in_callback_returns_unprovisioned_account_to_sign_in(monkeypatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-client-id")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-client-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://assistant.example.test/google/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret")
+
+    client = build_product_client(principal_id="local-user")
+    from app.api.routes import landing_setup as landing_setup_routes
+    from app.services import google_oauth as google_service
+
+    packet = google_service.build_google_oauth_start(
+        principal_id="",
+        scope_bundle="identity",
+        redirect_uri_override="https://assistant.example.test/google/callback",
+        return_to="/app/queue",
+        browser_source="sign_in",
+    )
+    monkeypatch.setattr(
+        landing_setup_routes,
+        "complete_google_oauth_callback",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("google_sign_in_workspace_not_found")),
+    )
+
+    callback = client.get(
+        "/google/callback",
+        params={"code": "code-unknown", "state": packet.state},
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 303
+    parsed = urllib.parse.urlparse(callback.headers["location"])
+    assert parsed.path == "/sign-in"
+    query = urllib.parse.parse_qs(parsed.query)
+    assert query["return_to"] == ["/app/queue"]
+    assert "not attached to an existing workspace" in query["google_error"][0]
 
 
 def test_existing_principal_workspace_session_resolves_operator_scope_for_operator_only_api() -> None:
