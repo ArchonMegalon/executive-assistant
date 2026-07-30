@@ -10093,6 +10093,22 @@ def test_memorial_live_page_uses_minimal_realtime_client(
         'const contactAcknowledgementText = "Worum geht es?";'
         in source
     )
+    assert "const contactAcknowledgementSynthesisTimeoutMs = 180000;" in source
+    acknowledgement_audio_start = source.index(
+        "async function ensureContactAcknowledgementAudio"
+    )
+    acknowledgement_audio_end = source.index(
+        "async function playFastContactAcknowledgement",
+        acknowledgement_audio_start,
+    )
+    acknowledgement_audio_source = source[
+        acknowledgement_audio_start:acknowledgement_audio_end
+    ]
+    assert (
+        "contactAcknowledgementSynthesisTimeoutMs,"
+        in acknowledgement_audio_source
+    )
+    assert "15000," not in acknowledgement_audio_source
     assert (
         'const contactAcknowledgementText = "Worüber möchtest du sprechen?";'
         not in source

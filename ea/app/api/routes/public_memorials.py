@@ -16322,6 +16322,7 @@ def _minimal_public_memorial_html(
       let contactAcknowledgementPlayedGeneration = -1;
       let contactAcknowledgementCacheEpoch = 0;
       const contactAcknowledgementText = {_json_for_html_script(_MEMORIAL_LANDING_ACKNOWLEDGEMENT_TEXT)};
+      const contactAcknowledgementSynthesisTimeoutMs = 180000;
       const memorialReadinessEndpoint = "/memorials/{html.escape(slug)}/readiness";
       const browserPreferredLanguage = "de-AT";
       const requestedVoiceVariant = String(
@@ -18115,7 +18116,7 @@ def _minimal_public_memorial_html(
                 voice_ab_variant: memorialVoiceAuditionVariant,
               }}),
             }},
-            15000,
+            contactAcknowledgementSynthesisTimeoutMs,
           );
           if (response.status !== 200) {{
             throw new Error("contact_acknowledgement_audio_failed");
