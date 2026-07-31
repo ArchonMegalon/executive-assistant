@@ -1412,7 +1412,7 @@
     "tests/e2e/test_memorial_flagship_exit_gates.py": "c826abb0196b1cf63eaee77e91475f123c9c37b20065a73e47a935feb098a403",
     "tests/e2e/test_memorial_flagship_operator_tools.py": "54cb7e92cb169332848162fb79a3f1bf86f6c61c17d18c3e10e999fc644dbfb1",
     "tests/e2e/test_memorial_minimal_browser.py": "0ac4d024e489f5845bea9cacb9b3297260c79676f0a262d8e94892d446e79dee",
-    "tests/e2e/test_memorial_showtime_cli.py": "0f92a59f294f70743ed3104611ea9c8677f0015877f15ccc615a2165f5ad6c13",
+    "tests/e2e/test_memorial_showtime_cli.py": "1fe8d3909406ff37e5482bcca066a16c6c01805e0ab9c230b17304265a2912a7",
     "tests/e2e/test_product_workflows.py": "86d5a38a3fe121dfcfb4a98e5233dfe8f635594999a0a51b47044e56d3f3750f",
     "tests/e2e/test_propertyquarry_greenfield_browser.py": "5c1bc4ade981738e9827d18cdb8f3d7c3a2d6d9a49b4b4eadbd915e5767740de",
     "tests/e2e/test_telegram_bot_outbound_workflows.py": "3a58d2c3af77a33bd2f1f34d8dc393582c93845380eba99e42919cfe73656a0c",
@@ -1880,8 +1880,8 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "2c69323c95808ecb91a056d12710b1a09f76017c",
-  "indexed_at_timestamp": "2026-07-31T03:54:42.139525966+00:00",
+  "indexed_at_commit": "31eca3aa52fa16631ca3758cf5f1b00e658af718",
+  "indexed_at_timestamp": "2026-07-31T04:06:16.695590125+00:00",
   "schema_version": 3,
   "stats": {
     "total_edges": 47318,

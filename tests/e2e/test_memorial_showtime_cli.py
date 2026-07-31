@@ -217,7 +217,15 @@ def memorial_showtime_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     monkeypatch.setenv("UNMIXR_VOICE_ID", "fixture-unmixr-voice")
     transcript_lookup: dict[bytes, str] = {}
 
-    def _fake_generate_text(*, messages, requested_model, max_output_tokens):
+    def _fake_generate_text(
+        *,
+        messages,
+        requested_model,
+        max_output_tokens,
+        request_deadline_monotonic=None,
+    ):
+        if request_deadline_monotonic is not None:
+            assert float(request_deadline_monotonic) > time.monotonic()
         prompt = str(messages[-1]["content"] or "").lower()
         if "gerechtigkeit" in prompt:
             text = "Ich wollte die Dinge sauber und fair trennen. Erst die Sache, dann das Urteil."
