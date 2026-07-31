@@ -475,6 +475,12 @@
           <strong>First visit?</strong>
           <p><a href="{% if brand.key == 'ea' %}/get-started{% else %}/register{% endif %}">{{ brand.create_label }}</a> instead of requesting access to a workspace that does not exist yet.</p>
         </div>
+        {% if brand.key == 'propertyquarry' %}
+        <div class="access-option">
+          <strong>Shared review when needed</strong>
+          <p>Invite a trusted collaborator from the workspace after sign-in. Review access stays scoped to the property search you choose to share.</p>
+        </div>
+        {% endif %}
         <div class="access-option">
           <strong>Managed organization?</strong>
           <p>Open the workspace through your organization’s access gateway, then return to the app.</p>

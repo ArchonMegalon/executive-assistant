@@ -1049,7 +1049,7 @@
     "scripts/backfill_public_tour_research_snapshots.py": "23444f6248b06221bd866340744d8416a6152a43d38b20d9fca8e7bd2d58d55d",
     "scripts/backup_audiobook_jobs.sh": "3c3cdc08b97b9adc95a0ea4b95e9e5dd0902b1b525b10d42c11d10fa2242743e",
     "scripts/benchmark_memorial_stt_providers.py": "e8ed8732bc321391b6f0f7b58ac5a0170f899c601ed2f5251afe5802fa277320",
-    "scripts/booka_book_worker.py": "291ac9434a49e78aa999fc058eebdaf93f1521e02a5d267ca1391f89badd949b",
+    "scripts/booka_book_worker.py": "6e1e91f1e1b63c6181915d7af2aeac3edc1a50f0fff2dc40fe21c4d03e24d660",
     "scripts/bootstrap_browseract_bootstrap_skill.py": "23ce722d361b119e49b0ef9f4f64c374cf6988ba36cd34ab9d7f24b262646650",
     "scripts/bootstrap_browseract_ui_service_skills.py": "ef786020b5bd1c60c2b6174b96dbedf6b291f140d3b68b2fe9eff3b0de4153d3",
     "scripts/bootstrap_browseract_workflow_repair_skill.py": "df721a93881c16690da8ee69cf7255f0daba1b890e63989262828f0f3c7f4978",
@@ -1263,7 +1263,7 @@
     "scripts/reissue_proactive_ooda_approval.py": "e4c693c1ff14ee6a256ca3b8aa36007b2ca669abe76eefe338c9d762a81a0e68",
     "scripts/release_authority_probe.sh": "916cdc08535f573ff8965f2ea2c2a891d0c0aa1266300e385db7adcca8fa32c0",
     "scripts/release_v115_rag.sh": "e4ea203a04290ac75eec98525261a6171cccd8ee23f80e18814dc897155c1bf5",
-    "scripts/render_magicfit_property_flythrough.py": "4d27d3838ac207e6ea8ff6de5b2dd0f989ee69ba1d409f93aa09118fe57ad9a5",
+    "scripts/render_magicfit_property_flythrough.py": "c285c9e7855697befc2782332b58ab2a0fb4a8b105f531c1c78673ada3f94c8d",
     "scripts/repair_design_mirror_bundle.sh": "4ceff386fe1ec31d22a16b60677d8e23856a8dc95ba90de0a44f24f8f005c336",
     "scripts/repair_public_tour_permissions.py": "3e0d70a9934b637ee3445ce642a894d61d6ced8da32115728f80847c78181fa9",
     "scripts/resolve_browseract_key.sh": "3fee6a9ce3502bdb0ee68ffbb7e7eb491fdc1e503efb2ba0a1facec5d4c0df70",
@@ -1451,6 +1451,7 @@
     "tests/test_audit_workllm_goal.py": "1e778a8bd2810beb6bbe4659d948e7489175ed29d22a9b0b1cc8a9735998b18a",
     "tests/test_avatar_presenter_provider_check.py": "17a5eabe0815745aafb36e2184dfccaf4a157729dc84fa28458324f82a0190a1",
     "tests/test_blip_operator_capture_packet.py": "516b6bc07eae6b695f4d68a13de92c4270af4f083990911612c4bf3ff114969b",
+    "tests/test_booka_book_worker.py": "afcb71292ff62ca44bd0e9ec0fc07ae3e9c767aed1f6e4c8e9bef67e272bae2f",
     "tests/test_brain_router.py": "16dcfd3df8bb59609e154277b9ff630f282799a51dbcba96687978495f02ed3f",
     "tests/test_browser_surface_contracts.py": "a7620c6accb5e453e5b379ba78d280550423fdbd134ad576c8a1ba6c057e3448",
     "tests/test_browser_test_support.py": "b7b2acef0dd9a4c556d1186f5a6cf5c968ce06718e862806c10c9f9792434991",
@@ -1879,13 +1880,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "b5518e67b0e935b84ea88d8cb4fdd0afbe7e7be2",
-  "indexed_at_timestamp": "2026-07-30T17:05:18.403541111+00:00",
+  "indexed_at_commit": "2c69323c95808ecb91a056d12710b1a09f76017c",
+  "indexed_at_timestamp": "2026-07-31T03:54:42.139525966+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 47313,
-    "total_files": 1878,
-    "total_nodes": 29647
+    "total_edges": 47318,
+    "total_files": 1879,
+    "total_nodes": 29652
   },
   "vexp_version": "2.3.1"
 }
