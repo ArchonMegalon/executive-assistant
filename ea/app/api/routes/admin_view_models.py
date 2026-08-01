@@ -1554,33 +1554,10 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             action_method="get",
         ),
         _row(
-            "Open ChatLab status",
-            "ChatLab live runtime probe receipt",
-            "ChatLab",
-            href="/memorials/manfred/chatlab/status",
-        ),
-        _row(
             "Open promo page",
             "Review the public promo route before claiming live readiness.",
             "Promo",
             href="/ledger/factions/ashline-circle/promo",
-        ),
-        _row(
-            "Spoken conversation proof",
-            str(
-                dict(dict(active_media_receipt.get("external_proof_posture") or {}).get("manfred_spoken_conversation") or {}).get("next_action")
-                or "collect_real_room_audio_attestation"
-            ),
-            "Voice",
-            href="/memorials/manfred/voice-config",
-            secondary_action_href="/admin/memorials/manfred/gold",
-            secondary_action_label="Open voice gold",
-            secondary_action_method="get",
-        ),
-        _row(
-            "Manfred spoken-conversation acceptance",
-            "real Manfred spoken-conversation STT/TTS roundtrip evidence",
-            "Voice",
         ),
         _row("Open Today", "Check the live office loop before making broader claims.", "Loop", href="/app/today"),
         _row("Open approvals", "Review the approval lane and audit trail.", "Loop", href="/app/channel-loop/approvals"),

@@ -4,11 +4,11 @@ This directory contains an inert, configuration-only projection for reviewing a
 four-service audiobook runtime candidate. It is not a deployment overlay, a
 promotion handoff, a rollback mechanism, or an alternate production topology.
 
-The live `ea-api` is memorial-owned. This candidate deliberately rejects a
-memorial/candidate combination and records `owner_handoff_required` for the API.
+The live `ea-api` is application-owned. This candidate deliberately rejects an
+application/candidate combination and records `owner_handoff_required` for the API.
 It cannot become a production path unless the live owner approves either an
 explicit handoff or a separately reviewed multi-mode contract that preserves the
-memorial authority and mounts. Silent takeover is forbidden.
+application authority and mounts. Silent takeover is forbidden.
 
 ## Inert contract
 
@@ -64,7 +64,7 @@ The verifier reads the Compose version, the clean Git commit containing the
 overlay, and the exact overlay SHA-256. In `release` mode it additionally performs
 a local, read-only `docker image inspect` and may validate an existing private
 image-build receipt.
-It never pulls an image. The currently available memorial image-build receipt is
+It never pulls an image. The currently available application image-build receipt is
 supporting provenance only; it is not a signed, immutable audiobook candidate
 authority.
 
@@ -78,10 +78,10 @@ configuration mismatch receives no valid rendered-contract digest.
 The preflight receipt also contains a nested
 `ea.audiobook_runtime_candidate_configuration.v1` projection for cross-lane
 schema alignment. That projection is explicitly configuration-only,
-non-authoritative, memorial-incompatible, owner-handoff-required, and ineligible
+non-authoritative, application-incompatible, owner-handoff-required, and ineligible
 for group deployment. It must not be extracted or treated as deployment proof.
 Any future group-deploy consumer must enforce those fields and remain blocked
-until a separately reviewed memorial-compatible projection exists.
+until a separately reviewed application-compatible projection exists.
 
 ## Status and mandatory gates
 
@@ -91,7 +91,7 @@ always set deployment and promotion authority to false.
 
 The following work remains outside this lane:
 
-1. memorial owner handoff or an approved multi-mode API contract;
+1. application owner handoff or an approved multi-mode API contract;
 2. signed immutable generic candidate authority;
 3. isolated candidate execution and runtime proof;
 4. credentialed deployment and promotion authorization;

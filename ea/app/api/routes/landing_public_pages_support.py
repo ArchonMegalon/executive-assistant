@@ -7,7 +7,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.api.dependencies import RequestContext, get_cloudflare_access_identity, get_container, get_request_context, is_operator_context
 from app.api.routes.landing_browser import _normalize_browser_return_to
-from app.api.routes.landing_archive_support import _archive_home_html, _archive_publication_html_path, _is_archive_host
 from app.api.routes.landing_content import (
     EA_DOC_LINKS,
     EA_LANDING_FAQS,
@@ -55,8 +54,6 @@ def landing(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    if _is_archive_host(request):
-        return HTMLResponse(_archive_home_html(), headers={"Cache-Control": "no-store"})
     principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
     brand = request_brand(request)
     activation_preview = _activation_preview_for_brand(brand["key"], status)
@@ -104,17 +101,6 @@ def landing(
     )
 
 
-def archive_publication_page(archive_slug: str, request: Request) -> HTMLResponse:
-    if not _is_archive_host(request):
-        raise HTTPException(status_code=404, detail="not_found")
-    if archive_slug in {"robots.txt", "favicon.ico"}:
-        raise HTTPException(status_code=404, detail="not_found")
-    path = _archive_publication_html_path(archive_slug)
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="archive_publication_not_found")
-    return HTMLResponse(path.read_text(encoding="utf-8"), headers={"Cache-Control": "no-store"})
-
-
 def project_modes_page(
     request: Request,
     container: AppContainer = Depends(get_container),
@@ -133,7 +119,6 @@ def project_modes_page(
     modes_payload, show_payload = _load_project_mode_payloads()
     display_names = {
         "EA_CORE": "EA Core",
-        "MEMORIAL": "Memorial",
         "PROVIDER_LAB": "Provider Lab",
         "CHUMMER_RELEASE_CONTROL": "Chummer Release Control",
         "PROPERTY": "Property",
@@ -148,7 +133,7 @@ def project_modes_page(
                 "key": key,
                 "display_name": display_names.get(key, key.replace("_", " ").title()),
                 "status": str(mode.get("status") or "").strip(),
-                "status_class": "blocked" if key == "MEMORIAL" and str(mode.get("status") or "") == "separate_risk_zone" else "ready",
+                "status_class": "ready",
                 "purpose": str(mode.get("purpose") or "").strip(),
                 "design_language": str(mode.get("design_language") or "").strip(),
                 "hard_gate": str(mode.get("hard_gate") or "").strip(),

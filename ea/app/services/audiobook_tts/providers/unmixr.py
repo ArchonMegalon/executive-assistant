@@ -31,8 +31,8 @@ UnmixrSynthesizeCallable = Callable[..., tuple[bytes, str]]
 def _default_unmixr_synthesize_request(**kwargs: Any) -> tuple[bytes, str]:
     # Keep the established implementation as the compatibility owner.  The
     # import is lazy so tests and callers may inject a seam without importing
-    # memorial runtime configuration while constructing the adapter.
-    from app.services.memorial_openvoice import unmixr_synthesize_request
+    # provider runtime configuration while constructing the adapter.
+    from app.services.voice_runtime import unmixr_synthesize_request
 
     return unmixr_synthesize_request(**kwargs)
 

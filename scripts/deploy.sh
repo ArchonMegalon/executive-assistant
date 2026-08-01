@@ -821,8 +821,6 @@ service_container_ready() {
 }
 
 cd "${APP_ROOT}"
-"${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_project_mode_manifests.py" >/dev/null
-"${PYTHON_BIN}" "${APP_ROOT}/scripts/verify_project_mode_manifests.py" >/dev/null
 if [[ "${memory_only}" == "1" ]]; then
   COMPOSE_ARGS=(-f docker-compose.yml -f docker-compose.memory.yml)
   TOPOLOGY_SERVICES=(ea-api)

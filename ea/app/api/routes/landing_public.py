@@ -8,7 +8,6 @@ from app.api.routes import landing_deps as deps
 from app.api.routes import landing_public_pages_support as support
 
 router = APIRouter(tags=["landing-public"])
-archive_router = APIRouter(tags=["landing-archive"])
 
 
 @router.get("/robots.txt", include_in_schema=False, response_class=PlainTextResponse)
@@ -23,11 +22,6 @@ def landing(
     access_identity: deps.CloudflareAccessIdentity | None = Depends(deps.get_cloudflare_access_identity),
 ) -> HTMLResponse:
     return support.landing(request=request, container=container, access_identity=access_identity)
-
-
-@archive_router.get("/{archive_slug}", response_class=HTMLResponse, include_in_schema=False)
-def archive_publication_page(archive_slug: str, request: Request) -> HTMLResponse:
-    return support.archive_publication_page(archive_slug=archive_slug, request=request)
 
 
 @router.get("/modes", response_class=HTMLResponse)

@@ -1,7 +1,0 @@
-services:
-  ea-api:
-    environment:
-      - EA_ENABLE_PUBLIC_MEMORIALS=${EA_ENABLE_PUBLIC_MEMORIALS:-1}
-      - EA_SOURCE_REVISION=${EA_SOURCE_REVISION:?EA_SOURCE_REVISION must be set to the deployed git SHA}
-      - EA_UI_SERVICE_SHARED_TEMP_ROOT=${EA_UI_SERVICE_SHARED_TEMP_ROOT:-/data/artifacts/browseract_ui_worker_shared}
-      - VOICEWAVE_RUNTIME_TMP_ROOT=${VOICEWAVE_RUNTIME_TMP_ROOT:-/data/artifacts/voicewave_runtime_tmp}

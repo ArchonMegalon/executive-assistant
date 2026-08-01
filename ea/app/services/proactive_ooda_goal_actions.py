@@ -269,8 +269,8 @@ def _normalize_operator_streams(values: tuple[str, ...] | str | None) -> tuple[s
         "office_setup": ("office_setup",),
         "office-setup": ("office_setup",),
         "recovery": ("recovery",),
-        "media": ("media_memorial",),
-        "media_memorial": ("media_memorial",),
+        "media": ("media_archive",),
+        "media_archive": ("media_archive",),
         "all": ("*",),
         "*": ("*",),
     }

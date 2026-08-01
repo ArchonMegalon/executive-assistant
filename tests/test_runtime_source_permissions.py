@@ -8,7 +8,7 @@ import subprocess
 import pytest
 
 from scripts import verify_ea_runtime_source_permissions as verifier
-from scripts.memorial_bind_source_guard import BindSourceGuardError
+from scripts.runtime_bind_source_guard import BindSourceGuardError
 
 
 ROOT = Path(__file__).resolve().parents[1]

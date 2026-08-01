@@ -9,24 +9,12 @@ def _assert_public_surface_flags(body: dict[str, object]) -> None:
     flags = body["public_surface_flags"]
     assert isinstance(flags, dict)
     assert set(flags) == {
-        "public_memorials_enabled",
         "public_tours_enabled",
         "public_results_enabled",
         "legacy_runtime_surfaces_enabled",
     }
     for value in flags.values():
         assert value in {"true", "false"}
-
-
-def _assert_memorial_runtime(body: dict[str, object]) -> None:
-    runtime = body["memorial_runtime"]
-    assert isinstance(runtime, dict)
-    assert runtime["state"] in {"disabled", "enabled_unmounted", "mounted_without_flag", "mounted"}
-    assert isinstance(runtime["configured_enabled"], bool)
-    assert isinstance(runtime["route_mounted"], bool)
-    assert runtime["route_path"] == "/memorials/{slug}"
-    assert isinstance(runtime["healthcheck_slug"], str)
-    assert isinstance(runtime["next_action"], str)
 
 
 def _assert_whatsapp_runtime(body: dict[str, object]) -> None:
@@ -72,8 +60,7 @@ def _assert_outbound_email_runtime(body: dict[str, object]) -> None:
     }
 
 
-def test_health_live_stays_simple_without_memorial_probe(monkeypatch) -> None:
-    monkeypatch.delenv("EA_HEALTHCHECK_MEMORIAL_SLUG", raising=False)
+def test_health_live_stays_simple_for_loopback() -> None:
     client = _client(storage_backend="memory")
     response = client.get("/health/live")
     assert response.status_code == 200
@@ -81,77 +68,10 @@ def test_health_live_stays_simple_without_memorial_probe(monkeypatch) -> None:
     assert payload["status"] == "live"
     assert "public_surface_flags" in payload
     _assert_public_surface_flags(payload)
-    assert "memorial_runtime" in payload
-    _assert_memorial_runtime(payload)
     assert "outbound_email_runtime" in payload
     _assert_outbound_email_runtime(payload)
     assert "whatsapp_runtime" in payload
     _assert_whatsapp_runtime(payload)
-    assert payload["memorial_runtime"]["state"] == "disabled"
-    assert payload["memorial_runtime"]["route_mounted"] is False
-    assert payload["memorial_probe_mode"] == "unavailable"
-    assert "memorial_slug" not in payload
-
-
-def test_health_live_defers_memorial_probe_when_not_explicit(monkeypatch) -> None:
-    monkeypatch.setenv("EA_HEALTHCHECK_MEMORIAL_SLUG", "manfred")
-    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
-    monkeypatch.setenv("EA_ENABLE_PUBLIC_SIDE_SURFACES", "1")
-    from app.api.routes import health
-
-    def _unexpected_probe(slug: str) -> dict[str, object]:
-        raise AssertionError(f"probe should stay deferred for slug={slug}")
-
-    monkeypatch.setattr(health, "_probe_public_memorial_surface", _unexpected_probe)
-    client = _client(storage_backend="memory")
-    response = client.get("/health/live")
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "live"
-    assert payload["memorial_probe_mode"] == "deferred"
-    assert payload["memorial_runtime"]["state"] == "mounted"
-    assert payload["memorial_runtime"]["route_mounted"] is True
-    assert payload["memorial_runtime"]["healthcheck_slug"] == "manfred"
-    assert "memorial_slug" not in payload
-    assert "memorial_latency_tier" not in payload
-
-
-def test_health_live_includes_memorial_probe_when_explicit(monkeypatch) -> None:
-    monkeypatch.setenv("EA_HEALTHCHECK_MEMORIAL_SLUG", "manfred")
-    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
-    monkeypatch.setenv("EA_ENABLE_PUBLIC_SIDE_SURFACES", "1")
-    from app.api.routes import health
-
-    monkeypatch.setattr(
-        health,
-        "_probe_public_memorial_surface",
-        lambda slug: {"slug": slug, "voice_plugin": "unmixr_clone", "audio_clip_count": 3, "elapsed_ms": 8.4},
-    )
-    client = _client(storage_backend="memory")
-    response = client.get("/health/live?probe=memorial")
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "live"
-    assert payload["memorial_probe_mode"] == "explicit"
-    assert payload["memorial_slug"] == "manfred"
-    assert payload["memorial_voice_plugin"] == "unmixr_clone"
-    assert payload["memorial_audio_clip_count"] == "3"
-    assert payload["memorial_elapsed_ms"] == "8.4"
-    assert payload["memorial_latency_tier"] == "premium"
-    assert payload["memorial_latency_budget_ms"] == "750"
-    assert payload["memorial_operator_action_state"] == "clear"
-    assert payload["memorial_latency_next_action"] == "maintain_memorial_voice_runtime"
-    assert "public_surface_flags" in payload
-    _assert_public_surface_flags(payload)
-    assert "memorial_runtime" in payload
-    _assert_memorial_runtime(payload)
-    assert "outbound_email_runtime" in payload
-    _assert_outbound_email_runtime(payload)
-    assert "whatsapp_runtime" in payload
-    _assert_whatsapp_runtime(payload)
-    assert payload["memorial_runtime"]["state"] == "mounted"
-    assert payload["memorial_runtime"]["route_mounted"] is True
-    assert payload["memorial_runtime"]["healthcheck_slug"] == "manfred"
 
 
 def test_whatsapp_runtime_status_reports_readiness_receipt_without_secrets(monkeypatch, tmp_path) -> None:
@@ -414,26 +334,3 @@ def test_whatsapp_runtime_status_prefers_runtime_receipt_over_stale_published_re
     assert payload["receipt_present"] is True
     assert payload["receipt_path"] == str(runtime_receipt)
     assert payload["receipt_fresh"] is True
-
-
-def test_health_live_marks_slow_memorial_probe_as_degraded_for_loopback(monkeypatch) -> None:
-    monkeypatch.setenv("EA_HEALTHCHECK_MEMORIAL_SLUG", "manfred")
-    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
-    monkeypatch.setenv("EA_ENABLE_PUBLIC_SIDE_SURFACES", "1")
-    from app.api.routes import health
-
-    monkeypatch.setattr(
-        health,
-        "_probe_public_memorial_surface",
-        lambda slug: {"slug": slug, "voice_plugin": "unmixr_clone", "audio_clip_count": 3, "elapsed_ms": 2100.0},
-    )
-    client = _client(storage_backend="memory")
-    response = client.get("/health/live?probe=memorial")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "live"
-    assert payload["memorial_probe_mode"] == "explicit"
-    assert payload["memorial_latency_tier"] == "degraded"
-    assert payload["memorial_operator_action_state"] == "action_required"
-    assert payload["memorial_latency_next_action"] == "optimize_memorial_voice_runtime_latency"

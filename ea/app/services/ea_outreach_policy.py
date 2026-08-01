@@ -60,7 +60,7 @@ PRIVATE_DATA_MARKERS = (
     "oauth token",
     "api token",
     "billing",
-    "memorial/private",
+    "likeness/private",
 )
 
 

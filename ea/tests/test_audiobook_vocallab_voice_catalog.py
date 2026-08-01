@@ -35,7 +35,7 @@ def _row(
         "languages": languages or ["en-US"],
         "tags": ["narration"],
         "allowed_uses": ["audiobook_narration", "dialogue", "voice_audition"],
-        "blocked_uses": ["memorial"],
+        "blocked_uses": ["unapproved_clone"],
         "rights_receipt_id": "rights-1",
         "consent_receipt_id": consent,
         "reviewed_at": reviewed_at.isoformat().replace("+00:00", "Z"),
@@ -133,13 +133,13 @@ def test_unknown_duplicate_hash_mismatch_language_and_stale_catalog_fail_closed(
     assert stale.value.code == "voice_catalog_stale"
 
 
-def test_memorial_use_is_blocked_by_catalog_even_for_professional_voice() -> None:
+def test_unapproved_clone_use_is_blocked_by_catalog_even_for_professional_voice() -> None:
     row = _row()
     with pytest.raises(VoiceCatalogError) as caught:
         _catalog([row]).authorize(
             _voice(row),
             language="en-US",
-            use="memorial",
+            use="unapproved_clone",
             now=NOW,
         )
     assert caught.value.code == "voice_use_not_allowed"

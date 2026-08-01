@@ -63,7 +63,7 @@ def catalog(private: Path) -> VocalLabVoiceCatalog:
                         "dialogue",
                         "voice_audition",
                     ],
-                    "blocked_uses": ["memorial"],
+                    "blocked_uses": ["unapproved_clone"],
                     "rights_receipt_id": "rights-1",
                     "consent_receipt_id": "",
                     "reviewed_at": NOW.isoformat().replace("+00:00", "Z"),

@@ -4,19 +4,19 @@ This directory defines the smallest production-shaped audiobook handoff that is
 safe before runtime activation. The checked-in overlay describes three paused
 services at zero replicas with an exact idle command. It cannot consume a queue,
 call a provider, publish an artifact, send a message, build, pull, or mutate the
-memorial-owned `ea-api`.
+application-owned `ea-api`.
 
 The verifier is preparation-only. A successful run returns `status=prepared`
 and a digest-bound projection for a separate governed consumer. It always keeps
 all deploy, stage-mutation, activation, queue, provider, send, build, and pull
 authority false. It has no authorize mode.
 
-## Exact source and memorial baseline
+## Exact source and application baseline
 
 The preparation binds this exact committed Compose inventory, in order:
 
 1. `docker-compose.yml`
-2. `docker-compose.memorial.yml`
+2. the external product Compose file
 3. `docker-compose.whatsapp-web-session.yml`
 4. `deploy/audiobook-runtime-production/docker-compose.production-stage.yml`
 
@@ -35,10 +35,10 @@ mutable bytes from another revision.
 
 The baseline render must use the first three files with project name `ea`. Its
 entire canonical render and canonical `ea-api` definition must match a current,
-root-owned `ea.memorial_runtime_baseline.v1` receipt. The staged render adds only
+root-owned application runtime baseline receipt. The staged render adds only
 the fourth file. It must preserve the exact service inventory, every non-stage
 service, all top-level networks, the exact pruning of the now-unused
-`ea_whatsapp_web_actions` volume definition, and the memorial API. The three
+`ea_whatsapp_web_actions` volume definition, and the application API. The three
 stage services use exact document keysets, environment and label allowlists,
 resource bounds, zero replicas, no ports or mounts, and one exact idle command.
 
@@ -46,7 +46,7 @@ resource bounds, zero replicas, no ports or mounts, and one exact idle command.
 
 Preparation requires:
 
-- a current root-owned memorial baseline receipt with an exact Compose source
+- a current root-owned application baseline receipt with an exact Compose source
   inventory, baseline render digest, and API digest;
 - an exact `ea.audiobook_runtime_image_provenance.v1` document binding source
   revision, immutable image reference, local image ID, and SBOM digest;
@@ -55,7 +55,7 @@ Preparation requires:
   namespace, and serial number.
 
 All private rendered Compose and evidence JSON inputs must be regular,
-single-link, operator-owned files with mode `0600`. The memorial baseline and
+single-link, operator-owned files with mode `0600`. The application baseline and
 must be a regular, single-link, UID-0-owned file with mode `0644`. Root authority
 traversal first validates `/` itself as the same UID-0, non-writable directory
 seen through both descriptor and path metadata, then validates every descendant
@@ -64,7 +64,7 @@ supplied by a CLI argument.
 
 ## Preparation
 
-Render the baseline from base + memorial + WhatsApp, then render the stage by
+Render the baseline from base + application + WhatsApp, then render the stage by
 adding the production-stage overlay. Store both JSON files in an already-created
 operator-private directory and run:
 
@@ -76,7 +76,7 @@ python3 scripts/verify_audiobook_runtime_production_stage.py \
   --expected-image "$IMMUTABLE_IMAGE" \
   --expected-image-id "$IMAGE_ID" \
   --compose-version "$COMPOSE_VERSION" \
-  --memorial-baseline-receipt /run/ea/memorial-runtime-baseline.json \
+  --application-baseline-receipt /run/ea/application-runtime-baseline.json \
   --provenance /private/operator/provenance.json \
   --sbom /private/operator/sbom.json \
   --receipt /private/operator/production-stage-prepared.json
@@ -93,9 +93,9 @@ shape did not change.
 ## Governed mutation boundary
 
 The deployment consumer validates the exact prepared projection, target render,
-pre-state, rollback plan, source/image/evidence summaries, and memorial baseline.
+pre-state, rollback plan, source/image/evidence summaries, and application baseline.
 It rechecks immutable evidence and live state before mutation, uses no build or
-pull path, creates only the stopped worker stage, verifies memorial controls, and
+pull path, creates only the stopped worker stage, verifies application controls, and
 rolls back the exact worker pre-state on failure.
 
 Runtime activation remains a separate, absent authority plane. It requires a

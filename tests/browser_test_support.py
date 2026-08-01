@@ -60,7 +60,7 @@ def browser_ephemeral_runtime_root(
             try:
                 shared_memory_root = Path(
                     tempfile.mkdtemp(
-                        prefix="ea-memorial-browser-",
+                        prefix="ea-browser-",
                         dir="/dev/shm",
                     )
                 )
@@ -93,10 +93,22 @@ def _chromium_launch_kwargs(args: Sequence[str]) -> dict[str, object]:
     return launch_kwargs
 
 
+def _resolve_chromium_executable(playwright: Any) -> tuple[str | None, str]:
+    configured = str(os.getenv(_EXPLICIT_CHROMIUM_EXECUTABLE_ENV) or "").strip()
+    if configured:
+        return configured, "explicit_env"
+    default_path = Path(str(getattr(playwright.chromium, "executable_path", "") or "")).expanduser()
+    if default_path.is_file() and os.access(default_path, os.X_OK):
+        return str(default_path), "playwright_default"
+    for command in ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable"):
+        candidate = shutil.which(command)
+        if candidate:
+            return candidate, "system_path"
+    return None, "playwright_unresolved"
+
+
 def launch_installed_chromium(playwright: Any, *, args: Sequence[str]) -> Any:
     """Honor an explicit browser, else use Playwright then a resolved fallback."""
-    from scripts.measure_memorial_live_browser import _resolve_chromium_executable
-
     launch_kwargs = _chromium_launch_kwargs(args)
     if str(os.getenv(_EXPLICIT_CHROMIUM_EXECUTABLE_ENV) or "").strip():
         executable_path, executable_source = _resolve_chromium_executable(playwright)

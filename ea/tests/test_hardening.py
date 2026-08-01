@@ -32,7 +32,6 @@ from app.api.routes import landing_channel
 from app.api.routes import landing_browser
 from app.api.routes import providers as providers_route
 from app.api.routes import responses as responses_route
-from app.api.routes import public_memorial_operator
 from app.services import responses_upstream
 from app.services import provider_registry
 from app.services import proactive_ooda_delivery
@@ -542,66 +541,6 @@ class HardeningTests(unittest.TestCase):
             finally:
                 os.chdir(original_cwd)
 
-    def test_memorial_route_probe_collects_fast_and_failed_probes(self) -> None:
-        def probe(url: str, timeout_seconds: float = 5.0) -> dict[str, object]:
-            return {
-                "url": url,
-                "status_code": 200 if "fast" in url else 404,
-                "status": "pass" if "fast" in url else "not_found",
-                "detail": "",
-            }
-
-        with patch.object(public_memorial_operator, "_probe_url", side_effect=probe):
-            result = public_memorial_operator._probe_urls(
-                ["http://example.test/fast", "http://example.test/fail"],
-                timeout_seconds=0.5,
-            )
-
-        self.assertEqual(
-            result["http://example.test/fast"],
-            {
-                "url": "http://example.test/fast",
-                "status_code": 200,
-                "status": "pass",
-                "detail": "",
-            },
-        )
-        self.assertEqual(
-            result["http://example.test/fail"],
-            {
-                "url": "http://example.test/fail",
-                "status_code": 404,
-                "status": "not_found",
-                "detail": "",
-            },
-        )
-
-    def test_memorial_route_probe_times_out_without_failing(self) -> None:
-        start = time.perf_counter()
-
-        def probe(url: str, timeout_seconds: float = 5.0) -> dict[str, object]:
-            if "slow" in url:
-                time.sleep(1.0)
-            return {
-                "url": url,
-                "status_code": 200 if "fast" in url else 404,
-                "status": "pass" if "fast" in url else "not_found",
-                "detail": "",
-            }
-
-        with patch.object(public_memorial_operator, "_probe_url", side_effect=probe):
-            result = public_memorial_operator._probe_urls(
-                ["http://example.test/fast", "http://example.test/slow"],
-                timeout_seconds=0.05,
-            )
-
-        self.assertLess(time.perf_counter() - start, 0.8)
-        self.assertIn("http://example.test/fast", result)
-        self.assertEqual(result["http://example.test/fast"]["status_code"], 200)
-        self.assertIn("http://example.test/slow", result)
-        self.assertEqual(result["http://example.test/slow"]["status"], "timeout")
-        self.assertEqual(result["http://example.test/slow"]["detail"], "probe_timeout")
-
     def test_materialized_telegram_audiobook_readiness_tracks_cinematic_narration(self) -> None:
         script_path = Path(__file__).resolve().parents[1] / "scripts" / "materialize_telegram_audiobook_live_readiness.py"
         materialize_module = _load_script_module("ea_materialize_audiobook_live_readiness_for_test", path=script_path)
@@ -972,56 +911,6 @@ class HardeningTests(unittest.TestCase):
 
         self.assertEqual(seen["accepted_by"], "verified@example.com")
         self.assertEqual(result[0], "secure")
-
-    def test_memorial_voice_config_requires_write_access(self) -> None:
-        env = {
-            "EA_ENABLE_PUBLIC_MEMORIALS": "1",
-            "EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES": "1",
-        }
-        with patch.dict(os.environ, env, clear=False):
-            with tempfile.TemporaryDirectory() as td:
-                root = Path(td)
-                public_root = root / "public"
-                private_root = root / "private"
-                slug = "manfred"
-                bundle_dir = public_root / slug
-                bundle_dir.mkdir(parents=True)
-                (bundle_dir / "memorial.json").write_text(
-                    json.dumps(
-                        {
-                            "slug": slug,
-                            "person_name": "Manfred Hoza",
-                            "audio_clips": [],
-                            "write_token": "unit-write-token",
-                        },
-                        ensure_ascii=False,
-                    ),
-                    encoding="utf-8",
-                )
-                profile_dir = private_root / slug
-                profile_dir.mkdir(parents=True)
-                (profile_dir / "tts_voice.json").write_text(
-                    json.dumps({"tts_mode": "browser_speech_synthesis"}, ensure_ascii=False),
-                    encoding="utf-8",
-                )
-                with patch.dict(
-                    os.environ,
-                    {
-                        "EA_PUBLIC_MEMORIAL_DIR": str(public_root),
-                        "EA_PRIVATE_MEMORIAL_PROFILE_DIR": str(private_root),
-                    },
-                    clear=False,
-                ):
-                    client = TestClient(create_app())
-                    unauthorized = client.get(f"/memorials/{slug}/voice-config")
-                    authorized = client.get(
-                        f"/memorials/{slug}/voice-config",
-                        headers={"x-memorial-write-token": "unit-write-token"},
-                    )
-
-        self.assertEqual(unauthorized.status_code, 403)
-        self.assertEqual(authorized.status_code, 200)
-        self.assertEqual(authorized.json()["slug"], "manfred")
 
     def test_gemini_vortex_auth_state_requires_noninteractive_credentials(self) -> None:
         with tempfile.TemporaryDirectory() as td:

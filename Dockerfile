@@ -1,9 +1,19 @@
 FROM python:3.12-slim@sha256:c2d8472b831337ab296a8ce652e1ba786e9e3034fc445dc58b50a7f5251f0003
 
 ARG HOST_DOCKER_GID=112
+ARG EA_SOURCE_REVISION=""
+
+RUN set -eu; \
+    if [ -n "$EA_SOURCE_REVISION" ]; then \
+      [ "${#EA_SOURCE_REVISION}" -eq 40 ]; \
+      case "$EA_SOURCE_REVISION" in *[!0-9a-f]*) exit 1 ;; esac; \
+    fi
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    EA_SOURCE_REVISION=${EA_SOURCE_REVISION} \
+    EA_HOST=0.0.0.0 \
+    EA_PORT=8090
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl docker.io && \
@@ -16,6 +26,7 @@ WORKDIR /app
 COPY ea/requirements.txt .
 COPY ea/requirements.lock .
 RUN pip install --no-cache-dir -r requirements.txt -c requirements.lock
+COPY LTDs.md ./LTDs.md
 COPY ea/app ./app
 RUN chown -R ea:ea /app
 

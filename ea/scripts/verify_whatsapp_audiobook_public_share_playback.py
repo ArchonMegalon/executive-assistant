@@ -4,7 +4,9 @@ import argparse
 from datetime import UTC, datetime
 import hashlib
 import json
+import os
 from pathlib import Path
+import shutil
 import sys
 from typing import Callable
 from urllib.parse import urlparse
@@ -22,9 +24,20 @@ if str(ROOT) not in sys.path:
 
 from scripts.source_state_head import resolve_source_state_head  # noqa: E402
 from scripts.source_state_head import resolve_source_worktree_fingerprint  # noqa: E402
-from scripts.measure_memorial_live_browser import (  # noqa: E402
-    _resolve_chromium_executable,
-)
+
+
+def _resolve_chromium_executable(playwright) -> tuple[str | None, str]:  # type: ignore[no-untyped-def]
+    configured = str(os.getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH") or "").strip()
+    if configured:
+        return configured, "explicit_env"
+    default_path = Path(str(getattr(playwright.chromium, "executable_path", "") or "")).expanduser()
+    if default_path.is_file() and os.access(default_path, os.X_OK):
+        return str(default_path), "playwright_default"
+    for command in ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable"):
+        candidate = shutil.which(command)
+        if candidate:
+            return candidate, "system_path"
+    return None, "playwright_unresolved"
 
 
 def _now_iso() -> str:

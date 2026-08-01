@@ -31,16 +31,6 @@ PUBLIC_APP_ROUTE_ALLOWLIST: set[tuple[str, str]] = {
     ("ea/app/api/routes/landing_channel.py", "/app/channel-actions/{token}"),
 }
 
-PUBLIC_MEMORIAL_OPERATOR_ROUTE_FILE = Path("ea/app/api/routes/public_memorial_operator.py")
-MEMORIAL_VOICE_CONFIG_ROUTE_PATH = "/memorials/{slug}/voice-config"
-MEMORIAL_OPERATOR_MUTATION_ROUTES = (
-    "/memorials/{slug}/voice-ab/rate",
-    "/memorials/{slug}/voice-ab-admin/finalize",
-    "/memorials/{slug}/voice-ab-admin/maintain",
-    "/memorials/{slug}/voice-clone",
-    "/memorials/{slug}/voice-profile/build",
-    "/memorials/{slug}/voice-config",
-)
 MUTATION_ROUTE_METHODS = frozenset({"delete", "patch", "post", "put"})
 ADMIN_OPERATOR_REDIRECT_GUARDS = frozenset(
     {
@@ -632,37 +622,6 @@ def admin_root(request, context):
                     ):
                         missing.append(f"{path}:{getattr(node, 'lineno', '?')}:{route_path}")
         self.assertEqual(missing, [], "public-mounted /admin routes missing operator dependency")
-
-    def test_memorial_voice_config_route_keeps_fail_closed_gating_helpers(self) -> None:
-        module = ast.parse(PUBLIC_MEMORIAL_OPERATOR_ROUTE_FILE.read_text(encoding="utf-8"))
-        for node in module.body:
-            if MEMORIAL_VOICE_CONFIG_ROUTE_PATH not in _route_paths(
-                node,
-                methods=MUTATION_ROUTE_METHODS,
-            ):
-                continue
-            self.assertTrue(_route_has_helper_call(node, "_require_public_memorial_operator_surface_enabled"))
-            self.assertTrue(_route_has_helper_call(node, "_require_public_memorial_write_access"))
-            break
-        else:
-            self.fail(f"route missing: {PUBLIC_MEMORIAL_OPERATOR_ROUTE_FILE}:{MEMORIAL_VOICE_CONFIG_ROUTE_PATH}")
-
-    def test_memorial_operator_mutation_routes_keep_mutation_guard(self) -> None:
-        module = ast.parse(PUBLIC_MEMORIAL_OPERATOR_ROUTE_FILE.read_text(encoding="utf-8"))
-        for route_path in MEMORIAL_OPERATOR_MUTATION_ROUTES:
-            for node in module.body:
-                if route_path not in _route_paths(
-                    node,
-                    methods=MUTATION_ROUTE_METHODS,
-                ):
-                    continue
-                self.assertTrue(
-                    _route_has_helper_call(node, "_enforce_operator_mutation_limits"),
-                    f"route missing operator mutation guard: {route_path}",
-                )
-                break
-            else:
-                self.fail(f"route missing: {PUBLIC_MEMORIAL_OPERATOR_ROUTE_FILE}:{route_path}")
 
     def test_public_landing_admin_routes_require_operator_context(self) -> None:
         missing: list[str] = []

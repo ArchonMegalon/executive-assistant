@@ -63,7 +63,7 @@ class FlipLinkSettings:
 
 class FlipLinkClient:
     """
-    Endpoint-configurable FlipLink upload adapter for memorial archive PDFs.
+    Endpoint-configurable FlipLink upload adapter for private archive PDFs.
 
     FlipLink endpoint names vary by account/API version. Keep the paths and
     form-field names configurable so publisher scripts can change endpoints
@@ -85,7 +85,7 @@ class FlipLinkClient:
         return f"{self.settings.base_url}{normalized}"
 
     def _multipart_body(self, *, metadata: dict[str, Any], pdf_path: Path) -> tuple[bytes, str]:
-        boundary = "----ea-memorial-fliplink-boundary"
+        boundary = "----ea-archive-fliplink-boundary"
         pdf_bytes = pdf_path.read_bytes()
         parts = [
             f"--{boundary}\r\nContent-Disposition: form-data; name=\"{self.settings.metadata_field}\"\r\n\r\n".encode(),
