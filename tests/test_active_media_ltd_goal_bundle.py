@@ -46,29 +46,12 @@ def test_active_media_ltd_goal_bundle_materializes_verified_local_evidence(tmp_p
         assert row["issues"] == [], key
     assert receipt["verifications"]["audiobook_live_readiness"]["status"] == "pass"  # type: ignore[index]
     assert receipt["verifications"]["audiobook_live_readiness"]["receipt"]["exists"] is True  # type: ignore[index]
-    assert receipt["verifications"]["manfred_realtime_readiness"]["status"] == "pass"  # type: ignore[index]
-    assert receipt["verifications"]["manfred_realtime_readiness"]["receipt"]["exists"] is True  # type: ignore[index]
-    assert "ChatLab live runtime probe receipt" in receipt["remaining_external_proofs"]
     assert "named promo video provider account/runtime proof" in receipt["remaining_external_proofs"]
-    assert "real Manfred realtime conversation room acceptance evidence" in receipt["remaining_external_proofs"]
     audiobook_delivery = receipt["external_proof_posture"]["audiobook_live_delivery"]  # type: ignore[index]
     assert audiobook_delivery["status"] in {"missing", "blocked_external_proof", "live_delivery_verified"}
     assert audiobook_delivery["real_user_playback_acceptance_verified"] is False
     assert audiobook_delivery["goal_completion_claim_allowed"] is False
     assert audiobook_delivery["privacy"].get("raw_public_share_url_included") is not True
-    spoken = receipt["external_proof_posture"]["manfred_spoken_conversation"]  # type: ignore[index]
-    assert spoken["status"] in {"blocked_external_proof", "ready_for_premium_review"}
-    assert spoken["premium_spoken_claim_allowed"] is (spoken["status"] == "ready_for_premium_review")
-    assert spoken["privacy"]["raw_private_context_exposed"] is False
-    assert spoken["room_audio_attestation_packet"]["manual_only"] is True
-    assert spoken["room_audio_attestation_packet"]["ci_must_not_auto_assert"] is True
-    assert "normal_spoken_turn_confirmed" in spoken["room_audio_attestation_packet"]["required_check_ids"]
-    if spoken["status"] == "blocked_external_proof":
-        assert spoken["blocking_actions"]
-    if spoken["stt"]["real_captured_fixture_required"]:
-        assert spoken["captured_candidate_diagnostic"]["status"] == "blocked"
-        assert spoken["captured_candidate_diagnostic"]["promotion_allowed"] is False
-        assert spoken["captured_candidate_diagnostic"]["row_failure_codes"]
 
     verification = verifier.verify_active_media_ltd_goal_bundle(receipt_path)
 
@@ -89,10 +72,6 @@ def test_active_media_ltd_goal_bundle_verifier_rejects_completion_and_provider_o
     receipt["goal_completion_claim_allowed"] = True
     receipt["provider_ready"] = True
     receipt["verifications"]["promo_quality_rubric"]["status"] = "fail"  # type: ignore[index]
-    receipt["external_proof_posture"]["manfred_spoken_conversation"]["premium_spoken_claim_allowed"] = True  # type: ignore[index]
-    receipt["external_proof_posture"]["manfred_spoken_conversation"]["stt"]["real_captured_fixture_required"] = True  # type: ignore[index]
-    receipt["external_proof_posture"]["manfred_spoken_conversation"]["tts"]["premium_status"] = "blocked"  # type: ignore[index]
-    receipt["external_proof_posture"]["manfred_spoken_conversation"]["captured_candidate_diagnostic"]["promotion_allowed"] = True  # type: ignore[index]
     receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     verification = verifier.verify_active_media_ltd_goal_bundle(receipt_path)
@@ -101,8 +80,6 @@ def test_active_media_ltd_goal_bundle_verifier_rejects_completion_and_provider_o
     assert "active_bundle_goal_completion_overclaim" in verification["issues"]
     assert "active_bundle_provider_ready_overclaim" in verification["issues"]
     assert "active_bundle_verification_status_not_pass:promo_quality_rubric" in verification["issues"]
-    assert "active_bundle_manfred_spoken_claim_overclaim" in verification["issues"]
-    assert "active_bundle_manfred_captured_diagnostic_overclaim" in verification["issues"]
 
 
 def test_active_media_ltd_goal_bundle_clis_work(tmp_path: Path) -> None:

@@ -4,7 +4,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts import measure_memorial_live_browser
 from tests import browser_test_support
 from tests.browser_test_support import launch_installed_chromium
 
@@ -32,7 +31,7 @@ def test_launch_installed_chromium_prefers_playwright_pinned_runtime(monkeypatch
         lambda: False,
     )
     monkeypatch.setattr(
-        measure_memorial_live_browser,
+        browser_test_support,
         "_resolve_chromium_executable",
         lambda _playwright: pytest.fail("resolver should not run when Playwright's browser launches"),
     )
@@ -58,7 +57,7 @@ def test_launch_installed_chromium_uses_resolved_fallback(monkeypatch) -> None:
         lambda: False,
     )
     monkeypatch.setattr(
-        measure_memorial_live_browser,
+        browser_test_support,
         "_resolve_chromium_executable",
         lambda _playwright: ("/usr/bin/chromium", "system_path"),
     )
@@ -89,7 +88,7 @@ def test_launch_installed_chromium_uses_large_shared_memory_for_both_launches(mo
         lambda _path: SimpleNamespace(free=512 * 1024 * 1024),
     )
     monkeypatch.setattr(
-        measure_memorial_live_browser,
+        browser_test_support,
         "_resolve_chromium_executable",
         lambda _playwright: ("/usr/bin/chromium", "system_path"),
     )
@@ -130,7 +129,7 @@ def test_launch_installed_chromium_honors_explicit_executable_before_native(
         lambda: False,
     )
     monkeypatch.setattr(
-        measure_memorial_live_browser,
+        browser_test_support,
         "_resolve_chromium_executable",
         lambda _playwright: ("/opt/operator/chromium", "explicit_env"),
     )
@@ -163,7 +162,7 @@ def test_launch_installed_chromium_redacts_explicit_executable_failure(
         lambda: False,
     )
     monkeypatch.setattr(
-        measure_memorial_live_browser,
+        browser_test_support,
         "_resolve_chromium_executable",
         lambda _playwright: (
             "/home/operator/private/chromium",
@@ -334,7 +333,7 @@ def test_launch_installed_chromium_fails_closed_without_runtime(monkeypatch) -> 
         lambda: False,
     )
     monkeypatch.setattr(
-        measure_memorial_live_browser,
+        browser_test_support,
         "_resolve_chromium_executable",
         lambda _playwright: (None, "unavailable"),
     )
@@ -361,7 +360,7 @@ def test_launch_installed_chromium_redacts_launch_failure(monkeypatch) -> None:
         lambda: False,
     )
     monkeypatch.setattr(
-        measure_memorial_live_browser,
+        browser_test_support,
         "_resolve_chromium_executable",
         lambda _playwright: ("/usr/bin/chromium", "system_path"),
     )

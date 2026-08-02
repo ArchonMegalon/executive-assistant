@@ -92,7 +92,6 @@ class FeatureSettings:
     public_side_surfaces_enabled: bool = False
     public_results_enabled: bool = False
     public_tours_enabled: bool = False
-    public_memorials_enabled: bool = False
     legacy_runtime_surfaces_enabled: bool = False
 
 
@@ -210,10 +209,6 @@ class Settings:
     @property
     def public_tours_enabled(self) -> bool:
         return self.features.public_tours_enabled
-
-    @property
-    def public_memorials_enabled(self) -> bool:
-        return self.features.public_memorials_enabled
 
     @property
     def legacy_runtime_surfaces_enabled(self) -> bool:
@@ -612,9 +607,6 @@ def get_settings() -> Settings:
     raw_public_tours_enabled = os.environ.get("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS")
     if raw_public_tours_enabled is None:
         raw_public_tours_enabled = os.environ.get("EA_ENABLE_PUBLIC_TOURS")
-    raw_public_memorials_enabled = os.environ.get("PROPERTYQUARRY_ENABLE_PUBLIC_MEMORIALS")
-    if raw_public_memorials_enabled is None:
-        raw_public_memorials_enabled = os.environ.get("EA_ENABLE_PUBLIC_MEMORIALS")
     raw_legacy_runtime_surfaces_enabled = os.environ.get("PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES")
     if raw_legacy_runtime_surfaces_enabled is None:
         raw_legacy_runtime_surfaces_enabled = os.environ.get("EA_ENABLE_LEGACY_RUNTIME_SURFACES")
@@ -628,11 +620,6 @@ def get_settings() -> Settings:
         public_side_surfaces_enabled
         if raw_public_tours_enabled is None
         else _env_truthy(raw_public_tours_enabled)
-    )
-    public_memorials_enabled = (
-        public_side_surfaces_enabled
-        if raw_public_memorials_enabled is None
-        else _env_truthy(raw_public_memorials_enabled)
     )
     if raw_legacy_runtime_surfaces_enabled is None:
         legacy_runtime_surfaces_enabled = not is_prod_mode(runtime_mode)
@@ -676,11 +663,9 @@ def get_settings() -> Settings:
         features=FeatureSettings(
             public_side_surfaces_enabled=public_side_surfaces_enabled
             or public_results_enabled
-            or public_tours_enabled
-            or public_memorials_enabled,
+            or public_tours_enabled,
             public_results_enabled=public_results_enabled,
             public_tours_enabled=public_tours_enabled,
-            public_memorials_enabled=public_memorials_enabled,
             legacy_runtime_surfaces_enabled=legacy_runtime_surfaces_enabled,
         ),
     )

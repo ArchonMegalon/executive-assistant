@@ -43,7 +43,7 @@ _FORBIDDEN_SOURCE_MARKERS = (
     "secrets/",
     "secret/",
     "credentials/",
-    "private_memorial_profiles/",
+    "private_persona_profiles/",
     "raw_gmail/",
     "raw_calendar/",
     "people_memory/",

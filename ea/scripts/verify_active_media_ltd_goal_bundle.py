@@ -36,9 +36,9 @@ def verify_active_media_ltd_goal_bundle(receipt_path: str | Path) -> dict[str, A
         if receipt_row and receipt_row.get("exists") is not True:
             issues.append(f"active_bundle_receipt_missing:{key}")
     posture = dict(receipt.get("external_proof_posture") or {})
-    spoken = dict(posture.get("manfred_spoken_conversation") or {})
+    spoken = dict(posture.get("spoken_conversation") or {})
     if spoken.get("premium_spoken_claim_allowed") is True and spoken.get("status") != "ready_for_premium_review":
-        issues.append("active_bundle_manfred_spoken_claim_overclaim")
+        issues.append("active_bundle_spoken_claim_overclaim")
     stt = dict(spoken.get("stt") or {})
     tts = dict(spoken.get("tts") or {})
     diagnostic = dict(spoken.get("captured_candidate_diagnostic") or {})
@@ -47,13 +47,13 @@ def verify_active_media_ltd_goal_bundle(receipt_path: str | Path) -> dict[str, A
         and tts.get("premium_status") != "pass"
         and diagnostic.get("promotion_allowed") is True
     ):
-        issues.append("active_bundle_manfred_captured_diagnostic_overclaim")
+        issues.append("active_bundle_captured_diagnostic_overclaim")
     audiobook = dict(posture.get("audiobook_live_delivery") or {})
     privacy = dict(audiobook.get("privacy") or {})
     if privacy.get("raw_public_share_url_included") is True:
         issues.append("active_bundle_audiobook_raw_public_share_url")
     if dict(spoken.get("privacy") or {}).get("raw_private_context_exposed") is True:
-        issues.append("active_bundle_manfred_raw_private_context")
+        issues.append("active_bundle_spoken_raw_private_context")
     return {"contract_name": CONTRACT_NAME, "status": "pass" if not issues else "fail", "issues": issues}
 
 

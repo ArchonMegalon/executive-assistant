@@ -14354,7 +14354,7 @@ def test_workspace_sign_in_email_links_fall_back_to_google_gmail_when_explicitly
     assert "It is not your app login." in str(sent[0]["body_text"])
     sessions = product.list_workspace_access_sessions(principal_id=principal_id, status="active", limit=10)
     assert sessions
-    assert sessions[0]["default_target"] == "/app/settings/access"
+    assert sessions[0]["default_target"] == "/app/today"
 
 
 def test_google_connect_email_link_carries_expected_google_account(monkeypatch) -> None:

@@ -43,7 +43,7 @@ VOCALLAB_SAFE_DEFAULTS = {
     "EA_AUDIOBOOK_VOCALLAB_ALLOWED_VOICE_CLASSES": "professional,consented_clone",
     "EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES": "0",
     "EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES": "0",
-    "EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL": "0",
+    "EA_AUDIOBOOK_VOCALLAB_ALLOW_PERSONA": "0",
     "EA_AUDIOBOOK_VOCALLAB_VOICE_CATALOG_FILE": (
         "config/vocallab_voice_catalog.local.json"
     ),
@@ -480,12 +480,11 @@ def test_unauthorized_shared_provider_ledger_mounts_mask_vocallab_ledger(
         assert winner.get("target") == "/data/provider-ledger"
 
 
-def test_full_paused_stage_removes_vocallab_secret_and_preserves_memorial_api(
+def test_full_paused_stage_removes_vocallab_secret_and_preserves_ea_api(
     tmp_path: Path,
 ) -> None:
     compose_before_stage = (
         REPO_ROOT / "docker-compose.yml",
-        REPO_ROOT / "docker-compose.memorial.yml",
         REPO_ROOT / "docker-compose.whatsapp-web-session.yml",
     )
     baseline = _render_effective_compose(
@@ -505,17 +504,18 @@ def test_full_paused_stage_removes_vocallab_secret_and_preserves_memorial_api(
     assert isinstance(baseline_services, dict)
     assert isinstance(staged_services, dict)
     assert staged_services["ea-api"] == baseline_services["ea-api"]
-    memorial_environment = _effective_service_environment(staged, "ea-api")
-    memorial_key_present = bool(memorial_environment.get("VOCALLAB_API_KEY"))
-    assert memorial_key_present is False
-    assert memorial_environment.get("VOCALLAB_API_KEY_FILE") == ""
+    api_environment = _effective_service_environment(staged, "ea-api")
+    baseline_api_environment = _effective_service_environment(baseline, "ea-api")
+    assert api_environment == baseline_api_environment
+    assert api_environment.get("VOCALLAB_API_KEY") == SYNTHETIC_VOCALLAB_KEY
+    assert api_environment.get("VOCALLAB_API_KEY_FILE") == SYNTHETIC_VOCALLAB_KEY_FILE
     for key in (
         "EA_AUDIOBOOK_VOCALLAB_ENABLED",
         "EA_AUDIOBOOK_VOCALLAB_AUTO_RENDER",
-        "EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL",
+        "EA_AUDIOBOOK_VOCALLAB_ALLOW_PERSONA",
         "EA_AUDIOBOOK_TTS_ALLOW_CROSS_PROVIDER_FALLBACK",
     ):
-        assert memorial_environment.get(key) == "0"
+        assert api_environment.get(key) == "0"
 
     authority_flags = (
         "EA_AUDIOBOOK_RUNTIME_ACTIVATION_AUTHORITY",
@@ -529,7 +529,7 @@ def test_full_paused_stage_removes_vocallab_secret_and_preserves_memorial_api(
         "EA_AUDIOBOOK_VOCALLAB_ALLOW_TOPUP_POINTS",
         "EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES",
         "EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES",
-        "EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL",
+        "EA_AUDIOBOOK_VOCALLAB_ALLOW_PERSONA",
         "EA_AUDIOBOOK_TTS_ALLOW_CROSS_PROVIDER_FALLBACK",
         "EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED",
         "EA_AUDIOBOOK_UNMIXR_AUTO_RENDER",
@@ -578,4 +578,7 @@ def test_full_paused_stage_removes_vocallab_secret_and_preserves_memorial_api(
         environment = _effective_service_environment(staged, str(service_name))
         if environment.get("VOCALLAB_API_KEY") not in (None, ""):
             leaking_services.add(str(service_name))
-    assert leaking_services == set()
+    # The overlay leaves the existing live API byte-for-byte unchanged. Only
+    # the three newly staged, paused services must have provider credentials
+    # stripped from their effective configuration.
+    assert leaking_services == {"ea-api"}

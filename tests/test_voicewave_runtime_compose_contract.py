@@ -32,14 +32,6 @@ def _environment(service: dict[str, object]) -> dict[str, str]:
     return entries
 
 
-def test_override_enables_public_memorials_and_requires_source_revision() -> None:
-    service = _ea_api_service()
-    environment = _environment(service)
-
-    assert environment["EA_ENABLE_PUBLIC_MEMORIALS"] == "${EA_ENABLE_PUBLIC_MEMORIALS:-1}"
-    assert environment["EA_SOURCE_REVISION"] == (
-        "${EA_SOURCE_REVISION:?EA_SOURCE_REVISION must be set to the deployed git SHA}"
-    )
 
 
 def test_override_does_not_mount_the_host_docker_socket() -> None:

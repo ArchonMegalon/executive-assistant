@@ -21,7 +21,12 @@ def test_release_materialization_service_runs_expected_scripts_in_order(monkeypa
     release_materialization_service.materialize_release_assets(python_bin="/tmp/python")
 
     assert calls[0] == ("/tmp/python", "ea_browser_workflow_proof", ("scripts/materialize_ea_browser_workflow_proof.py",), None)
-    assert calls[-1] == ("/tmp/python", "memorial_operator_status", ("scripts/materialize_memorial_operator_status.py",), None)
+    assert calls[-1] == (
+        "/tmp/python",
+        "whole_project_gold_map",
+        ("scripts/materialize_whole_project_gold_map.py",),
+        {"PYTHONPATH": "ea"},
+    )
     assert any(
         name == "whole_project_gold_map" and command == ("scripts/materialize_whole_project_gold_map.py",) and env == {"PYTHONPATH": "ea"}
         for _, name, command, env in calls
@@ -29,12 +34,6 @@ def test_release_materialization_service_runs_expected_scripts_in_order(monkeypa
     assert any(
         name == "ea_provider_contract_receipts"
         and command == ("scripts/materialize_ea_provider_contract_receipts.py",)
-        and env == {"PYTHONPATH": "ea"}
-        for _, name, command, env in calls
-    )
-    assert any(
-        name == "memorial_stt_provider_benchmark"
-        and command == ("scripts/benchmark_memorial_stt_providers.py",)
         and env == {"PYTHONPATH": "ea"}
         for _, name, command, env in calls
     )
@@ -81,10 +80,7 @@ def test_release_materialization_service_runs_expected_scripts_in_order(monkeypa
         for _, name, command, env in calls
     )
     names = [name for _, name, _, _ in calls]
-    assert names.index("memorial_spatial_tour_public_origin") < names.index("project_mode_manifests")
-    assert names.index("memorial_spatial_tour_public_origin") < names.index("whole_project_gold_map")
     assert names.index("project_mode_manifests") < names.index("whole_project_gold_map")
-    assert names.index("whole_project_gold_map") < names.index("memorial_operator_status")
     assert names.index("telegram_video_delivery_receipt") < names.index("telegram_video_delivery_live_receipt")
     assert names.index("telegram_video_delivery_live_receipt") < names.index("whole_project_gold_map")
     assert names.index("ea_provider_contract_receipts") < names.index("whole_project_gold_map")
@@ -95,7 +91,6 @@ def test_release_materialization_service_runs_expected_scripts_in_order(monkeypa
     assert names.index("proactive_ooda_gold_acceptance") < names.index("continuous_improvement_goal_posture")
     assert names.index("mymedia_alexa_readiness") < names.index("continuous_improvement_goal_posture")
     assert names.index("whatsapp_web_action_processor_readiness") < names.index("continuous_improvement_goal_posture")
-    assert names.index("memorial_stt_provider_benchmark") < names.index("memorial_operator_status")
     assert names.index("continuous_improvement_goal_posture") < names.index("deploy_context")
     assert names.index("runtime_dependency_evidence") < names.index("deploy_context")
     assert names.index("deploy_context") < names.index("release_manifest")
@@ -103,7 +98,6 @@ def test_release_materialization_service_runs_expected_scripts_in_order(monkeypa
     assert names.index("release_authority_status") < names.index("ea_flagship_release_gate")
     assert names.index("ea_flagship_release_gate") < names.index("weekly_product_pulse")
     assert names.index("weekly_product_pulse") < names.index("whole_project_gold_map")
-    assert names.index("whole_project_gold_map") < names.index("memorial_operator_status")
 
 
 def test_materialize_release_bundle_help_resolves_service_import() -> None:
@@ -127,10 +121,7 @@ def test_generated_clean_verifier_preserves_release_materializer_order() -> None
         command for command in release_commands if command in verifier_commands
     ]
     assert (
-        Path(
-            ".codex-studio/published/"
-            "memorial_spatial_tour_public_origin.generated.json"
-        )
+        Path(".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json")
         in verify_generated_release_artifacts_clean.GENERATED_ARTIFACTS
     )
 

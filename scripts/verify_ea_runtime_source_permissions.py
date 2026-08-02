@@ -8,7 +8,7 @@ and other read bits separately, nor checkout directory modes, so a host-side
 ``0600`` file or ``0700`` source ancestor is invisible to the clean-worktree
 release check and can break every freshly restarted runtime.
 
-This verifier reuses the descriptor-relative, no-follow bind-source guard.  It
+This verifier reuses the descriptor-relative, no-follow runtime-source guard.  It
 does not read source contents and emits only bounded, secret-free evidence.
 """
 
@@ -21,16 +21,16 @@ from pathlib import Path
 import stat
 
 try:
-    from .memorial_bind_source_guard import (
+    from .runtime_bind_source_guard import (
         BindSourceGuardError,
         EXPECTED_USER,
-        validate_memorial_bind_sources,
+        validate_runtime_bind_sources,
     )
 except ImportError:
-    from memorial_bind_source_guard import (
+    from runtime_bind_source_guard import (
         BindSourceGuardError,
         EXPECTED_USER,
-        validate_memorial_bind_sources,
+        validate_runtime_bind_sources,
     )
 
 
@@ -226,7 +226,7 @@ def verify_runtime_source_tree(
             }
         }
     }
-    receipt = validate_memorial_bind_sources(
+    receipt = validate_runtime_bind_sources(
         rendered,
         service=SERVICE,
         release_root=resolved_root,

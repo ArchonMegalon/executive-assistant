@@ -51,12 +51,12 @@ def public_surface_rate_backend() -> str:
     global _RATE_BACKEND_CACHE
     if _RATE_BACKEND_CACHE:
         return _RATE_BACKEND_CACHE
-    configured = str(os.getenv("EA_PUBLIC_MEMORIAL_RATE_BACKEND") or "").strip().lower()
+    configured = str(os.getenv("EA_PUBLIC_SURFACE_RATE_BACKEND") or "").strip().lower()
     if configured == "redis":
         try:
             import importlib.util
 
-            if importlib.util.find_spec("redis") is not None and str(os.getenv("EA_PUBLIC_MEMORIAL_REDIS_URL") or "").strip():
+            if importlib.util.find_spec("redis") is not None and str(os.getenv("EA_PUBLIC_SURFACE_REDIS_URL") or "").strip():
                 _RATE_BACKEND_CACHE = "redis"
                 return _RATE_BACKEND_CACHE
         except Exception:
@@ -67,7 +67,7 @@ def public_surface_rate_backend() -> str:
 
 @lru_cache(maxsize=1)
 def public_surface_redis_client():
-    redis_url = str(os.getenv("EA_PUBLIC_MEMORIAL_REDIS_URL") or "").strip()
+    redis_url = str(os.getenv("EA_PUBLIC_SURFACE_REDIS_URL") or "").strip()
     if not redis_url:
         return None
     try:

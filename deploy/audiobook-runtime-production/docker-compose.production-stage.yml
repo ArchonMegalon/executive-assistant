@@ -5,7 +5,7 @@ name: ea
 x-audiobook-production-stage:
   contract_name: ea.audiobook_runtime_production_stage_overlay.v1
   deployment_scope: paused_stage_only
-  live_api_owner: memorial
+  live_api_owner: ea-core
   live_api_mutation_authority: denied
   runtime_activation_authority: denied
   queue_mutation_authority: denied
@@ -57,7 +57,7 @@ x-audiobook-production-stage-service: &audiobook-production-stage-service
     EA_AUDIOBOOK_VOCALLAB_ALLOWED_VOICE_CLASSES: "professional,consented_clone"
     EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES: "0"
     EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES: "0"
-    EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL: "0"
+    EA_AUDIOBOOK_VOCALLAB_ALLOW_PERSONA: "0"
     EA_AUDIOBOOK_VOCALLAB_VOICE_CATALOG_FILE: "config/vocallab_voice_catalog.local.json"
     EA_AUDIOBOOK_TTS_PROVIDER_ORDER: "unmixr,vocallab,piper_local"
     EA_AUDIOBOOK_TTS_ALLOW_CROSS_PROVIDER_FALLBACK: "0"
@@ -71,7 +71,7 @@ x-audiobook-production-stage-service: &audiobook-production-stage-service
     com.archonmegalon.ea.audiobook-runtime.contract: ea.audiobook_runtime_production_stage_overlay.v1
     com.archonmegalon.ea.audiobook-runtime.deployment-scope: paused_stage_only
     com.archonmegalon.ea.audiobook-runtime.activation-authority: denied
-    com.archonmegalon.ea.audiobook-runtime.live-api-owner: memorial
+    com.archonmegalon.ea.audiobook-runtime.live-api-owner: ea-core
   command: !override
     - /bin/sh
     - -ec
@@ -194,7 +194,7 @@ services:
       EA_AUDIOBOOK_VOCALLAB_ALLOWED_VOICE_CLASSES: "professional,consented_clone"
       EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES: "0"
       EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES: "0"
-      EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL: "0"
+      EA_AUDIOBOOK_VOCALLAB_ALLOW_PERSONA: "0"
       EA_AUDIOBOOK_VOCALLAB_VOICE_CATALOG_FILE: "config/vocallab_voice_catalog.local.json"
       EA_AUDIOBOOK_TTS_PROVIDER_ORDER: "unmixr,vocallab,piper_local"
       EA_AUDIOBOOK_TTS_ALLOW_CROSS_PROVIDER_FALLBACK: "0"

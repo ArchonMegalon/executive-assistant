@@ -198,8 +198,8 @@ def _supporting_provenance() -> dict[str, object]:
         "image_id": IMAGE_ID,
         "dirty_worktree_context_used": False,
         "runtime_secrets_baked_in": False,
-        "memorial_data_baked_in": False,
-        "memorial_archive_baked_in": False,
+        "private_persona_data_baked_in": False,
+        "private_archive_baked_in": False,
         "global_build_cache_pruned": False,
         "live_or_rollback_images_pruned": False,
     }
@@ -250,7 +250,6 @@ def _prepare_real_compose(tmp_path: Path) -> tuple[Path, dict[str, str]]:
         ROOT / "docker-compose.whatsapp-web-session.yml",
         compose_root / "docker-compose.whatsapp-web-session.yml",
     )
-    shutil.copy2(ROOT / "docker-compose.memorial.yml", compose_root / "docker-compose.memorial.yml")
     candidate_dir = compose_root / "deploy" / "audiobook-runtime-candidate"
     candidate_dir.mkdir(parents=True)
     shutil.copy2(
@@ -270,8 +269,6 @@ def _prepare_real_compose(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     durable = compose_root / "audiobooks"
     jobs = durable / "jobs"
     shelf = durable / "audiobookshelf"
-    memorial_data = compose_root / "memorial-data"
-    memorial_runtime = compose_root / "memorial-runtime"
     for directory in (
         config,
         gemini,
@@ -279,19 +276,11 @@ def _prepare_real_compose(tmp_path: Path) -> tuple[Path, dict[str, str]]:
         pocket_audio,
         jobs,
         shelf,
-        memorial_data,
-        memorial_runtime / "public-contributions",
-        memorial_runtime / "private-contributions",
-        memorial_runtime / "state",
     ):
         directory.mkdir(parents=True, exist_ok=True)
     callback_secret = compose_root / "callback.secret"
     callback_secret.write_text("static-render-callback-secret\n", encoding="utf-8")
     callback_secret.chmod(0o600)
-    cartesia_credential = compose_root / "cartesia-credential.json"
-    cartesia_credential.write_text("{}\n", encoding="utf-8")
-    cartesia_credential.chmod(0o600)
-
     environment = dict(os.environ)
     environment.update(
         {
@@ -314,14 +303,7 @@ def _prepare_real_compose(tmp_path: Path) -> tuple[Path, dict[str, str]]:
             "EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL": "https://player.example.invalid",
             "EA_AUDIOBOOK_ACCESS_SIGNING_SECRET": "static-render-access-signing-secret",
             "EA_AUDIOBOOK_CANARY_RECEIPT_HMAC_KEY": "static-render-canary-hmac-secret",
-            "EA_MEMORIAL_IMAGE": IMAGE,
             "EA_SOURCE_REVISION": REVISION,
-            "EA_MEMORIAL_TRUSTED_PROXY_CIDRS": "172.16.0.0/12",
-            "EA_MEMORIAL_DATA_HOST_PATH": str(memorial_data),
-            "EA_MEMORIAL_RUNTIME_HOST_PATH": str(memorial_runtime),
-            "EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE": str(
-                cartesia_credential
-            ),
         }
     )
     return compose_root, environment
@@ -378,7 +360,7 @@ def test_valid_candidate_is_configuration_only_and_receipt_is_sanitized(tmp_path
     assert result["deployment_authority"] is False
     assert result["promotion_authority"] is False
     assert result["mutations_performed"] == 0
-    assert result["live_owner"]["ea-api"] == "memorial"
+    assert result["live_owner"]["ea-api"] == "ea-core"
     assert result["services"]["ea-api"]["live_owner_handoff"] == "required"
     serialized = json.dumps(result, sort_keys=True)
     assert str(tmp_path) not in serialized
@@ -583,9 +565,9 @@ def test_configuration_projection_is_explicitly_non_deployable(tmp_path: Path) -
             "sha256:"
         ),
         "execution_scope": "isolated_candidate_configuration",
-        "live_api_owner": "memorial",
+        "live_api_owner": "ea-core",
         "owner_handoff_required": True,
-        "memorial_compatible": False,
+        "owner_compatible": True,
         "group_deploy_eligible": False,
         "silent_takeover_allowed": False,
     }
@@ -728,22 +710,6 @@ def test_new_or_missing_service_fails_exact_service_set(tmp_path: Path) -> None:
 
     assert result["status"] == "blocked"
     assert "compose:services:exact_set_mismatch" in result["issues"]
-
-
-def test_memorial_owner_combination_is_explicitly_incompatible(tmp_path: Path) -> None:
-    payload, _ = _fixture(tmp_path)
-    payload["services"]["ea-api"]["environment"].update(
-        {
-            "EA_DEPLOY_PRIMARY_MODE": "MEMORIAL",
-            "EA_MEMORIAL_DATA_ROOT": "/data/manfred",
-        }
-    )
-
-    result = _verify(payload)
-
-    assert result["status"] == "blocked"
-    assert "ea-api:memorial_lane:incompatible_owner_combination" in result["issues"]
-    assert result["live_owner"]["candidate_posture"] == "owner_handoff_required"
 
 
 def test_mutable_or_mismatched_image_build_and_pull_policy_fail(tmp_path: Path) -> None:
@@ -891,7 +857,7 @@ def test_invalid_supporting_provenance_never_becomes_authority(tmp_path: Path) -
 def test_legacy_v2_supporting_provenance_is_rejected(tmp_path: Path) -> None:
     payload, _ = _fixture(tmp_path)
     provenance = _supporting_provenance()
-    provenance["schema"] = "ea.manfred_memorial_image_build.v2"
+    provenance["schema"] = "ea.audiobook_runtime_image_build.v0"
 
     result = _verify(
         payload,
@@ -1027,28 +993,6 @@ def test_real_compose_overlay_removes_source_mounts_and_is_inert(tmp_path: Path)
     result = _verify(after)
     assert result["status"] == "configuration_only", result["issues"]
     assert result["issues"] == []
-
-
-def test_real_memorial_overlay_cannot_be_combined_with_candidate(tmp_path: Path) -> None:
-    _require_docker_compose()
-    compose_root, environment = _prepare_real_compose(tmp_path)
-    combined = _render_real_compose(
-        compose_root,
-        environment,
-        "docker-compose.yml",
-        "docker-compose.whatsapp-web-session.yml",
-        "docker-compose.memorial.yml",
-        "deploy/audiobook-runtime-candidate/docker-compose.candidate.yml",
-    )
-
-    result = _verify(combined)
-
-    assert result["status"] == "blocked"
-    assert any(
-        issue.endswith("memorial_lane:incompatible_owner_combination")
-        for issue in result["issues"]
-    )
-    assert result["deploy_ready"] is False
 
 
 def test_cli_input_failure_emits_only_fail_closed_authority(tmp_path: Path) -> None:

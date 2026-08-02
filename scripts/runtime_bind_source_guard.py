@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed access checks for bind sources used by the memorial API.
+"""Fail-closed access checks for bind sources used by the runtime service.
 
 The check models the numeric container uid, primary gid, and supplemental gids
 against host mode bits.  Release-owned directory mounts are walked with
@@ -21,14 +21,14 @@ from pathlib import Path, PurePosixPath
 from typing import Mapping, Sequence
 
 
-SCHEMA = "ea.memorial_bind_source_access.v1"
+SCHEMA = "ea.runtime_bind_source_access.v1"
 EXPECTED_USER = "10001:10001"
 DEFAULT_MAX_RELEASE_ENTRIES = 50_000
 DEFAULT_MAX_RELEASE_BYTES = 2 * 1024**3
 DEFAULT_MAX_RELEASE_DEPTH = 64
 DEFAULT_TIMEOUT_SECONDS = 20.0
-MEMORIAL_CARTESIA_CREDENTIAL_TARGET = "/run/secrets/ea_memorial_cartesia.json"
-MAX_MEMORIAL_CARTESIA_CREDENTIAL_BYTES = 64 * 1024
+CARTESIA_CREDENTIAL_TARGET = "/run/secrets/ea_memorial_cartesia.json"
+MAX_CARTESIA_CREDENTIAL_BYTES = 64 * 1024
 
 
 class BindSourceGuardError(RuntimeError):
@@ -103,10 +103,10 @@ def _parse_numeric_identity(value: object) -> tuple[int, int]:
         or any(not piece.isdigit() for piece in pieces)
         or any(str(int(piece)) != piece for piece in pieces)
     ):
-        raise BindSourceGuardError("memorial_api_numeric_user_required")
+        raise BindSourceGuardError("runtime_service_numeric_user_required")
     uid, gid = (int(piece) for piece in pieces)
     if not 1 <= uid <= 2**31 - 1 or not 1 <= gid <= 2**31 - 1:
-        raise BindSourceGuardError("memorial_api_numeric_user_invalid")
+        raise BindSourceGuardError("runtime_service_numeric_user_invalid")
     return uid, gid
 
 
@@ -116,15 +116,15 @@ def _supplemental_gids(value: object, *, primary_gid: int) -> frozenset[int]:
     elif isinstance(value, list):
         rows = value
     else:
-        raise BindSourceGuardError("memorial_api_group_add_invalid")
+        raise BindSourceGuardError("runtime_service_group_add_invalid")
     gids = {primary_gid}
     for row in rows:
         normalized = str(row or "").strip()
         if not normalized.isdigit() or str(int(normalized)) != normalized:
-            raise BindSourceGuardError("memorial_api_group_add_must_be_numeric")
+            raise BindSourceGuardError("runtime_service_group_add_must_be_numeric")
         gid = int(normalized)
         if not 1 <= gid <= 2**31 - 1:
-            raise BindSourceGuardError("memorial_api_group_add_invalid")
+            raise BindSourceGuardError("runtime_service_group_add_invalid")
         gids.add(gid)
     return frozenset(gids)
 
@@ -187,7 +187,7 @@ def _require_cartesia_credential_source(
         raise BindSourceGuardError(
             "cartesia_credential_source_link_count_invalid"
         )
-    if not 1 <= metadata.st_size <= MAX_MEMORIAL_CARTESIA_CREDENTIAL_BYTES:
+    if not 1 <= metadata.st_size <= MAX_CARTESIA_CREDENTIAL_BYTES:
         raise BindSourceGuardError("cartesia_credential_source_size_invalid")
 
 
@@ -404,7 +404,7 @@ def _is_within(path: Path, root: Path) -> bool:
     return True
 
 
-def _validate_memorial_bind_sources(
+def _validate_runtime_bind_sources(
     rendered_compose: Mapping[str, object],
     *,
     service: str,
@@ -418,10 +418,10 @@ def _validate_memorial_bind_sources(
 ) -> dict[str, object]:
     services = rendered_compose.get("services")
     if not isinstance(services, dict) or not isinstance(services.get(service), dict):
-        raise BindSourceGuardError("memorial_api_service_missing")
+        raise BindSourceGuardError("runtime_service_service_missing")
     config = dict(services[service])
     if str(config.get("user") or "").strip() != expected_user:
-        raise BindSourceGuardError("memorial_api_explicit_user_mismatch")
+        raise BindSourceGuardError("runtime_service_explicit_user_mismatch")
     uid, primary_gid = _parse_numeric_identity(config.get("user"))
     gids = _supplemental_gids(config.get("group_add"), primary_gid=primary_gid)
     release_root = Path(os.path.abspath(os.fspath(release_root.expanduser())))
@@ -433,7 +433,7 @@ def _validate_memorial_bind_sources(
         raise BindSourceGuardError("release_root_invalid")
     volumes = config.get("volumes") or []
     if not isinstance(volumes, list):
-        raise BindSourceGuardError("memorial_api_volumes_invalid")
+        raise BindSourceGuardError("runtime_service_volumes_invalid")
     if (
         type(maximum_release_entries) is not int
         or maximum_release_entries < 1
@@ -454,7 +454,7 @@ def _validate_memorial_bind_sources(
     targets: set[str] = set()
     for raw_mount in volumes:
         if not isinstance(raw_mount, dict):
-            raise BindSourceGuardError("memorial_api_mount_invalid")
+            raise BindSourceGuardError("runtime_service_mount_invalid")
         if str(raw_mount.get("type") or "") != "bind":
             continue
         source_value = str(raw_mount.get("source") or "")
@@ -470,7 +470,7 @@ def _validate_memorial_bind_sources(
             or "\x00" in target
             or target in targets
         ):
-            raise BindSourceGuardError("memorial_api_bind_mount_invalid")
+            raise BindSourceGuardError("runtime_service_bind_mount_invalid")
         if "read_only" not in raw_mount:
             # Docker Compose's canonical JSON omits false-valued read_only
             # fields, including when the source YAML explicitly spells out
@@ -481,7 +481,7 @@ def _validate_memorial_bind_sources(
         elif type(raw_mount["read_only"]) is bool:
             read_only = raw_mount["read_only"]
         else:
-            raise BindSourceGuardError("memorial_api_bind_read_only_invalid")
+            raise BindSourceGuardError("runtime_service_bind_read_only_invalid")
         targets.add(target)
         source = Path(source_value)
         normalized_source = Path(os.path.abspath(os.fspath(source)))
@@ -497,7 +497,7 @@ def _validate_memorial_bind_sources(
                 if under_release
                 else _external_identity(metadata, kind=kind)
             )
-            if target == MEMORIAL_CARTESIA_CREDENTIAL_TARGET:
+            if target == CARTESIA_CREDENTIAL_TARGET:
                 _require_cartesia_credential_source(
                     metadata,
                     kind=kind,
@@ -567,7 +567,7 @@ def _validate_memorial_bind_sources(
         mount_evidence.append(row)
         snapshot_rows.append({**row, "identities": identities})
     if not mount_evidence:
-        raise BindSourceGuardError("memorial_api_bind_mounts_missing")
+        raise BindSourceGuardError("runtime_service_bind_mounts_missing")
     mount_evidence.sort(key=lambda row: str(row["target"]))
     snapshot_rows.sort(key=lambda row: str(row["target"]))
     snapshot_sha256 = _canonical_sha256(
@@ -607,7 +607,7 @@ def _validate_memorial_bind_sources(
     }
 
 
-def validate_memorial_bind_sources(
+def validate_runtime_bind_sources(
     rendered_compose: Mapping[str, object],
     *,
     service: str,
@@ -622,7 +622,7 @@ def validate_memorial_bind_sources(
     """Validate sources while keeping filesystem-race denials secret-free."""
 
     try:
-        return _validate_memorial_bind_sources(
+        return _validate_runtime_bind_sources(
             rendered_compose,
             service=service,
             release_root=release_root,

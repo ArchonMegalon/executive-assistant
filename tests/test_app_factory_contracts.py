@@ -16,7 +16,6 @@ def _client(
     principal_id: str = "exec-app-factory",
     public_results_enabled: bool = False,
     public_tours_enabled: bool = False,
-    public_memorials_enabled: bool = False,
     runtime_mode: str = "dev",
     legacy_runtime_surfaces_enabled: bool | None = None,
 ) -> TestClient:
@@ -35,8 +34,7 @@ def _client(
         os.environ.pop("EA_PUBLIC_APP_BASE_URL", None)
     os.environ["EA_ENABLE_PUBLIC_RESULTS"] = "1" if public_results_enabled else "0"
     os.environ["EA_ENABLE_PUBLIC_TOURS"] = "1" if public_tours_enabled else "0"
-    os.environ["EA_ENABLE_PUBLIC_MEMORIALS"] = "1" if public_memorials_enabled else "0"
-    os.environ["EA_ENABLE_PUBLIC_SIDE_SURFACES"] = "1" if (public_results_enabled or public_tours_enabled or public_memorials_enabled) else "0"
+    os.environ["EA_ENABLE_PUBLIC_SIDE_SURFACES"] = "1" if (public_results_enabled or public_tours_enabled) else "0"
     if legacy_runtime_surfaces_enabled is None:
         os.environ.pop("EA_ENABLE_LEGACY_RUNTIME_SURFACES", None)
     else:
@@ -67,14 +65,11 @@ def test_app_factory_omits_optional_public_routes_by_default() -> None:
     assert "/results/{slug}.json" not in route_paths
     assert "/tours/{slug}.json" not in route_paths
     assert "/tours/files/{slug}/{asset_path:path}" not in route_paths
-    assert "/memorials/{slug}" not in route_paths
-    assert "/memorials/files/{slug}/{asset_path:path}" not in route_paths
-    assert "/admin/memorials/manfred/voice-review" not in route_paths
-    assert "/memorials/{slug}/warmup-status" not in route_paths
+    assert not any(path.startswith("/memorials") for path in route_paths)
 
 
-def test_app_factory_mounts_optional_public_routes_when_enabled() -> None:
-    client = _client(public_results_enabled=True, public_tours_enabled=True, public_memorials_enabled=True)
+def test_app_factory_mounts_only_owned_optional_public_routes_when_enabled() -> None:
+    client = _client(public_results_enabled=True, public_tours_enabled=True)
     route_paths = {route.path for route in client.app.routes}
 
     assert "/results/{slug}" in route_paths
@@ -82,43 +77,7 @@ def test_app_factory_mounts_optional_public_routes_when_enabled() -> None:
     assert "/results/files/{slug}/{asset_path:path}" in route_paths
     assert "/tours/{slug}.json" in route_paths
     assert "/tours/files/{slug}/{asset_path:path}" in route_paths
-    assert "/memorials/{slug}" in route_paths
-    assert "/memorials/{slug}.json" in route_paths
-    assert "/memorials/files/{slug}/{asset_path:path}" in route_paths
-    review_routes = [
-        route
-        for route in client.app.routes
-        if route.path == "/admin/memorials/manfred/voice-review"
-    ]
-    review_methods = {
-        method
-        for route in review_routes
-        for method in (route.methods or set())
-    }
-    warmup_status_routes = [
-        route
-        for route in client.app.routes
-        if route.path == "/memorials/{slug}/warmup-status"
-    ]
-    warmup_status_methods = {
-        method
-        for route in warmup_status_routes
-        for method in (route.methods or set())
-    }
-
-    assert review_methods == {"GET", "POST"}
-    assert len(review_routes) == 2
-    assert all(route.include_in_schema is False for route in review_routes)
-    assert warmup_status_methods == {"GET", "POST"}
-    assert len(warmup_status_routes) == 2
-    warmup_status_schema = client.app.openapi()["paths"][
-        "/memorials/{slug}/warmup-status"
-    ]
-    warmup_status_operation_ids = {
-        warmup_status_schema[method]["operationId"]
-        for method in ("get", "post")
-    }
-    assert len(warmup_status_operation_ids) == 2
+    assert not any(path.startswith("/memorials") for path in route_paths)
 
 
 def test_app_factory_keeps_secret_verified_telegram_ingress_when_legacy_routes_are_disabled(

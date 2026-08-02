@@ -42,37 +42,6 @@ def _smoke_runtime_text() -> str:
     return "\n".join(parts)
 
 
-def test_memorial_gold_admin_template_surfaces_source_cleanup_verifier() -> None:
-    template = (ROOT / "ea/app/templates/admin_memorial_gold.html").read_text(
-        encoding="utf-8"
-    )
-
-    assert "Source Cleanup" in template
-    assert "{% set source_cleanup = operator_status.source_cleanup or {} %}" in template
-    assert (
-        "{% set source_dirty_verifier = operator_status.source_dirty_verifier or {} %}"
-        in template
-    )
-    assert "source_cleanup.status" in template
-    assert "source_cleanup.verifier_status" in template
-    assert "source_cleanup.top_categories" in template
-    assert "source_cleanup.handoff_commands" in template
-    assert "source_cleanup.next_command" in template
-    assert "source_dirty_verifier.status" in template
-    assert "source_dirty_verifier.issues" in template
-    assert "operator_status.source_dirty_count" in template
-    assert (
-        "The compact source_cleanup contract proves the dirty-source categories and verifier state are safe to use for handoff."
-        in template
-    )
-    assert (
-        "operator_status.room_audio_attestation_packet.receipt_command_template"
-        in template
-    )
-    assert "operator_status.room_audio_attestation_packet.operator_steps" in template
-    assert "operator_status.room_audio_receipt_detail.missing_input_hints" in template
-
-
 def _default_assignment_value(script_text: str, variable_name: str) -> str:
     patterns = (
         re.compile(
@@ -488,17 +457,6 @@ def test_makefile_exposes_telegram_audiobook_live_delivery_receipt_targets() -> 
     )
 
 
-def test_makefile_exposes_manfred_realtime_conversation_readiness_targets() -> None:
-    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-
-    assert "materialize-manfred-realtime-conversation-readiness:" in makefile
-    assert (
-        "ea/scripts/materialize_manfred_realtime_conversation_readiness.py" in makefile
-    )
-    assert "verify-manfred-realtime-conversation-readiness:" in makefile
-    assert "ea/scripts/verify_manfred_realtime_conversation_readiness.py" in makefile
-
-
 def test_makefile_exposes_whole_project_scope_gap_audit_targets() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
@@ -612,39 +570,6 @@ def test_docs_describe_release_authority_runtime_verifier() -> None:
     assert "EA_CF_ACCESS_AUD" in readme
     assert "EA_API_TOKEN" in runbook
     assert "EA_SIGNING_SECRET" in runbook
-
-
-def test_docs_describe_memorial_runtime_overlay_verifier() -> None:
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
-    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-
-    assert "deploy-ea-memorial:" in makefile
-    deploy_alias = makefile.split("deploy-ea-memorial:", 1)[1].split("\n\n", 1)[0]
-    joint_deploy = makefile.split("deploy-ea-memorial-joint:\n", 1)[1].split("\n\n", 1)[
-        0
-    ]
-    assert "verify-memorial-deploy-readiness:" in makefile
-    assert "scripts/verify_memorial_deploy_readiness.py --pretty" in makefile
-    assert "deploy-ea-memorial-joint" in deploy_alias
-    assert "scripts/deploy_ea_memorial_joint.py" in joint_deploy
-    assert "EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT" in joint_deploy
-    assert "EA_PUBLIC_APP_BASE_URL" in joint_deploy
-    assert "scripts/deploy.sh" not in deploy_alias + joint_deploy
-    assert "make deploy-ea-memorial" in readme
-    assert "make verify-memorial-deploy-readiness" in readme
-    assert "verify-memorial-runtime-overlay:" in makefile
-    assert "scripts/verify_memorial_runtime_overlay.py --pretty" in makefile
-    assert "memorial-gold-gates:" in makefile
-    assert "$(MAKE) verify-memorial-runtime-overlay" in makefile
-    assert "make verify-memorial-runtime-overlay" in readme
-    assert "/health/live" in readme
-    assert "make deploy-ea-memorial" in runbook
-    assert "make verify-memorial-deploy-readiness" in runbook
-    assert "memorial runtime overlay" in runbook
-    assert "make verify-memorial-runtime-overlay" in runbook
-    assert "EA_CF_ACCESS_TEAM_DOMAIN" in runbook
-    assert "EA_CF_ACCESS_AUD" in runbook
 
 
 def test_help_smoke_includes_deploy_context_materializer() -> None:
@@ -1402,22 +1327,6 @@ def test_support_bundle_writes_grounding_summary() -> None:
         "compose_images=docker-compose.cloudflared.yml:ea-cloudflared=cloudflare/cloudflared:latest@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283, docker-compose.fastestvpn.yml:ea-docker-socket-proxy=tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2, docker-compose.host-tools.yml:ea-docker-socket-proxy=tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2, docker-compose.yml:ea-db=postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229, docker-compose.yml:ea-redis=redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99"
         in text
     )
-    assert "-- memorial readiness --" in text
-    assert '"claim_labels":' in text
-    assert "memorial_next_action=" in text
-    assert "memorial_next_command=" in text
-    assert "memorial_blocker_commands=" in text
-    assert "memorial_source_dirty=" in text
-    assert "memorial_source_cleanup_status=" in text
-    assert "memorial_source_cleanup_commands=" in text
-    assert "memorial_source_dirty_verifier_status=" in text
-    assert "memorial_source_dirty_verifier_issues=" in text
-    assert "memorial_source_dirty_categories=" in text
-    assert "memorial_room_packet_status=" in text
-    assert "memorial_room_packet_command=" in text
-    assert "memorial_room_receipt_command=" in text
-    assert "memorial_room_missing_inputs=" in text
-    assert "memorial_room_failed_codes=" in text
     assert "-- source dirty groups --" in text
     assert '"contract_name": "ea.source_dirty_groups.v1"' in text
     assert '"source_dirty_summary":' in text
@@ -1481,17 +1390,6 @@ def test_support_bundle_pgdata_attribution_release_baseline_is_pinned() -> None:
 
     assert 'echo "expected_runtime_volume=ea_pgdata"' in support_bundle
     assert 'echo "expected_container_mount=/var/lib/postgresql/data"' in support_bundle
-    assert "memorial_source_dirty_categories=" in support_bundle
-    assert "memorial_source_cleanup_status=" in support_bundle
-    assert "memorial_source_cleanup_commands=" in support_bundle
-    assert "memorial_blocker_commands=" in support_bundle
-    assert "memorial_source_dirty_verifier_status=" in support_bundle
-    assert "memorial_source_dirty_verifier_issues=" in support_bundle
-    assert "memorial_room_packet_status=" in support_bundle
-    assert "memorial_room_packet_command=" in support_bundle
-    assert "memorial_room_receipt_command=" in support_bundle
-    assert "memorial_room_missing_inputs=" in support_bundle
-    assert "memorial_room_failed_codes=" in support_bundle
     assert "-- source dirty verifier --" in support_bundle
     assert "scripts/verify_source_dirty_groups.py" in support_bundle
     assert 'docker inspect "${DB_CONTAINER}" --format' in support_bundle

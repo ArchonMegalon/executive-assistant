@@ -63,7 +63,6 @@ def _include_public_routes(
     landing_public_router: APIRouter,
     landing_console_router: APIRouter,
     landing_property_router: APIRouter,
-    landing_archive_router: APIRouter,
     fliplink_public_router: APIRouter,
     hedy_meeting_review_router: APIRouter,
     health_router: APIRouter,
@@ -90,23 +89,8 @@ def _include_public_routes(
         from app.api.routes.public_tours import router as public_tours_router
 
         app.include_router(public_tours_router)
-    if settings.public_memorials_enabled:
-        from app.api.routes.public_memorial_conversation import router as public_memorial_conversation_router
-        from app.api.routes.public_memorial_contributions import router as public_memorial_contributions_router
-        from app.api.routes.public_memorial_operator import router as public_memorial_operator_router
-        from app.api.routes.public_memorial_runtime import router as public_memorial_runtime_router
-        from app.api.routes.public_memorial_share import router as public_memorial_share_router
-        from app.api.routes.public_memorial_surface import router as public_memorial_surface_router
-
-        app.include_router(public_memorial_surface_router)
-        app.include_router(public_memorial_share_router)
-        app.include_router(public_memorial_contributions_router)
-        app.include_router(public_memorial_conversation_router)
-        app.include_router(public_memorial_runtime_router)
-        app.include_router(public_memorial_operator_router)
     app.include_router(health_router)
     app.include_router(register_router)
-    app.include_router(landing_archive_router)
 
 
 def _include_authenticated_routes(
@@ -210,7 +194,6 @@ def create_app() -> FastAPI:
     from app.api.routes.landing_console import router as landing_console_router
     from app.api.routes.landing_objects import router as landing_objects_router
     from app.api.routes.landing_property import router as landing_property_router
-    from app.api.routes.landing_public import archive_router as landing_archive_router
     from app.api.routes.landing_public import router as landing_public_router
     from app.api.routes.landing_setup import router as landing_setup_router
     from app.api.routes.landing_workspace import router as landing_workspace_router
@@ -258,7 +241,6 @@ def create_app() -> FastAPI:
         landing_public_router=landing_public_router,
         landing_console_router=landing_console_router,
         landing_property_router=landing_property_router,
-        landing_archive_router=landing_archive_router,
         fliplink_public_router=fliplink_public_router,
         hedy_meeting_review_router=hedy_meeting_review_router,
         health_router=health_router,

@@ -272,7 +272,7 @@ class VocalLabConfig:
     allow_cross_provider_fallback: bool = False
     allow_clones: bool = False
     allow_community_voices: bool = False
-    allow_memorial: bool = False
+    allow_persona: bool = False
     allow_lite_publication: bool = False
     base_url: str = VOCALLAB_DEFAULT_BASE_URL
     api_key: str = field(default="", repr=False)
@@ -356,7 +356,7 @@ class VocalLabConfig:
             allow_community_voices=flag(
                 "EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES"
             ),
-            allow_memorial=flag("EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL"),
+            allow_persona=flag("EA_AUDIOBOOK_VOCALLAB_ALLOW_PERSONA"),
             allow_lite_publication=flag(
                 "EA_AUDIOBOOK_VOCALLAB_ALLOW_LITE_PUBLICATION"
             ),
@@ -465,7 +465,7 @@ class VocalLabProvider(BaseAudiobookTtsProvider):
             self.config.allow_cross_provider_fallback,
             self.config.allow_clones,
             self.config.allow_community_voices,
-            self.config.allow_memorial,
+            self.config.allow_persona,
             self.config.allow_lite_publication,
         )
         state_root = Path(self.config.account_state_root)
@@ -800,8 +800,8 @@ class VocalLabProvider(BaseAudiobookTtsProvider):
             raise self._failure("provider_auto_render_disabled")
         if request.provider_selection == "fallback":
             raise self._failure("cross_provider_fallback_disabled")
-        if request.workload == "memorial" or "memorial" in request.job_id.lower():
-            raise self._failure("memorial_provider_use_blocked")
+        if request.workload == "sensitive_persona" and not self.config.allow_persona:
+            raise self._failure("sensitive_persona_provider_use_blocked")
         if request.model not in VOCALLAB_MODELS:
             raise self._failure("model_not_allowed")
         if (

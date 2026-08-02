@@ -31,7 +31,7 @@ def test_playback_probe_launches_the_resolved_installed_chromium(
 
     monkeypatch.setattr(
         playback,
-        "_resolve_chromium_executable",
+        "resolve_chromium_executable",
         lambda _playwright: ("/usr/bin/chromium", "system:chromium"),
     )
     assert playback._launch_chromium(Playwright()) is launched
@@ -42,7 +42,7 @@ def test_playback_probe_fails_closed_without_a_chromium_runtime(
 ) -> None:
     monkeypatch.setattr(
         playback,
-        "_resolve_chromium_executable",
+        "resolve_chromium_executable",
         lambda _playwright: (None, "unavailable"),
     )
     with pytest.raises(RuntimeError, match="playback_chromium_unavailable"):
@@ -61,7 +61,7 @@ def test_playback_probe_normalizes_chromium_launch_failure(
 
     monkeypatch.setattr(
         playback,
-        "_resolve_chromium_executable",
+        "resolve_chromium_executable",
         lambda _playwright: ("/usr/bin/chromium", "system:chromium"),
     )
     with pytest.raises(RuntimeError, match="playback_chromium_launch_failed") as captured:

@@ -23,11 +23,19 @@ WORKLLM_RUNTIME_ENABLED=0
 
 def test_verifier_writes_candidate_only_redacted_receipt(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
     env_path = tmp_path / ".env"
     output_path = tmp_path / "receipt.json"
     _write_env(env_path)
 
+    monkeypatch.setattr(
+        "scripts.verify_workllm_sidecar.PUBLIC_REACHABILITY_RECEIPT",
+        Path(__file__).resolve().parents[1]
+        / ".codex-studio"
+        / "published"
+        / "WORKLLM_PUBLIC_REACHABILITY.missing.test.json",
+    )
     receipt = build_receipt(
         env_path=env_path,
         output_path=output_path,
@@ -39,7 +47,7 @@ def test_verifier_writes_candidate_only_redacted_receipt(
     assert receipt["verdict"] == "CANDIDATE_ONLY"
     assert receipt["checks"]["local_contract_ready"] is True
     assert receipt["checks"]["credentials_protected"] is True
-    assert receipt["checks"]["tenant_surface_reachable"] is True
+    assert receipt["checks"]["tenant_surface_reachable"] is False
     assert receipt["promotion"]["account_verified"] is False
     assert receipt["promotion"]["provider_verified"] is False
     assert receipt["promotion"]["manual_lane_promoted"] is False

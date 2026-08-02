@@ -22,9 +22,7 @@ if str(ROOT) not in sys.path:
 
 from scripts.source_state_head import resolve_source_state_head  # noqa: E402
 from scripts.source_state_head import resolve_source_worktree_fingerprint  # noqa: E402
-from scripts.measure_memorial_live_browser import (  # noqa: E402
-    _resolve_chromium_executable,
-)
+from app.services.browser_runtime import resolve_chromium_executable  # noqa: E402
 
 
 def _now_iso() -> str:
@@ -156,7 +154,7 @@ def _select_track_response(
 
 
 def _launch_chromium(playwright):  # type: ignore[no-untyped-def]
-    executable_path, _executable_source = _resolve_chromium_executable(playwright)
+    executable_path, _executable_source = resolve_chromium_executable(playwright)
     if not executable_path:
         raise RuntimeError("whatsapp_audiobook_playback_chromium_unavailable")
     try:

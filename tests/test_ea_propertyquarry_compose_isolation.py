@@ -28,12 +28,3 @@ def test_ea_public_tours_use_a_dedicated_myexternalbrain_volume() -> None:
         in service.get("volumes", [])
     }
     assert mounted_services == {"ea-api", "ea-responses-proxy", "ea-worker"}
-
-
-def test_memorial_overlay_is_memorial_only_and_propertyquarry_env_free() -> None:
-    raw = MEMORIAL_COMPOSE.read_text(encoding="utf-8")
-
-    assert "- EA_DEPLOY_PRIMARY_MODE=MEMORIAL\n" in raw
-    assert "- EA_DEPLOY_ENABLED_MODES=MEMORIAL\n" in raw
-    assert "EA_DEPLOY_ENABLED_MODES=MEMORIAL,PROPERTY" not in raw
-    assert "PROPERTYQUARRY_" not in raw

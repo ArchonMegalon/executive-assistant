@@ -7,10 +7,8 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from scripts.materialize_memorial_operator_status import _source_dirty_summary
     from scripts.source_state_head import source_worktree_metadata
 except ModuleNotFoundError:  # pragma: no cover - direct script execution path
-    from materialize_memorial_operator_status import _source_dirty_summary
     from source_state_head import source_worktree_metadata
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,10 +18,123 @@ PRIORITY_CATEGORY_REASONS = {
     "api_routes": "runtime and public-route behavior can invalidate public receipts",
     "services": "provider, audio, and runtime services can invalidate latency or speech receipts",
     "app_core": "application wiring can invalidate deployment/runtime proof",
-    "templates": "user-facing templates can invalidate UX and memorial dignity proof",
+    "templates": "user-facing templates can invalidate UX and public-surface proof",
     "scripts": "materializers and verifiers can invalidate operator evidence",
     "deploy_runtime": "compose, Docker, and deploy scripts can invalidate public-origin proof",
 }
+
+
+def _source_dirty_category(path: str) -> str:
+    normalized = str(path or "").strip()
+    if not normalized:
+        return "other"
+    if normalized.startswith(".env") or normalized.endswith(".env") or "/.env" in normalized:
+        return "env_examples"
+    if normalized.startswith("docs-public/"):
+        return "public_docs"
+    if normalized.startswith(".codex-design/product/"):
+        return "design_mirror"
+    if normalized.startswith(".codex-studio/published/"):
+        return "generated_receipts"
+    if normalized.startswith("docker-compose") or normalized.startswith("ea/Dockerfile") or normalized in {
+        "Dockerfile",
+        "Dockerfile.operator",
+    }:
+        return "deploy_runtime"
+    if normalized.startswith("ea/app/api/routes/"):
+        return "api_routes"
+    if normalized.startswith("ea/app/services/"):
+        return "services"
+    if normalized.startswith("ea/app/templates/"):
+        return "templates"
+    if normalized.startswith("ea/app/"):
+        return "app_core"
+    if normalized.startswith("ea/tests/") or normalized.startswith("tests/"):
+        return "tests"
+    if normalized.startswith("scripts/") or normalized.startswith("ea/scripts/"):
+        return "scripts"
+    if normalized.startswith("data/"):
+        return "data"
+    if normalized.endswith(".md") or normalized in {
+        "README.md",
+        "CHANGELOG.md",
+        "RUNBOOK.md",
+        "RELEASE_CHECKLIST.md",
+        "LTDs.md",
+    }:
+        return "docs"
+    if normalized in {"Makefile", ".gitignore"}:
+        return "repo_config"
+    return "other"
+
+
+def _source_dirty_summary(source_worktree: dict[str, object]) -> dict[str, object]:
+    files = [
+        str(item).strip()
+        for item in list(source_worktree.get("source_dirty_files") or [])
+        if str(item).strip()
+    ]
+    groups: dict[str, dict[str, object]] = {}
+    for path in files:
+        category = _source_dirty_category(path)
+        group = groups.setdefault(
+            category,
+            {"category": category, "visible_count": 0, "sample_files": []},
+        )
+        group["visible_count"] = int(group.get("visible_count") or 0) + 1
+        samples = list(group.get("sample_files") or [])
+        if len(samples) < 8:
+            samples.append(path)
+        group["sample_files"] = samples
+    category_order = (
+        "api_routes",
+        "services",
+        "app_core",
+        "templates",
+        "scripts",
+        "deploy_runtime",
+        "env_examples",
+        "public_docs",
+        "docs",
+        "tests",
+        "design_mirror",
+        "generated_receipts",
+        "data",
+        "repo_config",
+        "other",
+    )
+    ordered_groups = sorted(
+        groups.values(),
+        key=lambda item: (
+            category_order.index(str(item.get("category")))
+            if str(item.get("category")) in category_order
+            else 999,
+            str(item.get("category")),
+        ),
+    )
+    visible_count = len(files)
+    total_count = int(source_worktree.get("source_dirty_count") or visible_count)
+    omitted_count = int(source_worktree.get("source_dirty_omitted_count") or 0)
+    dirty = bool(source_worktree.get("source_worktree_dirty"))
+    return {
+        "status": "dirty" if dirty else "clean",
+        "total_count": total_count,
+        "visible_count": visible_count,
+        "omitted_count": omitted_count,
+        "category_count": len(ordered_groups),
+        "categories": ordered_groups,
+        "recommended_first_action": (
+            "review_and_commit_or_stash_source_groups_before_clean_receipts"
+            if dirty
+            else "none"
+        ),
+        "operator_hint": (
+            "Start with api_routes/services/scripts/deploy_runtime groups; "
+            "generated-only receipt changes do not explain clean-clone proof failures."
+            if dirty
+            else "Source worktree is clean for clean-clone receipt refresh."
+        ),
+    }
 
 
 def build_report(
@@ -206,16 +317,17 @@ def _recommended_commands(*, status: str) -> list[str]:
             "scripts/inspect_source_dirty_groups.py --category <category> --limit 20",
             "make inspect-source-dirty-groups",
             "commit or stash source groups before clean receipt refresh",
-            "make materialize-memorial-public-auto-receipts-clean",
+            "make materialize-release-authority-status",
+            "make verify-release-authority",
         ]
     return [
-        "make materialize-memorial-public-auto-receipts-clean",
-        "make materialize-memorial-public-gold",
+        "make materialize-release-authority-status",
+        "make verify-release-authority",
     ]
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Inspect source-dirty groups blocking clean memorial receipt refresh.")
+    parser = argparse.ArgumentParser(description="Inspect source-dirty groups blocking clean release receipt refresh.")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON instead of text.")
     parser.add_argument(
         "--limit",

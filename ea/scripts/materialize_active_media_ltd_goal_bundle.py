@@ -18,28 +18,18 @@ VERIFICATION_RECEIPTS: dict[str, str | None] = {
     "audiobook_live_readiness": ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
     "audiobook_m4b_structure": ".codex-studio/published/audiobook_m4b_structure_probe/audiobook_m4b_structure_probe.generated.json",
     "audiobook_quality": ".codex-studio/published/ea_audiobook_epub_quality_contract.generated.json",
-    "chatlab_contract": ".codex-studio/published/memorial_chatlab_contract.generated.json",
-    "chatlab_route_surface": ".codex-studio/published/memorial_chatlab_route_surface.generated.json",
-    "chatlab_runtime_preflight": ".codex-studio/published/memorial_chatlab_runtime_preflight.generated.json",
     "cinematic_continuity_demo": ".codex-studio/published/cinematic_narration_continuity_demo/cinematic_narration_continuity_demo.generated.json",
     "cinematic_media_contract": None,
-    "manfred_realtime_readiness": ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
     "promo_public_route_surface": ".codex-studio/published/ea_promo_public_route_surface.generated.json",
     "promo_quality_rubric": ".codex-studio/published/ea_promo_video_fallback/ashline-circle/promo_quality_rubric.generated.json",
     "promo_review_bundle": ".codex-studio/published/ea_promo_video_fallback/ashline-circle/promo_review_bundle.generated.json",
 }
 
 REMAINING_EXTERNAL_PROOFS = [
-    "ChatLab account capability receipt",
-    "ChatLab live runtime probe receipt",
-    "ChatLab no-private-context-upload runtime receipt",
-    "ChatLab guardrail-preservation runtime receipt",
     "named promo video provider account/runtime proof",
     "deployed public promo route browser proof",
     "human review approval for public promo publication",
     "real user EPUB render and playback acceptance evidence",
-    "real Manfred realtime conversation room acceptance evidence",
-    "real Manfred spoken-conversation STT/TTS roundtrip evidence",
 ]
 
 
@@ -98,7 +88,7 @@ def _default_external_posture(template: dict[str, Any]) -> dict[str, Any]:
         },
     )
     posture.setdefault(
-        "manfred_spoken_conversation",
+        "spoken_conversation",
         {
             "status": "blocked_external_proof",
             "premium_spoken_claim_allowed": False,
@@ -114,7 +104,7 @@ def _default_external_posture(template: dict[str, Any]) -> dict[str, Any]:
             "captured_candidate_diagnostic": {"status": "blocked", "promotion_allowed": False, "row_failure_codes": []},
         },
     )
-    spoken = dict(posture["manfred_spoken_conversation"])
+    spoken = dict(posture["spoken_conversation"])
     spoken["premium_spoken_claim_allowed"] = spoken.get("status") == "ready_for_premium_review"
     spoken.setdefault("privacy", {})["raw_private_context_exposed"] = False
     attestation = dict(spoken.get("room_audio_attestation_packet") or {})
@@ -125,7 +115,7 @@ def _default_external_posture(template: dict[str, Any]) -> dict[str, Any]:
         required.append("normal_spoken_turn_confirmed")
     attestation["required_check_ids"] = required
     spoken["room_audio_attestation_packet"] = attestation
-    posture["manfred_spoken_conversation"] = spoken
+    posture["spoken_conversation"] = spoken
     return posture
 
 
@@ -139,8 +129,8 @@ def _template() -> dict[str, Any]:
             "telegram_epub_audiobook_voice_quality",
             "telegram_epub_audiobook_live_readiness",
             "chaptered_m4b_with_cover_art",
-            "manfred_chatlab_ltd_boundary",
-            "manfred_realtime_conversation_speaker_readiness",
+            "spoken_conversation_provider_boundary",
+            "realtime_conversation_speaker_readiness",
             "continuous_cinematic_narration",
             "local_fallback_promo_video_quality",
         ],

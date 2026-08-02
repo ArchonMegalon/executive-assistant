@@ -471,9 +471,19 @@ def test_landing_quality_receipt_refresh_preserves_acceptance_capture_contract(
     monkeypatch,
 ) -> None:
     quality_path = tmp_path / "quality.json"
+    acceptance_path = tmp_path / "acceptance.json"
     monkeypatch.setattr(landing_actions, "EA_QUALITY_READINESS_RECEIPT", quality_path)
+    monkeypatch.setattr(
+        landing_actions,
+        "EA_ACCEPTANCE_EVIDENCE_RECEIPT",
+        acceptance_path,
+    )
 
     receipt = landing_actions._default_acceptance_receipt()  # noqa: SLF001
+    acceptance_path.write_text(
+        json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     landing_actions._update_quality_receipt_from_acceptance(receipt)  # noqa: SLF001
 
     verification = verify_executive_assistant_quality_readiness(quality_path)

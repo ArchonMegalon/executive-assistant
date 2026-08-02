@@ -531,7 +531,7 @@ def test_admin_goal_evidence_surface_shows_receipts_without_completion_overclaim
                     "promo_public_route_surface": {"status": "pass", "issues": [], "receipt": {"path": "promo-route.json"}},
                 },
                 "external_proof_posture": {
-                    "manfred_spoken_conversation": {
+                    "spoken_conversation": {
                         "status": "blocked_external_proof",
                         "next_action": "collect_real_room_audio_attestation",
                         "blocking_actions": [
@@ -767,21 +767,12 @@ def test_admin_goal_evidence_surface_shows_receipts_without_completion_overclaim
     assert "provider_runtime_failures" in goals.text
     assert "run_session" in goals.text
     assert "Scope goals" in goals.text
-    assert "ChatLab live runtime probe receipt" in goals.text
     assert "closed-loop signal-to-decision follow-through receipt accepted by the operator" in goals.text
-    assert "/memorials/manfred/chatlab/status" in goals.text
-    assert "Open ChatLab status" in goals.text
     assert "/ledger/factions/ashline-circle/promo" in goals.text
     assert "Open promo page" in goals.text
-    assert "real Manfred spoken-conversation STT/TTS roundtrip evidence" in goals.text
-    assert "/admin/memorials/manfred/gold" in goals.text
-    assert "Open voice gold" in goals.text
-    assert "/memorials/manfred/voice-config" in goals.text
-    assert "Spoken conversation proof" in goals.text
-    assert "collect_real_room_audio_attestation" in goals.text
     assert "Open Today" in goals.text
     assert "Open approvals" in goals.text
-    assert "Audiobook, ChatLab, cinematic, and promo local checks" in goals.text
+    assert "Active media/LTD bundle" in goals.text
     assert "Completion remains blocked" in goals.text
     assert "does not create canonical product, release, support, or memory truth" in goals.text
 

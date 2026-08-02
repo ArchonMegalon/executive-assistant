@@ -143,13 +143,6 @@ def test_hard_exit_scripts_wire_codexea_e2e_gate() -> None:
     assert "bash scripts/verify_codexea_e2e_exit_gate.sh" in runtime_hard_exit
 
 
-def test_smoke_help_includes_memorial_deploy_readiness_verifier() -> None:
-    smoke_help = (ROOT / "scripts" / "smoke_help.sh").read_text(encoding="utf-8")
-
-    assert "scripts/verify_memorial_deploy_readiness.py" in smoke_help
-    assert "scripts/verify_codexea_fleet_shim_parity.py" in smoke_help
-
-
 def test_hard_exit_help_mentions_codexea_e2e_gate() -> None:
     completed = subprocess.run(
         ["bash", str(ROOT / "scripts" / "hard_exit_gates.sh"), "--help"],

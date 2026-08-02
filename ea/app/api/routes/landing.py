@@ -30,12 +30,6 @@ from app.api.routes.landing_browser import (
     _shared_browser_fields,
     _workspace_session_cookie_kwargs,
 )
-from app.api.routes.landing_archive_support import (
-    _archive_home_html,
-    _archive_public_registry,
-    _archive_publication_html_path,
-    _is_archive_host,
-)
 from app.api.routes import landing_access_support as access_support
 from app.api.routes.landing_content import (
     ADMIN_NAV_GROUPS,
@@ -137,10 +131,6 @@ router = APIRouter(tags=["landing"])
 
 @router.get("/robots.txt", include_in_schema=False, response_class=PlainTextResponse)
 def robots_txt(request: Request) -> PlainTextResponse:
-    if _is_archive_host(request):
-        response = PlainTextResponse("User-agent: *\nDisallow: /\n")
-        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
-        return response
     lines = [
         "User-agent: *",
         "Allow: /",
@@ -153,7 +143,6 @@ def robots_txt(request: Request) -> PlainTextResponse:
         "Disallow: /register",
         "Disallow: /get-started",
         "Disallow: /setup",
-        "Disallow: /memorials",
     ]
     return PlainTextResponse("\n".join(lines) + "\n")
 def _property_search_platform_catalog() -> tuple[dict[str, str], ...]:

@@ -70,9 +70,9 @@ class SpeechSynthesisRequest:
 
     # These defaults preserve the Phase-1 call surface while allowing provider
     # policy to distinguish an explicit audiobook request from automatic,
-    # preview, or memorial work.  They are authority inputs, not provider
+    # preview, or sensitive persona work.  They are authority inputs, not provider
     # inferences.
-    workload: Literal["audiobook", "voice_audition", "memorial"] = "audiobook"
+    workload: Literal["audiobook", "voice_audition", "sensitive_persona"] = "audiobook"
     provider_selection: Literal["explicit", "automatic", "fallback"] = "explicit"
     publication_intent: bool = True
     cast_snapshot_sha256: str = ""

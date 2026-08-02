@@ -430,7 +430,7 @@ def materialize_telegram_audiobook_live_readiness(
             key="unmixr_cinematic_narration_enabled",
             status=_status_from_check(checks, "unmixr_cinematic_narration_enabled", True),
             env_var_names=["EA_AUDIOBOOK_CINEMATIC_NARRATION"],
-            operator_action="Keep cinematic narration enabled for premium memorial audiobook output.",
+            operator_action="Keep cinematic narration enabled for premium audiobook output.",
         ),
         _item(
             key="unmixr_auto_render_enabled",

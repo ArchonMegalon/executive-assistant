@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import hmac
 import json
 import os
 from pathlib import Path
@@ -34,14 +33,6 @@ def _require_propertyquarry_brand(request: Request) -> None:
 authenticated_router = APIRouter(tags=["fliplink"], dependencies=[Depends(_require_propertyquarry_brand)])
 public_router = APIRouter(prefix="/v1/integrations/fliplink", tags=["fliplink"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
-
-_MEMORIAL_PUBLIC_JSON_HEADERS = {
-    "Cache-Control": "no-store",
-    "Referrer-Policy": "no-referrer",
-    "X-Content-Type-Options": "nosniff",
-    "X-Robots-Tag": "noindex, nofollow",
-}
-
 
 PacketKindLiteral = Literal[
     "owner_review",
@@ -147,22 +138,6 @@ def _content_length(request: Request, *, invalid_detail: str) -> int:
     if value < 0:
         raise HTTPException(status_code=400, detail=invalid_detail)
     return value
-
-
-def _memorial_public_error_response(status_code: int, detail: str) -> JSONResponse:
-    code = str(detail or "request_failed").strip() or "request_failed"
-    return JSONResponse(
-        status_code=status_code,
-        headers=dict(_MEMORIAL_PUBLIC_JSON_HEADERS),
-        content={
-            "detail": code,
-            "error": {
-                "code": code,
-                "message": code,
-                "details": code,
-            },
-        },
-    )
 
 
 def _publication_out(row: dict[str, object], *, analytics: dict[str, object] | None = None) -> dict[str, object]:
@@ -676,40 +651,3 @@ async def fliplink_webhook(
     if not isinstance(payload, dict):
         raise HTTPException(status_code=422, detail="fliplink_webhook_object_required")
     return service.ingest_lead_webhook(payload=payload, secret_mode=secret_mode)
-
-
-@public_router.post("/memorials/{slug}/webhook")
-async def memorial_fliplink_webhook(
-    slug: str,
-    request: Request,
-    container: AppContainer = Depends(get_container),
-) -> JSONResponse:
-    try:
-        expected_secret = str(os.getenv("EA_MEMORIAL_FLIPLINK_WEBHOOK_SECRET") or "").strip()
-        if not expected_secret:
-            raise HTTPException(status_code=503, detail="memorial_fliplink_webhook_secret_not_configured")
-        provided_secret = str(request.headers.get("x-memorial-fliplink-secret") or "").strip()
-        if not provided_secret or not hmac.compare_digest(provided_secret, expected_secret):
-            raise HTTPException(status_code=401, detail="memorial_fliplink_webhook_secret_invalid")
-        content_length = _content_length(request, invalid_detail="invalid_memorial_fliplink_webhook_content_length")
-        if content_length > 64_000:
-            raise HTTPException(status_code=413, detail="memorial_fliplink_webhook_payload_too_large")
-        try:
-            raw_body = await request.body()
-            if len(raw_body) > 64_000:
-                raise HTTPException(status_code=413, detail="memorial_fliplink_webhook_payload_too_large")
-            payload = json.loads(raw_body)
-        except Exception as exc:
-            if isinstance(exc, HTTPException):
-                raise exc
-            raise HTTPException(status_code=400, detail="invalid_memorial_fliplink_webhook_json") from exc
-        if not isinstance(payload, dict):
-            raise HTTPException(status_code=422, detail="memorial_fliplink_webhook_object_required")
-        service = build_fliplink_packet_service(container)
-        try:
-            response_payload = service.stage_memorial_contribution_candidate(slug=slug, payload=payload)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return JSONResponse(response_payload, headers=dict(_MEMORIAL_PUBLIC_JSON_HEADERS))
-    except HTTPException as exc:
-        return _memorial_public_error_response(exc.status_code, str(exc.detail))

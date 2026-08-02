@@ -253,9 +253,9 @@ LANES: tuple[ProviderLane, ...] = (
         integration_lane="voice_tts_runtime",
         verified_state="verified_runtime_lane",
         missing_state="blocked_pending_proof",
-        off_switch_env=("EA_UNMIXR_VOICE_RUNTIME_ENABLED", "EA_MEMORIAL_UNMIXR_ENABLED"),
+        off_switch_env=("EA_UNMIXR_VOICE_RUNTIME_ENABLED",),
         source_of_truth="EA consent registry and runtime config own voice eligibility truth; Unmixr only synthesizes approved text.",
-        allowed_inputs=("consented_memorial_tts", "chummer_promo_narration", "black_ledger_dispatch_narration"),
+        allowed_inputs=("consented_persona_tts", "chummer_promo_narration", "black_ledger_dispatch_narration"),
         forbidden_inputs=(
             "ad_hoc_public_voice_cloning",
             "user_supplied_voice_id",
@@ -306,7 +306,7 @@ LANES: tuple[ProviderLane, ...] = (
         forbidden_inputs=(
             "private_campaign_data",
             "user_submission",
-            "private_memorial_memory",
+            "private_persona_memory",
             "sourcebook_copied_text",
             "product_truth",
             "release_truth",
@@ -330,7 +330,7 @@ LANES: tuple[ProviderLane, ...] = (
         missing_state="blocked_pending_proof",
         off_switch_env=("EA_RAFTER_SECURITY_GATE_ENABLED", "EA_PIXEFY_VISUAL_GATE_ENABLED"),
         source_of_truth="Fleet/Chummer release process owns release truth; Rafter and Pixefy provide auxiliary gate evidence.",
-        allowed_inputs=("ea_app_surface_release_candidate", "memorial_landing_change", "black_ledger_newsroom_change", "security_scan_target"),
+        allowed_inputs=("ea_app_surface_release_candidate", "black_ledger_newsroom_change", "security_scan_target"),
         forbidden_inputs=("product_truth", "release_truth", "roadmap_truth", "direct_publish", "source_code_mutation"),
         normalized_signal_schema=(),
         required_checks=(
@@ -552,7 +552,7 @@ LANES: tuple[ProviderLane, ...] = (
         off_switch_env=("EA_VIDEO_PROVIDER_BAKEOFF_ENABLED",),
         source_of_truth="EA storyboards, safety scans, and human approval own publication truth; providers produce candidates only.",
         allowed_inputs=("storyboard_packet", "presenter_test_prompt", "map_b_roll_brief", "poster_frame_brief"),
-        forbidden_inputs=("direct_publish", "unconsented_likeness", "private_memorial_memory", "sourcebook_text", "product_proof"),
+        forbidden_inputs=("direct_publish", "unconsented_likeness", "private_persona_memory", "sourcebook_text", "product_proof"),
         normalized_signal_schema=(),
         required_checks=(
             LaneCheck("providers_recorded", "All providers are recorded in LTDs.md.", "Inventory rows exist."),
@@ -887,11 +887,7 @@ def _check_passed(
         ok = _passing_json_receipt(root, "ea/_completion/unmixr/UNMIXR_VOICE_ROUNDTRIP.generated.json", "_completion/unmixr/UNMIXR_VOICE_ROUNDTRIP.generated.json")
         return ok, "roundtrip_receipt_present" if ok else "roundtrip_receipt_missing"
     if key == "piper_fallback_policy":
-        ok = "piper" in markdown_text.lower() or _existing_receipt(
-            root,
-            "ea/docs/memorial_realtime_voice_redesign.md",
-            "docs/memorial_realtime_voice_redesign.md",
-        )
+        ok = "piper" in markdown_text.lower()
         return ok, "fallback_policy_present" if ok else "fallback_policy_missing"
     if key in {"commercial_use", "watermark_export", "watermark_duration_export", "credit_budget", "safety_scan", "human_review", "likeness_policy", "quality_score"}:
         if key == "human_review" and lane.lane_key == "markupgo_fliplink_premium_delivery":

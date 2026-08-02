@@ -8914,7 +8914,7 @@ def test_audiobook_runtime_preflight_keeps_optional_player_access_base_url_and_b
 
 
 def test_unmixr_short_tts_uses_fallback_api_key_after_throttle(monkeypatch, tmp_path: Path) -> None:
-    from app.services import memorial_openvoice
+    from app.services.audiobook_tts.providers import unmixr_runtime
 
     for name in list(os.environ):
         if name.startswith("UNMIXR_API_KEY_FALLBACK_"):
@@ -8945,10 +8945,10 @@ def test_unmixr_short_tts_uses_fallback_api_key_after_throttle(monkeypatch, tmp_
     def fake_get(url, timeout=None):
         return FakeResponse(status_code=200, content=b"RIFF....WAVE", headers={"Content-Type": "audio/wav"})
 
-    monkeypatch.setattr(memorial_openvoice.requests, "request", fake_request)
-    monkeypatch.setattr(memorial_openvoice.requests, "get", fake_get)
+    monkeypatch.setattr(unmixr_runtime.requests, "request", fake_request)
+    monkeypatch.setattr(unmixr_runtime.requests, "get", fake_get)
 
-    audio, content_type = memorial_openvoice.unmixr_synthesize_request(
+    audio, content_type = unmixr_runtime.unmixr_synthesize_request(
         text="Hello",
         voice_id="voice-1",
         lang="en-US",

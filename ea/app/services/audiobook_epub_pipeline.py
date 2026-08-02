@@ -32,12 +32,12 @@ import wave
 import zipfile
 import xml.etree.ElementTree as ET
 
-from app.services.memorial_openvoice import (
+from app.services.audiobook_tts.providers.unmixr_runtime import (
     piper_fast_synthesize_request,  # noqa: F401 - compatibility patch surface
     unmixr_language,  # noqa: F401 - compatibility patch surface
     unmixr_api_key,
     unmixr_api_key_slot_count,
-    unmixr_memorial_voice_id,
+    unmixr_default_voice_id,
     unmixr_pronunciation_dict,
     unmixr_speaking_pitch,
     unmixr_speaking_rate,
@@ -2816,7 +2816,7 @@ def load_unmixr_voice_presets(*, target_count: int | None = None) -> tuple[Voice
             return ()
     discovered = discover_audiobook_voice_presets(target_count=target_count or audiobook_voice_discovery_target_count())
     if discovered:
-        default_voice_id = unmixr_memorial_voice_id()
+        default_voice_id = unmixr_default_voice_id()
         if default_voice_id and all(preset.voice_id != default_voice_id for preset in discovered):
             default_label = str(os.getenv("EA_AUDIOBOOK_DEFAULT_VOICE_LABEL") or "Configured audio voice").strip()
             default_tags = _voice_tags_with_inferred_gender(
@@ -2837,7 +2837,7 @@ def load_unmixr_voice_presets(*, target_count: int | None = None) -> tuple[Voice
                 *discovered,
             )
         return discovered
-    default_voice_id = unmixr_memorial_voice_id()
+    default_voice_id = unmixr_default_voice_id()
     if not default_voice_id:
         return ()
     default_label = str(os.getenv("EA_AUDIOBOOK_DEFAULT_VOICE_LABEL") or "Configured audio voice").strip()
@@ -7918,8 +7918,7 @@ def _synthesize_unmixr_with_retries(
         try:
             provider = UnmixrProvider(
                 # Preserve the long-standing module monkeypatch seam used by
-                # the EPUB regression suite while memorial callers remain
-                # entirely on memorial_openvoice.
+                # the EPUB regression suite.
                 synthesize_request=unmixr_synthesize_request,
                 speaking_rate=speaking_rate,
                 speaking_pitch=speaking_pitch,
@@ -13546,7 +13545,7 @@ def _safe_receipt_pacing(value: object) -> dict[str, object]:
         "azw",
         "azw3",
         "epub",
-        "memorial",
+        "persona_archive",
         "mobi",
         "origin_dossier",
         "prc",
@@ -17635,21 +17634,10 @@ def _transcribe_audiobook_publication_stt_sample(*, sample_path: Path, language:
     cartesia = _transcribe_audiobook_publication_stt_sample_with_cartesia(sample_path=sample_path, language=language)
     if str(cartesia.get("status") or "") == "transcribed" or str(cartesia.get("reason") or "") != "cartesia_api_key_missing":
         return cartesia
-    try:
-        from app.api.routes import public_memorials
-
-        result = public_memorials._memorial_transcribe_audio_blob(  # noqa: SLF001
-            payload=sample_path.read_bytes(),
-            content_type="audio/wav",
-            language=language,
-        )
-    except Exception as exc:
-        return {"status": "failed", "reason": type(exc).__name__, "transcriber": "runtime"}
     return {
-        "status": str(result.get("transcription_status") or "").strip() or "unknown",
-        "reason": str(result.get("detail") or result.get("reason") or "").strip(),
-        "transcript_text": str(result.get("transcript_text") or "").strip(),
-        "transcriber": str(result.get("transcriber") or "runtime").strip(),
+        "status": "failed",
+        "reason": "cartesia_api_key_missing",
+        "transcriber": "cartesia/ink-whisper",
     }
 
 

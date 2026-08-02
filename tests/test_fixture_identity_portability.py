@@ -8,7 +8,6 @@ PORTABLE_FIXTURE_FILES = (
     "tests/test_proactive_telegram_binding.py",
     "tests/e2e/test_telegram_bot_workflows.py",
     "tests/e2e/test_telegram_bot_outbound_workflows.py",
-    "tests/test_memorial_memory_service.py",
     "tests/test_whatsapp_web_session_activation_script.py",
     "tests/test_whatsapp_web_session_activation_watch_script.py",
     "tests/test_whatsapp_delivery_outbox.py",
@@ -27,7 +26,6 @@ PORTABLE_FIXTURE_FILES = (
     "tests/test_ltd_provider_governance.py",
     "tests/test_blip_operator_capture_packet.py",
     "tests/test_responses_upstream.py",
-    "tests/test_memorial_live_conversation_contracts.py",
     "tests/test_sync_env_to_teable.py",
     "tests/test_tool_execution.py",
 )

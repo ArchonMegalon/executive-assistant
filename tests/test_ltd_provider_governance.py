@@ -155,7 +155,7 @@ def test_lane_boundaries_match_provider_risks() -> None:
 
     poppy = lane_by_key("poppy_draft_workbench")
     assert poppy is not None
-    assert {"private_campaign_data", "user_submission", "private_memorial_memory", "product_truth"} <= set(
+    assert {"private_campaign_data", "user_submission", "private_persona_memory", "product_truth"} <= set(
         poppy.forbidden_inputs
     )
 

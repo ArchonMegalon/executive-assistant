@@ -21,33 +21,6 @@ def _request(*, client_host: str) -> Request:
     )
 
 
-def test_health_live_redacts_memorial_probe_for_non_loopback(monkeypatch) -> None:
-    monkeypatch.setenv("EA_HEALTHCHECK_MEMORIAL_SLUG", "manfred")
-    monkeypatch.setattr(
-        health,
-        "_probe_public_memorial_surface",
-        lambda slug: {"slug": slug, "voice_plugin": "unmixr_clone", "audio_clip_count": 3, "elapsed_ms": 8.4},
-    )
-
-    response = asyncio.run(health.health_live(_request(client_host="198.51.100.10")))
-
-    assert response == {"status": "live"}
-
-
-def test_health_live_loopback_reports_enabled_unmounted_memorial_runtime(monkeypatch) -> None:
-    monkeypatch.setenv("EA_HEALTHCHECK_MEMORIAL_SLUG", "manfred")
-    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
-    monkeypatch.setenv("EA_ENABLE_PUBLIC_SIDE_SURFACES", "1")
-
-    response = asyncio.run(health.health_live(_request(client_host="127.0.0.1")))
-
-    assert response["status"] == "live"
-    assert response["memorial_runtime"]["state"] == "enabled_unmounted"
-    assert response["memorial_runtime"]["configured_enabled"] is True
-    assert response["memorial_runtime"]["route_mounted"] is False
-    assert response["memorial_runtime"]["next_action"] == "start_runtime_with_memorial_overlay"
-
-
 def test_version_redacts_runtime_metadata_for_non_loopback(monkeypatch) -> None:
     summary = {
         "state": "clear",

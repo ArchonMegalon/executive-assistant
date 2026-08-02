@@ -23,10 +23,6 @@ def _steps() -> tuple[ReleaseMaterializerStep, ...]:
             command=("scripts/materialize_ea_browser_workflow_proof.py",),
         ),
         ReleaseMaterializerStep(
-            name="memorial_spatial_tour_public_origin",
-            command=("scripts/materialize_memorial_spatial_tour_public_origin.py",),
-        ),
-        ReleaseMaterializerStep(
             name="project_mode_manifests",
             command=("scripts/materialize_project_mode_manifests.py",),
         ),
@@ -39,10 +35,6 @@ def _steps() -> tuple[ReleaseMaterializerStep, ...]:
             name="telegram_video_delivery_live_receipt",
             command=("scripts/materialize_telegram_video_delivery_live_receipt.py",),
             extra_env={"PYTHONPATH": "ea"},
-        ),
-        ReleaseMaterializerStep(
-            name="memorial_phrase_bank",
-            command=("scripts/materialize_memorial_phrase_bank.py",),
         ),
         ReleaseMaterializerStep(
             name="ea_provider_contract_receipts",
@@ -74,11 +66,6 @@ def _steps() -> tuple[ReleaseMaterializerStep, ...]:
             command=("scripts/materialize_continuous_improvement_goal_posture.py",),
         ),
         ReleaseMaterializerStep(
-            name="memorial_stt_provider_benchmark",
-            command=("scripts/benchmark_memorial_stt_providers.py",),
-            extra_env={"PYTHONPATH": "ea"},
-        ),
-        ReleaseMaterializerStep(
             name="runtime_dependency_evidence",
             command=("scripts/materialize_runtime_dependency_evidence.py",),
         ),
@@ -106,10 +93,6 @@ def _steps() -> tuple[ReleaseMaterializerStep, ...]:
             name="whole_project_gold_map",
             command=("scripts/materialize_whole_project_gold_map.py",),
             extra_env={"PYTHONPATH": "ea"},
-        ),
-        ReleaseMaterializerStep(
-            name="memorial_operator_status",
-            command=("scripts/materialize_memorial_operator_status.py",),
         ),
     )
 

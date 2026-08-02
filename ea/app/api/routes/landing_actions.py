@@ -133,7 +133,7 @@ _REQUIRED_SIGNAL_SOURCES = [
     "public_or_premium_publication_reactions",
     "provider_runtime_failures",
     "audiobook_and_media_acceptance",
-    "manfred_spoken_conversation_acceptance",
+    "spoken_conversation_acceptance",
     "telegram_whatsapp_email_channel_friction",
     "release_install_update_friction",
     "privacy_or_boundary_incidents",
@@ -953,7 +953,7 @@ def _refresh_signal_evidence_contract(receipt: dict[str, object]) -> None:
         "decision_items": [
             {"key": "provider_runtime_recovery", "source": "provider_runtime_failures"},
             {"key": "audiobook_acceptance", "source": "audiobook_and_media_acceptance"},
-            {"key": "spoken_conversation_acceptance", "source": "manfred_spoken_conversation_acceptance"},
+            {"key": "spoken_conversation_acceptance", "source": "spoken_conversation_acceptance"},
             {"key": "privacy_boundary_review", "source": "privacy_or_boundary_incidents"},
         ]
     }
@@ -1184,7 +1184,7 @@ def _default_signal_receipt() -> dict[str, object]:
             "decision_items": [
                 {"key": "provider_runtime_recovery", "source": "provider_runtime_failures"},
                 {"key": "audiobook_acceptance", "source": "audiobook_and_media_acceptance"},
-                {"key": "spoken_conversation_acceptance", "source": "manfred_spoken_conversation_acceptance"},
+                {"key": "spoken_conversation_acceptance", "source": "spoken_conversation_acceptance"},
                 {"key": "privacy_boundary_review", "source": "privacy_or_boundary_incidents"},
             ]
         },

@@ -70,7 +70,7 @@ def _with_source_fingerprint(posture: dict[str, object], value: str) -> dict[str
 def _media_action_row() -> dict[str, object]:
     return {
         "key": "telegram_audiobook_live_delivery",
-        "operator_stream": "media_memorial",
+        "operator_stream": "media_archive",
         "proactive_signal_allowed": True,
         "title": "Telegram audiobook live delivery receipt",
         "lens": "deliver",
@@ -183,7 +183,7 @@ def test_goal_action_queue_dedupe_is_stable_across_source_fingerprint_churn() ->
 def test_goal_action_queue_source_ref_changes_when_operator_stream_changes() -> None:
     office_posture = _posture()
     media_posture = _posture()
-    media_posture["operator_action_queue"][0]["operator_stream"] = "media_memorial"  # type: ignore[index]
+    media_posture["operator_action_queue"][0]["operator_stream"] = "media_archive"  # type: ignore[index]
 
     office_signal = goal_action_queue_signals(office_posture, public_base_url="https://ea.test")[0]
     media_signal = goal_action_queue_signals(
@@ -193,7 +193,7 @@ def test_goal_action_queue_source_ref_changes_when_operator_stream_changes() -> 
     )[0]
 
     assert office_signal.payload["operator_stream"] == "office_setup"  # type: ignore[index]
-    assert media_signal.payload["operator_stream"] == "media_memorial"  # type: ignore[index]
+    assert media_signal.payload["operator_stream"] == "media_archive"  # type: ignore[index]
     assert office_signal.source_ref != media_signal.source_ref
     assert office_signal.external_id != media_signal.external_id
 
@@ -225,13 +225,13 @@ def test_goal_action_queue_signal_can_override_allowed_streams() -> None:
         posture,
         limit=1,
         public_base_url="https://ea.test",
-        allowed_operator_streams=("media_memorial",),
+        allowed_operator_streams=("media_archive",),
     )
 
     assert len(signals) == 1
     signal = signals[0]
     assert signal.source_ref.startswith("goal_action_queue:telegram_audiobook_live_delivery:")
-    assert signal.payload["operator_stream"] == "media_memorial"  # type: ignore[index]
+    assert signal.payload["operator_stream"] == "media_archive"  # type: ignore[index]
 
 
 def test_goal_action_queue_signal_builds_decision_ready_stage_packet() -> None:

@@ -93,10 +93,57 @@ def _chromium_launch_kwargs(args: Sequence[str]) -> dict[str, object]:
     return launch_kwargs
 
 
+def _resolve_chromium_executable(playwright: Any) -> tuple[str | None, str]:
+    configured = str(os.getenv(_EXPLICIT_CHROMIUM_EXECUTABLE_ENV) or "").strip()
+    if configured:
+        return configured, "explicit_env"
+
+    default_path = Path(
+        str(getattr(playwright.chromium, "executable_path", "") or "")
+    ).expanduser()
+    if default_path.is_file() and os.access(default_path, os.X_OK):
+        return str(default_path), "playwright_default"
+
+    cache_root = Path(
+        str(os.getenv("PLAYWRIGHT_BROWSERS_PATH") or "").strip()
+        or (Path.home() / ".cache" / "ms-playwright")
+    ).expanduser()
+    if cache_root.is_dir():
+        version_dirs = sorted(
+            (
+                item
+                for item in cache_root.iterdir()
+                if item.is_dir()
+                and item.name.startswith(("chromium-", "chromium_headless_shell-"))
+            ),
+            key=lambda item: item.name,
+            reverse=True,
+        )
+        for version_dir in version_dirs:
+            for relative in (
+                Path("chrome-linux64/chrome"),
+                Path("chrome-linux/chrome"),
+                Path("chrome-headless-shell-linux64/chrome-headless-shell"),
+                Path("chrome-headless-shell-linux/chrome-headless-shell"),
+            ):
+                candidate = version_dir / relative
+                if candidate.is_file() and os.access(candidate, os.X_OK):
+                    return str(candidate), "playwright_cache"
+
+    for command in (
+        "chromium",
+        "chromium-browser",
+        "google-chrome",
+        "google-chrome-stable",
+    ):
+        candidate = shutil.which(command)
+        if candidate:
+            return candidate, "system_path"
+    return None, "playwright_unresolved"
+
+
 def launch_installed_chromium(playwright: Any, *, args: Sequence[str]) -> Any:
     """Honor an explicit browser, else use Playwright then a resolved fallback."""
-    from scripts.measure_memorial_live_browser import _resolve_chromium_executable
-
     launch_kwargs = _chromium_launch_kwargs(args)
     if str(os.getenv(_EXPLICIT_CHROMIUM_EXECUTABLE_ENV) or "").strip():
         executable_path, executable_source = _resolve_chromium_executable(playwright)

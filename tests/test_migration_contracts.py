@@ -349,19 +349,3 @@ def test_smoke_help_has_help_contract_and_operator_help_wiring() -> None:
 
     assert "Usage:" in smoke_help
     assert "scripts/smoke_help.sh" in makefile
-
-
-def test_memorial_deploy_target_uses_memorial_project_mode_and_overlay() -> None:
-    makefile = (ROOT / "Makefile").read_text()
-
-    deploy_target = _make_target_body(makefile, "deploy-ea-memorial")
-    joint_target = _make_target_body(makefile, "deploy-ea-memorial-joint")
-
-    assert 'COMPOSE_PROJECT_NAME=ea \\' in deploy_target
-    assert 'EA_DEPLOY_PRIMARY_MODE=MEMORIAL \\' in deploy_target
-    assert 'EA_DEPLOY_ENABLED_MODES=MEMORIAL \\' in deploy_target
-    assert 'EA_DEPLOY_COMPOSE_OVERRIDES=docker-compose.memorial.yml \\' in deploy_target
-    assert "$(MAKE) deploy-ea-memorial-joint" in deploy_target
-    assert "EA_DEPLOYMENT_ID" in joint_target
-    assert "scripts/deploy_ea_memorial_joint.py" in joint_target
-    assert "scripts/deploy.sh" not in deploy_target + joint_target
