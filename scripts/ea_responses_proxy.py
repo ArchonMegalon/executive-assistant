@@ -314,7 +314,7 @@ class ResponsesProxyHandler(BaseHTTPRequestHandler):
                 return
             payload["store"] = False
             payload["stream"] = False
-            payload["background"] = False
+            payload.pop("background", None)
             payload["tools"] = []
             payload["tool_choice"] = "none"
         profile = _normalize_profile(

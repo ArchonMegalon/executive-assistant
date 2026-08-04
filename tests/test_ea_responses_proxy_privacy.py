@@ -157,7 +157,6 @@ def test_no_retention_http_contract_fixes_principal_and_request_shape(monkeypatc
             "model": "ea-onemin-coder",
             "store": False,
             "stream": False,
-            "background": False,
             "tools": [],
             "tool_choice": "none",
         },
