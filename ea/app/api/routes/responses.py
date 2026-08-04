@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import abc
 import asyncio
+from contextlib import contextmanager
+from contextvars import ContextVar
 import hashlib
 import json
 import logging
@@ -2587,7 +2589,26 @@ def _prune_responses_debug_capture(target_dir: Path) -> None:
             continue
 
 
+_NO_RETENTION_RESPONSE_ACTIVE: ContextVar[bool] = ContextVar(
+    "ea_no_retention_response_active",
+    default=False,
+)
+
+
+@contextmanager
+def _no_retention_response_scope() -> Iterable[None]:
+    """Disable all EA-side response persistence for one synchronous request."""
+
+    token = _NO_RETENTION_RESPONSE_ACTIVE.set(True)
+    try:
+        yield
+    finally:
+        _NO_RETENTION_RESPONSE_ACTIVE.reset(token)
+
+
 def _capture_responses_debug(*, name: str, payload: object) -> None:
+    if _NO_RETENTION_RESPONSE_ACTIVE.get():
+        return
     target_dir = _responses_debug_capture_dir()
     if target_dir is None:
         return
@@ -2611,6 +2632,8 @@ def _capture_responses_debug(*, name: str, payload: object) -> None:
 
 
 def _write_responses_live_summary(*, name: str, payload: object) -> None:
+    if _NO_RETENTION_RESPONSE_ACTIVE.get():
+        return
     try:
         target_dir = Path("/tmp/ea-inline-debug")
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -3461,7 +3484,7 @@ def _rejected_client_fields(
 
 
 def _should_store_response(payload: _ResponsesCreateRequest) -> bool:
-    return payload.store is not False
+    return not _NO_RETENTION_RESPONSE_ACTIVE.get() and payload.store is not False
 
 
 def _brain_router(container: object | None = None) -> BrainRouterService | None:

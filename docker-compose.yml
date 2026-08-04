@@ -334,6 +334,11 @@ services:
         tmpfs:
           size: 65536
           mode: 365
+    networks:
+      default: null
+      public_ingress:
+        aliases:
+          - ea-onemin-manager
     pids_limit: 512
     read_only: true
     cap_drop:
