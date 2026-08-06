@@ -720,8 +720,11 @@ services:
           runtime_uid="$$(id -u)"
           for output_dir in /app/.codex-studio/published /app/.runtime; do
             [ -d "$${output_dir}" ] || continue
-            find "$${output_dir}" -type d -user "$${runtime_uid}" -exec chmod g+rwX,g+s {} +
-            find "$${output_dir}" -type f -user "$${runtime_uid}" -exec chmod g+rw {} +
+            # This is a best-effort ownership repair. Some bind-mounted runtime
+            # subtrees are intentionally private to a different service user;
+            # an EACCES there must not terminate the supervised OODA loop.
+            find "$${output_dir}" -type d -user "$${runtime_uid}" -exec chmod g+rwX,g+s {} + 2>/dev/null || true
+            find "$${output_dir}" -type f -user "$${runtime_uid}" -exec chmod g+rw {} + 2>/dev/null || true
           done
         }
         permission_guard() {

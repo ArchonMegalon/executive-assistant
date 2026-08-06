@@ -116,8 +116,11 @@ repair_ooda_runtime_container_output_permissions() {
     runtime_uid="$(id -u)"
     for output_dir in /app/.codex-studio/published /app/.runtime; do
       [ -d "${output_dir}" ] || continue
-      find "${output_dir}" -type d -user "${runtime_uid}" -exec chmod g+rwX,g+s {} +
-      find "${output_dir}" -type f -user "${runtime_uid}" -exec chmod g+rw {} +
+      # Other runtime users own intentionally private subtrees. Keep this
+      # repair best-effort so those boundaries cannot fail an otherwise
+      # healthy OODA deploy.
+      find "${output_dir}" -type d -user "${runtime_uid}" -exec chmod g+rwX,g+s {} + 2>/dev/null || true
+      find "${output_dir}" -type f -user "${runtime_uid}" -exec chmod g+rw {} + 2>/dev/null || true
     done
   '
 }
