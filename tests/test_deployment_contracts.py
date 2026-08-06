@@ -123,23 +123,35 @@ def test_runtime_builds_bind_the_exact_deploy_source_revision() -> None:
 
 
 def test_runtime_build_context_excludes_local_state_and_secrets() -> None:
+    lines = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
     ignored = {
         line.strip()
-        for line in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+        for line in lines
         if line.strip() and not line.lstrip().startswith("#")
     }
 
+    assert lines[0] == "*"
     assert {
         ".ea-runtime-secrets/",
+        ".ea-runtime-secrets/**",
         ".runtime/",
+        ".runtime/**",
         ".state/",
+        ".state/**",
         ".vexp/",
+        ".vexp/**",
         "data/",
+        "data/**",
         "state/",
+        "state/**",
         "secrets/",
+        "secrets/**",
         "ea/.runtime/",
+        "ea/.runtime/**",
         "ea/state/",
+        "ea/state/**",
         "ea/secrets/",
+        "ea/secrets/**",
         "*.pem",
         "*.key",
         "*.ovpn",
@@ -148,6 +160,26 @@ def test_runtime_build_context_excludes_local_state_and_secrets() -> None:
         "config/*password*",
         "config/*token*",
         "config/*credential*",
+    } <= ignored
+    assert {
+        "!Dockerfile",
+        "!Makefile",
+        "!LTDs.md",
+        "!docker-compose*.yml",
+        "!ea/",
+        "!ea/Dockerfile",
+        "!ea/Dockerfile.operator",
+        "!ea/docker-entrypoint.sh",
+        "!ea/requirements.txt",
+        "!ea/requirements.lock",
+        "!ea/app/",
+        "!ea/app/**",
+        "!ea/_completion/",
+        "!ea/_completion/**",
+        "!scripts/",
+        "!scripts/**",
+        "!deploy/",
+        "!deploy/runtime-image-verification-inputs.txt",
     } <= ignored
 
 
