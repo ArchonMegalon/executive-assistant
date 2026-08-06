@@ -54,6 +54,7 @@ services:
     image: ea-runtime:latest
     container_name: ea-whatsapp-web-activator
     restart: unless-stopped
+    group_add: ["1000"]
     env_file:
       - .ea-runtime-secrets/ea_runtime.env
     working_dir: /app
@@ -141,6 +142,7 @@ services:
     image: ea-runtime:latest
     container_name: ea-whatsapp-web-action-processor
     restart: unless-stopped
+    group_add: ["1000"]
     env_file:
       - .ea-runtime-secrets/ea_runtime.env
     working_dir: /app
@@ -286,6 +288,7 @@ services:
     image: ea-runtime:latest
     container_name: ea-whatsapp-web-teable-sync
     restart: unless-stopped
+    group_add: ["1000"]
     env_file:
       - .ea-runtime-secrets/ea_runtime.env
     working_dir: /app

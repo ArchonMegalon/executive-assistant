@@ -144,6 +144,22 @@ def test_compose_override_declares_whatsapp_web_session_sidecar() -> None:
     assert "name: ea_whatsapp_web_teable_sync" in compose
 
 
+def test_repo_mounted_python_sidecars_join_release_source_group() -> None:
+    compose = yaml.safe_load(
+        (ROOT / "docker-compose.whatsapp-web-session.yml").read_text(encoding="utf-8")
+    )
+    services = compose["services"]
+
+    for service_name in (
+        "ea-whatsapp-web-activator",
+        "ea-whatsapp-web-action-processor",
+        "ea-whatsapp-web-teable-sync",
+    ):
+        service = services[service_name]
+        assert service["group_add"] == ["1000"], service_name
+        assert "./:/app:ro" in service["volumes"], service_name
+
+
 def test_main_compose_uses_one_coherent_runtime_artifact_for_whatsapp_code() -> None:
     compose_text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     compose = yaml.safe_load(compose_text)
