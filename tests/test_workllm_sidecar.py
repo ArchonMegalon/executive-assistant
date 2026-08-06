@@ -201,7 +201,6 @@ def test_task_packet_rejects_unapproved_data_classes(
         ".env",
         ".env.local",
         "config/secrets/provider.json",
-        "memorial_data/private_memorial_profiles/person/profile.json",
         "../outside.md",
         "https://example.test/raw",
     ],

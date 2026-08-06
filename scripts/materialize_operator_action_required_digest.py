@@ -133,8 +133,8 @@ def _normalize_operator_streams(values: object) -> tuple[str, ...]:
         "office-setup": ("office_setup",),
         "office_setup": ("office_setup",),
         "recovery": ("recovery",),
-        "media": ("media_memorial",),
-        "media_memorial": ("media_memorial",),
+        "media": ("media_archive",),
+        "media_archive": ("media_archive",),
         "all": ("*",),
         "*": ("*",),
     }
@@ -827,7 +827,7 @@ def build_operator_action_required_digest(
         "rules": [
             "Only operator_action_queue items that require user action may enter this digest.",
             "Telegram is an action surface, not a progress log; non-action progress remains queue-only.",
-            "The published EA digest defaults to office-loop, office-setup, and recovery action streams; media and memorial actions stay in admin/operator surfaces unless the stream filter is widened.",
+            "The published EA digest defaults to office-loop, office-setup, and recovery action streams; media-archive actions stay in admin/operator surfaces unless the stream filter is widened.",
             "Purchases, bookings, cancellations, external sends, posts, payments, and commitments still require explicit approval elsewhere.",
             "Duplicate suppression stores a digest hash in local runtime state, not raw private context or chat identifiers.",
         ],

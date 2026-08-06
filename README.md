@@ -22,11 +22,8 @@ The paying-customer product is intentionally narrow:
 - one commitment system
 - approvals and auditability
 
-Default product mode is `EA_CORE`: the executive office loop. Memorial, provider lab, Chummer release control, and property are separate project modes, not implied EA-core product scope. See [PRODUCT_BOUNDARY.md](PRODUCT_BOUNDARY.md), `.codex-design/product/PROJECT_MODES.generated.json`, and `.codex-design/product/SHOW_SURFACE_MANIFEST.generated.json`.
-Before preparing a memorial release, run the provider-free source proof with `make verify-manfred-memorial-source-gate`. It covers the Manfred route and privacy contracts, polished 3D-tour candidate browser, governed deploy and ingress contracts, public-receipt consumers, and the separate EA memorial runtime suite without creating a candidate runtime or contacting a public origin.
-
-Live memorial promotion is a separate, fail-closed operation. It requires a passing isolated candidate receipt plus its sealed standalone v5 spatial-browser receipt and `make verify-manfred-memorial-promotion-preflight`. `make deploy-ea-memorial` then uses the reviewed joint API-and-ingress coordinator; the standalone ingress reconciler remains verification-only. After a passing joint deploy, run `make manfred-memorial-public-launch-gates` to prove the exact credential-free public memorial and 3D-tour bytes and refresh voice, browser, room, spatial, gold, and operator evidence. No source or local gate substitutes for the candidate, rollback, or public-origin checks. See [docs/MANFRED_MEMORIAL_JOINT_DEPLOY_RUNBOOK.md](docs/MANFRED_MEMORIAL_JOINT_DEPLOY_RUNBOOK.md).
-Default product mode does not mount experimental public utility routes such as `/results/*`, `/tours/*`, or `/memorials/*`. Those surfaces must be explicitly enabled for their own project mode and are not part of the core product story.
+Default product mode is `EA_CORE`: the executive office loop. Other products own their application code, release gates, deployment overlays, and runtime evidence in their own repositories. See [EA Core product boundary](docs/EA_CORE_PRODUCT_BOUNDARY.md), [PRODUCT_BOUNDARY.md](PRODUCT_BOUNDARY.md), `.codex-design/product/PROJECT_MODES.generated.json`, and `.codex-design/product/SHOW_SURFACE_MANIFEST.generated.json`.
+EA Core does not mount retired product routes or treat another repository's receipts as EA release authority.
 In `prod`, legacy authenticated runtime surfaces such as `/v1/memory/*`, `/v1/rewrite/*`, `/v1/channels/*`, and `/v1/responses*` are also off by default unless `EA_ENABLE_LEGACY_RUNTIME_SURFACES=1` is set deliberately.
 
 ## Run It
@@ -52,7 +49,7 @@ make deploy-property   # PropertyQuarry isolated compose stack
 The plain `make deploy` target is intentionally non-operational. Use `make deploy-ea-prod` or `make deploy-property` so an EA deploy cannot accidentally start the property stack.
 `docker-compose.property.yml` follows the same default host posture as EA core: the API bind is loopback-only, and the property API/scheduler/database services are constrained with dropped capabilities, `no-new-privileges`, and bounded memory/PID limits.
 
-GitHub Actions workflows are intentionally not tracked in this repo. The enforced replacement is the local gate surface in `Makefile`: `make ci-gates`, `make ci-gates-postgres`, `make ci-gates-postgres-legacy`, `make release-preflight`, and the focused `make verify-manfred-memorial-source-gate`.
+GitHub Actions workflows are intentionally not tracked in this repo. The enforced replacement is the local gate surface in `Makefile`: `make ci-gates`, `make ci-gates-postgres`, `make ci-gates-postgres-legacy`, and `make release-preflight`.
 
 Production startup now fails closed unless workspace-access token binding is anchored to a real public origin or explicit issuer. Set `EA_PUBLIC_APP_BASE_URL` or `EA_WORKSPACE_ACCESS_TOKEN_ISSUER`, and keep `EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE` plus `EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION` explicit in `.env` for durable cookie/session verification. In `prod`, placeholder or loopback binding origins such as `https://example.test`, `https://property.example.test`, or `http://localhost` are rejected.
 `scripts/deploy.sh` now enforces the same rule before container startup: in `prod` it requires real production auth (`EA_API_TOKEN` or Cloudflare Access via `EA_CF_ACCESS_TEAM_DOMAIN` + `EA_CF_ACCESS_AUD`), requires a real `EA_SIGNING_SECRET`, refuses placeholder/loopback token-binding origins, and refuses missing or placeholder workspace token audience/key-version metadata.
@@ -214,13 +211,6 @@ Then open `http://localhost:8090/health`.
 - `python3 scripts/verify_ltd_flagship_subset.py` is the broader flagship inventory gate. It does not claim the whole LTD catalog is verified; it enforces that the named flagship subset (`1min.AI`, `Prompt Architects`, `PayFunnels`, BrowserAct, Teable, ClickRank.ai, Emailit, Pixefy, Rafter) stays on accepted verification sources before release.
 - `python3 scripts/verify_ltd_provider_lanes.py` materializes governed provider-lane receipts for the high-value LTD lanes, including source-of-truth boundaries, off-switches, allowed/forbidden inputs, and missing proof receipts.
 - `python3 scripts/materialize_poppy_draft_packet.py --source-packet <packet.json> --draft-output <draft.txt>` records a Poppy draft-workbench receipt for public or operator-approved source packets. It keeps Poppy draft/operator only: runtime stays off, output remains pending human review, and EA/Chummer source material remains truth.
-- `python3 scripts/materialize_memorial_voice_roundtrip_exit_gate.py --base-url http://127.0.0.1:8090` records the live memorial voice roundtrip receipt. It must pass before the whole-project map can clear the memorial voice/realtime blocker.
-- `python3 scripts/materialize_memorial_phrase_bank.py` writes the approved Manfred memorial phrase bank with separate stable audio text and warmer visible fallback text.
-- `python3 scripts/materialize_memorial_operator_status.py` writes `.codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json`, the operator-readable memorial status card showing local release-candidate state and whether the three public-origin gold receipts are still missing.
-- `python3 scripts/materialize_memorial_room_audio_receipt_clean.py` records the manual room/device proof from a clean clone and copies the resulting receipt plus refreshed operator/gold artifacts back into the repo, so unrelated worktree drift does not poison the final room proof.
-- `python3 scripts/materialize_whole_project_gold_map.py` writes `.codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json`, the conservative map that keeps EA flagship readiness separate from owning-repo authority. A `gold` status means EA-controlled receipt-set gold only; it is not a blanket claim that EA owns Chummer, Fleet, Property, media-provider, or design truth.
-- `python3 scripts/verify_whole_project_gold_map.py` fails closed if that map overclaims gold or promotes Poppy/media/memorial lanes beyond their governed receipt state.
-- `python3 scripts/verify_memorial_voice_stability_gate.py` runs repeated deployed memorial voice loops. Use it before any public memorial demo claim; the single published receipt is necessary but not an endurance proof.
 - `make verify-ltd-critical-entries` runs the critical runtime LTD verifier.
 - `make verify-ltd-flagship-subset` runs the broader flagship verified-subset gate.
 - `make verify-ltd-provider-lanes` runs the governed provider-lane verifier.
@@ -232,7 +222,7 @@ Then open `http://localhost:8090/health`.
 
 - `make materialize-release-assets`: run the full release-truth bundle in order, including deploy context, release manifest, and release-authority status
 - `make materialize-release-manifest`: regenerate `.codex-studio/published/release_manifest.generated.json` after refreshing deploy context
-- `make verify-release-assets`: materialize and verify the EA flagship receipts, whole-project gold map, bounded design-mirror bundle, release-authority gate, and authoritative live runtime release posture
+- `make verify-release-assets`: materialize and verify the EA flagship receipts, bounded design-mirror bundle, release-authority gate, and authoritative live runtime release posture
 - `make verify-release-authority`: fail closed unless the release manifest records a runtime public origin, explicit deployment id, clean worktree, and compose topology strong enough for a shipping claim
 - `make materialize-release-authority-status`: refresh deploy context, regenerate the release manifest, then write `.codex-studio/published/release_authority_status.generated.json`
 - `make materialize-deploy-context`: write the deploy-context artifact consumed by release-manifest materialization; it records the authoritative release tuple for the deploy attempt: repository, branch, tracking branch, commit, deployment id, public origin, release label, project mode, and compose topology
@@ -240,9 +230,6 @@ Then open `http://localhost:8090/health`.
 - `make verify-release-authority-runtime`: compare live `/version` and `/health/release-authority` responses against the published release-authority status artifact
 - `make verify-release-authority-runtime-authoritative`: fail unless the runtime is internally consistent and the nested release/deploy gates both pass with `clear` / `authoritative_runtime`
 - `make release-authority-probe`: fetch the live `/health/release-authority` payload from the local runtime and print the operator summary
-- `make materialize-memorial-phrase-bank`: regenerate the approved Manfred memorial phrase bank artifact
-- `make materialize-memorial-operator-status`: regenerate the operator-readable memorial local/public-gold status artifact
-- `make materialize-memorial-room-audio-gold-clean`: record the manual room/device proof from a clean clone and copy the refreshed memorial gold artifacts back into the repo
 - `make verify-design-mirror-bundle`: inspect only the bounded EA design-mirror bundle parity
 - `make repair-design-mirror-bundle`: restore the bounded EA design-mirror bundle from canonical sources
 
@@ -664,18 +651,18 @@ Postgres-backed repository contract tests are available via `scripts/test_postgr
 Legacy migration-regression smoke is available via `bash scripts/smoke_postgres.sh --legacy-fixture` or `make smoke-postgres-legacy`.
 The script targets an isolated smoke database (`EA_SMOKE_DB`, default `ea_smoke_runtime`) and restores local `.env` state after the run.
 Local CI-parity compile checks can be run via `make ci-local`.
-One-command local CI gate bundle is available via `make ci-gates`; it includes release asset verification, flagship release-readiness verification, whole-project gold-map verification, and generated release artifact cleanliness after the full memory-backed test suite.
+One-command local CI gate bundle is available via `make ci-gates`; it includes release asset verification, flagship release-readiness verification, and generated release artifact cleanliness after the full memory-backed test suite.
 Combined local API+Postgres parity run is available via `make ci-gates-postgres`.
 Combined local API+Postgres legacy-migration parity run is available via `make ci-gates-postgres-legacy`.
-Runtime deploy hard gate is available via `make runtime-hard-exit-gates`; `scripts/deploy.sh` runs it by default after health goes green unless `EA_RUN_RUNTIME_HARD_EXIT_GATES=0`. This live bundle uses the deploy-safe API smoke lane, the authoritative live-runtime release verifier, and Pocket archive verification; when `MEMORIAL` mode is enabled it also runs `verify_memorial_runtime_overlay` plus `verify_project_mode_runtime.py --mode memorial` automatically so a memorial deploy cannot finish with the overlay absent or with the mounted public memorial surface broken. The deeper principal contract smoke stays in `make hard-exit-gates`.
+Runtime deploy hard gate is available via `make runtime-hard-exit-gates`; `scripts/deploy.sh` runs it by default after health goes green unless `EA_RUN_RUNTIME_HARD_EXIT_GATES=0`. This live bundle uses the deploy-safe API smoke lane, the authoritative live-runtime release verifier, and Pocket archive verification. The deeper principal contract smoke stays in `make hard-exit-gates`.
 Full flagship hard exit gate is available via `make hard-exit-gates`; it runs the full pytest suite plus release preflight, Postgres contract/smoke lanes, principal API smoke, and Pocket archive verification.
 Aggregate LTD release gates are available via `make ltd-release-gates`; the bundle includes critical runtime entries, the flagship verified subset, and governed provider-lane receipts.
 Release asset integrity can be checked via `scripts/verify_release_assets.sh` or `make verify-release-assets`. That path now also enforces `make verify-release-authority` plus `make verify-release-authority-runtime-authoritative`, so generated receipts alone cannot stand in for deploy truth or a non-authoritative live runtime.
 To regenerate the full local release-truth bundle in one pass, use `make materialize-release-assets`; it now materializes deploy context before the release manifest and release-authority status.
-Whole-project gold-map integrity can be checked via `scripts/verify_whole_project_gold_map.py` or `make verify-whole-project-gold-map`; when green, it means the current EA-controlled receipt set is coherent. Owning repos remain authoritative for their own product planes. For memorial presentation readiness, run `make verify-memorial-deploy-readiness` before deploy so release-authority drift or a non-memorial runtime posture fails closed, then `make verify-memorial-runtime-overlay` so `/health/live` proves the memorial overlay is actually mounted, then `make verify-project-mode-runtime-memorial` so the mounted public memorial surface itself is reachable and correctly wired, then run `make verify-memorial-voice-stability` against the deployed stack.
+Owning repositories remain authoritative for their own product planes; EA Core release checks cover only EA-controlled receipts and runtime truth.
 Docs-focused alias for the same check: `make docs-verify`.
 Docs + operator help aggregate: `make release-docs`.
-Release preflight aggregate is available via `make release-preflight`; it includes `make verify-runtime-supply-chain`, `make verify-release-authority`, `make verify-release-authority-runtime-authoritative`, `make verify-flagship-release-readiness`, `make verify-whole-project-gold-map`, and generated release artifact cleanliness so a green receipt cannot hide a blocked weekly pulse, Fleet journey gate, overbroad gold claim, weak deploy authority, non-authoritative live runtime, runtime supply-chain drift, or dirty regenerated receipt.
+Release preflight aggregate is available via `make release-preflight`; it includes `make verify-runtime-supply-chain`, `make verify-release-authority`, `make verify-release-authority-runtime-authoritative`, `make verify-flagship-release-readiness`, and generated release artifact cleanliness so a green receipt cannot hide a blocked weekly pulse, Fleet journey gate, weak deploy authority, non-authoritative live runtime, runtime supply-chain drift, or dirty regenerated receipt.
 For real-browser gates on a fresh host, install the browser dependency first with `python -m playwright install --with-deps chromium`.
 Recommended sequencing: run `make release-docs` before `make release-preflight`.
 One-command local readiness check: `make all-local`.

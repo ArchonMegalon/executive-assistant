@@ -45,7 +45,6 @@ _PROVENANCE_REFRESH_ALLOWED_EXACT = {
     "ea/app/api/routes/plans.py",
     "ea/app/services/execution_approval_pause_service.py",
     "scripts/materialize_ea_browser_workflow_proof.py",
-    "scripts/materialize_whole_project_gold_map.py",
     "scripts/materialize_weekly_product_pulse.py",
     "scripts/verify_release_authority.py",
     "scripts/operator_summary.sh",
@@ -54,7 +53,6 @@ _PROVENANCE_REFRESH_ALLOWED_EXACT = {
     "scripts/test_postgres_contracts.sh",
     "scripts/verify_generated_release_artifacts_clean.py",
     "scripts/verify_flagship_release_readiness.py",
-    "scripts/verify_whole_project_gold_map.py",
     "scripts/verify_release_assets.sh",
     "tests/e2e/visual_baselines/admin-community-page.png",
     "tests/test_chummer5a_parity_lab_pack.py",
@@ -67,7 +65,6 @@ _PROVENANCE_REFRESH_ALLOWED_EXACT = {
     "tests/test_operator_contracts.py",
     "tests/test_providers_api_contracts.py",
     "tests/test_skills.py",
-    "tests/test_whole_project_gold_map.py",
     "tests/smoke_runtime_api_suite_3.py",
     "tests/test_weekly_product_pulse_materializer.py",
 }

@@ -57,12 +57,13 @@ KNOWN_STATUSES = {
     "missing_receipt",
     "waiting",
     "waiting_for_live_epub",
+    "waiting_voice_choice",
     "probe_failed",
     "unknown",
     "fail",
     "failed",
 }
-BASE_DELIVER_COMPONENTS = {"promo_media", "manfred_speech", "telegram_audiobook", "whatsapp_audiobook"}
+BASE_DELIVER_COMPONENTS = {"telegram_audiobook", "whatsapp_audiobook"}
 PUSHBULLET_RECEIPT_NAME = "ea_pushbullet_delivery_readiness.generated.json"
 PUSHBULLET_RUNTIME_RECEIPT_NAME = "pushbullet_readiness.generated.json"
 MYMEDIA_RECEIPT_NAME = "mymedia_alexa_readiness.generated.json"
@@ -96,7 +97,6 @@ REQUIRED_PROOF_FIELDS = {
 }
 KNOWN_PROOF_STATUSES = {"pending_real_world_evidence", "satisfied"}
 DELIVER_BLOCKER_PROOF_KEYS = {
-    "deliver:manfred_speech": "manfred_stt_tts_realtime_conversation",
     "deliver:telegram_audiobook": "telegram_audiobook_live_delivery",
     "deliver:whatsapp_audiobook": "whatsapp_audiobook_live_delivery",
     "deliver:pushbullet_delivery": "pushbullet_delivery_setup",
@@ -113,7 +113,6 @@ EXPECTED_PROOF_ACTION_SURFACES = {
     "telegram_business_signal_setup": ("/integrations/telegram", "get"),
     "google_workspace_oauth_setup": (GOOGLE_REAUTH_ACTION_HREF, "get"),
     "pushbullet_delivery_setup": ("https://www.pushbullet.com/#settings/account", "get"),
-    "manfred_stt_tts_realtime_conversation": ("/memorials/manfred/voice-config", "get"),
     "telegram_audiobook_live_delivery": ("/integrations/telegram", "get"),
     "whatsapp_audiobook_live_delivery": ("/integrations/whatsapp", "get"),
 }
@@ -128,7 +127,6 @@ EXPECTED_PROOF_FORM_SURFACES = {
     "telegram_business_signal_setup": ("/integrations/telegram", "get"),
     "google_workspace_oauth_setup": (GOOGLE_REAUTH_ACTION_HREF, "get"),
     "pushbullet_delivery_setup": ("https://www.pushbullet.com/#settings/account", "get"),
-    "manfred_stt_tts_realtime_conversation": ("/memorials/manfred/voice-config", "get"),
     "telegram_audiobook_live_delivery": ("/integrations/telegram", "get"),
     "whatsapp_audiobook_live_delivery": ("/integrations/whatsapp", "get"),
 }
@@ -144,7 +142,7 @@ EA_QUALITY_ACCEPTANCE_PROOF_KEYS = {
     "real_approved_action_audited": "ea_real_approved_action_audited",
     "real_provider_failure_recovered": "ea_real_provider_failure_recovered",
 }
-KNOWN_OPERATOR_STREAMS = {"office_loop", "office_setup", "recovery", "media_memorial"}
+KNOWN_OPERATOR_STREAMS = {"office_loop", "office_setup", "recovery", "media_archive"}
 DEFAULT_ACTION_DIGEST_STREAMS = ["office_loop", "office_setup", "recovery"]
 _OPERATOR_READINESS_OBSERVED_AT_RE = re.compile(r"(^|;\s*)observed_at=[^;]+")
 
@@ -1033,18 +1031,6 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                     issues.append(f"real-world acceptance capture may push only as an action-required item: {action_key}")
                 if row.get("non_action_progress_push_allowed") is not False:
                     issues.append(f"real-world acceptance capture must not allow progress pushes: {action_key}")
-            if action_key == "manfred_stt_tts_realtime_conversation":
-                if row.get("manual_only") is True:
-                    if row.get("user_action_required") is not True:
-                        issues.append("manual Manfred room attestation must require user action")
-                    if row.get("delivery_policy") != "action_required_only":
-                        issues.append("manual Manfred room attestation must be action-required only")
-                    if row.get("telegram_push_allowed") is not True:
-                        issues.append("manual Manfred room attestation may push only as an action-required item")
-                    if row.get("ci_must_not_auto_assert") is not True:
-                        issues.append("manual Manfred room attestation must preserve ci_must_not_auto_assert")
-                    if int(row.get("required_check_count") or 0) <= 0:
-                        issues.append("manual Manfred room attestation must include required_check_count")
             if row.get("stale_source_receipts"):
                 if user_action_required:
                     issues.append(f"stale source refresh must not require user action: {action_key}")

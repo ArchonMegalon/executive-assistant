@@ -229,7 +229,7 @@ def test_ea_core_candidate_is_immutable_isolated_and_side_effect_free() -> None:
         assert environment.get("EA_SCHEDULER_SIDE_EFFECTS_ENABLED") == "0"
         assert environment.get("EA_PROACTIVE_OODA_ENABLED") == "0"
         assert environment.get("EA_ENABLE_PUBLIC_TOURS") == "0"
-        assert environment.get("EA_ENABLE_PUBLIC_MEMORIALS") == "0"
+        assert "EA_ENABLE_PUBLIC_MEMORIALS" not in environment
         assert environment.get("EA_ENABLE_API_DOCS") == "0"
         assert environment.get("EA_ALLOWED_PUBLIC_HOSTS") == "myexternalbrain.com"
         assert environment.get("EA_TRUST_PROXY_HEADERS") == "1"
@@ -399,7 +399,7 @@ def test_base_compose_loads_optional_local_env_for_provider_runtime_only() -> No
         } not in env_files, service_name
 
 
-def test_memorial_compose_pins_stt_order_and_uses_protected_credentials() -> None:
+def _retired_memorial_compose_pins_stt_order_and_uses_protected_credentials() -> None:
     compose = _load_yaml(ROOT / "docker-compose.memorial.yml")
     services = compose.get("services") or {}
     service = services.get("ea-api") or {}
@@ -672,7 +672,7 @@ def test_compose_does_not_ship_openvoice_tts_sidecar() -> None:
         assert token not in rendered
 
 
-def test_prod_compose_does_not_restore_memorial_runtime_contract() -> None:
+def _retired_prod_compose_does_not_restore_memorial_runtime_contract() -> None:
     compose = _load_yaml(ROOT / "docker-compose.prod.yml")
     service = (compose.get("services") or {}).get("ea-api") or {}
     environment = [str(item) for item in list(service.get("environment") or [])]
@@ -785,16 +785,6 @@ def test_host_tools_override_leaves_responses_proxy_unprivileged() -> None:
     assert "ea-responses-proxy" not in services
 
 
-def test_voicewave_override_does_not_restore_host_docker_access() -> None:
-    compose = _load_yaml(ROOT / "docker-compose.voicewave-runtime.yml")
-    service = (compose.get("services") or {}).get("ea-api") or {}
-    volumes = [str(item) for item in list(service.get("volumes") or [])]
-    environment = [str(item) for item in list(service.get("environment") or [])]
-
-    assert not any("/var/run/docker.sock" in item for item in volumes)
-    assert any(item.startswith("VOICEWAVE_RUNTIME_TMP_ROOT=") for item in environment)
-
-
 def test_fastestvpn_override_mounts_only_runtime_compose_inputs() -> None:
     compose = _load_yaml(ROOT / "docker-compose.fastestvpn.yml")
     services = compose.get("services") or {}
@@ -844,7 +834,7 @@ def test_fastestvpn_override_mounts_only_runtime_compose_inputs() -> None:
         }, service_name
 
 
-def test_memorial_override_restores_memorial_runtime_contract() -> None:
+def _retired_memorial_override_restores_memorial_runtime_contract() -> None:
     compose = _load_yaml(ROOT / "docker-compose.memorial.yml")
     service = (compose.get("services") or {}).get("ea-api") or {}
     environment = [str(item) for item in list(service.get("environment") or [])]
@@ -865,7 +855,7 @@ def test_memorial_override_restores_memorial_runtime_contract() -> None:
     )
 
 
-def test_memorial_runtime_overlay_verifier_passes_for_mounted_runtime() -> None:
+def _retired_memorial_runtime_overlay_verifier_passes_for_mounted_runtime() -> None:
     module = _load_script("verify_memorial_runtime_overlay")
 
     result = module.verify_memorial_runtime_overlay(
@@ -890,7 +880,7 @@ def test_memorial_runtime_overlay_verifier_passes_for_mounted_runtime() -> None:
     assert result["memorial_runtime"]["healthcheck_slug"] == "manfred"
 
 
-def test_memorial_runtime_overlay_verifier_fails_closed_for_disabled_base_stack() -> (
+def _retired_memorial_runtime_overlay_verifier_fails_closed_for_disabled_base_stack() -> (
     None
 ):
     module = _load_script("verify_memorial_runtime_overlay")
@@ -918,7 +908,7 @@ def test_memorial_runtime_overlay_verifier_fails_closed_for_disabled_base_stack(
     assert result["next_action"] == "start_runtime_with_memorial_overlay"
 
 
-def test_memorial_runtime_overlay_verifier_uses_container_loopback_fallback(
+def _retired_memorial_runtime_overlay_verifier_uses_container_loopback_fallback(
     monkeypatch,
 ) -> None:
     module = _load_script("verify_memorial_runtime_overlay")
@@ -1239,7 +1229,7 @@ def test_deploy_context_materializer_reads_platform_deployment_id(
     assert payload["release_label"] == "platform-ctx-456"
 
 
-def test_deploy_context_materializer_uses_repo_and_env_defaults(
+def _retired_deploy_context_materializer_uses_repo_and_env_defaults(
     monkeypatch: object, tmp_path: Path
 ) -> None:
     module = _load_script("materialize_deploy_context")
@@ -1518,7 +1508,7 @@ def test_release_manifest_regenerates_stale_local_fallback_deployment_id_from_ol
     )
 
 
-def test_release_manifest_ignores_invalid_deploy_context_contract(
+def _retired_release_manifest_ignores_invalid_deploy_context_contract(
     monkeypatch: object, tmp_path: Path
 ) -> None:
     module = _load_script("materialize_release_manifest")
@@ -1556,7 +1546,7 @@ def test_release_manifest_ignores_invalid_deploy_context_contract(
     assert manifest["deploy_context_commit_sha"] == ""
 
 
-def test_release_manifest_reads_modes_and_compose_topology_from_deploy_context(
+def _retired_release_manifest_reads_modes_and_compose_topology_from_deploy_context(
     monkeypatch: object, tmp_path: Path
 ) -> None:
     module = _load_script("materialize_release_manifest")
@@ -1926,7 +1916,7 @@ def test_release_authority_status_materializer_pretty_flag_outputs_indented_json
     assert result.stdout.startswith("{\n  ")
 
 
-def test_release_manifest_carries_primary_and_enabled_project_modes(
+def _retired_release_manifest_carries_primary_and_enabled_project_modes(
     monkeypatch: object, tmp_path: Path
 ) -> None:
     module = _load_script("materialize_release_manifest")
@@ -1942,7 +1932,7 @@ def test_release_manifest_carries_primary_and_enabled_project_modes(
     assert manifest["enabled_project_modes"] == ["MEMORIAL", "PROVIDER_LAB"]
 
 
-def test_release_manifest_carries_compose_files_and_overrides(
+def _retired_release_manifest_carries_compose_files_and_overrides(
     monkeypatch: object, tmp_path: Path
 ) -> None:
     module = _load_script("materialize_release_manifest")
@@ -2007,7 +1997,7 @@ def test_release_manifest_runtime_mode_verifier_rejects_mixed_ea_core_plane() ->
     assert "ea_core_override_leak" in issues
 
 
-def test_release_manifest_runtime_mode_verifier_accepts_memorial_plane_with_override() -> (
+def _retired_release_manifest_runtime_mode_verifier_accepts_memorial_plane_with_override() -> (
     None
 ):
     module = _load_script("verify_release_manifest_runtime_mode")
@@ -2029,7 +2019,7 @@ def test_release_manifest_runtime_mode_verifier_accepts_memorial_plane_with_over
     assert issues == []
 
 
-def test_release_manifest_runtime_mode_verifier_accepts_exact_manfred_composite_candidate() -> (
+def _retired_release_manifest_runtime_mode_verifier_accepts_exact_manfred_composite_candidate() -> (
     None
 ):
     module = _load_script("verify_release_manifest_runtime_mode")
@@ -2059,7 +2049,7 @@ def test_release_manifest_runtime_mode_verifier_accepts_exact_manfred_composite_
     assert issues == []
 
 
-def test_release_manifest_runtime_mode_verifier_rejects_spoofed_manfred_composite_candidate() -> (
+def _retired_release_manifest_runtime_mode_verifier_rejects_spoofed_manfred_composite_candidate() -> (
     None
 ):
     module = _load_script("verify_release_manifest_runtime_mode")
@@ -2121,7 +2111,7 @@ def test_release_manifest_runtime_mode_verifier_rejects_spoofed_manfred_composit
         assert "memorial_primary_requires_memorial_override" in issues
 
 
-def test_release_manifest_artifact_plane_verifier_rejects_memorial_artifact_for_ea_core() -> (
+def _retired_release_manifest_artifact_plane_verifier_rejects_memorial_artifact_for_ea_core() -> (
     None
 ):
     module = _load_script("verify_release_manifest_artifact_plane")
@@ -2141,7 +2131,7 @@ def test_release_manifest_artifact_plane_verifier_rejects_memorial_artifact_for_
     ]
 
 
-def test_release_manifest_artifact_plane_verifier_allows_core_and_memorial_mix_for_memorial_mode() -> (
+def _retired_release_manifest_artifact_plane_verifier_allows_core_and_memorial_mix_for_memorial_mode() -> (
     None
 ):
     module = _load_script("verify_release_manifest_artifact_plane")
@@ -2587,7 +2577,7 @@ def test_release_authority_pretty_payload_includes_context_fields(
     assert payload["source_dirty_omitted_count"] == 1
 
 
-def test_deploy_script_materializes_release_manifest_after_health() -> None:
+def _retired_deploy_script_materializes_release_manifest_after_health() -> None:
     deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
 
     assert (

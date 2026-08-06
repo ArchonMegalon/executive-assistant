@@ -33,18 +33,6 @@ SCRIPTS = (
     "verify_pocket_audio_archive.py",
     "generate_browseract_content_templates.py",
 )
-AVATAR_PROVIDER_DOCS = (
-    "docs/MEMORIAL_AVATAR_PROVIDER_PLAN.md",
-    "docs/MEMORIAL_AVATAR_PROVIDER_VERIFICATION_RUNBOOK.md",
-    "docs/MEMORIAL_VIDEO_MEETING_PROVIDER_MATRIX.md",
-    "docs/MEMORIAL_NONVERBIA_CUSTOM_PROJECT_RUNBOOK.md",
-    "docs/MEMORIAL_VIDBOARD_AVATAR_PACKET_RUNBOOK.md",
-    "docs/MEMORIAL_VIDBOARD_AVATAR_PUBLISH_RUNBOOK.md",
-    "docs/MEMORIAL_LIVE_AVATAR_INTEGRATION_PLAN.md",
-    "docs/MEMORIAL_VOICEWAVE_WORKSPACE_RUNBOOK.md",
-)
-
-
 def _rendered() -> str:
     return "\n".join((ROOT / "scripts" / name).read_text(encoding="utf-8") for name in SCRIPTS)
 
@@ -78,18 +66,3 @@ def test_worker_and_provider_defaults_do_not_point_at_old_host_roots() -> None:
     assert "/docker/" + "chummercomplete" not in rendered
     assert "/docker/" + "property" not in rendered
     assert "/mnt/" + "pcloud" not in rendered
-
-
-def test_avatar_provider_runbooks_use_portable_output_paths() -> None:
-    rendered = "\n".join((ROOT / name).read_text(encoding="utf-8") for name in AVATAR_PROVIDER_DOCS)
-
-    assert "EA_AVATAR_PRESENTER_PROVIDER_OUT_DIR" in _rendered()
-    assert ".codex-studio/published/avatar_presenter_provider" in rendered
-    assert "ea/_completion/avatar_presenter_provider" in rendered
-    assert 'cd "$EA_REPO_ROOT"' in rendered
-    assert "/docker/" + "fleet/state/chummer6/avatar_presenter_provider" not in rendered
-    assert "/docker/" + "fleet/state/chummer6/voicewave_provider" not in rendered
-    assert "/docker/" + "EA/browseract_templates" not in rendered
-    assert "/docker/" + "EA/scripts" not in rendered
-    assert "/docker/" + "EA/ea/.env" not in rendered
-    assert "/docker/" + "EA/.env" not in rendered

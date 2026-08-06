@@ -158,13 +158,13 @@ def test_runner_ingests_all_available_sources_when_workspace_scan_fails(tmp_path
     source_health = runner._source_health_summary(rows)  # noqa: SLF001
     assert source_health["present"] is True
     assert source_health["status"] == "recovery_required"
-    assert source_health["operator_action_required"] is True
-    assert source_health["user_action_required"] is False
+    assert source_health["operator_action_required"] is False
+    assert source_health["user_action_required"] is True
     assert source_health["issues"][0]["source_key"] == "google_workspace"
     assert source_health["issues"][0]["raw_payload_exposed"] is False
 
     digest = ProactiveOodaService().build_digest(principal_id="exec", signals=rows)
-    assert not any(item.signal_ref.startswith("proactive_source_error:") for item in digest.items)
+    assert any(item.signal_ref.startswith("proactive_source_error:") for item in digest.items)
 
 
 def test_runner_skips_unconfigured_workspace_source_without_noise(tmp_path, monkeypatch) -> None:

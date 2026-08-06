@@ -85,6 +85,13 @@ services:
     environment:
       <<: *audiobook-runtime-environment
       EA_CODEXEA_AUTHENTICATED_PRINCIPAL_ID: !reset null
+      EMAILIT_API_KEY: !reset null
+      EA_EMAIL_DEFAULT_FROM: !reset null
+      EA_EMAIL_DEFAULT_NAME: !reset null
+      EA_REGISTRATION_EMAIL_FROM: !reset null
+      EA_REGISTRATION_EMAIL_NAME: !reset null
+      EA_TELEGRAM_SOURCE_VIDEO_EDIT_ROOT: !reset null
+      EA_UI_SERVICE_WORKER_OUTPUT_ROOT: !reset null
     labels:
       <<: *audiobook-runtime-labels
       com.archonmegalon.ea.audiobook-runtime.live-owner-handoff: required

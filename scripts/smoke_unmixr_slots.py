@@ -16,7 +16,7 @@ EA_APP = Path(__file__).resolve().parents[1] / "ea"
 if str(EA_APP) not in sys.path:
     sys.path.insert(0, str(EA_APP))
 
-from app.services import memorial_openvoice  # noqa: E402
+from app.services import voice_runtime  # noqa: E402
 
 
 UNMIXR_ENV_PREFIXES = ("UNMIXR_API_KEY", "UNMIXR_API_KEY_FALLBACK_", "UNMIXR_API_KEYS")
@@ -31,7 +31,7 @@ def _sha256_bytes(value: bytes) -> str:
 
 
 def _slot_names() -> list[str]:
-    return [name for name, _key in memorial_openvoice._unmixr_api_key_slots()]
+    return [name for name, _key in voice_runtime._unmixr_api_key_slots()]
 
 
 def _is_unmixr_key_env(name: str) -> bool:
@@ -99,7 +99,7 @@ def smoke_slots(
             continue
         try:
             with _single_slot_environment(slot_name):
-                audio, content_type = memorial_openvoice.unmixr_synthesize_request(
+                audio, content_type = voice_runtime.unmixr_synthesize_request(
                     text=text,
                     voice_id=voice_id,
                     lang=language,

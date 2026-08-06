@@ -33,7 +33,6 @@ from app.services.provider_contract_status import build_provider_contract_status
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 OFFICE_LOOP_GOAL_RECEIPT = _REPO_ROOT / ".codex-studio" / "published" / "ea_office_loop_goal.generated.json"
 EXECUTIVE_ASSISTANT_ACCEPTANCE_EVIDENCE_RECEIPT = _REPO_ROOT / ".codex-studio" / "published" / "ea_executive_assistant_acceptance_evidence.generated.json"
-ACTIVE_MEDIA_LTD_GOAL_RECEIPT = _REPO_ROOT / ".codex-studio" / "published" / "active_media_ltd_goal_bundle.generated.json"
 WHOLE_PROJECT_SIGNAL_TO_DECISION_RECEIPT = _REPO_ROOT / ".codex-studio" / "published" / "ea_whole_project_signal_to_decision.generated.json"
 WHOLE_PROJECT_SCOPE_GAP_AUDIT_RECEIPT = _REPO_ROOT / ".codex-studio" / "published" / "ea_whole_project_scope_gap_audit.generated.json"
 PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT = _REPO_ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_operator_status.generated.json"
@@ -1043,7 +1042,6 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     diagnostics_route_stewardship = dict(diagnostics_product_control.get("provider_route_stewardship") or {})
     office_goal_receipt = _load_receipt(OFFICE_LOOP_GOAL_RECEIPT)
     acceptance_receipt = _load_receipt(EXECUTIVE_ASSISTANT_ACCEPTANCE_EVIDENCE_RECEIPT)
-    active_media_receipt = _load_receipt(ACTIVE_MEDIA_LTD_GOAL_RECEIPT)
     signal_receipt = _load_receipt(WHOLE_PROJECT_SIGNAL_TO_DECISION_RECEIPT)
     scope_gap_receipt = _load_receipt(WHOLE_PROJECT_SCOPE_GAP_AUDIT_RECEIPT)
     proactive_ooda_operator_receipt = _load_receipt(PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT)
@@ -1518,7 +1516,6 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     )
     goal_local_rows = [
         _row("Office-loop receipt", str(office_goal_receipt.get("status") or "missing"), "Local"),
-        _row("Active media/LTD bundle", str(active_media_receipt.get("status") or "missing"), "Local"),
         _row("Signal-to-decision receipt", str(signal_receipt.get("status") or "missing"), "Local"),
         _row("Whole-project scope-gap audit", str(scope_gap_receipt.get("status") or "missing"), "Local"),
         _row(
@@ -1532,11 +1529,6 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             "Local",
         ),
         _row("Acceptance evidence receipt", str(acceptance_receipt.get("status") or "missing"), "Local"),
-        _row(
-            "Audiobook, ChatLab, cinematic, and promo local checks",
-            "Local checks are present in the active media bundle, but live proof still needs to be collected.",
-            "Local",
-        ),
         _row(
             "Completion remains blocked",
             "Local evidence does not create canonical product, release, support, or memory truth.",

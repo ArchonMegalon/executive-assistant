@@ -128,7 +128,7 @@ DEFAULT_ONEMIN_DIRECT_REFRESH_MAX_RATE_LIMIT_SLEEP_SECONDS = 120.0
 OPERATOR_STREAM_OFFICE_LOOP = "office_loop"
 OPERATOR_STREAM_OFFICE_SETUP = "office_setup"
 OPERATOR_STREAM_RECOVERY = "recovery"
-OPERATOR_STREAM_MEDIA_MEMORIAL = "media_memorial"
+OPERATOR_STREAM_MEDIA_ARCHIVE = "media_archive"
 DEFAULT_TELEGRAM_OPERATOR_STREAMS = (
     OPERATOR_STREAM_OFFICE_LOOP,
     OPERATOR_STREAM_OFFICE_SETUP,
@@ -530,8 +530,8 @@ def _normalize_operator_streams(values: object) -> tuple[str, ...]:
         "office_setup": (OPERATOR_STREAM_OFFICE_SETUP,),
         "office-setup": (OPERATOR_STREAM_OFFICE_SETUP,),
         "recovery": (OPERATOR_STREAM_RECOVERY,),
-        "media": (OPERATOR_STREAM_MEDIA_MEMORIAL,),
-        "media_memorial": (OPERATOR_STREAM_MEDIA_MEMORIAL,),
+        "media": (OPERATOR_STREAM_MEDIA_ARCHIVE,),
+        "media_archive": (OPERATOR_STREAM_MEDIA_ARCHIVE,),
         "all": ("*",),
         "*": ("*",),
     }
@@ -2430,7 +2430,7 @@ import json
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime
-from app.services.memorial_openvoice import _unmixr_api_key_slots
+from app.services.voice_runtime import _unmixr_api_key_slots
 
 rows = []
 for index, (_label, api_key) in enumerate(_unmixr_api_key_slots(), start=1):
@@ -2793,7 +2793,6 @@ def _runtime_provider_cost_pressure_payload(
 def _provider_cost_pressure_payload_from_host(*, window: str, principal_id: str) -> dict[str, Any]:
     try:
         code = _provider_cost_pressure_runtime_code(window, principal_id)
-        namespace: dict[str, Any] = {}
         # Reuse the same extraction contract as the runtime path without exposing the full status report.
         completed = subprocess.run(
             [sys.executable, "-c", code],
@@ -6216,7 +6215,7 @@ def _mymedia_pairing_with_telegram_delivery(
 ) -> dict[str, object]:
     updated = dict(report)
     updated.setdefault("telegram_delivery", {})
-    operator_stream = OPERATOR_STREAM_MEDIA_MEMORIAL
+    operator_stream = OPERATOR_STREAM_MEDIA_ARCHIVE
     allowed_operator_streams = _effective_telegram_operator_streams(telegram_operator_streams)
     updated["operator_stream"] = operator_stream
     updated["allowed_operator_streams"] = list(allowed_operator_streams)
@@ -11887,7 +11886,7 @@ def sync_pocket_transcripts(
         }
         report.update(_next_action_surface_fields(str(report.get("next_action") or "")))
         if output_format == "operator":
-            report["operator_text"] = f"pocket_transcript_sync status=probe_failed; next=inspect_pocket_sync_runtime"
+            report["operator_text"] = "pocket_transcript_sync status=probe_failed; next=inspect_pocket_sync_runtime"
         return report
 
     summary = dict(payload.get("summary") or {})
@@ -13317,7 +13316,7 @@ def probe_whatsapp_pairing(
         "status": status,
         "ready": ready,
         "reason": reason,
-        "operator_stream": OPERATOR_STREAM_MEDIA_MEMORIAL,
+        "operator_stream": OPERATOR_STREAM_MEDIA_ARCHIVE,
         "allowed_operator_streams": list(_effective_telegram_operator_streams(telegram_operator_streams)),
         "next_action": next_action,
         "session_ref": session_ref,
@@ -13369,12 +13368,12 @@ def probe_whatsapp_pairing(
             pair_url_scope=pair_url_scope,
         )
         if not _telegram_operator_stream_allowed(
-            OPERATOR_STREAM_MEDIA_MEMORIAL,
+            OPERATOR_STREAM_MEDIA_ARCHIVE,
             allowed_operator_streams=allowed_operator_streams,
         ):
             telegram = _suppressed_telegram_delivery(
                 principal_id=str(send_telegram_to_principal or "").strip(),
-                operator_stream=OPERATOR_STREAM_MEDIA_MEMORIAL,
+                operator_stream=OPERATOR_STREAM_MEDIA_ARCHIVE,
                 allowed_operator_streams=allowed_operator_streams,
                 observed_at=observed_at,
                 source="whatsapp_web_session_sidecar.qr",
@@ -14536,7 +14535,7 @@ def probe_mymedia_pairing_telegram_readiness(
         "pairing_session_pending": bool(handoff.get("pairing_session_pending")),
         "pairing_session_stale": bool(handoff.get("pairing_session_stale")),
         "pairing_session_age_seconds": handoff.get("pairing_session_age_seconds"),
-        "operator_stream": str(handoff.get("operator_stream") or OPERATOR_STREAM_MEDIA_MEMORIAL).strip(),
+        "operator_stream": str(handoff.get("operator_stream") or OPERATOR_STREAM_MEDIA_ARCHIVE).strip(),
         "allowed_operator_streams": list(
             handoff.get("allowed_operator_streams")
             or _effective_telegram_operator_streams(telegram_operator_streams)

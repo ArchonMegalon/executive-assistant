@@ -14,7 +14,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.api.dependencies import RequestContext, _workspace_session_payload, get_container, get_request_context, is_operator_context
 from app.api.routes.admin_view_models import (
-    ACTIVE_MEDIA_LTD_GOAL_RECEIPT as EA_ACTIVE_MEDIA_LTD_GOAL_RECEIPT,
     EXECUTIVE_ASSISTANT_ACCEPTANCE_EVIDENCE_RECEIPT as EA_ACCEPTANCE_EVIDENCE_RECEIPT,
     OFFICE_LOOP_GOAL_RECEIPT as EA_OFFICE_LOOP_GOAL_RECEIPT,
     WHOLE_PROJECT_SCOPE_GAP_AUDIT_RECEIPT as EA_SCOPE_GAP_AUDIT_RECEIPT,
@@ -133,7 +132,6 @@ _REQUIRED_SIGNAL_SOURCES = [
     "public_or_premium_publication_reactions",
     "provider_runtime_failures",
     "audiobook_and_media_acceptance",
-    "manfred_spoken_conversation_acceptance",
     "telegram_whatsapp_email_channel_friction",
     "release_install_update_friction",
     "privacy_or_boundary_incidents",
@@ -953,7 +951,6 @@ def _refresh_signal_evidence_contract(receipt: dict[str, object]) -> None:
         "decision_items": [
             {"key": "provider_runtime_recovery", "source": "provider_runtime_failures"},
             {"key": "audiobook_acceptance", "source": "audiobook_and_media_acceptance"},
-            {"key": "spoken_conversation_acceptance", "source": "manfred_spoken_conversation_acceptance"},
             {"key": "privacy_boundary_review", "source": "privacy_or_boundary_incidents"},
         ]
     }
@@ -1184,7 +1181,6 @@ def _default_signal_receipt() -> dict[str, object]:
             "decision_items": [
                 {"key": "provider_runtime_recovery", "source": "provider_runtime_failures"},
                 {"key": "audiobook_acceptance", "source": "audiobook_and_media_acceptance"},
-                {"key": "spoken_conversation_acceptance", "source": "manfred_spoken_conversation_acceptance"},
                 {"key": "privacy_boundary_review", "source": "privacy_or_boundary_incidents"},
             ]
         },
@@ -1282,8 +1278,9 @@ def _refresh_acceptance_receipt_summary(
         "raw_private_context_exposed": False,
     }
 def _update_quality_receipt_from_acceptance(acceptance: dict[str, object]) -> None:
-    del acceptance
-    _materialize_admin_quality_readiness_from_sources()
+    _materialize_admin_quality_readiness_from_sources(
+        acceptance_evidence=acceptance,
+    )
 
 
 def _update_scope_gap_evidence() -> None:
@@ -1318,7 +1315,10 @@ def _materialize_admin_acceptance_evidence_from_sources() -> dict[str, object]:
     )
 
 
-def _materialize_admin_quality_readiness_from_sources() -> dict[str, object]:
+def _materialize_admin_quality_readiness_from_sources(
+    *,
+    acceptance_evidence: dict[str, object] | None = None,
+) -> dict[str, object]:
     from scripts.materialize_executive_assistant_quality_readiness import (
         materialize_executive_assistant_quality_readiness,
     )
@@ -1326,6 +1326,7 @@ def _materialize_admin_quality_readiness_from_sources() -> dict[str, object]:
     return materialize_executive_assistant_quality_readiness(
         receipt_path=EA_QUALITY_READINESS_RECEIPT,
         office_loop_receipt_path=EA_OFFICE_LOOP_GOAL_RECEIPT,
+        acceptance_evidence=acceptance_evidence,
         acceptance_evidence_receipt_path=EA_ACCEPTANCE_EVIDENCE_RECEIPT,
         proactive_gold_acceptance_receipt_path=EA_PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT,
     )
@@ -1352,7 +1353,6 @@ def _materialize_admin_scope_gap_audit_from_sources() -> dict[str, object]:
         office_loop_receipt_path=EA_OFFICE_LOOP_GOAL_RECEIPT,
         acceptance_evidence_receipt_path=EA_ACCEPTANCE_EVIDENCE_RECEIPT,
         ea_quality_receipt_path=EA_QUALITY_READINESS_RECEIPT,
-        active_media_receipt_path=EA_ACTIVE_MEDIA_LTD_GOAL_RECEIPT,
         signal_to_decision_receipt_path=EA_SIGNAL_TO_DECISION_RECEIPT,
     )
 

@@ -20,8 +20,6 @@ Runs the full flagship hard exit bundle:
   - full pytest suite
   - spawned CodexEA worker-lane e2e smoke gate
   - release preflight
-  - project-mode manifest/runtime verification
-  - repeated memorial voice stability verification
   - LTD critical inventory/env verification
   - LTD flagship verified-subset verification
   - postgres contract tests
@@ -42,9 +40,6 @@ cd "${EA_ROOT}"
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q
 bash scripts/verify_codexea_e2e_exit_gate.sh
 make release-preflight
-make verify-project-mode-runtime
-make verify-memorial-voice-stability
-make verify-memorial-gold-readiness
 make verify-ltd-critical-entries
 make verify-ltd-flagship-subset
 make test-postgres-contracts

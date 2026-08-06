@@ -25,8 +25,6 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = ROOT / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
 DEFAULT_OFFICE_RECEIPT = ROOT / ".codex-studio/published/ea_office_loop_goal.generated.json"
 DEFAULT_SIGNAL_RECEIPT = ROOT / ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json"
-DEFAULT_MEDIA_RECEIPT = ROOT / ".codex-studio/published/active_media_ltd_goal_bundle.generated.json"
-DEFAULT_MANFRED_RECEIPT = ROOT / ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json"
 DEFAULT_QUALITY_RECEIPT = ROOT / ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json"
 DEFAULT_ACCEPTANCE_RECEIPT = ROOT / ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json"
 DEFAULT_TEABLE_RECOVERY_READINESS = ROOT / ".codex-studio/published/teable_env_recovery_readiness.generated.json"
@@ -60,7 +58,7 @@ RUNTIME_LEDGER_DOCKER_CONTAINERS = ("ea-scheduler", "ea-api")
 OPERATOR_STREAM_OFFICE_LOOP = "office_loop"
 OPERATOR_STREAM_OFFICE_SETUP = "office_setup"
 OPERATOR_STREAM_RECOVERY = "recovery"
-OPERATOR_STREAM_MEDIA_MEMORIAL = "media_memorial"
+OPERATOR_STREAM_MEDIA_ARCHIVE = "media_archive"
 DEFAULT_ACTION_DIGEST_STREAMS = (
     OPERATOR_STREAM_OFFICE_LOOP,
     OPERATOR_STREAM_OFFICE_SETUP,
@@ -96,7 +94,6 @@ PUSHBULLET_DELIVERY_SETUP_RECEIPT = "Pushbullet delivery clients configured and 
 MYMEDIA_ALEXA_SETUP_RECEIPT = (
     "passing My Media for Alexa readiness receipt with pairing complete, watch-folder posture repaired, and no blocked runtime state"
 )
-MANFRED_REALTIME_ACCEPTANCE_RECEIPT = "consented Manfred STT/TTS realtime conversation proof"
 TELEGRAM_AUDIOBOOK_LIVE_DELIVERY_RECEIPT = "passing Telegram audiobook live delivery receipt"
 WHATSAPP_AUDIOBOOK_LIVE_DELIVERY_RECEIPT = "passing WhatsApp audiobook live delivery receipt"
 EA_QUALITY_ACCEPTANCE_PROOFS = {
@@ -205,11 +202,6 @@ ACTION_SURFACES = {
     "create_missing_pushbullet_access_tokens": {
         "href": "https://www.pushbullet.com/#settings/account",
         "label": "Open Pushbullet account settings",
-        "method": "get",
-    },
-    "capture_consented_manfred_stt_tts_realtime_proof": {
-        "href": "/memorials/manfred/voice-config",
-        "label": "Spoken conversation proof",
         "method": "get",
     },
     "choose_sent_replacement_voice_sample": {
@@ -1974,39 +1966,6 @@ def _ea_quality_acceptance_proof_requirements(
     return requirements
 
 
-def _manfred_realtime_action_context(receipt: dict[str, Any]) -> dict[str, Any]:
-    attestation = dict(receipt.get("room_audio_attestation") or {})
-    required_check_ids = [
-        str(item).strip()
-        for item in list(attestation.get("required_check_ids") or [])
-        if str(item).strip()
-    ]
-    manual_only = attestation.get("manual_only") is True
-    user_action_required = manual_only and str(attestation.get("status") or "").strip().lower() != "pass"
-    context = {
-        "kind": "manual_room_audio_attestation",
-        "user_action_required": user_action_required,
-        "instruction": "Collect the manual real-room audio attestation for the Manfred spoken conversation proof.",
-        "delivery_policy": "action_required_only" if user_action_required else "queue_only",
-        "telegram_push_allowed": user_action_required,
-        "interruption_budget": "action_required" if user_action_required else "none",
-        "quiet_hours_respected": True,
-        "non_action_progress_push_allowed": False,
-        "irreversible_actions_consent_gated": True,
-        "manual_only": manual_only,
-        "ci_must_not_auto_assert": attestation.get("ci_must_not_auto_assert") is True,
-        "required_check_ids": required_check_ids,
-        "required_check_count": len(required_check_ids),
-        "raw_private_context_exposed": False,
-        "raw_chat_ids_exposed": False,
-        "raw_token_exposed": False,
-        "raw_secret_exposed": False,
-        "raw_transcript_fields_exposed": False,
-        "candidate_raw_text_fields_exposed": False,
-    }
-    return {key: value for key, value in context.items() if value not in ("", [], None)}
-
-
 def _stale_source_action_context(*, receipts: list[dict[str, Any]], refresh_commands: list[str]) -> dict[str, Any]:
     stale_receipts = [
         Path(str(row.get("path") or "")).name
@@ -2263,7 +2222,6 @@ def _operator_action_priority(requirement: dict[str, Any]) -> tuple[int, int, in
         "pushbullet_delivery_setup": 6,
         "mymedia_alexa_setup": 7,
         "telegram_audiobook_live_delivery": 10,
-        "manfred_stt_tts_realtime_conversation": 11,
         "whatsapp_audiobook_live_delivery": 12,
     }
     lens_priority = {
@@ -2325,13 +2283,12 @@ def _operator_stream_for_requirement(requirement: dict[str, Any]) -> str:
         return OPERATOR_STREAM_RECOVERY
     if key in {
         "mymedia_alexa_setup",
-        "manfred_stt_tts_realtime_conversation",
         "telegram_audiobook_live_delivery",
         "whatsapp_audiobook_live_delivery",
     }:
-        return OPERATOR_STREAM_MEDIA_MEMORIAL
+        return OPERATOR_STREAM_MEDIA_ARCHIVE
     if lens == "deliver":
-        return OPERATOR_STREAM_MEDIA_MEMORIAL
+        return OPERATOR_STREAM_MEDIA_ARCHIVE
     return OPERATOR_STREAM_OFFICE_LOOP
 
 
@@ -2706,8 +2663,6 @@ def build_goal_posture(
     current_source_fingerprint = _source_fingerprint(root)
     office, office_path = _load_receipt(root, root / DEFAULT_OFFICE_RECEIPT.relative_to(ROOT))
     signal, signal_path = _load_receipt(root, root / DEFAULT_SIGNAL_RECEIPT.relative_to(ROOT))
-    media, media_path = _load_receipt(root, root / DEFAULT_MEDIA_RECEIPT.relative_to(ROOT))
-    manfred, manfred_path = _load_receipt(root, root / DEFAULT_MANFRED_RECEIPT.relative_to(ROOT))
     quality, quality_path = _load_receipt(root, root / DEFAULT_QUALITY_RECEIPT.relative_to(ROOT))
     acceptance, acceptance_path = _load_receipt(root, root / DEFAULT_ACCEPTANCE_RECEIPT.relative_to(ROOT))
     recovery, recovery_path = _load_receipt(root, root / DEFAULT_TEABLE_RECOVERY_READINESS.relative_to(ROOT))
@@ -2990,42 +2945,6 @@ def build_goal_posture(
 
     deliver_components = [
         _deliver_component(
-            key="promo_media",
-            title="Promo and cinematic media",
-            payload=media,
-            summary="Premium public media must sound good, cover the runtime, and keep provider claims honest.",
-            next_action=_compact(
-                media.get("next_action"),
-                default="collect_external_provider_and_public_route_proofs_before_any_gold_or_live_provider_claim",
-            ),
-            receipts=[
-                _source_receipt(
-                    media_path,
-                    media,
-                    current_source_head=current_source_head,
-                    current_source_fingerprint=current_source_fingerprint,
-                )
-            ],
-        ),
-        _deliver_component(
-            key="manfred_speech",
-            title="Manfred realtime speech",
-            payload=manfred,
-            summary=_compact(manfred.get("current_label"), default="Realtime conversation evidence is not mirrored."),
-            next_action=_compact(
-                manfred.get("next_action"),
-                default="promote only a consented real captured STT fixture that passes the provider benchmark",
-            ),
-            receipts=[
-                _source_receipt(
-                    manfred_path,
-                    manfred,
-                    current_source_head=current_source_head,
-                    current_source_fingerprint=current_source_fingerprint,
-                )
-            ],
-        ),
-        _deliver_component(
             key="telegram_audiobook",
             title="Telegram audiobook delivery",
             payload=tg_live or tg_ready,
@@ -3174,11 +3093,9 @@ def build_goal_posture(
         key="deliver",
         title="User-facing delivery",
         status=deliver_status,
-        summary="Complete real user-facing loops across media, speech, and audiobook channels instead of stopping at local generation.",
+        summary="Complete real user-facing audiobook and assistant delivery loops instead of stopping at local generation.",
         next_action=deliver_next_action,
         verifier_commands=[
-            "make verify-active-media-ltd-goal-bundle",
-            "make verify-manfred-realtime-conversation-readiness",
             "make verify-telegram-audiobook-live-readiness",
             "make verify-telegram-audiobook-live-delivery-receipt",
             "make verify-whatsapp-audiobook-local-intake-proof",
@@ -3651,28 +3568,6 @@ def build_goal_posture(
                         current_source_fingerprint=current_source_fingerprint,
                     )
                 ],
-            )
-        )
-    if any(reason.startswith("deliver:manfred_speech") for reason in blocking_reasons):
-        acceptance_proof_requirements.append(
-            _acceptance_proof_requirement(
-                key="manfred_stt_tts_realtime_conversation",
-                title="Consented Manfred realtime conversation proof",
-                lens="deliver",
-                required_next_receipt=MANFRED_REALTIME_ACCEPTANCE_RECEIPT,
-                evidence_kind="consented_realtime_media_proof",
-                capture_surfaces=[manfred_path],
-                next_action="capture_consented_manfred_stt_tts_realtime_proof",
-                claim_boundary="does_not_prove_realtime_speech_delivery_until_a_consented_room_conversation_receipt_passes",
-                source_receipts=[
-                    _source_receipt(
-                        manfred_path,
-                        manfred,
-                        current_source_head=current_source_head,
-                        current_source_fingerprint=current_source_fingerprint,
-                    )
-                ],
-                action_context=_manfred_realtime_action_context(manfred),
             )
         )
     if any(reason.startswith("deliver:telegram_audiobook") for reason in blocking_reasons):

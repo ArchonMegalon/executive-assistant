@@ -1293,29 +1293,6 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     )
     _write_receipt(
         tmp_path,
-        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
-        status="ready_local_evidence",
-        next_action="collect external media proofs",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
-        status="blocked_realtime_prerequisites",
-        next_action="capture a consented real STT fixture",
-        current_label="Memorial public-origin gold: blocked",
-        room_audio_attestation={
-            "status": "ready",
-            "manual_only": True,
-            "ci_must_not_auto_assert": True,
-            "required_check_ids": [
-                "actual_device_checked",
-                "actual_speaker_checked",
-                "normal_spoken_turn_confirmed",
-            ],
-        },
-    )
-    _write_receipt(
-        tmp_path,
         ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
         status="blocked_real_world_acceptance",
         next_action="collect real principal acceptance",
@@ -1718,7 +1695,6 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
         "google_workspace_oauth_setup",
         "pushbullet_delivery_setup",
         "mymedia_alexa_setup",
-        "manfred_stt_tts_realtime_conversation",
         "telegram_audiobook_live_delivery",
         "whatsapp_audiobook_live_delivery",
     }
@@ -1854,21 +1830,6 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     )
     assert proof_requirements["telegram_audiobook_live_delivery"]["next_action_href"] == "/integrations/telegram"
     assert proof_requirements["telegram_audiobook_live_delivery"]["next_action_method"] == "get"
-    manfred_context = proof_requirements["manfred_stt_tts_realtime_conversation"]["action_context"]
-    assert manfred_context["kind"] == "manual_room_audio_attestation"
-    assert manfred_context["user_action_required"] is True
-    assert manfred_context["delivery_policy"] == "action_required_only"
-    assert manfred_context["telegram_push_allowed"] is True
-    assert manfred_context["manual_only"] is True
-    assert manfred_context["ci_must_not_auto_assert"] is True
-    assert manfred_context["required_check_count"] == 3
-    assert manfred_context["required_check_ids"] == [
-        "actual_device_checked",
-        "actual_speaker_checked",
-        "normal_spoken_turn_confirmed",
-    ]
-    assert manfred_context["raw_transcript_fields_exposed"] is False
-    assert manfred_context["candidate_raw_text_fields_exposed"] is False
     telegram_action_context = proof_requirements["telegram_audiobook_live_delivery"]["action_context"]
     assert telegram_action_context["kind"] == "telegram_audiobook_voice_choice"
     assert telegram_action_context["operator_action"] == "choose_sent_replacement_voice_sample"
@@ -1890,8 +1851,8 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert queue_streams["proactive_ooda_packet_acceptance"] == "office_loop"
     assert queue_streams["google_workspace_oauth_setup"] == "office_setup"
     assert queue_streams["pushbullet_delivery_setup"] == "office_setup"
-    assert queue_streams["mymedia_alexa_setup"] == "media_memorial"
-    assert queue_streams["telegram_audiobook_live_delivery"] == "media_memorial"
+    assert queue_streams["mymedia_alexa_setup"] == "media_archive"
+    assert queue_streams["telegram_audiobook_live_delivery"] == "media_archive"
     duplicate_suppression = telegram_action_context["duplicate_suppression"]
     assert duplicate_suppression["action_required_only"] is True
     assert duplicate_suppression["only_current_jobs_can_require_user_action"] is True
@@ -1928,17 +1889,6 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert telegram_action["author_gender_matched_candidates_only"] is True
     assert telegram_action["sent_samples_cover_expected"] is True
     assert telegram_action["duplicate_suppression"]["active_pending_voice_job_count"] == 1
-    manfred_action = next(
-        item for item in receipt["operator_action_queue"] if item["key"] == "manfred_stt_tts_realtime_conversation"
-    )
-    assert manfred_action["user_action_required"] is True
-    assert manfred_action["delivery_policy"] == "action_required_only"
-    assert manfred_action["telegram_push_allowed"] is True
-    assert manfred_action["manual_only"] is True
-    assert manfred_action["ci_must_not_auto_assert"] is True
-    assert manfred_action["required_check_count"] == 3
-    assert manfred_action["raw_transcript_fields_exposed"] is False
-    assert manfred_action["candidate_raw_text_fields_exposed"] is False
     morning_action = next(
         item for item in receipt["operator_action_queue"] if item["key"] == "morning_brief_operator_acceptance"
     )
@@ -2078,7 +2028,7 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
         if item["user_action_required"] is True and item["action_digest_eligible"] is not True
     )
     for row in receipt["operator_action_queue"][1:]:
-        assert row["operator_stream"] in {"office_loop", "office_setup", "recovery", "media_memorial"}
+        assert row["operator_stream"] in {"office_loop", "office_setup", "recovery", "media_archive"}
         if row["user_action_required"]:
             assert row["delivery_policy"] == "action_required_only"
             assert row["interruption_budget"] == "action_required"
@@ -2089,7 +2039,7 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
                 assert row["default_action_digest_suppressed_reason"] == "telegram_push_not_allowed"
                 continue
             assert row["telegram_push_allowed"] is True
-            if row["operator_stream"] == "media_memorial":
+            if row["operator_stream"] == "media_archive":
                 assert row["action_digest_eligible"] is False
                 assert row["proactive_signal_allowed"] is False
                 assert row["default_action_digest_suppressed_reason"] == "operator_stream_not_in_default_action_digest"
@@ -2230,8 +2180,6 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert "proactive OODA packet loop" in lenses["decide"]["summary"]
 
     deliver_components = {component["key"]: component for component in lenses["deliver"]["components"]}
-    assert deliver_components["promo_media"]["status"] == "ready_local_evidence"
-    assert deliver_components["manfred_speech"]["status"] == "blocked_realtime_prerequisites"
     assert deliver_components["telegram_audiobook"]["status"] == "blocked"
     assert deliver_components["whatsapp_audiobook"]["status"] == "blocked"
     assert deliver_components["pushbullet_delivery"]["status"] == "blocked_setup_required"
@@ -2253,7 +2201,6 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert deliver_components["mymedia_alexa"]["raw_watch_folder_paths_exposed"] is False
     assert deliver_components["mymedia_alexa"]["raw_public_ip_exposed"] is False
     assert deliver_components["mymedia_alexa"]["raw_pairing_resume_url_exposed"] is False
-    assert "deliver:manfred_speech=blocked_realtime_prerequisites" in receipt["blocking_reasons"]
     assert "deliver:telegram_audiobook=blocked" in receipt["blocking_reasons"]
     assert "deliver:whatsapp_audiobook=blocked" in receipt["blocking_reasons"]
     assert "deliver:pushbullet_delivery=blocked_setup_required" in receipt["blocking_reasons"]
@@ -2433,7 +2380,6 @@ def test_build_goal_posture_uses_proactive_gold_surface_when_packet_quality_is_b
     _write_receipt(tmp_path, ".codex-studio/published/telegram_business_signal_readiness.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json", status="pass")
-    _write_receipt(tmp_path, ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/telegram_audiobook_operator_proof_bundle.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json", status="pass")
     _write_receipt(
@@ -2503,7 +2449,6 @@ def test_build_goal_posture_uses_proactive_gold_surface_when_packet_quality_is_b
             },
         },
     )
-    _write_receipt(tmp_path, ".codex-studio/published/active_media_ltd_goal_bundle.generated.json", status="ready_local_evidence")
     _write_proactive_ooda_receipts(
         tmp_path,
         gold_status="blocked_low_quality_packet_evidence",
@@ -2571,7 +2516,6 @@ def test_build_goal_posture_marks_live_proactive_approval_as_action_required(
     _write_receipt(tmp_path, ".codex-studio/published/telegram_business_signal_readiness.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json", status="pass")
-    _write_receipt(tmp_path, ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/telegram_audiobook_operator_proof_bundle.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json", status="pass")
     _write_receipt(
@@ -2641,7 +2585,6 @@ def test_build_goal_posture_marks_live_proactive_approval_as_action_required(
             },
         },
     )
-    _write_receipt(tmp_path, ".codex-studio/published/active_media_ltd_goal_bundle.generated.json", status="ready_local_evidence")
     _write_proactive_ooda_receipts(
         tmp_path,
         gold_status="ready_for_approval_outcome_capture",
@@ -2739,7 +2682,6 @@ def test_build_goal_posture_marks_manual_proactive_approval_as_action_required(
     _write_receipt(tmp_path, ".codex-studio/published/telegram_business_signal_readiness.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json", status="pass")
-    _write_receipt(tmp_path, ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/telegram_audiobook_operator_proof_bundle.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json", status="pass")
     _write_receipt(
@@ -2809,7 +2751,6 @@ def test_build_goal_posture_marks_manual_proactive_approval_as_action_required(
             },
         },
     )
-    _write_receipt(tmp_path, ".codex-studio/published/active_media_ltd_goal_bundle.generated.json", status="ready_local_evidence")
     _write_proactive_ooda_receipts(
         tmp_path,
         gold_status="ready_for_approval_outcome_capture",
@@ -2903,7 +2844,6 @@ def test_build_goal_posture_keeps_proactive_approval_queue_only_when_runtime_mar
     _write_receipt(tmp_path, ".codex-studio/published/telegram_business_signal_readiness.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json", status="pass")
-    _write_receipt(tmp_path, ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/telegram_audiobook_operator_proof_bundle.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json", status="pass")
     _write_receipt(
@@ -2923,7 +2863,6 @@ def test_build_goal_posture_keeps_proactive_approval_queue_only_when_runtime_mar
             "raw_pairing_resume_url_exposed": False,
         },
     )
-    _write_receipt(tmp_path, ".codex-studio/published/active_media_ltd_goal_bundle.generated.json", status="ready_local_evidence")
     _write_proactive_ooda_receipts(
         tmp_path,
         gold_status="ready_for_approval_outcome_capture",
@@ -3007,7 +2946,6 @@ def test_build_goal_posture_hides_meta_only_proactive_approval_repair_without_li
     _write_receipt(tmp_path, ".codex-studio/published/telegram_business_signal_readiness.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json", status="pass")
-    _write_receipt(tmp_path, ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/telegram_audiobook_operator_proof_bundle.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json", status="pass")
     _write_receipt(
@@ -3027,7 +2965,6 @@ def test_build_goal_posture_hides_meta_only_proactive_approval_repair_without_li
             "raw_pairing_resume_url_exposed": False,
         },
     )
-    _write_receipt(tmp_path, ".codex-studio/published/active_media_ltd_goal_bundle.generated.json", status="ready_local_evidence")
     _write_proactive_ooda_receipts(
         tmp_path,
         gold_status="blocked_missing_proactive_packet_evidence",
@@ -3116,7 +3053,6 @@ def test_goal_posture_verifier_accepts_queue_only_proactive_recovery_without_app
         status="pass",
     )
     _write_receipt(tmp_path, ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json", status="pass")
-    _write_receipt(tmp_path, ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/telegram_audiobook_operator_proof_bundle.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json", status="pass")
     _write_receipt(
@@ -3136,7 +3072,6 @@ def test_goal_posture_verifier_accepts_queue_only_proactive_recovery_without_app
             "raw_pairing_resume_url_exposed": False,
         },
     )
-    _write_receipt(tmp_path, ".codex-studio/published/active_media_ltd_goal_bundle.generated.json", status="ready_local_evidence")
     _write_proactive_ooda_receipts(
         tmp_path,
         gold_status="blocked_operator_runtime_posture",
@@ -3340,7 +3275,6 @@ def test_build_goal_posture_keeps_proactive_approval_as_action_required_during_b
         },
     )
     _write_receipt(tmp_path, ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json", status="pass")
-    _write_receipt(tmp_path, ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/telegram_audiobook_operator_proof_bundle.generated.json", status="pass")
     _write_receipt(tmp_path, ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json", status="pass")
     _write_receipt(
@@ -3360,7 +3294,6 @@ def test_build_goal_posture_keeps_proactive_approval_as_action_required_during_b
             "raw_pairing_resume_url_exposed": False,
         },
     )
-    _write_receipt(tmp_path, ".codex-studio/published/active_media_ltd_goal_bundle.generated.json", status="ready_local_evidence")
     _write_proactive_ooda_receipts(
         tmp_path,
         gold_status="ready_for_approval_outcome_capture",
@@ -3473,16 +3406,6 @@ def test_build_goal_posture_marks_recover_pass_when_mirrored_fresh_host_proof_ex
     )
     _write_receipt(
         tmp_path,
-        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
-        status="ready_local_evidence",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
-        status="pass",
-    )
-    _write_receipt(
-        tmp_path,
         ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
         status="blocked_real_world_acceptance",
     )
@@ -3557,16 +3480,6 @@ def test_build_goal_posture_keeps_recover_audit_when_recovery_proof_is_stale(
         tmp_path,
         ".codex-studio/published/ea_office_loop_goal.generated.json",
         status="ready_local_evidence",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
-        status="ready_local_evidence",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
-        status="pass",
     )
     _write_receipt(
         tmp_path,
@@ -3670,8 +3583,6 @@ def test_goal_posture_verifier_rejects_recover_pass_with_stale_recovery_proof(
             {"key": "detect", "status": "ready_local_packet_pending_operator_acceptance", "verifier_commands": ["cmd"], "source_receipts": []},
             {"key": "decide", "status": "ready_local_evidence", "verifier_commands": ["cmd"], "source_receipts": []},
             {"key": "deliver", "status": "mixed_local_progress", "verifier_commands": ["cmd"], "components": [
-                {"key": "promo_media", "status": "ready_local_evidence"},
-                {"key": "manfred_speech", "status": "pass"},
                 {"key": "telegram_audiobook", "status": "pass"},
                 {"key": "whatsapp_audiobook", "status": "pass"},
             ]},
@@ -3716,19 +3627,6 @@ def test_goal_posture_verifier_accepts_materialized_receipt(tmp_path: Path, monk
         ".codex-studio/published/ea_office_loop_goal.generated.json",
         status="ready_local_evidence",
         next_action="collect office-loop acceptance",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
-        status="ready_local_evidence",
-        next_action="collect external media proofs",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
-        status="blocked_realtime_prerequisites",
-        next_action="capture a consented real STT fixture",
-        current_label="Memorial public-origin gold: blocked",
     )
     _write_receipt(
         tmp_path,
@@ -3802,18 +3700,6 @@ def test_goal_posture_verifier_rejects_uncovered_acceptance_proof_requirement(tm
         ".codex-studio/published/ea_office_loop_goal.generated.json",
         status="ready_local_evidence",
         next_action="collect office-loop acceptance",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
-        status="ready_local_evidence",
-        next_action="collect external media proofs",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
-        status="pass",
-        next_action="maintain consented real STT fixture",
     )
     _write_receipt(
         tmp_path,
@@ -3896,16 +3782,6 @@ def test_goal_posture_verifier_requires_acceptance_requirement_action_surface(
     )
     _write_receipt(
         tmp_path,
-        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
-        status="ready_local_evidence",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
-        status="blocked_realtime_prerequisites",
-    )
-    _write_receipt(
-        tmp_path,
         ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
         status="blocked_real_world_acceptance",
     )
@@ -3966,17 +3842,6 @@ def test_goal_posture_verifier_rejects_stale_proactive_ooda_source_receipts(
         ".codex-studio/published/ea_office_loop_goal.generated.json",
         status="ready_local_evidence",
         next_action="collect office-loop acceptance",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
-        status="ready_local_evidence",
-        next_action="collect external media proofs",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
-        status="pass",
     )
     _write_receipt(
         tmp_path,
@@ -4057,16 +3922,6 @@ def test_goal_posture_marks_passed_proactive_ooda_gold_as_satisfied(tmp_path: Pa
         tmp_path,
         ".codex-studio/published/ea_office_loop_goal.generated.json",
         status="ready_local_evidence",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
-        status="ready_local_evidence",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
-        status="pass",
     )
     _write_receipt(
         tmp_path,
@@ -4153,19 +4008,6 @@ def test_goal_posture_verifier_accepts_waiting_for_live_epub_component_status(tm
     )
     _write_receipt(
         tmp_path,
-        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
-        status="ready_local_evidence",
-        next_action="collect external media proofs",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
-        status="blocked_realtime_prerequisites",
-        next_action="capture a consented real STT fixture",
-        current_label="Memorial public-origin gold: blocked",
-    )
-    _write_receipt(
-        tmp_path,
         ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
         status="blocked_real_world_acceptance",
         next_action="collect real principal acceptance",
@@ -4236,19 +4078,6 @@ def test_goal_posture_accepts_internal_telegram_voice_sample_repair(tmp_path: Pa
         ".codex-studio/published/ea_office_loop_goal.generated.json",
         status="ready_local_evidence",
         next_action="collect office-loop acceptance",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
-        status="ready_local_evidence",
-        next_action="collect external media proofs",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
-        status="blocked_realtime_prerequisites",
-        next_action="capture a consented real STT fixture",
-        current_label="Memorial public-origin gold: blocked",
     )
     _write_receipt(
         tmp_path,
@@ -4367,17 +4196,6 @@ def test_goal_posture_models_failed_whatsapp_playback_as_queue_only_repair(tmp_p
     )
     _write_receipt(
         tmp_path,
-        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
-        status="ready_local_evidence",
-        next_action="collect external media proofs",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
-        status="pass",
-    )
-    _write_receipt(
-        tmp_path,
         ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
         status="blocked_real_world_acceptance",
     )
@@ -4481,17 +4299,6 @@ def test_goal_posture_models_blocked_whatsapp_playback_as_queue_only_repair(tmp_
         ".codex-studio/published/ea_office_loop_goal.generated.json",
         status="ready_local_evidence",
         next_action="collect office-loop acceptance",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
-        status="ready_local_evidence",
-        next_action="collect external media proofs",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
-        status="pass",
     )
     _write_receipt(
         tmp_path,
@@ -4640,17 +4447,6 @@ def test_goal_posture_models_whatsapp_qr_required_as_action_required_pairing(
     )
     _write_receipt(
         tmp_path,
-        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
-        status="ready_local_evidence",
-        next_action="collect external media proofs",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
-        status="pass",
-    )
-    _write_receipt(
-        tmp_path,
         ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
         status="pass",
     )
@@ -4792,17 +4588,6 @@ def test_goal_posture_verifier_accepts_post_commit_head_change_when_source_finge
         ".codex-studio/published/ea_office_loop_goal.generated.json",
         status="ready_local_evidence",
         next_action="collect office-loop acceptance",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
-        status="ready_local_evidence",
-        next_action="collect external media proofs",
-    )
-    _write_receipt(
-        tmp_path,
-        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
-        status="pass",
     )
     _write_receipt(
         tmp_path,

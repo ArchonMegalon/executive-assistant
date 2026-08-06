@@ -14354,7 +14354,7 @@ def test_workspace_sign_in_email_links_fall_back_to_google_gmail_when_explicitly
     assert "It is not your app login." in str(sent[0]["body_text"])
     sessions = product.list_workspace_access_sessions(principal_id=principal_id, status="active", limit=10)
     assert sessions
-    assert sessions[0]["default_target"] == "/app/settings/access"
+    assert sessions[0]["default_target"] == "/app/today"
 
 
 def test_google_connect_email_link_carries_expected_google_account(monkeypatch) -> None:
@@ -14448,7 +14448,7 @@ def test_memo_digest_delivery_refreshes_stale_google_signals_before_issue(monkey
 def test_operator_center_surfaces_delivery_sync_and_claim_lanes(monkeypatch) -> None:
     principal_id = "exec-operator-center"
     client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
-    seeded = seed_product_state(client, principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
 
     monkeypatch.setattr(
         google_oauth_service,

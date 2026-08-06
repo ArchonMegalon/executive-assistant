@@ -48,7 +48,7 @@ ACTION_STATUSES = {
     "blocked_telegram_not_ready",
     "blocked_telegram_send_failed",
 }
-KNOWN_OPERATOR_STREAMS = {"office_loop", "office_setup", "recovery", "media_memorial", "*"}
+KNOWN_OPERATOR_STREAMS = {"office_loop", "office_setup", "recovery", "media_archive", "*"}
 
 
 def _load_json(path: Path) -> dict[str, Any]:

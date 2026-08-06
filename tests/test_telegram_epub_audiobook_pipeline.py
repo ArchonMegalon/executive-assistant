@@ -1403,10 +1403,7 @@ def test_invalid_provider_repair_is_atomic_and_preserves_zero_byte_cache(
 def test_receipt_prefers_top_level_cache_aggregate_over_shared_chapter_rows(
     tmp_path: Path,
 ) -> None:
-    from app.services.audiobook_epub_pipeline import (
-        _sha256_bytes,
-        build_audiobook_job_receipt,
-    )
+    from app.services.audiobook_epub_pipeline import build_audiobook_job_receipt
 
     (tmp_path / "audio").mkdir()
     (tmp_path / "output").mkdir()
@@ -8914,7 +8911,7 @@ def test_audiobook_runtime_preflight_keeps_optional_player_access_base_url_and_b
 
 
 def test_unmixr_short_tts_uses_fallback_api_key_after_throttle(monkeypatch, tmp_path: Path) -> None:
-    from app.services import memorial_openvoice
+    from app.services import voice_runtime
 
     for name in list(os.environ):
         if name.startswith("UNMIXR_API_KEY_FALLBACK_"):
@@ -8945,10 +8942,10 @@ def test_unmixr_short_tts_uses_fallback_api_key_after_throttle(monkeypatch, tmp_
     def fake_get(url, timeout=None):
         return FakeResponse(status_code=200, content=b"RIFF....WAVE", headers={"Content-Type": "audio/wav"})
 
-    monkeypatch.setattr(memorial_openvoice.requests, "request", fake_request)
-    monkeypatch.setattr(memorial_openvoice.requests, "get", fake_get)
+    monkeypatch.setattr(voice_runtime.requests, "request", fake_request)
+    monkeypatch.setattr(voice_runtime.requests, "get", fake_get)
 
-    audio, content_type = memorial_openvoice.unmixr_synthesize_request(
+    audio, content_type = voice_runtime.unmixr_synthesize_request(
         text="Hello",
         voice_id="voice-1",
         lang="en-US",
@@ -9750,10 +9747,7 @@ def test_audiobook_job_receipt_summarizes_retryable_external_tts_balance_blocker
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    from app.services.audiobook_epub_pipeline import (
-        _sha256_bytes,
-        build_audiobook_job_receipt,
-    )
+    from app.services.audiobook_epub_pipeline import build_audiobook_job_receipt
 
     job_dir = tmp_path / "job-balance-receipt"
     job_dir.mkdir()

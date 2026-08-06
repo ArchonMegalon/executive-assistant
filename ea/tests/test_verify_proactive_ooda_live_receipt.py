@@ -99,6 +99,7 @@ def _latest_quiet_receipt_with_followthrough() -> dict[str, object]:
 
 def test_verify_receipt_prefers_archived_sent_delivery_and_latest_quiet_followthrough(tmp_path: Path) -> None:
     module = _module()
+    module._module.ROOT = tmp_path
     latest_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
     archive_path = (
         tmp_path

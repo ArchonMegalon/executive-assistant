@@ -28,7 +28,7 @@ OVERLAY_RELATIVE_PATH = Path(
 )
 CONTRACT_NAME = "ea.audiobook_runtime_candidate_preflight.v1"
 OVERLAY_CONTRACT = "ea.audiobook_runtime_candidate_configuration.v1"
-IMAGE_BUILD_RECEIPT_SCHEMA = "ea.manfred_memorial_image_build.v3"
+IMAGE_BUILD_RECEIPT_SCHEMA = "ea.audiobook_runtime_image_build.v1"
 CANDIDATE_PROJECT = "ea-audiobook-runtime-candidate-configuration"
 CANDIDATE_PROFILE = "audiobook-candidate-configuration-only"
 COMPOSE_MINIMUM_VERSION = (2, 24, 4)
@@ -88,10 +88,17 @@ PRESERVED_SERVICE_ENVIRONMENT = {
     "ea-api": {
         "EA_ARTIFACTS_DIR": "/data/artifacts",
         "EA_CODEXEA_AUTHENTICATED_PRINCIPAL_ID": "",
+        "EMAILIT_API_KEY": "",
+        "EA_EMAIL_DEFAULT_FROM": "",
+        "EA_EMAIL_DEFAULT_NAME": "",
         "EA_GEMINI_VORTEX_CONFIG_DIR": "/run/ea-gemini-cli-config",
         "EA_ONEDRIVE_ATTACHMENT_ROOT": "/data/onedrive_attachments",
         "EA_POCKET_AUDIO_ARCHIVE_ROOT": "/data/pocket-ai-audio",
+        "EA_REGISTRATION_EMAIL_FROM": "",
+        "EA_REGISTRATION_EMAIL_NAME": "",
         "EA_RESPONSES_PROVIDER_LEDGER_DIR": "/data/provider-ledger",
+        "EA_TELEGRAM_SOURCE_VIDEO_EDIT_ROOT": "/data/artifacts/telegram_video_edits",
+        "EA_UI_SERVICE_WORKER_OUTPUT_ROOT": "/data/artifacts/browseract_ui_worker_outputs",
     },
     "ea-worker": {
         "EA_ARTIFACTS_DIR": "/data/artifacts",
@@ -182,12 +189,6 @@ SERVICE_REQUIRED_NAMED_VOLUMES = {
         "/data/whatsapp-actions": "ea_whatsapp_web_actions",
     },
 }
-MEMORIAL_LANE_ENVIRONMENT = (
-    "EA_MEMORIAL_DATA_ROOT",
-    "EA_MEMORIAL_STATE_DIR",
-    "EA_PUBLIC_MEMORIAL_DIR",
-    "EA_PRIVATE_MEMORIAL_PROFILE_DIR",
-)
 PROCESSOR_SCRIPT = (
     'if [ "$${EA_WHATSAPP_WEB_ACTION_PROCESSOR_ENABLED:-1}" != "1" ]; then\n'
     "  echo '{\"enabled\":false,\"event\":\"whatsapp_web_action_processor_idle\",\"ok\":true}';\n"
@@ -254,7 +255,6 @@ VOCALLAB_ENVIRONMENT_KEYS = frozenset(
     EA_AUDIOBOOK_VOCALLAB_ALLOWED_VOICE_CLASSES
     EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES
     EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES
-    EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL
     EA_AUDIOBOOK_VOCALLAB_ALLOW_TOPUP_POINTS
     EA_AUDIOBOOK_VOCALLAB_AUTO_RENDER
     EA_AUDIOBOOK_VOCALLAB_BASE_URL
@@ -346,6 +346,9 @@ SERVICE_ENVIRONMENT_EXTRAS = {
         EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED
         EA_AUDIOBOOK_VOICE_DISCOVERY_TARGET_COUNT
         EA_CODEXEA_AUTHENTICATED_PRINCIPAL_ID
+        EMAILIT_API_KEY
+        EA_EMAIL_DEFAULT_FROM
+        EA_EMAIL_DEFAULT_NAME
         EA_EMAILIT_MAX_429_RETRY_ATTEMPTS
         EA_ENABLE_LEGACY_RUNTIME_SURFACES
         EA_GEMINI_VORTEX_CONFIG_DIR
@@ -354,13 +357,17 @@ SERVICE_ENVIRONMENT_EXTRAS = {
         EA_OUTBOUND_EMAIL_GUARD_STATE_PATH
         EA_POCKET_AUDIO_ARCHIVE_ROOT
         EA_PORT
+        EA_REGISTRATION_EMAIL_FROM
+        EA_REGISTRATION_EMAIL_NAME
         EA_ROLE
         EA_SCHEDULER_ASYNC_IDLE_LOG_INTERVAL_SECONDS
         EA_SCHEDULER_TELEGRAM_ASYNC_IDLE_INTERVAL_SECONDS
         EA_SCHEDULER_WHATSAPP_ASYNC_IDLE_INTERVAL_SECONDS
         EA_TELEGRAM_AUDIOBOOK_EPUB_ENABLED
+        EA_TELEGRAM_SOURCE_VIDEO_EDIT_ROOT
         EA_TRUST_API_TOKEN_PRINCIPAL_HEADER
         EA_UI_SERVICE_SHARED_TEMP_ROOT
+        EA_UI_SERVICE_WORKER_OUTPUT_ROOT
         HOME
         TEABLE_BASE_URL
         TEABLE_TABLE_SYNC_CONFIG_JSON
@@ -598,7 +605,7 @@ PROHIBITED_COLLECTION_FIELDS = (
     "volumes_from",
 )
 UNRESOLVED_MANDATORY_GATES = (
-    "ea_api_live_memorial_owner_handoff_or_approved_multi_mode_contract",
+    "ea_api_live_owner_handoff_or_approved_multi_mode_contract",
     "signed_immutable_candidate_authority",
     "isolated_candidate_execution_and_runtime_proof",
     "credentialed_deployment_and_promotion_authorization",
@@ -1071,8 +1078,8 @@ def _validate_supporting_provenance(
     required_false = (
         "dirty_worktree_context_used",
         "runtime_secrets_baked_in",
-        "memorial_data_baked_in",
-        "memorial_archive_baked_in",
+        "customer_data_baked_in",
+        "private_archive_baked_in",
         "global_build_cache_pruned",
         "live_or_rollback_images_pruned",
     )
@@ -1385,15 +1392,6 @@ def verify_audiobook_runtime_candidate(
         for key, expected_value in expected_safe_environment.items():
             if environment.get(key) != expected_value:
                 _issue(issues, service, key, "unsafe_or_mismatched_value")
-        memorial_markers = [
-            key for key in MEMORIAL_LANE_ENVIRONMENT if _is_resolved(environment.get(key, ""))
-        ]
-        if (
-            str(environment.get("EA_DEPLOY_PRIMARY_MODE") or "").strip().upper()
-            == "MEMORIAL"
-            or memorial_markers
-        ):
-            _issue(issues, service, "memorial_lane", "incompatible_owner_combination")
         for key in REQUIRED_NONEMPTY_ENVIRONMENT:
             if not _is_resolved(environment.get(key, "")):
                 _issue(issues, service, key, "missing_or_unresolved")
@@ -1559,9 +1557,9 @@ def verify_audiobook_runtime_candidate(
             else ""
         ),
         "execution_scope": "isolated_candidate_configuration",
-        "live_api_owner": "memorial",
+        "live_api_owner": "ea_core",
         "owner_handoff_required": True,
-        "memorial_compatible": False,
+        "cross_product_runtime_compatible": False,
         "group_deploy_eligible": False,
         "silent_takeover_allowed": False,
     }
@@ -1603,7 +1601,7 @@ def verify_audiobook_runtime_candidate(
         "pull_authority": False,
         "mutations_performed": 0,
         "live_owner": {
-            "ea-api": "memorial",
+            "ea-api": "ea_core",
             "candidate_posture": "owner_handoff_required",
             "silent_takeover_allowed": False,
         },

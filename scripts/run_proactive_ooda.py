@@ -2543,7 +2543,7 @@ def _workspace_source_error_signal(
         cooldown_seconds_remaining=int(cooldown.get("seconds_remaining") or 0),
         last_observed_at=str(cooldown.get("last_observed_at") or "").strip(),
         cooldown_active=cooldown_active if cooldown else None,
-        action_owner="operator",
+        action_owner="user",
     )
     return {
         "source_ref": f"proactive_source_error:google_workspace:{_short_hash(error_text or error_name)}",
@@ -2595,6 +2595,7 @@ def _source_health_issue_payload(
     normalized_action_owner = str(action_owner or "").strip().lower()
     if normalized_action_owner:
         issue["action_owner"] = normalized_action_owner[:40]
+        issue["operator_action_required"] = normalized_action_owner == "operator"
     if str(recovery_mode or "").strip():
         issue["recovery_mode"] = str(recovery_mode or "").strip()[:80]
     if str(blocked_until or "").strip():

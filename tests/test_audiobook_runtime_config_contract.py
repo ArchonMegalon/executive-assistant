@@ -43,7 +43,6 @@ VOCALLAB_SAFE_DEFAULTS = {
     "EA_AUDIOBOOK_VOCALLAB_ALLOWED_VOICE_CLASSES": "professional,consented_clone",
     "EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES": "0",
     "EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES": "0",
-    "EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL": "0",
     "EA_AUDIOBOOK_VOCALLAB_VOICE_CATALOG_FILE": (
         "config/vocallab_voice_catalog.local.json"
     ),
@@ -51,7 +50,7 @@ VOCALLAB_SAFE_DEFAULTS = {
     "EA_AUDIOBOOK_TTS_ALLOW_CROSS_PROVIDER_FALLBACK": "0",
 }
 AUTHORIZED_VOCALLAB_SERVICES = frozenset(
-    {"ea-api", "ea-worker", "ea-scheduler", "ea-whatsapp-web-action-processor"}
+    {"ea-worker", "ea-scheduler", "ea-whatsapp-web-action-processor"}
 )
 VOCALLAB_ENV_FILE_CONSUMERS = (
     "ea-teable-relay",
@@ -149,9 +148,6 @@ def _render_effective_compose(
     if docker is None:
         pytest.skip("Docker Compose is unavailable")
     tmp_path.mkdir(parents=True, exist_ok=True)
-    cartesia_credential = tmp_path.parent / "cartesia-credential.json"
-    cartesia_credential.write_text("{}\n", encoding="utf-8")
-    cartesia_credential.chmod(0o600)
     synthetic_env = tmp_path / "vocallab-synthetic.env"
     synthetic_env.write_text(
         "\n".join(
@@ -162,13 +158,7 @@ def _render_effective_compose(
                 "EA_AUDIOBOOK_PRODUCTION_IMAGE=registry.example/ea/runtime@sha256:"
                 + "1" * 64,
                 "EA_AUDIOBOOK_PRODUCTION_REVISION=" + "2" * 40,
-                "EA_MEMORIAL_IMAGE=registry.example/ea/memorial@sha256:" + "3" * 64,
                 "EA_SOURCE_REVISION=" + "4" * 40,
-                "EA_MEMORIAL_TRUSTED_PROXY_CIDRS=172.31.254.2/32",
-                "EA_MEMORIAL_DATA_HOST_PATH=/tmp/ea-memorial-data",
-                "EA_MEMORIAL_RUNTIME_HOST_PATH=/tmp/ea-memorial-runtime",
-                "EA_MEMORIAL_CARTESIA_CREDENTIAL_HOST_FILE="
-                + str(cartesia_credential),
             )
         )
         + "\n",
@@ -278,7 +268,7 @@ def test_env_example_declares_safe_audiobook_runtime_defaults() -> None:
     )
 
 
-@pytest.mark.parametrize("service_name", ("ea-api", "ea-worker", "ea-scheduler"))
+@pytest.mark.parametrize("service_name", ("ea-worker", "ea-scheduler"))
 def test_main_compose_audiobook_services_share_safe_runtime_contract(service_name: str) -> None:
     environment = _compose_environment(REPO_ROOT / "docker-compose.yml", service_name)
 
@@ -480,12 +470,11 @@ def test_unauthorized_shared_provider_ledger_mounts_mask_vocallab_ledger(
         assert winner.get("target") == "/data/provider-ledger"
 
 
-def test_full_paused_stage_removes_vocallab_secret_and_preserves_memorial_api(
+def test_full_paused_stage_removes_vocallab_secret_from_core_api(
     tmp_path: Path,
 ) -> None:
     compose_before_stage = (
         REPO_ROOT / "docker-compose.yml",
-        REPO_ROOT / "docker-compose.memorial.yml",
         REPO_ROOT / "docker-compose.whatsapp-web-session.yml",
     )
     baseline = _render_effective_compose(
@@ -505,17 +494,16 @@ def test_full_paused_stage_removes_vocallab_secret_and_preserves_memorial_api(
     assert isinstance(baseline_services, dict)
     assert isinstance(staged_services, dict)
     assert staged_services["ea-api"] == baseline_services["ea-api"]
-    memorial_environment = _effective_service_environment(staged, "ea-api")
-    memorial_key_present = bool(memorial_environment.get("VOCALLAB_API_KEY"))
-    assert memorial_key_present is False
-    assert memorial_environment.get("VOCALLAB_API_KEY_FILE") == ""
+    core_environment = _effective_service_environment(staged, "ea-api")
+    core_key_present = bool(core_environment.get("VOCALLAB_API_KEY"))
+    assert core_key_present is False
+    assert core_environment.get("VOCALLAB_API_KEY_FILE") == ""
     for key in (
         "EA_AUDIOBOOK_VOCALLAB_ENABLED",
         "EA_AUDIOBOOK_VOCALLAB_AUTO_RENDER",
-        "EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL",
         "EA_AUDIOBOOK_TTS_ALLOW_CROSS_PROVIDER_FALLBACK",
     ):
-        assert memorial_environment.get(key) == "0"
+        assert core_environment.get(key) == "0"
 
     authority_flags = (
         "EA_AUDIOBOOK_RUNTIME_ACTIVATION_AUTHORITY",
@@ -529,7 +517,6 @@ def test_full_paused_stage_removes_vocallab_secret_and_preserves_memorial_api(
         "EA_AUDIOBOOK_VOCALLAB_ALLOW_TOPUP_POINTS",
         "EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES",
         "EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES",
-        "EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL",
         "EA_AUDIOBOOK_TTS_ALLOW_CROSS_PROVIDER_FALLBACK",
         "EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED",
         "EA_AUDIOBOOK_UNMIXR_AUTO_RENDER",

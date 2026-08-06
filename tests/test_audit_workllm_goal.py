@@ -55,6 +55,7 @@ def test_goal_audit_stays_incomplete_without_account_and_real_canary(
         receipt["requirements"]["local_sidecar_governance"]["status"]
         == "achieved"
     )
+    assert "local_sidecar_governance" not in receipt["unmet_requirements"]
     assert receipt["promotion"]["manual_lane_promoted"] is False
     assert receipt["promotion"]["api_lane_promoted"] is False
     assert "fixture@example.test" not in serialized

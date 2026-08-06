@@ -193,7 +193,6 @@ def _seed_proactive_followthrough_receipt_paths(
     office_receipt = tmp_path / "ea_office_loop_goal.generated.json"
     acceptance_receipt = tmp_path / "ea_executive_assistant_acceptance_evidence.generated.json"
     quality_receipt = tmp_path / "ea_executive_assistant_quality_readiness.generated.json"
-    active_media_receipt = tmp_path / "active_media_ltd_goal_bundle.generated.json"
     signal_receipt = tmp_path / "ea_whole_project_signal_to_decision.generated.json"
     scope_audit_receipt = tmp_path / "ea_whole_project_scope_gap_audit.generated.json"
     proactive_operator_receipt = tmp_path / "ea_proactive_ooda_operator_status.generated.json"
@@ -227,20 +226,9 @@ def _seed_proactive_followthrough_receipt_paths(
             ],
         },
     )
-    _write_json(
-        active_media_receipt,
-        {
-            "contract_name": "ea.active_media_ltd_goal_bundle.v1",
-            "status": "ready_local_evidence",
-            "goal_completion_claim_allowed": False,
-            "remaining_external_proofs": [],
-        },
-    )
-
     monkeypatch.setattr(landing_actions, "EA_OFFICE_LOOP_GOAL_RECEIPT", office_receipt)
     monkeypatch.setattr(landing_actions, "EA_ACCEPTANCE_EVIDENCE_RECEIPT", acceptance_receipt)
     monkeypatch.setattr(landing_actions, "EA_QUALITY_READINESS_RECEIPT", quality_receipt)
-    monkeypatch.setattr(landing_actions, "EA_ACTIVE_MEDIA_LTD_GOAL_RECEIPT", active_media_receipt)
     monkeypatch.setattr(landing_actions, "EA_SIGNAL_TO_DECISION_RECEIPT", signal_receipt)
     monkeypatch.setattr(landing_actions, "EA_SCOPE_GAP_AUDIT_RECEIPT", scope_audit_receipt)
     monkeypatch.setattr(landing_actions, "EA_PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT", proactive_operator_receipt)
@@ -250,7 +238,6 @@ def _seed_proactive_followthrough_receipt_paths(
         "office": office_receipt,
         "acceptance": acceptance_receipt,
         "quality": quality_receipt,
-        "active_media": active_media_receipt,
         "signal": signal_receipt,
         "scope": scope_audit_receipt,
         "proactive_operator": proactive_operator_receipt,
@@ -415,7 +402,6 @@ def test_admin_goal_evidence_surface_shows_receipts_without_completion_overclaim
 
     office_receipt = tmp_path / "ea_office_loop_goal.generated.json"
     acceptance_receipt = tmp_path / "ea_executive_assistant_acceptance_evidence.generated.json"
-    active_media_receipt = tmp_path / "active_media_ltd_goal_bundle.generated.json"
     signal_receipt = tmp_path / "ea_whole_project_signal_to_decision.generated.json"
     scope_audit_receipt = tmp_path / "ea_whole_project_scope_gap_audit.generated.json"
     proactive_receipt = tmp_path / "ea_proactive_ooda_operator_status.generated.json"
@@ -497,70 +483,6 @@ def test_admin_goal_evidence_surface_shows_receipts_without_completion_overclaim
                     "real weekly signal-to-decision review accepted by the operator",
                     "closed-loop signal-to-decision follow-through receipt accepted by the operator",
                 ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    active_media_receipt.write_text(
-        json.dumps(
-            {
-                "contract_name": "ea.active_media_ltd_goal_bundle.v1",
-                "status": "ready_local_evidence",
-                "goal_completion_claim_allowed": False,
-                "provider_ready": False,
-                "live_provider_runtime_verified": False,
-                "verified_provider_claim_allowed": False,
-                "public_route_deployment_verified": False,
-                "public_route_claim_allowed": False,
-                "gold_claim_allowed": False,
-                "next_action": "collect_external_provider_and_public_route_proofs_before_any_gold_or_live_provider_claim",
-                "remaining_external_proofs": [
-                    "ChatLab live runtime probe receipt",
-                    "deployed public promo route browser proof",
-                    "real Manfred spoken-conversation STT/TTS roundtrip evidence",
-                ],
-                "verifications": {
-                    "audiobook_quality": {"status": "pass", "issues": [], "receipt": {"path": "audiobook.json"}},
-                    "audiobook_m4b_structure": {"status": "pass", "issues": [], "receipt": {"path": "m4b.json"}},
-                    "chatlab_contract": {"status": "pass", "issues": [], "receipt": {"path": "chatlab-contract.json"}},
-                    "chatlab_runtime_preflight": {"status": "pass", "issues": [], "receipt": {"path": "chatlab-runtime.json"}},
-                    "chatlab_route_surface": {"status": "pass", "issues": [], "receipt": {"path": "chatlab-route.json"}},
-                    "cinematic_continuity_demo": {"status": "pass", "issues": [], "receipt": {"path": "cinematic.json"}},
-                    "promo_review_bundle": {"status": "pass", "issues": [], "receipt": {"path": "promo-review.json"}},
-                    "promo_quality_rubric": {"status": "pass", "issues": [], "receipt": {"path": "promo-quality.json"}},
-                    "promo_public_route_surface": {"status": "pass", "issues": [], "receipt": {"path": "promo-route.json"}},
-                },
-                "external_proof_posture": {
-                    "manfred_spoken_conversation": {
-                        "status": "blocked_external_proof",
-                        "next_action": "collect_real_room_audio_attestation",
-                        "blocking_actions": [
-                            "rerun_operator_local_full_text_benchmark_or_correct_ground_truth_transcript",
-                            "collect_real_room_audio_attestation",
-                        ],
-                        "stt": {
-                            "status": "pass",
-                            "provider_label": "cartesia/ink-whisper+enhanced_wav",
-                            "passed_samples": 4,
-                            "sample_count": 4,
-                            "real_captured_fixture_required": True,
-                        },
-                        "tts": {
-                            "premium_status": "blocked",
-                            "room_audio_receipt": "blocked",
-                            "next_action": "collect_real_room_audio_attestation",
-                        },
-                        "room_audio_attestation_packet": {
-                            "status": "ready",
-                            "operator_command": "make materialize-memorial-room-audio-gold-clean",
-                        },
-                        "captured_candidate_diagnostic": {
-                            "status": "blocked",
-                            "next_action": "rerun_operator_local_full_text_benchmark_or_correct_ground_truth_transcript",
-                            "row_failure_codes": ["transcript_hash_mismatch"],
-                        },
-                    }
-                },
             }
         ),
         encoding="utf-8",
@@ -664,7 +586,6 @@ def test_admin_goal_evidence_surface_shows_receipts_without_completion_overclaim
                 "next_action": "review_scope_gap_audit_against_current_product_spine_with_a_human_operator",
                 "remaining_external_proofs": [
                     "real whole-project scope gap audit reviewed against the current product spine",
-                    "ChatLab live runtime probe receipt",
                 ],
             }
         ),
@@ -700,7 +621,6 @@ def test_admin_goal_evidence_surface_shows_receipts_without_completion_overclaim
     )
     monkeypatch.setattr(admin_view_models, "OFFICE_LOOP_GOAL_RECEIPT", office_receipt)
     monkeypatch.setattr(admin_view_models, "EXECUTIVE_ASSISTANT_ACCEPTANCE_EVIDENCE_RECEIPT", acceptance_receipt)
-    monkeypatch.setattr(admin_view_models, "ACTIVE_MEDIA_LTD_GOAL_RECEIPT", active_media_receipt)
     monkeypatch.setattr(admin_view_models, "WHOLE_PROJECT_SIGNAL_TO_DECISION_RECEIPT", signal_receipt)
     monkeypatch.setattr(admin_view_models, "WHOLE_PROJECT_SCOPE_GAP_AUDIT_RECEIPT", scope_audit_receipt)
     monkeypatch.setattr(admin_view_models, "PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT", proactive_receipt)
@@ -725,7 +645,6 @@ def test_admin_goal_evidence_surface_shows_receipts_without_completion_overclaim
     assert "Goal Status" in goals.text
     assert "What is ready locally" in goals.text
     assert "Office-loop receipt" in goals.text
-    assert "Active media/LTD bundle" in goals.text
     assert "Signal-to-decision receipt" in goals.text
     assert "Whole-project scope-gap audit" in goals.text
     assert "Proactive OODA operator status" in goals.text
@@ -767,21 +686,21 @@ def test_admin_goal_evidence_surface_shows_receipts_without_completion_overclaim
     assert "provider_runtime_failures" in goals.text
     assert "run_session" in goals.text
     assert "Scope goals" in goals.text
-    assert "ChatLab live runtime probe receipt" in goals.text
     assert "closed-loop signal-to-decision follow-through receipt accepted by the operator" in goals.text
-    assert "/memorials/manfred/chatlab/status" in goals.text
-    assert "Open ChatLab status" in goals.text
-    assert "/ledger/factions/ashline-circle/promo" in goals.text
-    assert "Open promo page" in goals.text
-    assert "real Manfred spoken-conversation STT/TTS roundtrip evidence" in goals.text
-    assert "/admin/memorials/manfred/gold" in goals.text
-    assert "Open voice gold" in goals.text
-    assert "/memorials/manfred/voice-config" in goals.text
-    assert "Spoken conversation proof" in goals.text
-    assert "collect_real_room_audio_attestation" in goals.text
+    for retired_product_surface in (
+        "ChatLab live runtime probe receipt",
+        "/memorials/manfred/chatlab/status",
+        "Open ChatLab status",
+        "real Manfred spoken-conversation STT/TTS roundtrip evidence",
+        "/admin/memorials/manfred/gold",
+        "Open voice gold",
+        "/memorials/manfred/voice-config",
+        "Spoken conversation proof",
+        "collect_real_room_audio_attestation",
+    ):
+        assert retired_product_surface not in goals.text
     assert "Open Today" in goals.text
     assert "Open approvals" in goals.text
-    assert "Audiobook, ChatLab, cinematic, and promo local checks" in goals.text
     assert "Completion remains blocked" in goals.text
     assert "does not create canonical product, release, support, or memory truth" in goals.text
 
@@ -853,7 +772,6 @@ def test_admin_acceptance_capture_records_redacted_goal_evidence(
     office_receipt = tmp_path / "ea_office_loop_goal.generated.json"
     acceptance_receipt = tmp_path / "ea_executive_assistant_acceptance_evidence.generated.json"
     quality_receipt = tmp_path / "ea_executive_assistant_quality_readiness.generated.json"
-    active_media_receipt = tmp_path / "active_media_ltd_goal_bundle.generated.json"
     signal_receipt = tmp_path / "ea_whole_project_signal_to_decision.generated.json"
     scope_audit_receipt = tmp_path / "ea_whole_project_scope_gap_audit.generated.json"
     proactive_receipt = tmp_path / "ea_proactive_ooda_operator_status.generated.json"
@@ -909,23 +827,6 @@ def test_admin_acceptance_capture_records_redacted_goal_evidence(
         ),
         encoding="utf-8",
     )
-    active_media_receipt.write_text(
-        json.dumps(
-            {
-                "contract_name": "ea.active_media_ltd_goal_bundle.v1",
-                "status": "ready_local_evidence",
-                "goal_completion_claim_allowed": False,
-                "provider_ready": False,
-                "live_provider_runtime_verified": False,
-                "verified_provider_claim_allowed": False,
-                "public_route_deployment_verified": False,
-                "public_route_claim_allowed": False,
-                "gold_claim_allowed": False,
-                "remaining_external_proofs": ["named provider runtime/account proof"],
-            }
-        ),
-        encoding="utf-8",
-    )
     proactive_receipt.write_text(
         json.dumps(
             {
@@ -942,7 +843,6 @@ def test_admin_acceptance_capture_records_redacted_goal_evidence(
     )
     monkeypatch.setattr(admin_view_models, "OFFICE_LOOP_GOAL_RECEIPT", office_receipt)
     monkeypatch.setattr(admin_view_models, "EXECUTIVE_ASSISTANT_ACCEPTANCE_EVIDENCE_RECEIPT", acceptance_receipt)
-    monkeypatch.setattr(admin_view_models, "ACTIVE_MEDIA_LTD_GOAL_RECEIPT", active_media_receipt)
     monkeypatch.setattr(admin_view_models, "WHOLE_PROJECT_SIGNAL_TO_DECISION_RECEIPT", signal_receipt)
     monkeypatch.setattr(admin_view_models, "WHOLE_PROJECT_SCOPE_GAP_AUDIT_RECEIPT", scope_audit_receipt)
     monkeypatch.setattr(admin_view_models, "PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT", proactive_receipt)
@@ -961,7 +861,6 @@ def test_admin_acceptance_capture_records_redacted_goal_evidence(
     monkeypatch.setattr(landing_actions, "EA_OFFICE_LOOP_GOAL_RECEIPT", office_receipt)
     monkeypatch.setattr(landing_actions, "EA_ACCEPTANCE_EVIDENCE_RECEIPT", acceptance_receipt)
     monkeypatch.setattr(landing_actions, "EA_QUALITY_READINESS_RECEIPT", quality_receipt)
-    monkeypatch.setattr(landing_actions, "EA_ACTIVE_MEDIA_LTD_GOAL_RECEIPT", active_media_receipt)
     monkeypatch.setattr(landing_actions, "EA_SIGNAL_TO_DECISION_RECEIPT", signal_receipt)
     monkeypatch.setattr(landing_actions, "EA_SCOPE_GAP_AUDIT_RECEIPT", scope_audit_receipt)
     monkeypatch.setattr(

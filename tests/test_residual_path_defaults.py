@@ -7,7 +7,6 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = (
     "check_property_repo_isolation.py",
     "check_property_security_posture.py",
-    "materialize_whole_project_gold_map.py",
     "render_magicfit_property_flythrough.py",
     "materialize_next90_m129_ea_participation_followthrough_packets.py",
     "verify_next90_m129_ea_participation_followthrough_packets.py",

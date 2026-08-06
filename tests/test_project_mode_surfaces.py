@@ -75,12 +75,6 @@ def test_project_mode_runtime_verifier_passes_against_ea_core_surface() -> None:
     assert verify_runtime() == 0
 
 
-def test_project_mode_runtime_verifier_passes_against_memorial_surface() -> None:
-    from scripts.verify_project_mode_runtime import main as verify_runtime
-
-    assert verify_runtime(["--mode", "memorial"]) == 0
-
-
 def test_plain_deploy_target_is_fail_closed() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
@@ -195,7 +189,6 @@ def test_public_robots_txt_allows_public_pages_and_blocks_private_surfaces(
     assert "Disallow: /admin" in lines
     assert "Disallow: /sign-in" in lines
     assert "Disallow: /register" in lines
-    assert "Disallow: /memorials" in lines
     assert "Disallow: /" not in lines
 
 

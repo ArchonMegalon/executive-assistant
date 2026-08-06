@@ -9,7 +9,6 @@ COMPOSE_FILES = (
     "docker-compose.fastestvpn.yml",
     "docker-compose.prod.yml",
     "docker-compose.whatsapp-web-session.yml",
-    "docker-compose.voicewave-runtime.yml",
 )
 
 
@@ -29,7 +28,6 @@ def test_compose_uses_configurable_durable_storage_defaults() -> None:
     assert "EA_POCKET_AUDIO_ARCHIVE_ROOT" in rendered
     assert "/data/pocket-ai-audio" in rendered
     assert "EA_UI_SERVICE_SHARED_TEMP_ROOT" in rendered
-    assert "VOICEWAVE_RUNTIME_TMP_ROOT" in rendered
 
 
 def test_compose_does_not_default_to_old_host_storage_roots() -> None:

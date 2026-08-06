@@ -177,131 +177,22 @@ print("support/help:    Grounded help lane only; it must not become product cano
 PY
 }
 
-print_memorial_status_summary() {
+print_source_dirty_summary() {
   python3 - <<'PY'
 from __future__ import annotations
 
-import json
-import os
-from pathlib import Path
+from scripts.inspect_source_dirty_groups import build_report
 
-root = Path(os.environ["EA_ROOT"])
-status_path = root / ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json"
-
-def compact(value: object) -> str:
-    return " ".join(str(value or "").split()).strip() or "missing"
-
-def receipt_state(payload: dict[str, object], key: str) -> str:
-    row = payload.get(key)
-    if row is None:
-        return "missing"
-    if isinstance(row, dict):
-        return compact(row.get("status"))
-    return compact(row)
-
-def memorial_next_command(payload: dict[str, object]) -> str:
-    explicit = compact(payload.get("memorial_public_gold_next_command"))
-    if explicit != "missing":
-        return explicit
-    action = compact(payload.get("memorial_public_gold_next_action"))
-    if action == "clear_release_authority_for_memorial_deploy":
-        return "python3 scripts/verify_release_authority.py --pretty"
-    if action == "deploy_ea_memorial":
-        return "make deploy-ea-memorial"
-    if action in {
-        "allow_anonymous_public_memorial_origin_access",
-        "republish_public_memorial_bundle_or_fix_slug",
-        "inspect_public_memorial_origin_http_failure",
-    }:
-        return "GET /memorials/manfred and /memorials/manfred.json on the configured public origin"
-    if action == "refresh_memorial_public_auto_receipts_clean":
-        return "scripts/materialize_memorial_public_auto_receipts_clean.py"
-    return "missing"
-
-def source_dirty_groups(payload: dict[str, object]) -> list[str]:
-    summary = dict(payload.get("source_dirty_summary") or {})
-    categories = [dict(item) for item in list(summary.get("categories") or []) if isinstance(item, dict)]
-    lines: list[str] = []
-    for row in categories[:5]:
-        category = compact(row.get("category"))
-        count = int(row.get("visible_count") or 0)
-        samples = [str(item).strip() for item in list(row.get("sample_files") or []) if str(item).strip()]
-        sample_text = ", ".join(samples[:2]) if samples else "no samples"
-        if len(samples) > 2:
-            sample_text += ", ..."
-        lines.append(f"{category}:{count} [{sample_text}]")
-    omitted = int(summary.get("omitted_count") or payload.get("source_dirty_omitted_count") or 0)
-    if omitted:
-        lines.append(f"omitted:{omitted} [run git status --short for the full list]")
-    return lines
-
-def room_missing_inputs(payload: dict[str, object], *, limit: int = 10) -> str:
-    detail = dict(payload.get("room_audio_receipt_detail") or {})
-    hints = [dict(item) for item in list(detail.get("missing_input_hints") or []) if isinstance(item, dict)]
-    labels: list[str] = []
-    for hint in hints[:limit]:
-        kind = compact(hint.get("kind"))
-        name = compact(hint.get("name"))
-        if kind == "missing" or name == "missing":
-            continue
-        labels.append(f"{kind}:{name}")
-    if len(hints) > limit:
-        labels.append(f"more:{len(hints) - limit}")
-    return "; ".join(labels) if labels else "none"
-
-def room_packet_state(payload: dict[str, object]) -> str:
-    packet = dict(payload.get("room_audio_attestation_packet") or {})
-    status = compact(packet.get("status"))
-    command = compact(packet.get("operator_command"))
-    if command == "missing":
-        command = "make materialize-memorial-room-audio-gold-clean"
-    return f"{status} -> {command}"
-
-def room_command_template(payload: dict[str, object]) -> str:
-    packet = dict(payload.get("room_audio_attestation_packet") or {})
-    return compact(packet.get("receipt_command_template"))
-
-def blocker_commands(payload: dict[str, object], *, limit: int = 8) -> str:
-    summary = dict(payload.get("memorial_public_gold_blocker_summary") or {})
-    commands = [str(item).strip() for item in list(summary.get("blocked_commands") or []) if str(item).strip()]
-    if not commands:
-        components = [dict(item) for item in list(summary.get("blocked_components") or []) if isinstance(item, dict)]
-        commands = [str(item.get("next_command") or "").strip() for item in components if str(item.get("next_command") or "").strip()]
-    deduped: list[str] = []
-    for command in commands:
-        if command not in deduped:
-            deduped.append(command)
-    if len(deduped) > limit:
-        return " | ".join(deduped[:limit]) + f" | more:{len(deduped) - limit}"
-    return " | ".join(deduped) if deduped else "none"
-
-if not status_path.exists():
-    print("memorial status:   missing")
-    print("memorial action:   make materialize-memorial-operator-status")
-    raise SystemExit(0)
-
-payload = json.loads(status_path.read_text(encoding="utf-8"))
-print(f"memorial status:   {compact(payload.get('current_label'))}")
-print(f"local candidate:   {receipt_state(payload, 'local_release_candidate')}")
-print(f"public voice:      {receipt_state(payload, 'public_voice_receipt')}")
-print(f"public browser:    {receipt_state(payload, 'public_browser_receipt')}")
-print(f"meaningful probe:  {receipt_state(payload, 'public_browser_meaningful_receipt')}")
-print(f"public runtime:    {receipt_state(payload, 'public_runtime_mode')}")
-print(f"public access:     {receipt_state(payload, 'public_origin_access')}")
-print(f"surface contract:  {receipt_state(payload, 'memorial_surface_contract')}")
-print(f"room audio:        {receipt_state(payload, 'room_audio_receipt')}")
-print(f"room packet:       {room_packet_state(payload)}")
-print(f"room command:      {room_command_template(payload)}")
-print(f"room missing:      {room_missing_inputs(payload)}")
-print(f"whole gold:        {receipt_state(payload, 'whole_project_gold')}")
-summary = dict(payload.get("source_dirty_summary") or {})
-source_dirty_line = compact("; ".join(source_dirty_groups(payload)) or "none")
-print(f"source groups:     {source_dirty_line}")
+report = build_report(dirty_path_limit=2)
+summary = dict(report.get("source_dirty_summary") or {})
+groups = [
+    f"{str(item.get('category') or '').strip()}:{int(item.get('visible_count') or 0)}"
+    for item in list(summary.get("categories") or [])
+    if isinstance(item, dict) and str(item.get("category") or "").strip()
+]
+print(f"source groups:     {', '.join(groups[:8]) if groups else 'none'}")
 print("source categories: scripts/inspect_source_dirty_groups.py --list-categories")
-print(f"source hint:       {compact(summary.get('operator_hint'))}")
-print(f"next action:       {compact(payload.get('memorial_public_gold_next_action'))}")
-print(f"next command:      {memorial_next_command(payload)}")
-print(f"blocker commands: {blocker_commands(payload)}")
+print(f"source hint:       {str(summary.get('operator_hint') or 'Source worktree is clean.').strip()}")
 PY
 }
 
@@ -332,16 +223,14 @@ operator_focus = [
     for item in list(operator_readiness.get("attention_component_keys") or [])
     if str(item).strip()
 ]
-print("north star:        dependable executive, conversation, and media operating system")
+print("north star:        dependable executive-assistant operating system")
 print(f"detect:            {compact(lenses.get('detect', {}).get('status'))} -> make verify-whole-project-signal-to-decision-receipt")
 print(f"decide:            {compact(lenses.get('decide', {}).get('status'))} -> make verify-office-loop-goal-receipt")
 print(
     "deliver:           "
-    f"media {compact(deliver_components.get('promo_media', {}).get('status'))} / "
-    f"speech {compact(deliver_components.get('manfred_speech', {}).get('status'))} / "
     f"tg {compact(deliver_components.get('telegram_audiobook', {}).get('status'))} / "
     f"wa {compact(deliver_components.get('whatsapp_audiobook', {}).get('status'))} -> "
-    "make verify-active-media-ltd-goal-bundle / make verify-manfred-realtime-conversation-readiness"
+    "make verify-telegram-audiobook-live-readiness / make verify-whatsapp-audiobook-operator-proof-bundle"
 )
 print(f"recover:           {compact(lenses.get('recover', {}).get('status'))} -> make env-check-teable / make env-fresh-host-teable")
 print(f"prove:             {compact(lenses.get('prove', {}).get('status'))} -> make verify-executive-assistant-quality-readiness")
@@ -733,7 +622,6 @@ echo "release ready:     make verify-release-authority-runtime-authoritative"
 echo "deploy context:    make materialize-deploy-context"
 echo "deploy verify:     make verify-deploy-context"
 echo "flagship ready:    make verify-flagship-release-readiness"
-echo "whole gold map:    make verify-whole-project-gold-map"
 echo "goal posture:      make verify-continuous-improvement-goal-posture"
 echo "office loop:       make verify-office-loop-goal-receipt"
 echo "ea quality:        make verify-executive-assistant-quality-readiness"
@@ -745,8 +633,6 @@ echo "live provider:     make probe-live-provider PROVIDER=pushbullet"
 echo "provider pressure: make probe-live-provider-cost-pressure WINDOW=24h"
 echo "signal packet:     make verify-whole-project-signal-to-decision-receipt"
 echo "scope audit:       make verify-whole-project-scope-gap-audit"
-echo "active media:      make verify-active-media-ltd-goal-bundle"
-echo "manfred realtime:  make verify-manfred-realtime-conversation-readiness"
 echo "tg audio ready:    make verify-telegram-audiobook-live-readiness"
 echo "tg audiobook live: make verify-telegram-audiobook-live-delivery-receipt"
 echo "wa audio local:    make verify-whatsapp-audiobook-local-intake-proof"
@@ -765,20 +651,13 @@ echo "mymedia ready:     make verify-mymedia-alexa-readiness"
 echo "mymedia pair:      make trigger-mymedia-amazon-pairing"
 echo "mymedia code:      make submit-mymedia-amazon-pairing-code OTP_CODE=123456"
 echo "mymedia pair tg:   make send-mymedia-amazon-pairing-telegram"
-echo "memorial status:   make materialize-memorial-operator-status"
 echo "source groups:     make inspect-source-dirty-groups"
 echo "source verify:     make verify-source-dirty-groups"
 echo "source categories: scripts/inspect_source_dirty_groups.py --list-categories"
-echo "memorial ready:    make verify-memorial-deploy-readiness"
-echo "memorial runtime:  make verify-memorial-runtime-overlay"
-echo "memorial surface:  make verify-project-mode-runtime-memorial"
-echo "phrase bank:       make materialize-memorial-phrase-bank"
-echo "room gold clean:   make materialize-memorial-room-audio-gold-clean"
 echo "tg video proof:    make materialize-telegram-video-delivery-receipts"
 echo "tg live verify:    make verify-telegram-video-delivery-live-receipt"
 echo "release docs:      make release-docs"
 echo "release preflight: make release-preflight"
-echo "deploy memorial:   make deploy-ea-memorial"
 echo "operator help:     make operator-help"
 echo "provider ready:    make provider-readiness"
 echo "overlay vision:    make overlay-vision-check"
@@ -832,8 +711,8 @@ echo "-- codex governance --"
 print_codex_governance_summary
 echo
 
-echo "-- memorial status --"
-print_memorial_status_summary
+echo "-- source state --"
+print_source_dirty_summary
 echo
 
 echo "-- queued task --"

@@ -21,11 +21,10 @@ def _load_script(name: str) -> ModuleType:
     return module
 
 
-def _write_lower_receipts(tmp_path: Path) -> tuple[Path, Path, Path, Path, Path]:
+def _write_lower_receipts(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     office = tmp_path / "office.generated.json"
     acceptance = tmp_path / "ea-acceptance.generated.json"
     quality = tmp_path / "ea-quality.generated.json"
-    active = tmp_path / "active-media.generated.json"
     signal = tmp_path / "signal-to-decision.generated.json"
     office.write_text(
         json.dumps(
@@ -71,7 +70,6 @@ def _write_lower_receipts(tmp_path: Path) -> tuple[Path, Path, Path, Path, Path]
                             "public_or_premium_publication_reactions",
                             "provider_runtime_failures",
                             "audiobook_and_media_acceptance",
-                            "manfred_spoken_conversation_acceptance",
                             "telegram_whatsapp_email_channel_friction",
                             "release_install_update_friction",
                             "privacy_or_boundary_incidents",
@@ -124,21 +122,6 @@ def _write_lower_receipts(tmp_path: Path) -> tuple[Path, Path, Path, Path, Path]
         + "\n",
         encoding="utf-8",
     )
-    active.write_text(
-        json.dumps(
-            {
-                "contract_name": "ea.active_media_ltd_goal_bundle.v1",
-                "status": "ready_local_evidence",
-                "goal_completion_claim_allowed": False,
-                "remaining_external_proofs": [
-                    "ChatLab live runtime probe receipt",
-                    "real Manfred spoken-conversation STT/TTS roundtrip evidence",
-                ],
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
     signal.write_text(
         json.dumps(
             {
@@ -154,13 +137,13 @@ def _write_lower_receipts(tmp_path: Path) -> tuple[Path, Path, Path, Path, Path]
         + "\n",
         encoding="utf-8",
     )
-    return office, acceptance, quality, active, signal
+    return office, acceptance, quality, signal
 
 
 def test_whole_project_scope_gap_audit_materializes_axis_receipt(tmp_path: Path) -> None:
     materializer = _load_script("materialize_whole_project_scope_gap_audit")
     verifier = _load_script("verify_whole_project_scope_gap_audit")
-    office, acceptance, quality, active, signal = _write_lower_receipts(tmp_path)
+    office, acceptance, quality, signal = _write_lower_receipts(tmp_path)
     receipt_path = tmp_path / "scope-gap.generated.json"
 
     receipt = materializer.materialize_whole_project_scope_gap_audit(
@@ -168,7 +151,6 @@ def test_whole_project_scope_gap_audit_materializes_axis_receipt(tmp_path: Path)
         office_loop_receipt_path=office,
         acceptance_evidence_receipt_path=acceptance,
         ea_quality_receipt_path=quality,
-        active_media_receipt_path=active,
         signal_to_decision_receipt_path=signal,
         generated_at=GENERATED_AT,
     )
@@ -202,7 +184,6 @@ def test_whole_project_scope_gap_audit_materializes_axis_receipt(tmp_path: Path)
         assert axes[axis]["status"] == "mapped_from_mirrored_sources"
         assert axes[axis]["source_files"]
         assert axes[axis]["next_external_or_human_proof"]
-    assert "ChatLab live runtime probe receipt" in receipt["remaining_external_proofs"]
     assert "real daily morning brief acceptance" in receipt["remaining_external_proofs"]
     assert "real whole-project scope gap audit reviewed against the current product spine" in receipt["remaining_external_proofs"]
     assert "real weekly signal-to-decision review accepted by the operator" in receipt["remaining_external_proofs"]
@@ -219,14 +200,13 @@ def test_whole_project_scope_gap_audit_materializes_axis_receipt(tmp_path: Path)
 def test_whole_project_scope_gap_audit_verifier_rejects_missing_axis_and_overclaim(tmp_path: Path) -> None:
     materializer = _load_script("materialize_whole_project_scope_gap_audit")
     verifier = _load_script("verify_whole_project_scope_gap_audit")
-    office, acceptance, quality, active, signal = _write_lower_receipts(tmp_path)
+    office, acceptance, quality, signal = _write_lower_receipts(tmp_path)
     receipt_path = tmp_path / "tampered.generated.json"
     materializer.materialize_whole_project_scope_gap_audit(
         receipt_path=receipt_path,
         office_loop_receipt_path=office,
         acceptance_evidence_receipt_path=acceptance,
         ea_quality_receipt_path=quality,
-        active_media_receipt_path=active,
         signal_to_decision_receipt_path=signal,
         generated_at=GENERATED_AT,
     )
@@ -254,7 +234,7 @@ def test_whole_project_scope_gap_audit_verifier_rejects_missing_axis_and_overcla
 
 def test_whole_project_scope_gap_audit_clis_work(tmp_path: Path) -> None:
     script_root = Path(__file__).resolve().parents[1] / "ea" / "scripts"
-    office, acceptance, quality, active, signal = _write_lower_receipts(tmp_path)
+    office, acceptance, quality, signal = _write_lower_receipts(tmp_path)
     receipt_path = tmp_path / "cli-scope-gap.generated.json"
     materialized = subprocess.run(
         [
@@ -268,8 +248,6 @@ def test_whole_project_scope_gap_audit_clis_work(tmp_path: Path) -> None:
             str(acceptance),
             "--ea-quality-receipt",
             str(quality),
-            "--active-media-receipt",
-            str(active),
             "--signal-to-decision-receipt",
             str(signal),
             "--generated-at",

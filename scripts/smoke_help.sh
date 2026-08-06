@@ -41,8 +41,6 @@ SCRIPTS=(
   scripts/verify_ltd_flagship_subset.py
   scripts/verify_ltd_provider_lanes.py
   scripts/materialize_poppy_draft_packet.py
-  scripts/materialize_whole_project_gold_map.py
-  scripts/verify_whole_project_gold_map.py
   scripts/materialize_whatsapp_web_action_processor_readiness.py
   scripts/verify_whatsapp_web_action_processor_readiness.py
   scripts/materialize_mymedia_alexa_readiness.py
@@ -58,7 +56,6 @@ SCRIPTS=(
   scripts/version_info.sh
   scripts/materialize_deploy_context.py
   scripts/materialize_release_manifest.py
-  scripts/verify_memorial_deploy_readiness.py
   scripts/verify_deploy_context.py
   scripts/release_authority_probe.sh
   scripts/verify_release_authority_runtime.py

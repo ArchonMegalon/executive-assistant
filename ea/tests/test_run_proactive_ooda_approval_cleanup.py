@@ -21,7 +21,7 @@ def _write_pending_callback(
         "status": "pending",
         "created_at": "2026-07-02T15:00:00Z",
         "delivered_at": delivered_at,
-        "expires_at": "2026-07-09T15:00:00Z",
+        "expires_at": "2099-07-09T15:00:00Z",
         "principal_id_hash": proactive_ooda_telegram_approval._hash_value("principal-1"),  # noqa: SLF001
         "chat_id_hash": proactive_ooda_telegram_approval._hash_value("telegram-chat-1"),  # noqa: SLF001
         "packet_ref": packet_ref,

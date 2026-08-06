@@ -143,11 +143,11 @@ def test_hard_exit_scripts_wire_codexea_e2e_gate() -> None:
     assert "bash scripts/verify_codexea_e2e_exit_gate.sh" in runtime_hard_exit
 
 
-def test_smoke_help_includes_memorial_deploy_readiness_verifier() -> None:
+def test_smoke_help_includes_current_fleet_parity_verifier() -> None:
     smoke_help = (ROOT / "scripts" / "smoke_help.sh").read_text(encoding="utf-8")
 
-    assert "scripts/verify_memorial_deploy_readiness.py" in smoke_help
     assert "scripts/verify_codexea_fleet_shim_parity.py" in smoke_help
+    assert "memorial" not in smoke_help.lower()
 
 
 def test_hard_exit_help_mentions_codexea_e2e_gate() -> None:
@@ -177,8 +177,7 @@ def test_runtime_hard_exit_help_mentions_codexea_e2e_gate() -> None:
 
     assert completed.returncode == 0
     assert "spawned CodexEA worker-lane e2e smoke gate" in completed.stdout
-    assert "verify_memorial_runtime_overlay when MEMORIAL mode is enabled" in completed.stdout
-    assert "verify_project_mode_runtime --mode memorial when MEMORIAL mode is enabled" in completed.stdout
+    assert "memorial" not in completed.stdout.lower()
     assert completed.stderr == ""
 
 

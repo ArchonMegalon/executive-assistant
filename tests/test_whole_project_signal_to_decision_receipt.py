@@ -21,11 +21,10 @@ def _load_script(name: str) -> ModuleType:
     return module
 
 
-def _write_lower_receipts(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
+def _write_lower_receipts(tmp_path: Path) -> tuple[Path, Path, Path]:
     office = tmp_path / "office.generated.json"
     acceptance = tmp_path / "ea-acceptance.generated.json"
     quality = tmp_path / "ea-quality.generated.json"
-    active = tmp_path / "active-media.generated.json"
     office.write_text(
         json.dumps(
             {
@@ -70,29 +69,13 @@ def _write_lower_receipts(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
         + "\n",
         encoding="utf-8",
     )
-    active.write_text(
-        json.dumps(
-            {
-                "contract_name": "ea.active_media_ltd_goal_bundle.v1",
-                "status": "ready_local_evidence",
-                "goal_completion_claim_allowed": False,
-                "remaining_external_proofs": [
-                    "ChatLab live runtime probe receipt",
-                    "real user EPUB render and playback acceptance evidence",
-                    "real Manfred spoken-conversation STT/TTS roundtrip evidence",
-                ],
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    return office, acceptance, quality, active
+    return office, acceptance, quality
 
 
 def test_signal_to_decision_receipt_materializes_local_packet_without_overclaim(tmp_path: Path) -> None:
     materializer = _load_script("materialize_whole_project_signal_to_decision_receipt")
     verifier = _load_script("verify_whole_project_signal_to_decision_receipt")
-    office, acceptance, quality, active = _write_lower_receipts(tmp_path)
+    office, acceptance, quality = _write_lower_receipts(tmp_path)
     receipt_path = tmp_path / "signal.generated.json"
 
     receipt = materializer.materialize_whole_project_signal_to_decision_receipt(
@@ -100,7 +83,6 @@ def test_signal_to_decision_receipt_materializes_local_packet_without_overclaim(
         office_loop_receipt_path=office,
         acceptance_evidence_receipt_path=acceptance,
         ea_quality_receipt_path=quality,
-        active_media_receipt_path=active,
         generated_at=GENERATED_AT,
     )
 
@@ -156,7 +138,7 @@ def test_signal_to_decision_receipt_materializes_local_packet_without_overclaim(
         assert signal_sources[key]["status"] == "mapped_from_sources"
         assert signal_sources[key]["owner_truth_plane"]
         assert signal_sources[key]["journey_or_release_gate_mapping"]
-    assert len(receipt["decision_packet"]["decision_items"]) >= 4  # type: ignore[index]
+    assert len(receipt["decision_packet"]["decision_items"]) >= 3  # type: ignore[index]
 
     verification = verifier.verify_whole_project_signal_to_decision_receipt(receipt_path)
 
@@ -167,7 +149,7 @@ def test_signal_to_decision_receipt_materializes_local_packet_without_overclaim(
 def test_signal_to_decision_receipt_hashes_operator_review_and_followthrough(tmp_path: Path) -> None:
     materializer = _load_script("materialize_whole_project_signal_to_decision_receipt")
     verifier = _load_script("verify_whole_project_signal_to_decision_receipt")
-    office, acceptance, quality, active = _write_lower_receipts(tmp_path)
+    office, acceptance, quality = _write_lower_receipts(tmp_path)
     receipt_path = tmp_path / "accepted-signal.generated.json"
     raw_review = "Weekly packet was accepted after reviewing private support and media notes."
     raw_followthrough = "Operator routed provider recovery to the owner and closed the review loop."
@@ -179,7 +161,6 @@ def test_signal_to_decision_receipt_hashes_operator_review_and_followthrough(tmp
         office_loop_receipt_path=office,
         acceptance_evidence_receipt_path=acceptance,
         ea_quality_receipt_path=quality,
-        active_media_receipt_path=active,
         input_payload={
             "review": {
                 "accepted": True,
@@ -241,7 +222,7 @@ def test_signal_to_decision_receipt_hashes_operator_review_and_followthrough(tmp
 
 def test_signal_to_decision_receipt_preserves_existing_redacted_operator_review(tmp_path: Path) -> None:
     materializer = _load_script("materialize_whole_project_signal_to_decision_receipt")
-    office, acceptance, quality, active = _write_lower_receipts(tmp_path)
+    office, acceptance, quality = _write_lower_receipts(tmp_path)
     receipt_path = tmp_path / "preserved-signal.generated.json"
     raw_review = "Weekly packet was accepted after reviewing private support and media notes."
     raw_actor = "operator-private-reviewer"
@@ -252,7 +233,6 @@ def test_signal_to_decision_receipt_preserves_existing_redacted_operator_review(
         office_loop_receipt_path=office,
         acceptance_evidence_receipt_path=acceptance,
         ea_quality_receipt_path=quality,
-        active_media_receipt_path=active,
         input_payload={
             "review": {
                 "accepted": True,
@@ -270,7 +250,6 @@ def test_signal_to_decision_receipt_preserves_existing_redacted_operator_review(
         office_loop_receipt_path=office,
         acceptance_evidence_receipt_path=acceptance,
         ea_quality_receipt_path=quality,
-        active_media_receipt_path=active,
         generated_at="2026-06-20T09:55:00Z",
     )
 
@@ -308,7 +287,6 @@ def test_signal_to_decision_receipt_preserves_existing_redacted_operator_review(
         office_loop_receipt_path=office,
         acceptance_evidence_receipt_path=acceptance,
         ea_quality_receipt_path=quality,
-        active_media_receipt_path=active,
         generated_at="2026-06-20T09:56:00Z",
         preserve_existing=False,
     )
@@ -321,14 +299,13 @@ def test_signal_to_decision_receipt_preserves_existing_redacted_operator_review(
 def test_signal_to_decision_verifier_rejects_overclaim_and_missing_source(tmp_path: Path) -> None:
     materializer = _load_script("materialize_whole_project_signal_to_decision_receipt")
     verifier = _load_script("verify_whole_project_signal_to_decision_receipt")
-    office, acceptance, quality, active = _write_lower_receipts(tmp_path)
+    office, acceptance, quality = _write_lower_receipts(tmp_path)
     receipt_path = tmp_path / "tampered.generated.json"
     materializer.materialize_whole_project_signal_to_decision_receipt(
         receipt_path=receipt_path,
         office_loop_receipt_path=office,
         acceptance_evidence_receipt_path=acceptance,
         ea_quality_receipt_path=quality,
-        active_media_receipt_path=active,
         generated_at=GENERATED_AT,
     )
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -363,7 +340,7 @@ def test_signal_to_decision_verifier_rejects_overclaim_and_missing_source(tmp_pa
 
 def test_signal_to_decision_clis_work(tmp_path: Path) -> None:
     script_root = Path(__file__).resolve().parents[1] / "ea" / "scripts"
-    office, acceptance, quality, active = _write_lower_receipts(tmp_path)
+    office, acceptance, quality = _write_lower_receipts(tmp_path)
     receipt_path = tmp_path / "cli-signal.generated.json"
     materialized = subprocess.run(
         [
@@ -377,8 +354,6 @@ def test_signal_to_decision_clis_work(tmp_path: Path) -> None:
             str(acceptance),
             "--ea-quality-receipt",
             str(quality),
-            "--active-media-receipt",
-            str(active),
             "--generated-at",
             GENERATED_AT,
         ],

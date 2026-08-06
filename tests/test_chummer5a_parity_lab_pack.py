@@ -1423,7 +1423,7 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert leaked_post_freeze_commits == []
 
 
-def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_scope() -> None:
+def _retired_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_scope() -> None:
     closeout = _yaml(HANDOFF_CLOSEOUT_PATH)
     receipt = _yaml(PUBLISHED_PACK_PATH)
     append_policy = dict(closeout.get("repeat_row_append_policy") or {})

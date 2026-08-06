@@ -54,7 +54,7 @@ def test_live_smoke_forces_one_slot_and_hashes_audio(monkeypatch) -> None:
         calls.append(",".join(sorted(key for key in os.environ if key.startswith("UNMIXR_API_KEY"))))
         return b"RIFF....WAVE", "audio/wav"
 
-    monkeypatch.setattr(module.memorial_openvoice, "unmixr_synthesize_request", fake_synthesize_request)
+    monkeypatch.setattr(module.voice_runtime, "unmixr_synthesize_request", fake_synthesize_request)
 
     result = module.smoke_slots(
         live=True,

@@ -558,7 +558,7 @@ def test_sign_in_google_starts_identity_oauth_with_safe_return(monkeypatch: pyte
     monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://assistant.example.test/google/callback")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
     monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
-    monkeypatch.setenv("EA_GOOGLE_OAUTH_EXPECTED_EMAIL", "work.tibor.girschele@gmail.com")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_EXPECTED_EMAIL", "operator.identity@example.test")
     client = _client(monkeypatch)
 
     sign_in_start = client.post(
@@ -571,7 +571,7 @@ def test_sign_in_google_starts_identity_oauth_with_safe_return(monkeypatch: pyte
     parsed = urllib.parse.urlparse(sign_in_start.headers["location"])
     query = urllib.parse.parse_qs(parsed.query)
     assert query["scope"] == ["openid email profile"]
-    assert query["login_hint"] == ["work.tibor.girschele@gmail.com"]
+    assert query["login_hint"] == ["operator.identity@example.test"]
     assert query["prompt"] == ["select_account"]
     from app.services.google_oauth import read_google_oauth_state
 
@@ -580,7 +580,7 @@ def test_sign_in_google_starts_identity_oauth_with_safe_return(monkeypatch: pyte
     assert state["scope_bundle"] == "identity"
     assert state["browser_source"] == "sign_in"
     assert state["return_to"] == "/app/today"
-    assert state["expected_google_email"] == "work.tibor.girschele@gmail.com"
+    assert state["expected_google_email"] == "operator.identity@example.test"
 
 
 def test_sign_in_page_does_not_advertise_unavailable_email_or_google(monkeypatch: pytest.MonkeyPatch) -> None:

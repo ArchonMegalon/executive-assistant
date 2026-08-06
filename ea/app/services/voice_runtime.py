@@ -400,7 +400,7 @@ def voicewave_login_password() -> str:
 
 
 def voicewave_voice_label() -> str:
-    return str(os.environ.get(_VOICEWAVE_VOICE_LABEL_ENV) or "Manfred Hoza Voice").strip() or "Manfred Hoza Voice"
+    return str(os.environ.get(_VOICEWAVE_VOICE_LABEL_ENV) or "Audiobook Voice").strip() or "Audiobook Voice"
 
 
 def voicewave_runtime_script_path() -> Path:
@@ -1129,4 +1129,3 @@ def unmixr_synthesize_request(
         declared_content_type=audio_response.headers.get("Content-Type"),
     )
     return audio_response.content, content_type
-

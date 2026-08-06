@@ -13,15 +13,14 @@ REPO_ROOT = SCRIPT_PATH.parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.source_state_head import resolve_source_state_head
-from scripts.source_state_head import resolve_source_worktree_fingerprint
+from scripts.source_state_head import resolve_source_state_head  # noqa: E402
+from scripts.source_state_head import resolve_source_worktree_fingerprint  # noqa: E402
 
 PUBLISHED_ROOT = REPO_ROOT / ".codex-studio" / "published"
 DEFAULT_RECEIPT = PUBLISHED_ROOT / "ea_whole_project_scope_gap_audit.generated.json"
 DEFAULT_OFFICE_RECEIPT = PUBLISHED_ROOT / "ea_office_loop_goal.generated.json"
 DEFAULT_ACCEPTANCE_RECEIPT = PUBLISHED_ROOT / "ea_executive_assistant_acceptance_evidence.generated.json"
 DEFAULT_QUALITY_RECEIPT = PUBLISHED_ROOT / "ea_executive_assistant_quality_readiness.generated.json"
-DEFAULT_ACTIVE_MEDIA_RECEIPT = PUBLISHED_ROOT / "active_media_ltd_goal_bundle.generated.json"
 DEFAULT_SIGNAL_RECEIPT = PUBLISHED_ROOT / "ea_whole_project_signal_to_decision.generated.json"
 
 REQUIRED_SCOPE_AXES = [
@@ -88,14 +87,12 @@ def materialize_whole_project_scope_gap_audit(
     office_loop_receipt_path: str | Path,
     acceptance_evidence_receipt_path: str | Path,
     ea_quality_receipt_path: str | Path,
-    active_media_receipt_path: str | Path,
     signal_to_decision_receipt_path: str | Path,
     generated_at: str = "",
 ) -> dict[str, Any]:
     office = _load(office_loop_receipt_path)
     acceptance = _load(acceptance_evidence_receipt_path)
     quality = _load(ea_quality_receipt_path)
-    active = _load(active_media_receipt_path)
     signal = _load(signal_to_decision_receipt_path)
     scope_goal = _goal(
         office,
@@ -160,10 +157,9 @@ def materialize_whole_project_scope_gap_audit(
                 "status": acceptance.get("status"),
             },
             "executive_assistant_quality": {"contract_name": quality.get("contract_name"), "status": quality.get("status")},
-            "active_media_ltd": {"contract_name": active.get("contract_name"), "status": active.get("status")},
             "signal_to_decision": {"contract_name": signal.get("contract_name"), "status": signal.get("status")},
         },
-        "remaining_external_proofs": _remaining(office, acceptance, quality, active, signal),
+        "remaining_external_proofs": _remaining(office, acceptance, quality, signal),
     }
     _write(receipt_path, receipt)
     return receipt
@@ -175,7 +171,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--office-loop-receipt", default=str(DEFAULT_OFFICE_RECEIPT))
     parser.add_argument("--acceptance-evidence-receipt", default=str(DEFAULT_ACCEPTANCE_RECEIPT))
     parser.add_argument("--ea-quality-receipt", default=str(DEFAULT_QUALITY_RECEIPT))
-    parser.add_argument("--active-media-receipt", default=str(DEFAULT_ACTIVE_MEDIA_RECEIPT))
     parser.add_argument("--signal-to-decision-receipt", default=str(DEFAULT_SIGNAL_RECEIPT))
     parser.add_argument("--generated-at", default="")
     args = parser.parse_args(argv)
@@ -184,7 +179,6 @@ def main(argv: list[str] | None = None) -> int:
         office_loop_receipt_path=args.office_loop_receipt,
         acceptance_evidence_receipt_path=args.acceptance_evidence_receipt,
         ea_quality_receipt_path=args.ea_quality_receipt,
-        active_media_receipt_path=args.active_media_receipt,
         signal_to_decision_receipt_path=args.signal_to_decision_receipt,
         generated_at=args.generated_at,
     )

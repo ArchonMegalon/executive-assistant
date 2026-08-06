@@ -7,13 +7,11 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 
 ## API Contract Summary
 
-Hosted GitHub Actions workflows are intentionally absent from this repo. Operator verification is local-only and is expected to run through the Make gate bundles: `make ci-gates`, `make ci-gates-postgres`, `make ci-gates-postgres-legacy`, and `make release-preflight`. Use `make verify-manfred-memorial-source-gate` for provider-free source proof, `make verify-manfred-memorial-promotion-preflight` for the joint API/ingress preflight, and `make manfred-memorial-public-launch-gates` only after a passing joint deploy. None of these verification commands substitutes for the coordinated deploy and public-origin proof.
+Hosted GitHub Actions workflows are intentionally absent from this repo. Operator verification is local-only and is expected to run through the Make gate bundles: `make ci-gates`, `make ci-gates-postgres`, `make ci-gates-postgres-legacy`, and `make release-preflight`. Product repositories outside EA Core own their own deployment and public-origin proof.
 
 `X-Forwarded-Host` is fail-closed by default. Set `PROPERTYQUARRY_TRUST_X_FORWARDED_HOST=1` only when a trusted ingress or tunnel is the sole caller rewriting that header; otherwise public canonicals, callback origins, and public host routing use the direct request host.
 
 `X-Forwarded-For` and `CF-Connecting-IP` are also fail-closed for public identity helpers. Set `PROPERTYQUARRY_TRUST_X_FORWARDED_FOR=1` only when the runtime is actually behind a trusted ingress; otherwise public rate-limit identity stays bound to the direct client host.
-
-That same rule now covers public memorial rate-limit identity as well as the shared public-results/public-documents/channel helpers.
 
 `EA_ALLOW_LOOPBACK_NO_AUTH=1` only bypasses API-token auth for loopback-local principal access. Operator-only routes still require an active operator profile; local loopback requests no longer become operator context automatically.
 
@@ -160,14 +158,6 @@ Runtime mode:
 - The Cloudflare tunnel override keeps `ea-cloudflared` digest-pinned and constrained with dropped capabilities, `no-new-privileges`, and bounded memory/PID limits, so ingress stays on the same hardening path as the rest of the runtime.
 - In `prod`, legacy authenticated runtime surfaces stay off by default as well. Keep `EA_ENABLE_LEGACY_RUNTIME_SURFACES=0` for EA core product deploys, and only opt in when a governed migration or operator-only lane still needs `/v1/memory/*`, `/v1/rewrite/*`, `/v1/channels/*`, or `/v1/responses*`.
 - For the durable runtime profile, run `bash scripts/deploy.sh`.
-
-Memorial shadow STT:
-- The memorial `speech-transcribe` path can run a shadow STT lane for user-question audio only; it never ships Manfred's answer audio, private memorial memory, or authority truth to the provider.
-- Current supported provider is BlipAI. Runtime calls it in shadow-only mode, scores the returned correction, and can replace only the user transcript, never the answer policy.
-- If BlipAI returns `401`/`403`, the runtime attempts one refresh-token recovery before entering cooldown.
-- Refreshed BlipAI tokens are persisted locally at `state/memorial_blipai_shadow_stt_tokens.json` under the configured memorial state directory unless `EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH` overrides that path.
-- If BlipAI returns `401`, `403`, or `429` after refresh handling, the lane enters cooldown for `EA_MEMORIAL_SHADOW_STT_ERROR_COOLDOWN_SECONDS` and primary STT remains authoritative.
-- The memorial remains fail-closed without BlipAI credentials: primary STT still answers; shadow STT simply reports `url_missing`, `provider_cooldown_active`, or another bounded reason.
 
 Policy notes:
 - Rewrite policy denies empty input, oversized input, and disallowed tool usage.
@@ -330,7 +320,6 @@ The local release-check bundle is:
 - `make verify-release-authority-runtime-authoritative`
 - `make release-authority-probe`
 - `make verify-flagship-release-readiness`
-- `make verify-whole-project-gold-map`
 - `make verify-generated-release-artifacts-clean`
 - `make runtime-hard-exit-gates`
 - `make hard-exit-gates`
@@ -344,7 +333,6 @@ Release-preflight highlights:
   - `make verify-release-authority`
   - `make release-authority-probe`
   - `make verify-flagship-release-readiness`
-  - `make verify-whole-project-gold-map`
   - `make verify-generated-release-artifacts-clean`
 
 Milestone tracking linkage remains historical, but EA flagship release claims now key off `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_GATE.json`, and the generated receipt instead of treating `MILESTONE.json` as the oracle.
@@ -858,19 +846,13 @@ make tasks-archive-prune
 bash scripts/verify_release_assets.sh
 # or
 make verify-release-assets
-make verify-whole-project-gold-map
-make verify-memorial-runtime-overlay
-make verify-memorial-voice-stability
-make materialize-memorial-phrase-bank
-make materialize-memorial-operator-status
-make materialize-memorial-room-audio-gold-clean
 # docs-focused alias
 make docs-verify
 # docs + operator-help bundle
 make release-docs
 ```
 
-Use `make release-docs` as a pre-smoke documentation/usage pass before running `make release-preflight`. `make verify-runtime-supply-chain` is the runtime dependency and pinned-image guard for release-stage claims. `make verify-release-authority` is the deploy-truth guard: it fails closed unless the manifest records a runtime public origin, explicit deployment id, clean worktree, and compose topology strong enough for a shipping claim. `make materialize-deploy-context` is the deploy-attempt receipt: it must carry repository, branch, tracking branch, commit, deployment id, public origin, release label, project mode, and compose topology before the release manifest can claim authority. `make verify-release-authority-runtime-authoritative` is the live-runtime guard: it fails unless the running `/health/release-authority` surface is internally consistent, `clear`, `authoritative_runtime`, and both nested release/deploy gates pass. `make verify-whole-project-gold-map` is the explicit overclaim guard: a green result means the EA-controlled receipt set is coherent, not that EA owns every Chummer, Fleet, Property, media-provider, or design truth plane. `make verify-memorial-deploy-readiness` is the memorial pre-deploy guard: it fails closed unless memorial operator status and release authority agree the deploy can be trusted. `make verify-memorial-runtime-overlay` is the memorial deployment guard: it fails closed unless `/health/live` reports the memorial runtime overlay as mounted with a healthcheck slug, so public memorial gold claims cannot ride on a base stack that still has the surface disabled. `make verify-project-mode-runtime-memorial` is the mounted-surface guard: it proves the memorial public page and manifest are actually reachable once the overlay is present. `make verify-memorial-voice-stability` is the repeat deployed voice-loop check to run before a public memorial presentation claim. `make materialize-memorial-phrase-bank` refreshes the approved memorial audio/visible-copy phrase bank, `make materialize-memorial-operator-status` refreshes the operator-facing local/public-gold status card, and `make materialize-memorial-room-audio-gold-clean` records the final manual room/device receipt from a clean clone so unrelated worktree drift does not poison the proof.
+Use `make release-docs` as a pre-smoke documentation/usage pass before running `make release-preflight`. `make verify-runtime-supply-chain` is the runtime dependency and pinned-image guard for release-stage claims. `make verify-release-authority` is the deploy-truth guard: it fails closed unless the manifest records a runtime public origin, explicit deployment id, clean worktree, and compose topology strong enough for a shipping claim. `make materialize-deploy-context` is the deploy-attempt receipt: it must carry repository, branch, tracking branch, commit, deployment id, public origin, release label, project mode, and compose topology before the release manifest can claim authority. `make verify-release-authority-runtime-authoritative` is the live-runtime guard: it fails unless the running `/health/release-authority` surface is internally consistent, `clear`, `authoritative_runtime`, and both nested release/deploy gates pass. Product repositories outside EA Core own their own release gates and runtime evidence.
 
 Combined local readiness check:
 
@@ -880,7 +862,7 @@ make all-local
 
 `make all-local` is a lightweight readiness pass that still checks release assets, flagship release readiness, and generated release artifact cleanliness. It does not require release-claim authority. Use `make release-preflight` for release-stage smoke and operator checks.
 
-Deploys now default to a runtime hard-exit pass after the stack reports healthy. `scripts/deploy.sh` will run `bash scripts/runtime_hard_exit_gates.sh` unless `EA_RUN_RUNTIME_HARD_EXIT_GATES=0`. The runtime bundle is deploy-safe, includes the authoritative live-runtime release verifier, and excludes the deeper `smoke_api_principal.sh` contract lane; that lane remains part of `make hard-exit-gates`. When the deploy enables `MEMORIAL` mode, the same runtime bundle also runs `verify_memorial_runtime_overlay` plus `verify_project_mode_runtime.py --mode memorial` automatically before the deploy is allowed to finish.
+Deploys now default to a runtime hard-exit pass after the stack reports healthy. `scripts/deploy.sh` will run `bash scripts/runtime_hard_exit_gates.sh` unless `EA_RUN_RUNTIME_HARD_EXIT_GATES=0`. The runtime bundle is deploy-safe, includes the authoritative live-runtime release verifier, and excludes the deeper `smoke_api_principal.sh` contract lane; that lane remains part of `make hard-exit-gates`.
 
 Release preflight aggregate (asset checks + release-authority verification + authoritative runtime verification + flagship release-readiness verification + generated release artifact cleanliness + operator help + release smoke):
 
@@ -889,22 +871,6 @@ make release-preflight
 ```
 
 `RELEASE_CHECKLIST.md` now includes explicit EA flagship truth-plane, release-authority, and release-readiness preflight lines to validate the browser proof, release gate seed, weekly pulse, Fleet journey gate, and deploy truth.
-
-Memorial-mode deploy:
-
-Follow the source gate → isolated candidate plus priority 3D proof →
-non-mutating joint preflight → coordinated API-and-ingress deploy → public
-memorial plus 3D proof sequence in
-`docs/MANFRED_MEMORIAL_JOINT_DEPLOY_RUNBOOK.md`.
-
-```bash
-make verify-memorial-deploy-readiness
-make deploy-ea-memorial
-make verify-memorial-runtime-overlay
-```
-
-`make verify-memorial-deploy-readiness` should run before `make deploy-ea-memorial`. `make deploy-ea-memorial` is the first-class memorial runtime path. It sets `EA_DEPLOY_PRIMARY_MODE=MEMORIAL`, layers `docker-compose.memorial.yml`, and ensures the deploy context, release manifest, and project-mode receipts describe a memorial runtime instead of a generic EA core stack.
-The memorial overlay bind-mounts `${EA_MEMORIAL_DATA_HOST_PATH:-./memorial_data}` read-only at `/data/memorial_data`; set that host path explicitly if the Manfred public/private memorial data lives outside the repo checkout.
 
 Standalone-compatible service aliases for shared operator scripts:
 
@@ -932,8 +898,7 @@ uses the fixed peer address `172.31.254.2`. EA trusts only
 and make every public request fail with `421 host_not_allowed`.
 
 Keep `EA_PUBLIC_INGRESS_CLOUDFLARED_IPV4` and
-`EA_PUBLIC_INGRESS_TRUSTED_PROXY_CIDRS` aligned. For a governed memorial
-promotion, set `EA_MEMORIAL_TRUSTED_PROXY_CIDRS` to the same exact `/32`.
+`EA_PUBLIC_INGRESS_TRUSTED_PROXY_CIDRS` aligned.
 Changing the subnet or peer address is a maintenance migration: validate the
 rendered Compose configuration first and recreate the tunnel only in an
 authorized deployment window.

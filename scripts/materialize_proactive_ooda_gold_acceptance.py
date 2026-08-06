@@ -30,9 +30,9 @@ try:
     import scripts.ea_live_ops as ea_live_ops
 except ModuleNotFoundError:  # pragma: no cover - script execution path
     import ea_live_ops
-from app.services.proactive_ooda_live_ops_bridge import resolve_proactive_ooda_capture_bundle
-from app.services.proactive_ooda_operator_actions import proactive_next_action_surface
-from app.services.proactive_ooda_runtime_artifacts import (
+from app.services.proactive_ooda_live_ops_bridge import resolve_proactive_ooda_capture_bundle  # noqa: E402
+from app.services.proactive_ooda_operator_actions import proactive_next_action_surface  # noqa: E402
+from app.services.proactive_ooda_runtime_artifacts import (  # noqa: E402
     _approval_callback_outcome_row,
     _approval_callback_rows,
     choose_stage_and_safe_work_for_run_receipt,
@@ -41,13 +41,13 @@ from app.services.proactive_ooda_runtime_artifacts import (
     load_runtime_artifact_bundle,
     resolve_runtime_artifact_paths,
 )
-from app.services.proactive_ooda_safe_work import safe_work_decision_materiality_issue
-from app.services.proactive_signal_discovery import (
+from app.services.proactive_ooda_safe_work import safe_work_decision_materiality_issue  # noqa: E402
+from app.services.proactive_signal_discovery import (  # noqa: E402
     _ascii_fold_text as _signal_ascii_fold_text,
     _clean_text as _signal_clean_text,
     _transcript_has_action_intent,
 )
-from app.services.proactive_ooda_telegram_policy import approval_request_needs_telegram_user_action
+from app.services.proactive_ooda_telegram_policy import approval_request_needs_telegram_user_action  # noqa: E402
 
 DEFAULT_OUTPUT = ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_gold_acceptance.generated.json"
 DEFAULT_OPERATOR_STATUS = ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_operator_status.generated.json"
@@ -2949,6 +2949,8 @@ def _next_action(
         if approval_capture_readiness_ready and (
             approval_capture_surface_ready or approval_capture_telegram_ready or approval_capture_manual_ready
         ):
+            if approval_capture_manual_ready:
+                return "record_proactive_ooda_approval_outcome"
             if not approval_capture_surface_matches_packet_artifacts:
                 return "reissue_proactive_approval"
             return "record_proactive_ooda_approval_outcome"
@@ -3342,8 +3344,6 @@ def _approval_capture_surface_receipt(
     stage_packet = dict(bundle.get("stage_packet") or {})
     safe_work_result = dict(bundle.get("safe_work_result") or {})
     operator_capture = dict(operator_status.get("approval_capture") or {})
-    bundle_packet_ref = _stage_packet_ref(stage_packet)
-    bundle_staged_artifact_ref = _safe_work_result_ref(safe_work_result)
     bundle_packet_ref_sha256 = _stage_packet_ref_hash(stage_packet)
     bundle_staged_artifact_ref_sha256 = _safe_work_result_ref_hash(safe_work_result)
     bundle_internal_action = _current_packet_internal_action(
@@ -3419,17 +3419,6 @@ def _approval_capture_surface_receipt(
     operator_surface_staged_artifact_ref_sha256 = _first_text(
         operator_surface.get("current_staged_artifact_ref_sha256"),
         operator_capture.get("current_staged_artifact_ref_sha256"),
-    )
-    operator_surface_user_action_required = bool(
-        operator_surface.get("current_packet_user_action_required")
-        if "current_packet_user_action_required" in operator_surface
-        else (
-            not bundle_internal_action
-            and bool(
-                operator_surface.get("manual_outcome_capture_ready")
-                or operator_surface.get("telegram_approval_surface_ready")
-            )
-        )
     )
     if (
         current_packet_live_pending_count <= 0

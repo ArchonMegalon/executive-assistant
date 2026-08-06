@@ -64,7 +64,6 @@ required_files=(
   ".codex-design/product/PROJECT_MODES.generated.json"
   ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json"
   ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"
-  ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json"
   ".codex-studio/published/release_authority_status.generated.json"
   ".codex-studio/published/telegram_video_delivery_operator.generated.json"
   ".codex-studio/published/telegram_video_delivery_live.generated.json"
@@ -74,8 +73,6 @@ required_files=(
   ".codex-studio/published/mymedia_alexa_readiness.generated.json"
   ".codex-studio/published/teable_env_recovery_readiness.generated.json"
   ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json"
-  ".codex-design/product/MEMORIAL_PHRASE_BANK.manfred.generated.json"
-  ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json"
   ".codex-studio/published/whatsapp_web_action_processor_readiness.generated.json"
   "scripts/deploy.sh"
   "scripts/db_bootstrap.sh"
@@ -102,21 +99,13 @@ required_files=(
   "scripts/materialize_telegram_video_delivery_receipt.py"
   "scripts/materialize_telegram_video_delivery_live_receipt.py"
   "scripts/materialize_poppy_draft_packet.py"
-  "scripts/materialize_memorial_phrase_bank.py"
-  "scripts/materialize_memorial_operator_status.py"
-  "scripts/materialize_memorial_voice_roundtrip_exit_gate.py"
   "scripts/materialize_deploy_context.py"
   "scripts/verify_deploy_context.py"
-  "scripts/verify_memorial_voice_stability_gate.py"
-  "scripts/materialize_project_mode_manifests.py"
-  "scripts/verify_project_mode_manifests.py"
-  "scripts/verify_project_mode_runtime.py"
   "scripts/verify_release_authority.py"
   "scripts/materialize_release_authority_status.py"
   "scripts/verify_runtime_supply_chain.py"
   "scripts/materialize_runtime_dependency_evidence.py"
   "scripts/verify_runtime_dependency_evidence.py"
-  "scripts/materialize_whole_project_gold_map.py"
   "scripts/materialize_teable_env_recovery_readiness.py"
   "scripts/materialize_mymedia_alexa_readiness.py"
   "scripts/materialize_whatsapp_web_action_processor_readiness.py"
@@ -129,7 +118,6 @@ required_files=(
   "ea/scripts/verify_whatsapp_audiobook_live_delivery_receipt.py"
   "ea/scripts/verify_whatsapp_audiobook_operator_proof_bundle.py"
   "ea/scripts/verify_whatsapp_audiobook_public_share_playback.py"
-  "scripts/verify_whole_project_gold_map.py"
   "scripts/materialize_continuous_improvement_goal_posture.py"
   "scripts/verify_continuous_improvement_goal_posture.py"
   "scripts/verify_teable_env_recovery_readiness.py"
@@ -281,43 +269,6 @@ assert journey_gate_provenance.get("git_head")
 assert supporting.get("journey_gate_git_head") == journey_gate_provenance.get("git_head")
 assert supporting.get("launch_readiness")
 assert pulse["governor_decisions"]
-
-gold_map = json.loads(Path(".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json").read_text(encoding="utf-8"))
-assert gold_map["contract_name"] == "ea.whole_project_gold_map"
-assert gold_map["claim_scope"] == "whole_project_plane_set"
-assert "memorial public-origin experience" in gold_map["claim_scope_label"]
-planes = {plane["key"]: plane for plane in gold_map["planes"]}
-assert planes["ea_release_control"]["status"] == "pass"
-assert planes["design_surface"]["status"] == "bounded_pass"
-assert planes["chummer_core_rules"]["status"] in {"pass", "unknown_missing_receipt"}
-assert planes["chummer_desktop_ui"]["status"] in {"pass", "unknown_missing_receipt"}
-assert planes["chummer_hub_public_web"]["status"] in {"pass", "unknown_missing_receipt"}
-assert planes["mobile_and_second_device"]["status"] in {"pass", "unknown_missing_receipt"}
-assert planes["media_factory_publication"]["status"] in {"bounded_pass", "unknown_missing_receipt"}
-assert planes["telegram_video_delivery"]["status"] in {"pass", "bounded_pass", "blocked", "unknown_missing_receipt"}
-assert planes["memorial_voice_demo"]["status"] in {"pass", "separate_risk_zone"}
-assert planes["memorial_public_origin_gold"]["status"] in {"pass", "blocked"}
-external_unknown = {
-    key
-    for key in (
-        "chummer_core_rules",
-        "chummer_desktop_ui",
-        "chummer_hub_public_web",
-        "mobile_and_second_device",
-        "media_factory_publication",
-    )
-    if planes[key]["status"] == "unknown_missing_receipt"
-}
-if planes["memorial_public_origin_gold"]["status"] == "blocked" or external_unknown:
-    assert gold_map["overall_status"] == "not_gold"
-if planes["memorial_public_origin_gold"]["status"] == "blocked":
-    assert gold_map["gold_claim_allowed"] is False
-    assert "memorial_public_origin_gold" in gold_map["blocking_planes"]
-for key in external_unknown:
-    assert key in gold_map["blocking_planes"]
-assert gold_map["ltd_provider_lane_summary"]["poppy_runtime_enabled"] is False
-assert "EA flagship readiness does not imply whole Chummer project readiness" in "\n".join(gold_map["rules"])
-assert "Whole-project gold requires every listed plane to pass" in "\n".join(gold_map["rules"])
 
 current_head = subprocess.run(
     ["git", "rev-parse", "HEAD"],
@@ -927,11 +878,10 @@ else
 fi
 
 if grep -Fq '  - `make verify-flagship-release-readiness`' "RUNBOOK.md" && \
-   grep -Fq '  - `make verify-whole-project-gold-map`' "RUNBOOK.md" && \
    grep -Fq '  - `make verify-generated-release-artifacts-clean`' "RUNBOOK.md"; then
-  echo "ok: RUNBOOK CI gate readiness, whole-gold-map, and generated-clean bullets"
+  echo "ok: RUNBOOK CI gate readiness and generated-clean bullets"
 else
-  echo "missing: RUNBOOK CI gate readiness, whole-gold-map, or generated-clean bullets" >&2
+  echo "missing: RUNBOOK CI gate readiness or generated-clean bullets" >&2
   missing=1
 fi
 
@@ -1328,9 +1278,6 @@ if grep -Fq "make smoke-postgres-legacy" "scripts/operator_summary.sh" && \
    grep -Fq "make provider-readiness" "scripts/operator_summary.sh" && \
    grep -Fq "make verify-runtime-supply-chain" "scripts/operator_summary.sh" && \
    grep -Fq "make verify-flagship-release-readiness" "scripts/operator_summary.sh" && \
-   grep -Fq "make verify-whole-project-gold-map" "scripts/operator_summary.sh" && \
-   grep -Fq "make materialize-memorial-operator-status" "scripts/operator_summary.sh" && \
-   grep -Fq "make materialize-memorial-phrase-bank" "scripts/operator_summary.sh" && \
    grep -Fq "make release-preflight" "scripts/operator_summary.sh" && \
    grep -Fq "make support-bundle" "scripts/operator_summary.sh" && \
    grep -Fq "make tasks-archive" "scripts/operator_summary.sh" && \

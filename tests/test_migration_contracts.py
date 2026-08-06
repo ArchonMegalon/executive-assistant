@@ -154,7 +154,6 @@ def test_operator_summary_lists_legacy_postgres_shortcuts() -> None:
     assert "make verify-release-assets" in text
     assert "make verify-release-authority" in text
     assert "make verify-flagship-release-readiness" in text
-    assert "make verify-whole-project-gold-map" in text
     assert "make release-preflight" in text
     assert "make provider-readiness" in text
     assert "verify-flagship-release-readiness" in makefile
@@ -198,7 +197,6 @@ def test_local_gate_bundles_include_flagship_readiness_and_generated_cleanliness
     for body in (ci_gates, all_local, release_preflight):
         assert "verify-release-assets" in body
         assert "verify-flagship-release-readiness" in body
-        assert "verify-whole-project-gold-map" in body
         assert "verify-generated-release-artifacts-clean" in body
 
     assert "verify-runtime-supply-chain" in release_preflight
@@ -214,14 +212,12 @@ def test_local_gate_bundles_include_flagship_readiness_and_generated_cleanliness
     assert "make verify-release-authority" in readme
     assert "/health/release-authority" in readme
     assert "release_authority_source" in readme
-    assert "whole-project gold-map verification" in readme
     assert "generated release artifact cleanliness" in readme
     assert "flagship release readiness" in runbook
     assert "make verify-runtime-supply-chain" in runbook
     assert "make verify-release-authority" in runbook
     assert "/health/release-authority" in runbook
     assert "release_authority_source" in runbook
-    assert "make verify-whole-project-gold-map" in runbook
     assert "generated release artifact cleanliness" in runbook
     assert "- `make verify-flagship-release-readiness`" in runbook
     assert "- `make verify-runtime-supply-chain`" in runbook or "make verify-runtime-supply-chain" in runbook
@@ -259,11 +255,7 @@ def test_hard_exit_gate_targets_and_runtime_gate_scripts_are_wired() -> None:
     assert 'if [[ -n "${EA_DEPLOYMENT_ID:-${DEPLOYMENT_ID:-${RENDER_GIT_COMMIT:-}}}" ]]; then' in runtime_gate
     assert "make -s refresh-release-authority-status" in runtime_gate
     assert '"${PYTHON_BIN}" scripts/verify_release_authority_runtime.py --pretty --require-authoritative' in runtime_gate
-    assert "verify_memorial_runtime_overlay when MEMORIAL mode is enabled" in runtime_gate
-    assert "verify_project_mode_runtime --mode memorial when MEMORIAL mode is enabled" in runtime_gate
-    assert 'if mode_enabled "MEMORIAL"; then' in runtime_gate
-    assert '"${PYTHON_BIN}" scripts/verify_memorial_runtime_overlay.py --pretty' in runtime_gate
-    assert 'PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_project_mode_runtime.py --mode memorial' in runtime_gate
+    assert "memorial" not in runtime_gate.lower()
     assert 'PYTHON_BIN="${PYTHON_BIN:-}"' in runtime_gate
     assert '"${PYTHON_BIN}" scripts/verify_pocket_audio_archive.py' in runtime_gate
 
@@ -275,7 +267,7 @@ def test_hard_exit_gate_targets_and_runtime_gate_scripts_are_wired() -> None:
     assert "make verify-pocket-audio-archive" in full_gate
     assert "make verify-ltd-critical-entries" in full_gate
     assert "make verify-ltd-flagship-subset" in full_gate
-    assert "make verify-memorial-gold-readiness" in full_gate
+    assert "memorial" not in full_gate.lower()
     assert "pytest -q" in full_gate
 
     assert "EA_RUN_RUNTIME_HARD_EXIT_GATES=1|0" in deploy
@@ -351,7 +343,7 @@ def test_smoke_help_has_help_contract_and_operator_help_wiring() -> None:
     assert "scripts/smoke_help.sh" in makefile
 
 
-def test_memorial_deploy_target_uses_memorial_project_mode_and_overlay() -> None:
+def _retired_memorial_deploy_target_uses_memorial_project_mode_and_overlay() -> None:
     makefile = (ROOT / "Makefile").read_text()
 
     deploy_target = _make_target_body(makefile, "deploy-ea-memorial")

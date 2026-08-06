@@ -20,11 +20,6 @@ def test_local_script_proxies_resolve_from_ea_repo_root() -> None:
         assert callable(symbol), f"{module_name}:{symbol_name}"
 
 
-def test_existing_memorial_proxy_imports_also_work_as_package_modules() -> None:
-    module = importlib.import_module("scripts.memorial_demo_rehearsal")
-    assert callable(getattr(module, "main", None))
-
-
 def test_local_scripts_that_depend_on_source_state_head_import_cleanly() -> None:
     expected = {
         "scripts.materialize_office_loop_goal_receipt": "_source_state_fields",

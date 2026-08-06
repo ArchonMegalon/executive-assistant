@@ -15,16 +15,14 @@ REPO_ROOT = SCRIPT_PATH.parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.source_state_head import resolve_source_state_head
-from scripts.source_state_head import resolve_source_worktree_fingerprint
+from scripts.source_state_head import resolve_source_state_head  # noqa: E402
+from scripts.source_state_head import resolve_source_worktree_fingerprint  # noqa: E402
 
 PUBLISHED_ROOT = REPO_ROOT / ".codex-studio" / "published"
 DEFAULT_RECEIPT = PUBLISHED_ROOT / "ea_whole_project_signal_to_decision.generated.json"
 DEFAULT_OFFICE_RECEIPT = PUBLISHED_ROOT / "ea_office_loop_goal.generated.json"
 DEFAULT_ACCEPTANCE_RECEIPT = PUBLISHED_ROOT / "ea_executive_assistant_acceptance_evidence.generated.json"
 DEFAULT_QUALITY_RECEIPT = PUBLISHED_ROOT / "ea_executive_assistant_quality_readiness.generated.json"
-DEFAULT_ACTIVE_MEDIA_RECEIPT = PUBLISHED_ROOT / "active_media_ltd_goal_bundle.generated.json"
-
 REQUIRED_SIGNAL_SOURCES = [
     "real_usage_telemetry",
     "support_and_recovery_cases",
@@ -32,7 +30,6 @@ REQUIRED_SIGNAL_SOURCES = [
     "public_or_premium_publication_reactions",
     "provider_runtime_failures",
     "audiobook_and_media_acceptance",
-    "manfred_spoken_conversation_acceptance",
     "telegram_whatsapp_email_channel_friction",
     "release_install_update_friction",
     "privacy_or_boundary_incidents",
@@ -339,7 +336,6 @@ def materialize_whole_project_signal_to_decision_receipt(
     office_loop_receipt_path: str | Path,
     acceptance_evidence_receipt_path: str | Path,
     ea_quality_receipt_path: str | Path,
-    active_media_receipt_path: str | Path,
     input_payload: dict[str, Any] | None = None,
     generated_at: str = "",
     preserve_existing: bool = True,
@@ -347,7 +343,6 @@ def materialize_whole_project_signal_to_decision_receipt(
     office = _load(office_loop_receipt_path)
     acceptance = _load(acceptance_evidence_receipt_path)
     quality = _load(ea_quality_receipt_path)
-    active = _load(active_media_receipt_path)
     target = Path(receipt_path)
     payload = input_payload or {}
     stored_review, stored_follow = _existing_signal_evidence_rows(target, preserve_existing)
@@ -428,7 +423,6 @@ def materialize_whole_project_signal_to_decision_receipt(
             "decision_items": [
                 {"key": "provider_runtime_recovery", "source": "provider_runtime_failures"},
                 {"key": "audiobook_acceptance", "source": "audiobook_and_media_acceptance"},
-                {"key": "spoken_conversation_acceptance", "source": "manfred_spoken_conversation_acceptance"},
                 {"key": "privacy_boundary_review", "source": "privacy_or_boundary_incidents"},
             ]
         },
@@ -448,13 +442,11 @@ def materialize_whole_project_signal_to_decision_receipt(
                 "status": acceptance.get("status"),
             },
             "executive_assistant_quality": {"contract_name": quality.get("contract_name"), "status": quality.get("status")},
-            "active_media_ltd": {"contract_name": active.get("contract_name"), "status": active.get("status")},
         },
         "remaining_external_proofs": _remaining(
             office,
             acceptance,
             quality,
-            active,
             accepted=review_accepted,
             followed=follow_accepted,
         ),
@@ -469,7 +461,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--office-loop-receipt", default=str(DEFAULT_OFFICE_RECEIPT))
     parser.add_argument("--acceptance-evidence-receipt", default=str(DEFAULT_ACCEPTANCE_RECEIPT))
     parser.add_argument("--ea-quality-receipt", default=str(DEFAULT_QUALITY_RECEIPT))
-    parser.add_argument("--active-media-receipt", default=str(DEFAULT_ACTIVE_MEDIA_RECEIPT))
     parser.add_argument("--input")
     parser.add_argument("--generated-at", default="")
     parser.add_argument("--reset", action="store_true")
@@ -480,7 +471,6 @@ def main(argv: list[str] | None = None) -> int:
         office_loop_receipt_path=args.office_loop_receipt,
         acceptance_evidence_receipt_path=args.acceptance_evidence_receipt,
         ea_quality_receipt_path=args.ea_quality_receipt,
-        active_media_receipt_path=args.active_media_receipt,
         input_payload=input_payload,
         generated_at=args.generated_at,
         preserve_existing=not args.reset,

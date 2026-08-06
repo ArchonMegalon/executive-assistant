@@ -742,7 +742,7 @@ def test_digest_head_only_notification_policy_suppresses_tail_but_not_head(tmp_p
     assert verify_digest.verify_receipt(receipt) == []
 
 
-def test_digest_default_stream_filter_suppresses_media_memorial_items(tmp_path, monkeypatch) -> None:
+def test_digest_default_stream_filter_suppresses_media_archive_items(tmp_path, monkeypatch) -> None:
     _patch_source_state(monkeypatch)
     input_path = tmp_path / "posture.json"
     output_path = tmp_path / "digest.json"
@@ -762,7 +762,7 @@ def test_digest_default_stream_filter_suppresses_media_memorial_items(tmp_path, 
                 ),
                 _action_row(
                     key="telegram_audiobook_live_delivery",
-                    operator_stream="media_memorial",
+                    operator_stream="media_archive",
                     instruction="Choose one Telegram audiobook voice sample.",
                     action_digest_eligible=False,
                     default_action_digest_suppressed_reason="operator_stream_not_in_default_action_digest",

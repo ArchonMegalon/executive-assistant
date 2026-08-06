@@ -15,10 +15,10 @@ The earlier closeout blockers are now bound to executable proof instead of prose
 
 - `.codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json` proves seeded product-object workspace pages, approval, commitment closure, handoff, people memory, activation, memo, and draft workflows.
 - `.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json` proves the EA flagship truth plane, product canon, browser workflow proof, and release verification binding agree.
-- `.codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json` proves the boundary around this claim: EA release control may be green, Chummer core/UI/hub/mobile/current-media receipts may pass, and whole-project Chummer gold still remains blocked until memorial voice/realtime has its own receipt.
-- `make ci-gates` proves the current release asset, LTD lane, generated-artifact, and flagship-readiness bundle.
+- `docs/EA_CORE_PRODUCT_BOUNDARY.md` fixes the ownership boundary around this claim: EA Core owns the assistant workspace and its governed delivery loops, while independently released products retain their own runtime and release truth.
+- `make ci-gates` proves the current EA release assets, generated-artifact posture, and flagship-readiness bundle.
 
-This verdict covers the EA core workspace and release-control claim. It does not promote optional LTD/provider lanes, memorial avatar/video, sales operations, external publication channels, Chummer core rules, desktop/UI, hub/web, mobile, or whole-project design polish beyond their own receipts.
+This verdict covers the EA core workspace and release-control claim. It does not promote optional provider lanes, sales operations, external publication channels, or independently released products beyond their own receipts.
 
 ## Flagship blockers
 
@@ -49,9 +49,8 @@ The release claim depends on `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_
 ## Remaining Non-Core Gaps
 
 - FlipLink Document Portal is now a verified runtime lane for approved public document presentation because `ea/_completion/fliplink/CHUMMER_FLIPLINK_PUBLICATION.generated.json` passes and the deployed container sees the receipt.
-- Memorial video-call avatar remains optional and may warn on missing avatar manifest.
 - MagicFit is a verified draft/operator candidate; additional accounts need account-use receipts before claiming they produced assets.
-- Poppy is now a verified draft/operator lane for public or operator-approved source packets only; `runtime_enabled` remains false, BrowserAct private publish remains unavailable, and Poppy still cannot own product, release, support, prompt, private-user, sourcebook, or memorial-private truth. Public signal intake, docs factory, prompt foundry, video bake-off, operator control plane, and commercial ops remain draft/operator lanes unless their lane receipts promote them.
+- Poppy is now a verified draft/operator lane for public or operator-approved source packets only; `runtime_enabled` remains false, BrowserAct private publish remains unavailable, and Poppy still cannot own product, release, support, prompt, private-user, or sourcebook truth. Public signal intake, docs factory, prompt foundry, video bake-off, operator control plane, and commercial ops remain draft/operator lanes unless their lane receipts promote them.
 - Scheduler logs can show `morning memo configured=0`; that is an activation/configuration state, not a failing release-control gate.
 
 ## Fleet execution order
