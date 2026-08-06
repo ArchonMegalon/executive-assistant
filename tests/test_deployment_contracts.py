@@ -122,6 +122,35 @@ def test_runtime_builds_bind_the_exact_deploy_source_revision() -> None:
     assert deploy.index(bind_revision) < deploy.index(compose_build)
 
 
+def test_runtime_build_context_excludes_local_state_and_secrets() -> None:
+    ignored = {
+        line.strip()
+        for line in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+
+    assert {
+        ".ea-runtime-secrets/",
+        ".runtime/",
+        ".state/",
+        ".vexp/",
+        "data/",
+        "state/",
+        "secrets/",
+        "ea/.runtime/",
+        "ea/state/",
+        "ea/secrets/",
+        "*.pem",
+        "*.key",
+        "*.ovpn",
+        "config/*.local.json",
+        "config/*secret*",
+        "config/*password*",
+        "config/*token*",
+        "config/*credential*",
+    } <= ignored
+
+
 def test_base_compose_omits_host_docker_control_for_core_services() -> None:
     compose = _load_yaml(ROOT / "docker-compose.yml")
     services = compose.get("services") or {}
