@@ -26,17 +26,29 @@ GENERATED_ARTIFACTS = (
     Path(".codex-studio/published/telegram_video_delivery_operator.generated.json"),
     Path(".codex-studio/published/whatsapp_web_action_processor_readiness.generated.json"),
 )
+# These two receipts are snapshots of an advancing runtime evidence plane.  The
+# release bundle materializer refreshes them immediately before this verifier
+# runs; repeating their live probes here can observe a different packet or
+# follow-through state and incorrectly report a healthy transition as semantic
+# source drift.  Validate their contracts instead, then use that validated
+# snapshot while checking every source-derived downstream projection.
+LIVE_RUNTIME_ARTIFACTS = (
+    Path(".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"),
+    Path(".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"),
+)
 MATERIALIZER_COMMANDS = (
     ("scripts/materialize_ea_browser_workflow_proof.py",),
     ("scripts/materialize_telegram_video_delivery_receipt.py",),
     ("scripts/materialize_teable_env_recovery_readiness.py",),
     ("scripts/materialize_mymedia_alexa_readiness.py",),
     ("scripts/materialize_whatsapp_web_action_processor_readiness.py",),
-    ("scripts/materialize_proactive_ooda_operator_status.py",),
-    ("scripts/materialize_proactive_ooda_gold_acceptance.py",),
     ("scripts/materialize_continuous_improvement_goal_posture.py",),
     ("scripts/materialize_ea_flagship_release_gate.py",),
     ("scripts/materialize_weekly_product_pulse.py",),
+)
+LIVE_RUNTIME_VALIDATOR_COMMANDS = (
+    ("scripts/verify_proactive_ooda_operator_status.py",),
+    ("scripts/verify_proactive_ooda_gold_acceptance.py",),
 )
 VOLATILE_KEYS = {
     "generated_at",
@@ -230,6 +242,17 @@ def _run_materializers() -> None:
         )
 
 
+def _run_live_runtime_validators() -> None:
+    for command in LIVE_RUNTIME_VALIDATOR_COMMANDS:
+        subprocess.run(
+            [sys.executable, *command],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+
 def main() -> int:
     original_text_by_path: dict[Path, str] = {}
     original_payload_by_path: dict[Path, Any] = {}
@@ -243,8 +266,9 @@ def main() -> int:
 
     try:
         _run_materializers()
+        _run_live_runtime_validators()
     except Exception as exc:
-        print(f"materializers failed: {exc}", file=sys.stderr)
+        print(f"materializers or live runtime artifact validators failed: {exc}", file=sys.stderr)
         return 1
 
     failures: list[str] = []

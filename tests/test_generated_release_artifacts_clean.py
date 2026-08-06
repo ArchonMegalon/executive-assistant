@@ -262,3 +262,32 @@ def test_generated_release_artifact_clean_tracks_mymedia_readiness_materializer_
 
     assert Path(".codex-studio/published/mymedia_alexa_readiness.generated.json") in module.GENERATED_ARTIFACTS
     assert ("scripts/materialize_mymedia_alexa_readiness.py",) in module.MATERIALIZER_COMMANDS
+
+
+def test_generated_release_artifact_clean_validates_live_receipts_without_reprobing_them(monkeypatch) -> None:
+    module = _load_module()
+    operator_receipt = Path(".codex-studio/published/ea_proactive_ooda_operator_status.generated.json")
+    gold_receipt = Path(".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json")
+
+    assert operator_receipt in module.GENERATED_ARTIFACTS
+    assert gold_receipt in module.GENERATED_ARTIFACTS
+    assert operator_receipt in module.LIVE_RUNTIME_ARTIFACTS
+    assert gold_receipt in module.LIVE_RUNTIME_ARTIFACTS
+    assert ("scripts/materialize_proactive_ooda_operator_status.py",) not in module.MATERIALIZER_COMMANDS
+    assert ("scripts/materialize_proactive_ooda_gold_acceptance.py",) not in module.MATERIALIZER_COMMANDS
+    assert ("scripts/verify_proactive_ooda_operator_status.py",) in module.LIVE_RUNTIME_VALIDATOR_COMMANDS
+    assert ("scripts/verify_proactive_ooda_gold_acceptance.py",) in module.LIVE_RUNTIME_VALIDATOR_COMMANDS
+
+    calls: list[tuple[list[str], dict[str, Any]]] = []
+
+    def _record(command: list[str], **kwargs: Any) -> None:
+        calls.append((command, kwargs))
+
+    monkeypatch.setattr(module.subprocess, "run", _record)
+    module._run_live_runtime_validators()
+
+    assert [call[0] for call in calls] == [
+        [module.sys.executable, "scripts/verify_proactive_ooda_operator_status.py"],
+        [module.sys.executable, "scripts/verify_proactive_ooda_gold_acceptance.py"],
+    ]
+    assert all(call[1]["check"] is True for call in calls)
