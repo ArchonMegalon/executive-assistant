@@ -2846,6 +2846,18 @@ def test_deploy_script_extends_runtime_topology_for_whatsapp_overlay() -> None:
         'recreate_services_without_build "${RUNTIME_RECREATE_ONLY_SERVICES[@]}"'
         in deploy
     )
+    build_call = 'build_and_recreate_services "${RUNTIME_BUILD_SERVICES[@]}"'
+    cleanup_call = "recover_docker_build_pressure"
+    recreate_call = 'recreate_services_without_build "${RUNTIME_RECREATE_ONLY_SERVICES[@]}"'
+    assert deploy.index(build_call) < deploy.index(cleanup_call, deploy.index(build_call))
+    assert deploy.index(cleanup_call, deploy.index(build_call)) < deploy.index(recreate_call)
+    cleanup_body = deploy.split("recover_docker_build_pressure() {", 1)[1].split(
+        "\n}", 1
+    )[0]
+    assert "docker image prune --force" in cleanup_body
+    assert "docker builder prune --all --force" in cleanup_body
+    assert "docker container prune" not in cleanup_body
+    assert "docker volume prune" not in cleanup_body
     assert (
         "RUNTIME_BUILD_SERVICES+=(ea-whatsapp-web-session ea-whatsapp-web-activator ea-whatsapp-web-action-processor ea-whatsapp-web-teable-sync)"
         in deploy

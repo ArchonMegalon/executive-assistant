@@ -773,6 +773,29 @@ build_and_recreate_services() {
   done
 }
 
+recover_docker_build_pressure() {
+  local threshold
+  local usage_percent
+
+  threshold="${EA_DEPLOY_DOCKER_PRUNE_USAGE_PERCENT:-95}"
+  if [[ ! "${threshold}" =~ ^[0-9]+$ ]] || (( threshold < 1 || threshold > 100 )); then
+    echo "EA_DEPLOY_DOCKER_PRUNE_USAGE_PERCENT must be an integer from 1 to 100." >&2
+    return 1
+  fi
+  usage_percent="$(df -P "${APP_ROOT}" | awk 'NR == 2 { gsub(/%/, "", $5); print $5 }')"
+  if [[ ! "${usage_percent}" =~ ^[0-9]+$ ]]; then
+    echo "Unable to determine Docker host filesystem usage." >&2
+    return 1
+  fi
+  if (( usage_percent < threshold )); then
+    return 0
+  fi
+
+  echo "Host filesystem usage is ${usage_percent}%; pruning dangling images and unused build cache."
+  docker image prune --force >/dev/null
+  docker builder prune --all --force >/dev/null
+}
+
 recreate_services_without_build() {
   local -a recreate_services=("$@")
   if [[ "${#recreate_services[@]}" -eq 0 ]]; then
@@ -845,6 +868,7 @@ else
     FAILURE_LOG_SERVICES+=(ea-fastestvpn-proxy ea-fastestvpn-proxy-ie ea-fastestvpn-proxy-nl)
   fi
   build_and_recreate_services "${RUNTIME_BUILD_SERVICES[@]}"
+  recover_docker_build_pressure
   recreate_services_without_build "${RUNTIME_RECREATE_ONLY_SERVICES[@]}"
   if [[ "${CLOUDFLARED_OVERLAY_ENABLED}" == "1" ]]; then
     echo "Refreshing Cloudflare tunnel after API recreate"

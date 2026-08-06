@@ -1084,6 +1084,9 @@ def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:
         in deploy
     )
     assert 'for service in "${build_services[@]}"; do' in deploy
+    assert "recover_docker_build_pressure() {" in deploy
+    assert "docker image prune --force" in deploy
+    assert "docker builder prune --all --force" in deploy
     assert 'compose up -d --no-build --no-deps --force-recreate "${service}"' in deploy
     assert (
         'echo "Service failed to become ready during deploy: ${service}" >&2' in deploy
