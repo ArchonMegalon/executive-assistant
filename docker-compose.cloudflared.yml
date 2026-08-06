@@ -3,6 +3,7 @@ services:
     environment:
       - EA_TRUST_PROXY_HEADERS=1
       - EA_TRUSTED_PROXY_CIDRS=${EA_PUBLIC_INGRESS_TRUSTED_PROXY_CIDRS:-172.31.254.2/32}
+      - EA_TRUSTED_PUBLIC_ORIGIN_ALIASES=${EA_TRUSTED_PUBLIC_ORIGIN_ALIASES:-origin.myexternalbrain.com}
 
   ea-cloudflared:
     image: cloudflare/cloudflared:latest@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283

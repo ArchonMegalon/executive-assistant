@@ -1038,11 +1038,16 @@ def test_cloudflared_tunnel_uses_stable_least_privilege_proxy_identity() -> None
         in tunnel_override
     )
     assert (
+        "EA_TRUSTED_PUBLIC_ORIGIN_ALIASES=${EA_TRUSTED_PUBLIC_ORIGIN_ALIASES:-origin.myexternalbrain.com}"
+        in tunnel_override
+    )
+    assert (
         "ipv4_address: ${EA_PUBLIC_INGRESS_CLOUDFLARED_IPV4:-172.31.254.2}"
         in tunnel_override
     )
     assert "EA_PUBLIC_INGRESS_CLOUDFLARED_IPV4=172.31.254.2" in env_example
     assert "EA_PUBLIC_INGRESS_TRUSTED_PROXY_CIDRS=172.31.254.2/32" in env_example
+    assert "EA_TRUSTED_PUBLIC_ORIGIN_ALIASES=origin.example.test" in env_example
     for text in (readme, runbook):
         assert "ea_public_ingress" in text
         assert "172.31.254.2/32" in text
