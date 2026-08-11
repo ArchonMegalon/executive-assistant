@@ -1020,7 +1020,7 @@
     "scripts/deploy_ea_audiobook_runtime.py": "6f64088eb42451da3c067f084a351e09528c018348e21322e015f141b40051ee",
     "scripts/deploy_proactive_ooda_runtime.sh": "1090c0450bbbc0c04024ea098df63980f1981a062c48a7a3620c3887f4410b0e",
     "scripts/diff_openapi.sh": "3e9259551ce0a3ed922cc1f3078c78bec125f0e5112db768cbb9e36aeef51f97",
-    "scripts/ea_responses_proxy.py": "b9fa89e6c0b714c42f7206899779f41613816fbd2b90b76c20bb71b59385d742",
+    "scripts/ea_responses_proxy.py": "73d68db6cebad0e317462ac7c8301ef045d6c8294173993a4055b9e89c759c82",
     "scripts/ea_responses_proxy_start_guard.sh": "d84a16322e4e9d096b7f664eafa5d62ae3c84baa215c24715f3f44cbcf8ea055",
     "scripts/ensure_fastestvpn_proxy_pool.sh": "a0927fceada0a9e66a790627e1c149ba4c20bdea0baa935dbddb55c846e72a60",
     "scripts/evaluate_workllm_manual_canary.py": "483bb647f5d3f2039e0af0f7501e684150ce9fa305ba838607cc9d17fe26a038",
@@ -1346,7 +1346,7 @@
     "tests/test_ea_propertyquarry_compose_isolation.py": "e2dcf24c33daff53216e649325b9c6198c2257bd4d098268048364614f03001a",
     "tests/test_ea_provider_contract_receipts.py": "86e0b0169e695f06dcf977e07ed90451711b876dd390de91513b22d04961e8fa",
     "tests/test_ea_quality_gates.py": "491a70da8e9ece4e95bb1972f3d013dbcb083bca90e75cbf0f550d5ce6b52cf7",
-    "tests/test_ea_responses_proxy_memorial_contract.py": "971a793b51c339a2c6415c4d17d0286509df360de7252699c2208d9065554907",
+    "tests/test_ea_responses_proxy_memorial_contract.py": "93dc6a463c8a464b2484239e05b3936d194b6c10f1acdfd66e5a02a2253bdade",
     "tests/test_ea_runtime_env_isolation.py": "2182387c09450ed4a4564363a556ec1525d5468eba4344a59c2597dd0d6e4733",
     "tests/test_ea_sendr_campaign_packet.py": "e9f166f03abacb66e528ea4702db0711c55fad7cd1339ddbdebe6831a39485c9",
     "tests/test_ea_sendr_receipts.py": "113385e4273178d31be888b16df57d0052cbb9072b561e7f501431568d50204f",
@@ -1621,11 +1621,11 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "0cea73d0b8720853aed65f5b44c7a18206356be6",
-  "indexed_at_timestamp": "2026-08-11T09:40:16.888426641+00:00",
+  "indexed_at_commit": "962557c1ec356372bd27abd71820249c36c1d7a5",
+  "indexed_at_timestamp": "2026-08-11T09:48:59.964102722+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 35246,
+    "total_edges": 35315,
     "total_files": 1620,
     "total_nodes": 23858
   },

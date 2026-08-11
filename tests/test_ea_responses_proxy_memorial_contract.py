@@ -45,17 +45,18 @@ def test_memorial_token_has_a_fixed_least_privilege_identity() -> None:
     result, error = proxy._authenticate_proxy_client(
         _memorial_headers(),
         operator_token=OPERATOR_TOKEN,
-        memorial_token=MEMORIAL_TOKEN,
+        no_retention_token=MEMORIAL_TOKEN,
+        no_retention_principal_id="memorial-service",
         default_principal_id="operator-default",
     )
 
     assert error == ""
     assert result is not None
-    assert result.scope == "memorial_no_retention"
+    assert result.scope == "no_retention_client"
     assert result.request_context == RequestContext(
         principal_id="memorial-service",
         authenticated=True,
-        auth_source="memorial_client_token",
+        auth_source="no_retention_client_token",
     )
 
 
@@ -80,31 +81,32 @@ def test_memorial_token_rejects_scope_escalation() -> None:
         result, error = proxy._authenticate_proxy_client(
             headers,
             operator_token=OPERATOR_TOKEN,
-            memorial_token=MEMORIAL_TOKEN,
+            no_retention_token=MEMORIAL_TOKEN,
+            no_retention_principal_id="memorial-service",
             default_principal_id="operator-default",
         )
 
         assert result is None
-        assert error == "memorial_scope_invalid"
+        assert error == "no_retention_scope_invalid"
 
 
 def test_memorial_payload_is_bounded_and_no_retention() -> None:
-    assert proxy._memorial_payload_error(_memorial_payload()) == ""
+    assert proxy._no_retention_payload_error(_memorial_payload()) == ""
     assert (
-        proxy._memorial_payload_error(_memorial_payload(store=True))
-        == "memorial_retention_invalid"
+        proxy._no_retention_payload_error(_memorial_payload(store=True))
+        == "no_retention_policy_invalid"
     )
     assert (
-        proxy._memorial_payload_error(_memorial_payload(model="ea-coder-hard"))
-        == "memorial_model_invalid"
+        proxy._no_retention_payload_error(_memorial_payload(model="ea-coder-hard"))
+        == "no_retention_model_invalid"
     )
     assert (
-        proxy._memorial_payload_error(_memorial_payload(stream=True))
-        == "memorial_payload_fields_invalid"
+        proxy._no_retention_payload_error(_memorial_payload(stream=True))
+        == "no_retention_payload_fields_invalid"
     )
     assert (
-        proxy._memorial_payload_error(_memorial_payload(max_output_tokens=True))
-        == "memorial_output_limit_invalid"
+        proxy._no_retention_payload_error(_memorial_payload(max_output_tokens=True))
+        == "no_retention_output_limit_invalid"
     )
 
 
@@ -125,7 +127,7 @@ def test_memorial_response_fails_closed_and_exposes_only_safe_metadata() -> None
         }
     )
 
-    result = proxy._memorial_response(upstream)
+    result = proxy._no_retention_response(upstream)
     payload = json.loads(result.body)
 
     assert result.status_code == 200
@@ -139,7 +141,7 @@ def test_memorial_response_fails_closed_and_exposes_only_safe_metadata() -> None
         "ea_retention_contract": "no_response_storage_no_debug_v1",
     }
 
-    failed = proxy._memorial_response(
+    failed = proxy._no_retention_response(
         JSONResponse(
             {
                 "status": "completed",
@@ -178,7 +180,7 @@ def test_locked_no_debug_response_uses_only_requested_onemin_model(monkeypatch) 
         context=RequestContext(
             principal_id="memorial-service",
             authenticated=True,
-            auth_source="memorial_client_token",
+            auth_source="no_retention_client_token",
         ),
         codex_profile="groundwork",
         lock_requested_model=True,
@@ -201,14 +203,14 @@ def test_compose_persists_private_ingress_and_secret_file_contract() -> None:
     }
     assert "default" in service["networks"]
     assert (
-        "EA_RESPONSES_MEMORIAL_CLIENT_TOKEN_FILE=/run/secrets/memorial_responses_client_token"
+        "EA_RESPONSES_NO_RETENTION_CLIENT_TOKEN_FILE=/run/secrets/no_retention_client_token"
         in service["environment"]
     )
     secret_mount = next(
         volume
         for volume in service["volumes"]
         if isinstance(volume, dict)
-        and volume.get("target") == "/run/secrets/memorial_responses_client_token"
+        and volume.get("target") == "/run/secrets/no_retention_client_token"
     )
     assert secret_mount["read_only"] is True
     assert secret_mount["bind"]["create_host_path"] is False
