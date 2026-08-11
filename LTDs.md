@@ -2,7 +2,7 @@
 
 Consolidated inventory of your lifetime services/products, including product tier/plan, ownership status, redemption deadlines, and local workspace integration posture.
 
-Updated: 2026-07-28
+Updated: 2026-08-11
 
 ## Workspace Integration Tier Guide
 
@@ -35,6 +35,7 @@ Updated: 2026-07-28
 
 | Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
 |---|---|---|---|---|---|---|---|
+| `AiWriteBook` | `Tier 4` | `1 account` | `Owned` |  | `Tier 4` | Private `.env` account URL, plan, and references to the usual shared credentials; Teable recovery sync | User-reported Tier 4 at `aiwritebook.com/app/`. The account reuses EA's existing shared login without duplicating the password. Dashboard verification and any governed content workflow remain pending. |
 | `Answerly.io` | `Tier 5` | `1 account` | `Activated` |  | `Tier 2` | Local `.env` credentials plus Chummer-bound support-only integration canon, off switches, RuleSafe packet boundary, and Fleet proof receipts | Allowed as a bounded support assistant and optional RuleSafe humanizer only. It remains forbidden as rules truth, sourcebook backend, or private campaign processor until explicit license receipts say otherwise. |
 | `ApiX-Drive` | `Plus exclusive / License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no active local runtime integration is verified in this repo yet. |
 | `ApproveThis` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 2` | Governed external-approval edge is defined; provider/API/webhook proof pending | Use only as external approval transport for bounded EA Decisions when an approver should not need an EA account. EA remains approval truth, policy truth, audit truth, and downstream-action authority. ApproveThis must not replace the internal review queue, approve broad workspace scope, trigger direct downstream action, or bypass EA policy. Provider capability, webhook signature, idempotency, evidence mapping, and final-policy receipts are still required before runtime promotion. |
@@ -83,7 +84,7 @@ Updated: 2026-07-28
 
 ## Summary
 
-- `60` total LTD products tracked
+- `61` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `katteb.com`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
 - Multiple-account holdings: `1min.AI` (`12 licenses / 12 accounts / 74 restored runtime slots`), `MagicFit` (`3 accounts`), `OMagic` (`9 user-reported accounts`), `Unmixr AI` (`8 Tier 4 accounts / capacity slots`), `YouBooks` (`5 accounts`)
 
@@ -93,6 +94,7 @@ Use this section to track missing tier/email/account facts discovered through th
 
 | Service | Account / Email | Discovery Status | Verification Source | Last Verified | Notes |
 |---|---|---|---|---|---|
+| `AiWriteBook` | `shared.account@example.test` | `manual_seeded` | `user_report + local_env_credential_refs + teable_recovery` | 2026-08-11T00:00:00Z | Tier 4 and ownership are user-reported. The private env points to the existing usual shared username and password, avoiding secret duplication; the real identity remains outside git. Authenticated dashboard verification is still pending. |
 | `1min.AI` |  | `manual_seeded` | `cross_base_teable_recovery + local_env + operator_status_provider_ledger` | 2026-07-11T12:48:59.492926+00:00 | API-key rotation slots and the shared browser-login password now exist locally. Latest credit refresh on `2026-07-11T12:48:59.492926+00:00` for `ONEMIN_AI_API_KEY` confirmed `15025` remaining credits with the next top-up projected for `2026-07-14T04:24:31.840000Z` (`15000` credits). |
 | `PayFunnels` |  | `manual_seeded` | `payfunnels_test_billing_receipts` | 2026-06-01T00:00:00Z | Tier 3 is tracked as a test-only billing adapter. Receipts verify the $1 no-benefit checkout copy, acknowledgement gate, webhook signature/idempotency checks, receipt ledger, no-op entitlement ledger, refund path, and security review. |
 | `PayPal API` | `primary.account@example.test` | `manual_seeded` | `local_env` | 2026-06-02T00:00:00Z | Client ID, secret, and account email are now stored locally. Checkout, webhook verification, and entitlement mapping still need implementation. |
