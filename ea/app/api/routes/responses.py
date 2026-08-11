@@ -7710,18 +7710,21 @@ def _run_response(
     container: object | None = None,
     codex_profile: str | None = None,
     preferred_onemin_labels: tuple[str, ...] = (),
+    lock_requested_model: bool = False,
+    allow_debug_capture: bool = True,
 ) -> Response:
     request_trace_metadata = dict(request_payload.get("metadata") or {}) if isinstance(request_payload.get("metadata"), dict) else {}
     trace_correlation_id = str(request_trace_metadata.get("ea_correlation_id") or "").strip()
     started_monotonic = time.monotonic()
-    _capture_responses_debug(
-        name="request",
-        payload={
-            "principal_id": context.principal_id,
-            "codex_profile": codex_profile,
-            "payload": request_payload,
-        },
-    )
+    if allow_debug_capture:
+        _capture_responses_debug(
+            name="request",
+            payload={
+                "principal_id": context.principal_id,
+                "codex_profile": codex_profile,
+                "payload": request_payload,
+            },
+        )
     request, parsed_input = _parse_create_request(request_payload)
     model = _requested_model(request) or DEFAULT_PUBLIC_MODEL
     profile_config: dict[str, object] | None = None
@@ -7750,6 +7753,16 @@ def _run_response(
         model=model,
         codex_profile=codex_profile,
     )
+    if lock_requested_model and requested_model:
+        prompt_route = _PromptRouteDecision(
+            applied=False,
+            reason="requested_model_locked",
+            original_profile=str(codex_profile or "").strip() or None,
+            original_model=requested_model,
+            effective_profile=str(codex_profile or "").strip() or None,
+            effective_model=requested_model,
+            trace_line="",
+        )
     effective_codex_profile = prompt_route.effective_profile
     model = prompt_route.effective_model
 
@@ -7789,42 +7802,43 @@ def _run_response(
         principal_id=context.principal_id,
         container=container,
     )
-    _write_responses_live_summary(
-        name="request_summary",
-        payload={
-            "principal_id": context.principal_id,
-            "requested_model": requested_model,
-            "effective_model": model,
-            "codex_profile": codex_profile,
-            "effective_codex_profile": effective_codex_profile,
-            "previous_response_id": previous_response_id,
-            "stream": stream,
-            "input_item_types": [str(item.get("type") or "") for item in parsed_input.input_items if isinstance(item, dict)],
-            "supported_tools": [str(tool.get("name") or "") for tool in supported_tools],
-            "latest_prompt_chars": len(latest_prompt),
-            "latest_prompt_sha256": hashlib.sha256(latest_prompt.encode("utf-8", errors="ignore")).hexdigest()
-            if latest_prompt
-            else "",
-            "latest_prompt_excerpt": _tool_shim_truncate_text(latest_prompt, limit=800),
-            "latest_user_text_chars": len(_tool_shim_latest_user_text(history_items)),
-            "latest_user_text_sha256": hashlib.sha256(
-                _tool_shim_latest_user_text(history_items).encode("utf-8", errors="ignore")
-            ).hexdigest()
-            if _tool_shim_latest_user_text(history_items)
-            else "",
-            "latest_user_text_excerpt": _tool_shim_truncate_text(_tool_shim_latest_user_text(history_items), limit=800),
-            "history_item_types_tail": [
-                str(item.get("type") or "")
-                for item in history_items[-10:]
-                if isinstance(item, dict)
-            ],
-            "history_exec_commands_tail": _tool_shim_exec_command_history(history_items)[-6:],
-            "history_staged_commands_latest": _tool_shim_staged_commands(_tool_shim_latest_user_text(history_items)),
-            "history_readiness_prompt_detected": _tool_shim_is_operator_readiness_remedy_prompt(
-                _tool_shim_latest_user_text(history_items)
-            ),
-        },
-    )
+    if allow_debug_capture:
+        _write_responses_live_summary(
+            name="request_summary",
+            payload={
+                "principal_id": context.principal_id,
+                "requested_model": requested_model,
+                "effective_model": model,
+                "codex_profile": codex_profile,
+                "effective_codex_profile": effective_codex_profile,
+                "previous_response_id": previous_response_id,
+                "stream": stream,
+                "input_item_types": [str(item.get("type") or "") for item in parsed_input.input_items if isinstance(item, dict)],
+                "supported_tools": [str(tool.get("name") or "") for tool in supported_tools],
+                "latest_prompt_chars": len(latest_prompt),
+                "latest_prompt_sha256": hashlib.sha256(latest_prompt.encode("utf-8", errors="ignore")).hexdigest()
+                if latest_prompt
+                else "",
+                "latest_prompt_excerpt": _tool_shim_truncate_text(latest_prompt, limit=800),
+                "latest_user_text_chars": len(_tool_shim_latest_user_text(history_items)),
+                "latest_user_text_sha256": hashlib.sha256(
+                    _tool_shim_latest_user_text(history_items).encode("utf-8", errors="ignore")
+                ).hexdigest()
+                if _tool_shim_latest_user_text(history_items)
+                else "",
+                "latest_user_text_excerpt": _tool_shim_truncate_text(_tool_shim_latest_user_text(history_items), limit=800),
+                "history_item_types_tail": [
+                    str(item.get("type") or "")
+                    for item in history_items[-10:]
+                    if isinstance(item, dict)
+                ],
+                "history_exec_commands_tail": _tool_shim_exec_command_history(history_items)[-6:],
+                "history_staged_commands_latest": _tool_shim_staged_commands(_tool_shim_latest_user_text(history_items)),
+                "history_readiness_prompt_detected": _tool_shim_is_operator_readiness_remedy_prompt(
+                    _tool_shim_latest_user_text(history_items)
+                ),
+            },
+        )
 
     messages: list[dict[str, str]] = []
     if instructions:
@@ -8031,16 +8045,17 @@ def _run_response(
                     principal_id=context.principal_id,
                     container=container,
                 )
-            _capture_responses_debug(
-                name="response_timeout",
-                payload={
-                    "principal_id": context.principal_id,
-                    "codex_profile": codex_profile,
-                    "response_id": response_id,
-                    "model": model,
-                    "failure_message": failure_message,
-                },
-            )
+            if allow_debug_capture:
+                _capture_responses_debug(
+                    name="response_timeout",
+                    payload={
+                        "principal_id": context.principal_id,
+                        "codex_profile": codex_profile,
+                        "response_id": response_id,
+                        "model": model,
+                        "failure_message": failure_message,
+                    },
+                )
             return JSONResponse(failed_obj, status_code=codex_compatible_failure_status)
         if status == "error":
             failure = result_payload if isinstance(result_payload, Exception) else RuntimeError(str(result_payload))
@@ -8077,16 +8092,17 @@ def _run_response(
                     principal_id=context.principal_id,
                     container=container,
                 )
-            _capture_responses_debug(
-                name="response_error",
-                payload={
-                    "principal_id": context.principal_id,
-                    "codex_profile": codex_profile,
-                    "response_id": response_id,
-                    "model": model,
-                    "failure_message": failure_message,
-                },
-            )
+            if allow_debug_capture:
+                _capture_responses_debug(
+                    name="response_error",
+                    payload={
+                        "principal_id": context.principal_id,
+                        "codex_profile": codex_profile,
+                        "response_id": response_id,
+                        "model": model,
+                        "failure_message": failure_message,
+                    },
+                )
             status_code = 200 if (effective_codex_profile or codex_profile) else 502
             return JSONResponse(failed_obj, status_code=status_code)
         tool_decision: _ToolShimDecision | None = None
@@ -8166,14 +8182,15 @@ def _run_response(
                 principal_id=context.principal_id,
                 container=container,
             )
-        _capture_responses_debug(
-            name="response",
-            payload={
-                "principal_id": context.principal_id,
-                "codex_profile": codex_profile,
-                "response": response_obj,
-            },
-        )
+        if allow_debug_capture:
+            _capture_responses_debug(
+                name="response",
+                payload={
+                    "principal_id": context.principal_id,
+                    "codex_profile": codex_profile,
+                    "response": response_obj,
+                },
+            )
         return JSONResponse(response_obj)
 
     def _iter_stream() -> Iterable[str]:
@@ -8341,16 +8358,17 @@ def _run_response(
                             principal_id=context.principal_id,
                             container=container,
                         )
-                    _capture_responses_debug(
-                        name="response_timeout",
-                        payload={
-                            "principal_id": context.principal_id,
-                            "codex_profile": codex_profile,
-                            "response_id": response_id,
-                            "model": model,
-                            "failure_message": failure_message,
-                        },
-                    )
+                    if allow_debug_capture:
+                        _capture_responses_debug(
+                            name="response_timeout",
+                            payload={
+                                "principal_id": context.principal_id,
+                                "codex_profile": codex_profile,
+                                "response_id": response_id,
+                                "model": model,
+                                "failure_message": failure_message,
+                            },
+                        )
                     for event in _failed_stream_events(
                         sequence_fn=_next_sequence,
                         failed_obj=failed_obj,
@@ -8748,14 +8766,15 @@ def _run_response(
                 principal_id=context.principal_id,
                 container=container,
             )
-        _capture_responses_debug(
-            name="response",
-            payload={
-                "principal_id": context.principal_id,
-                "codex_profile": codex_profile,
-                "response": completed_obj,
-            },
-        )
+        if allow_debug_capture:
+            _capture_responses_debug(
+                name="response",
+                payload={
+                    "principal_id": context.principal_id,
+                    "codex_profile": codex_profile,
+                    "response": completed_obj,
+                },
+            )
 
         yield _sse_event(
             event="response.completed",

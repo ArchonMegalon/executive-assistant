@@ -244,6 +244,7 @@ services:
       - VOCALLAB_API_KEY_FILE=
       - EA_RESPONSES_PROXY_HOST=0.0.0.0
       - EA_RESPONSES_PROXY_PORT=8091
+      - EA_RESPONSES_MEMORIAL_CLIENT_TOKEN_FILE=/run/secrets/memorial_responses_client_token
       - EA_ARTIFACTS_DIR=/data/artifacts
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
       - EA_OUTBOUND_EMAIL_GUARD_STATE_PATH=${EA_OUTBOUND_EMAIL_GUARD_STATE_PATH:-/data/provider-ledger/outbound_email_guard.json}
@@ -321,6 +322,12 @@ services:
         read_only: true
         bind:
           create_host_path: false
+      - type: bind
+        source: ${EA_RESPONSES_MEMORIAL_CLIENT_TOKEN_HOST_FILE:-./.ea-runtime-secrets/memorial_responses_client_token}
+        target: /run/secrets/memorial_responses_client_token
+        read_only: true
+        bind:
+          create_host_path: false
       - ./ea/app:/app/app:ro
       - ./scripts:/app/scripts:ro
       - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-./data/onedrive_attachments}:/data/onedrive_attachments
@@ -355,6 +362,12 @@ services:
       interval: 2m
       timeout: 10s
       retries: 5
+    networks:
+      default:
+      public_ingress:
+        ipv4_address: ${EA_PUBLIC_INGRESS_RESPONSES_PROXY_IPV4:-172.31.254.5}
+        aliases:
+          - ea-onemin-manager
     depends_on:
       ea-db:
         condition: service_healthy
