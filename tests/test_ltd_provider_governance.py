@@ -53,6 +53,7 @@ def _sample_ltd_markdown() -> str:
 | `First Book ai` | `License Tier 5` | `1 license` | `Activated` |  | `Tier 2` | BrowserAct credentials | Long-form guide drafts only. |
 | `katteb.com` | `10x code-based` | `10 codes` | `Owned` |  | `Tier 4` | Credentials only | Article drafts only. |
 | `Prompt Architects` | `Tier 4` | `1 account` | `Activated` |  | `Tier 4` | PROMPTING_SYSTEMS_API_KEY | Prompt Foundry receipts verify template seed/operator assist, retention and tenant isolation boundary. |
+| `AiWriteBook` | `Tier 4` | `1 account` | `Owned` |  | `Tier 2` | Governed operator handoff | Chummer owns approved source packets and publication truth; no unattended browser automation or direct publish. |
 | `VidBoard.ai` | `Tier 5` | `1 account` | `Owned` |  | `Tier 4` | Credentials | Commercial-use, watermark, duration, export, likeness and quality proof pending. |
 | `FacePop` | `Tier 5` | `1 account` | `Activated` |  | `Tier 4` | Credentials | Presenter candidate only. |
 | `Nonverbia` | `Tier 4` | `1 account` | `Activated` |  | `Tier 2` | BrowserAct credentials | Presenter candidate only. |
@@ -78,6 +79,7 @@ def _sample_ltd_markdown() -> str:
 | `Rafter` | `ltd.account@example.test` | `manual_seeded` | `fleet_verified` | 2026-05-29T20:16:00Z | Fleet proof passes. |
 | `Pixefy` | `ltd.account@example.test` | `manual_seeded` | `fleet_verified` | 2026-05-29T20:16:00Z | Fleet proof passes. |
 | `Prompt Architects` |  | `manual_seeded` | `local_env + prompt_foundry_receipts` | 2026-06-01T20:54:48Z | Prompt Foundry receipts exist. |
+| `AiWriteBook` | `gmail.com` | `complete` | `authenticated_sanitized_account_review` | 2026-08-11T07:33:00Z | AppSumo Tier 4 verified; operator-only lane, export canary pending. |
 | `Sendr` |  | `manual_seeded` | `user_report_tier4 + governed_lane_scaffold` | 2026-06-30T20:45:00Z | License Tier 4 is recorded; EA campaign packet, provider proof, suppression sync, and human approval receipts remain pending. |
 """.strip()
 
@@ -125,6 +127,7 @@ def test_all_requested_ltd_provider_lanes_are_defined() -> None:
         "public_signal_ingest",
         "docs_draft_factory",
         "prompt_foundry",
+        "aiwritebook_chronicle_studio",
         "subscribr_chummer_script_factory",
         "sendr_ea_growth_outreach",
         "operator_control_plane",
@@ -223,6 +226,20 @@ def test_lane_boundaries_match_provider_risks() -> None:
     assert "release_truth" in release.forbidden_inputs
     assert "ea_app_surface_release_candidate" in release.allowed_inputs
 
+    aiwritebook = lane_by_key("aiwritebook_chronicle_studio")
+    assert aiwritebook is not None
+    assert aiwritebook.providers == ("AiWriteBook",)
+    assert aiwritebook.integration_lane == "operator_required_book_production"
+    assert "approved_redacted_chummer_source_packet" in aiwritebook.allowed_inputs
+    assert {
+        "provider_secret",
+        "unattended_browser_automation",
+        "credit_spend_without_approval",
+        "direct_publish",
+        "publication_truth",
+        "rules_truth",
+    } <= set(aiwritebook.forbidden_inputs)
+
 
 def test_public_signal_lane_schema_is_single_normalized_object() -> None:
     lane = lane_by_key("public_signal_ingest")
@@ -255,6 +272,169 @@ def test_receipts_pass_hard_contracts_even_when_proofs_are_missing(tmp_path: Pat
     assert "first_publication_receipt" in lanes["fliplink_document_portal"]["missing_checks"]
     assert lanes["release_quality_gates"]["lane_state"] in {"verified_runtime_lane", "blocked_pending_proof"}
     assert lanes["public_signal_ingest"]["normalized_signal_schema"]
+
+
+def test_aiwritebook_lane_accepts_sanitized_account_review_but_waits_for_export_canary(tmp_path: Path) -> None:
+    receipt_dir = tmp_path / "ea" / "_completion" / "aiwritebook"
+    receipt_dir.mkdir(parents=True)
+    (receipt_dir / "AIWRITEBOOK_ACCOUNT_REVIEW.generated.json").write_text(
+        json.dumps(
+            {
+                "contract": "ea.aiwritebook.account_review",
+                "status": "operator_review",
+                "account": {"plan": "AppSumo Tier 4", "credit_balance": 5100},
+                "evidence": {
+                    "classification": "read_only_authenticated_and_public_declared_policy",
+                    "pricing_surface": {
+                        "account_tier_marked_current": True,
+                        "account_tier_marked_highest_appsumo_tier": True,
+                        "monthly_credit_allowance": 5000,
+                        "export_formats_declared": ["pdf", "epub", "docx"],
+                        "credit_costs_observed": {
+                            "chapter_outline": 3,
+                            "chapter_gemini": 15,
+                            "chapter_grok": 20,
+                            "chapter_claude": 30,
+                            "book_cover": 30,
+                            "translation_per_chapter": 15,
+                            "translation_base": 30,
+                            "audiobook_characters_per_credit": 25,
+                        },
+                    },
+                    "privacy_policy": {
+                        "last_updated": "2026-01-25",
+                        "content_used_to_train_models": False,
+                        "content_shared_with_other_users": False,
+                        "content_retained_until_deleted_or_account_closed": True,
+                        "account_deletion_or_anonymization_window_days": 90,
+                        "runtime_behavior_canary_verified": False,
+                    },
+                    "terms": {
+                        "user_content_ownership_declared": True,
+                        "human_review_required": True,
+                        "unauthorized_automated_access_prohibited": True,
+                        "export_formats_declared": ["pdf", "epub", "docx"],
+                    },
+                },
+                "automation_posture": {"operator_required": True, "unattended_automation_allowed": False},
+                "review_actions": {"credits_spent": 0},
+                "secret_material_in_receipt": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    inventory_path = tmp_path / "LTDs.md"
+    inventory_path.write_text(
+        _minimal_ltds(
+            "| `AiWriteBook` | `Tier 4` | `1 account` | `Owned` |  | `Tier 2` | Governed operator handoff | Chummer owns publication truth. |",
+            "| `AiWriteBook` | `gmail.com` | `complete` | `authenticated_sanitized_account_review` | 2026-08-11T07:33:00Z | Operator-only lane. |",
+        ),
+        encoding="utf-8",
+    )
+    lane = lane_by_key("aiwritebook_chronicle_studio")
+    assert lane is not None
+
+    result = build_ltd_provider_lane_receipt(
+        lane,
+        markdown_text=inventory_path.read_text(encoding="utf-8"),
+        inventory_rows=load_ltd_inventory_rows(inventory_path),
+        root=tmp_path,
+        env={},
+        generated_at="2026-08-11T08:00:00Z",
+    )
+
+    assert result["status"] == "pass"
+    assert result["lane_state"] == "blocked_pending_proof"
+    assert "aiwritebook_account_review" in result["passed_checks"]
+    assert "aiwritebook_declared_limits" in result["passed_checks"]
+    assert "aiwritebook_declared_privacy" in result["passed_checks"]
+    assert "aiwritebook_declared_exports" in result["passed_checks"]
+    assert "aiwritebook_operator_boundary" in result["passed_checks"]
+    assert "aiwritebook_source_packet" in result["passed_checks"]
+    assert result["missing_checks"] == ["aiwritebook_export_roundtrip"]
+    assert result["runtime_enabled"] is False
+
+
+def test_aiwritebook_account_review_materializes_from_tracked_sanitized_source(tmp_path: Path) -> None:
+    source = ROOT / "config" / "provider_evidence" / "AIWRITEBOOK_ACCOUNT_REVIEW.source.json"
+    output = tmp_path / "AIWRITEBOOK_ACCOUNT_REVIEW.generated.json"
+    script = ROOT / "scripts" / "materialize_aiwritebook_account_review.py"
+    first = subprocess.run(
+        [sys.executable, str(script), "--source", str(source), "--output", str(output)],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert first.returncode == 0, first.stderr
+    first_rendered = output.read_text(encoding="utf-8")
+    second = subprocess.run(
+        [sys.executable, str(script), "--source", str(source), "--output", str(output)],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert second.returncode == 0, second.stderr
+    assert output.read_text(encoding="utf-8") == first_rendered
+    payload = json.loads(first_rendered)
+    serialized = json.dumps(payload, sort_keys=True)
+
+    assert payload["contract"] == "ea.aiwritebook.account_review"
+    assert payload["account"]["plan"] == "AppSumo Tier 4"
+    assert payload["evidence"]["pricing_surface"]["monthly_credit_allowance"] == 5000
+    assert set(payload["evidence"]["pricing_surface"]["export_formats_declared"]) == {"pdf", "epub", "docx"}
+    assert payload["evidence"]["privacy_policy"]["content_used_to_train_models"] is False
+    assert payload["evidence"]["privacy_policy"]["runtime_behavior_canary_verified"] is False
+    assert payload["evidence"]["terms"]["unauthorized_automated_access_prohibited"] is True
+    assert payload["automation_posture"]["operator_required"] is True
+    assert payload["automation_posture"]["unattended_automation_allowed"] is False
+    assert payload["review_actions"] == {
+        "credits_spent": 0,
+        "source_uploaded": False,
+        "generation_started": False,
+        "publication_started": False,
+        "external_send_performed": False,
+    }
+    assert payload["secret_material_in_receipt"] is False
+    assert "@" not in serialized
+    assert "password" not in serialized.lower()
+
+
+def test_aiwritebook_governance_accepts_tracked_source_when_generated_receipt_is_absent(tmp_path: Path) -> None:
+    source_dir = tmp_path / "config" / "provider_evidence"
+    source_dir.mkdir(parents=True)
+    source_dir.joinpath("AIWRITEBOOK_ACCOUNT_REVIEW.source.json").write_text(
+        (ROOT / "config" / "provider_evidence" / "AIWRITEBOOK_ACCOUNT_REVIEW.source.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    inventory_path = tmp_path / "LTDs.md"
+    inventory_path.write_text(
+        _minimal_ltds(
+            "| `AiWriteBook` | `Tier 4` | `1 account` | `Owned` |  | `Tier 2` | Governed operator handoff | Chummer owns publication truth. |",
+            "| `AiWriteBook` | `gmail.com` | `complete` | `authenticated_sanitized_account_review` | 2026-08-11T08:14:11Z | Operator-only lane. |",
+        ),
+        encoding="utf-8",
+    )
+    lane = lane_by_key("aiwritebook_chronicle_studio")
+    assert lane is not None
+
+    result = build_ltd_provider_lane_receipt(
+        lane,
+        markdown_text=inventory_path.read_text(encoding="utf-8"),
+        inventory_rows=load_ltd_inventory_rows(inventory_path),
+        root=tmp_path,
+        env={},
+        generated_at="2026-08-11T08:20:00Z",
+    )
+
+    assert {
+        "aiwritebook_account_review",
+        "aiwritebook_declared_limits",
+        "aiwritebook_declared_privacy",
+        "aiwritebook_declared_exports",
+    } <= set(result["passed_checks"])
+    assert result["missing_checks"] == ["aiwritebook_export_roundtrip"]
 
 
 def test_priority_ltd_lanes_are_bounded_until_live_proof_exists(tmp_path: Path) -> None:

@@ -406,6 +406,57 @@ LANES: tuple[ProviderLane, ...] = (
         ),
     ),
     ProviderLane(
+        lane_key="aiwritebook_chronicle_studio",
+        title="AIWriteBook Chronicle Studio Operator Lane",
+        providers=("AiWriteBook",),
+        integration_lane="operator_required_book_production",
+        verified_state="verified_draft_operator_lane",
+        missing_state="blocked_pending_proof",
+        off_switch_env=("EA_AIWRITEBOOK_CHRONICLE_STUDIO_ENABLED",),
+        source_of_truth=(
+            "Chummer groups own project, consent, source-packet, outline approval, artifact, and publication truth; "
+            "AIWriteBook is an operator-run production workbench only."
+        ),
+        allowed_inputs=(
+            "approved_redacted_chummer_source_packet",
+            "consented_runner_handle_snapshot",
+            "operator_approved_outline_revision",
+        ),
+        forbidden_inputs=(
+            "unapproved_source_packet",
+            "sourcebook_pdf",
+            "copied_rulebook_prose",
+            "private_campaign_data_without_consent",
+            "unredacted_gm_secret",
+            "provider_secret",
+            "unattended_browser_automation",
+            "credit_spend_without_approval",
+            "direct_publish",
+            "publication_truth",
+            "rules_truth",
+        ),
+        normalized_signal_schema=(
+            "source_packet_id",
+            "source_packet_sha256",
+            "provider_project_ref",
+            "artifact_url",
+            "artifact_sha256",
+            "export_format",
+            "human_review_status",
+        ),
+        required_checks=(
+            LaneCheck("inventory_recorded", "AIWriteBook Tier 4 is recorded.", "LTD inventory row."),
+            LaneCheck("aiwritebook_account_review", "Sanitized authenticated account review exists.", "Account review receipt."),
+            LaneCheck("aiwritebook_declared_limits", "Tier allowance and current credit costs are captured read-only.", "Authenticated pricing evidence."),
+            LaneCheck("aiwritebook_declared_privacy", "Current privacy and retention declarations are captured.", "Privacy-policy evidence."),
+            LaneCheck("aiwritebook_declared_exports", "PDF, EPUB, and DOCX support is declared on current provider surfaces.", "Pricing and terms evidence."),
+            LaneCheck("aiwritebook_operator_boundary", "The lane cannot route unattended provider execution.", "Provider registry and lane boundary."),
+            LaneCheck("aiwritebook_source_packet", "Only approved, redacted source packets may leave Chummer.", "Chummer source-packet contract."),
+            LaneCheck("aiwritebook_human_review", "Outline, artifact, and publication remain separate human decisions.", "Chummer approval state machine."),
+            LaneCheck("aiwritebook_export_roundtrip", "A redacted export round-trip is verified.", "Approved canary receipt."),
+        ),
+    ),
+    ProviderLane(
         lane_key="subscribr_chummer_script_factory",
         title="Subscribr Chummer Script Factory",
         providers=("Subscribr",),
@@ -654,6 +705,185 @@ def _passing_json_receipt(root: Path, *relative_paths: str) -> bool:
     return False
 
 
+def _json_receipt(root: Path, *relative_paths: str) -> dict[str, Any]:
+    for relative_path in relative_paths:
+        path = root / relative_path
+        if not path.is_file():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return {}
+
+
+def _valid_aiwritebook_export_roundtrip_receipt(root: Path) -> bool:
+    payload: dict[str, Any] = {}
+    for relative_path in (
+        "ea/_completion/aiwritebook/AIWRITEBOOK_EXPORT_ROUNDTRIP.generated.json",
+        "_completion/aiwritebook/AIWRITEBOOK_EXPORT_ROUNDTRIP.generated.json",
+    ):
+        path = root / relative_path
+        if not path.is_file() or path.is_symlink():
+            continue
+        try:
+            candidate = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(candidate, dict):
+            payload = candidate
+            break
+    fixture = payload.get("fixture") if isinstance(payload.get("fixture"), dict) else {}
+    authorization = payload.get("authorization") if isinstance(payload.get("authorization"), dict) else {}
+    provider_run = payload.get("provider_run") if isinstance(payload.get("provider_run"), dict) else {}
+    exports = payload.get("exports") if isinstance(payload.get("exports"), dict) else {}
+    maximum = authorization.get("maximum_credits")
+    before = provider_run.get("credits_before")
+    after = provider_run.get("credits_after")
+    spent = provider_run.get("credits_spent")
+
+    def strict_int(value: object) -> bool:
+        return isinstance(value, int) and not isinstance(value, bool)
+
+    def sha256(value: object) -> bool:
+        return bool(re.fullmatch(r"[0-9a-f]{64}", str(value or "")))
+
+    def safe_ref(value: object) -> bool:
+        return bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", str(value or "")))
+
+    def timestamp(value: object) -> bool:
+        try:
+            parsed = datetime.fromisoformat(str(value or "").strip().replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        return parsed.tzinfo is not None
+
+    if (
+        set(payload) != {
+            "contract",
+            "contract_version",
+            "status",
+            "generated_at",
+            "fixture",
+            "authorization",
+            "provider_run",
+            "exports",
+            "expected_formats",
+            "secret_material_in_receipt",
+        }
+        or payload.get("contract") != "ea.aiwritebook.export_roundtrip"
+        or payload.get("contract_version") != 1
+        or payload.get("status") != "pass"
+        or not timestamp(payload.get("generated_at"))
+        or payload.get("secret_material_in_receipt") is not False
+        or set(payload.get("expected_formats") or ()) != {"pdf", "epub", "docx"}
+        or set(fixture) != {"fixture_id", "manifest_sha256", "source_sha256", "data_classification", "rights"}
+        or fixture.get("fixture_id") != "aiwritebook-chronicle-export-canary-v1"
+        or fixture.get("data_classification") != "synthetic_no_personal_or_campaign_data"
+        or fixture.get("rights") != "CC0-1.0"
+        or not sha256(fixture.get("manifest_sha256"))
+        or not sha256(fixture.get("source_sha256"))
+        or set(authorization) != {
+            "approval_contract",
+            "approved_by_ref",
+            "approved_at",
+            "maximum_credits",
+            "provider_project_creation_approved",
+            "source_upload_approved",
+            "generation_approved",
+            "credit_spend_approved",
+            "export_download_approved",
+            "provider_project_deletion_approved",
+            "publication_approved",
+            "external_send_approved",
+        }
+        or authorization.get("approval_contract") != "ea.aiwritebook.canary_approval"
+        or not safe_ref(authorization.get("approved_by_ref"))
+        or not timestamp(authorization.get("approved_at"))
+        or not strict_int(maximum)
+        or maximum <= 0
+        or authorization.get("provider_project_creation_approved") is not True
+        or authorization.get("source_upload_approved") is not True
+        or authorization.get("generation_approved") is not True
+        or authorization.get("credit_spend_approved") is not True
+        or authorization.get("export_download_approved") is not True
+        or authorization.get("provider_project_deletion_approved") is not True
+        or authorization.get("publication_approved") is not False
+        or authorization.get("external_send_approved") is not False
+        or set(provider_run) != {
+            "provider_project_ref",
+            "credits_before",
+            "credits_after",
+            "credits_spent",
+            "operator_run",
+            "unattended_browser_automation_used",
+            "project_private_during_run",
+            "shared_with_other_users",
+            "delete_requested",
+            "project_inaccessible_after_delete",
+            "outline_reviewed",
+            "exports_reviewed",
+            "pdf_content_marker_reviewed",
+            "publication_started",
+            "external_send_performed",
+            "run_started_at",
+            "run_finished_at",
+        }
+        or not safe_ref(provider_run.get("provider_project_ref"))
+        or not all(strict_int(value) for value in (before, after, spent))
+        or before < after
+        or spent != before - after
+        or spent <= 0
+        or spent > maximum
+        or provider_run.get("operator_run") is not True
+        or provider_run.get("unattended_browser_automation_used") is not False
+        or provider_run.get("project_private_during_run") is not True
+        or provider_run.get("shared_with_other_users") is not False
+        or provider_run.get("delete_requested") is not True
+        or provider_run.get("project_inaccessible_after_delete") is not True
+        or provider_run.get("outline_reviewed") is not True
+        or provider_run.get("exports_reviewed") is not True
+        or provider_run.get("pdf_content_marker_reviewed") is not True
+        or provider_run.get("publication_started") is not False
+        or provider_run.get("external_send_performed") is not False
+        or not timestamp(provider_run.get("run_started_at"))
+        or not timestamp(provider_run.get("run_finished_at"))
+        or set(exports) != {"pdf", "epub", "docx"}
+    ):
+        return False
+    started_at = datetime.fromisoformat(str(provider_run["run_started_at"]).replace("Z", "+00:00"))
+    finished_at = datetime.fromisoformat(str(provider_run["run_finished_at"]).replace("Z", "+00:00"))
+    if finished_at < started_at:
+        return False
+    for export_format in ("pdf", "epub", "docx"):
+        artifact = exports.get(export_format)
+        if not isinstance(artifact, dict):
+            return False
+        filename = str(artifact.get("filename") or "")
+        if (
+            set(artifact) != {
+                "filename",
+                "sha256",
+                "size_bytes",
+                "structure_valid",
+                "content_marker_verified",
+                "content_marker_verification",
+            }
+            or not filename
+            or Path(filename).name != filename
+            or not sha256(artifact.get("sha256"))
+            or not strict_int(artifact.get("size_bytes"))
+            or artifact.get("size_bytes") <= 0
+            or artifact.get("structure_valid") is not True
+            or artifact.get("content_marker_verified") is not True
+            or artifact.get("content_marker_verification") not in {"embedded", "human_review"}
+        ):
+            return False
+    return True
+
+
 def _row_notes(discovery: Mapping[str, Mapping[str, str]], provider: str) -> str:
     row = discovery.get(_normalize(provider), {})
     return " ".join(str(row.get(key) or "") for key in ("verification_source", "notes")).lower()
@@ -702,6 +932,105 @@ def _check_passed(
     if key in {"inventory_recorded", "providers_recorded"}:
         ok = _all_providers_present(lane, inventory)
         return ok, "inventory_rows_present" if ok else "inventory_rows_missing"
+    if key == "aiwritebook_account_review":
+        payload = _json_receipt(
+            root,
+            "ea/_completion/aiwritebook/AIWRITEBOOK_ACCOUNT_REVIEW.generated.json",
+            "_completion/aiwritebook/AIWRITEBOOK_ACCOUNT_REVIEW.generated.json",
+            "config/provider_evidence/AIWRITEBOOK_ACCOUNT_REVIEW.source.json",
+        )
+        account = payload.get("account") if isinstance(payload.get("account"), dict) else {}
+        posture = payload.get("automation_posture") if isinstance(payload.get("automation_posture"), dict) else {}
+        actions = payload.get("review_actions") if isinstance(payload.get("review_actions"), dict) else {}
+        ok = (
+            payload.get("contract") == "ea.aiwritebook.account_review"
+            and account.get("plan") == "AppSumo Tier 4"
+            and isinstance(account.get("credit_balance"), int)
+            and posture.get("operator_required") is True
+            and posture.get("unattended_automation_allowed") is False
+            and actions.get("credits_spent") == 0
+            and payload.get("secret_material_in_receipt") is False
+        )
+        return ok, "sanitized_account_review_present" if ok else "aiwritebook_account_review_missing_or_invalid"
+    if key in {
+        "aiwritebook_declared_limits",
+        "aiwritebook_declared_privacy",
+        "aiwritebook_declared_exports",
+    }:
+        payload = _json_receipt(
+            root,
+            "ea/_completion/aiwritebook/AIWRITEBOOK_ACCOUNT_REVIEW.generated.json",
+            "_completion/aiwritebook/AIWRITEBOOK_ACCOUNT_REVIEW.generated.json",
+            "config/provider_evidence/AIWRITEBOOK_ACCOUNT_REVIEW.source.json",
+        )
+        evidence = payload.get("evidence") if isinstance(payload.get("evidence"), dict) else {}
+        pricing = evidence.get("pricing_surface") if isinstance(evidence.get("pricing_surface"), dict) else {}
+        privacy = evidence.get("privacy_policy") if isinstance(evidence.get("privacy_policy"), dict) else {}
+        terms = evidence.get("terms") if isinstance(evidence.get("terms"), dict) else {}
+        if key == "aiwritebook_declared_limits":
+            costs = pricing.get("credit_costs_observed") if isinstance(pricing.get("credit_costs_observed"), dict) else {}
+            ok = (
+                evidence.get("classification") == "read_only_authenticated_and_public_declared_policy"
+                and pricing.get("account_tier_marked_current") is True
+                and pricing.get("account_tier_marked_highest_appsumo_tier") is True
+                and pricing.get("monthly_credit_allowance") == 5000
+                and costs == {
+                    "chapter_outline": 3,
+                    "chapter_gemini": 15,
+                    "chapter_grok": 20,
+                    "chapter_claude": 30,
+                    "book_cover": 30,
+                    "translation_per_chapter": 15,
+                    "translation_base": 30,
+                    "audiobook_characters_per_credit": 25,
+                }
+            )
+            return ok, "read_only_tier_and_credit_limits_captured" if ok else "aiwritebook_declared_limits_missing_or_invalid"
+        if key == "aiwritebook_declared_privacy":
+            ok = (
+                privacy.get("last_updated") == "2026-01-25"
+                and privacy.get("content_used_to_train_models") is False
+                and privacy.get("content_shared_with_other_users") is False
+                and privacy.get("content_retained_until_deleted_or_account_closed") is True
+                and privacy.get("account_deletion_or_anonymization_window_days") == 90
+                and privacy.get("runtime_behavior_canary_verified") is False
+            )
+            return ok, "declared_privacy_and_retention_captured" if ok else "aiwritebook_declared_privacy_missing_or_invalid"
+        declared_formats = {"pdf", "epub", "docx"}
+        ok = (
+            set(pricing.get("export_formats_declared") or ()) == declared_formats
+            and set(terms.get("export_formats_declared") or ()) == declared_formats
+            and terms.get("user_content_ownership_declared") is True
+            and terms.get("human_review_required") is True
+            and terms.get("unauthorized_automated_access_prohibited") is True
+        )
+        return ok, "declared_export_and_terms_evidence_captured" if ok else "aiwritebook_declared_exports_missing_or_invalid"
+    if key == "aiwritebook_operator_boundary":
+        ok = {
+            "provider_secret",
+            "unattended_browser_automation",
+            "credit_spend_without_approval",
+            "direct_publish",
+        } <= set(lane.forbidden_inputs)
+        return ok, "operator_only_boundary_defined" if ok else "aiwritebook_operator_boundary_incomplete"
+    if key == "aiwritebook_source_packet":
+        ok = (
+            "approved_redacted_chummer_source_packet" in lane.allowed_inputs
+            and "unapproved_source_packet" in lane.forbidden_inputs
+            and "unredacted_gm_secret" in lane.forbidden_inputs
+            and "source_packet_sha256" in lane.normalized_signal_schema
+        )
+        return ok, "approved_source_packet_boundary_defined" if ok else "aiwritebook_source_packet_boundary_incomplete"
+    if key == "aiwritebook_human_review":
+        ok = (
+            all(term in lane.source_of_truth.lower() for term in ("outline approval", "artifact", "publication truth"))
+            and "direct_publish" in lane.forbidden_inputs
+            and "human_review_status" in lane.normalized_signal_schema
+        )
+        return ok, "separate_human_approval_boundary_defined" if ok else "aiwritebook_human_review_boundary_incomplete"
+    if key == "aiwritebook_export_roundtrip":
+        ok = _valid_aiwritebook_export_roundtrip_receipt(root)
+        return ok, "approved_canary_export_passed" if ok else "aiwritebook_export_roundtrip_pending"
     if key == "hedy_provider_capability":
         ok = _passing_json_receipt(
             root,
@@ -1222,6 +1551,21 @@ def _hard_contract_failures(lane: ProviderLane) -> list[str]:
     if lane.lane_key == "documentation_ai_publication":
         if "silent_writeback" not in lane.forbidden_inputs:
             failures.append("documentation_ai_boundary_incomplete")
+    if lane.lane_key == "aiwritebook_chronicle_studio":
+        required_forbidden = {
+            "provider_secret",
+            "unattended_browser_automation",
+            "credit_spend_without_approval",
+            "direct_publish",
+            "publication_truth",
+            "rules_truth",
+        }
+        if not required_forbidden <= set(lane.forbidden_inputs):
+            failures.append("aiwritebook_operator_boundary_incomplete")
+        if "approved_redacted_chummer_source_packet" not in lane.allowed_inputs:
+            failures.append("aiwritebook_source_packet_missing")
+        if "EA_AIWRITEBOOK_CHRONICLE_STUDIO_ENABLED" not in lane.off_switch_env:
+            failures.append("aiwritebook_off_switch_missing")
     if lane.lane_key == "release_quality_gates":
         if "release_truth" not in lane.forbidden_inputs:
             failures.append("release_quality_truth_boundary_missing")

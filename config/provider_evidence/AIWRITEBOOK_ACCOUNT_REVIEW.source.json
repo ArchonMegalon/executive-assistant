@@ -1,0 +1,128 @@
+{
+  "contract": "ea.aiwritebook.account_review",
+  "contract_version": 2,
+  "status": "operator_review",
+  "observed_at_utc": "2026-08-11T08:14:11Z",
+  "account": {
+    "safe_ref": "gmail.com",
+    "plan": "AppSumo Tier 4",
+    "credit_balance": 5100,
+    "credits_renew_on": "2026-09-11"
+  },
+  "capabilities_observed": [
+    "book_creation",
+    "book_editor_beta",
+    "book_translation",
+    "kdp_publishing_workflow",
+    "keyword_research",
+    "competition_analysis",
+    "royalty_calculator",
+    "blurb_generation",
+    "niche_finder",
+    "trend_spotter",
+    "category_finder",
+    "author_bio",
+    "author_page",
+    "a_plus_content",
+    "series_support",
+    "audiobook_generation",
+    "formatted_pdf_export",
+    "epub_export",
+    "docx_export"
+  ],
+  "evidence": {
+    "classification": "read_only_authenticated_and_public_declared_policy",
+    "account_surface": {
+      "authenticated": true,
+      "tier": "AppSumo Tier 4",
+      "displayed_credit_balance": 5100,
+      "credits_renew_on": "2026-09-11"
+    },
+    "pricing_surface": {
+      "source": "https://aiwritebook.com/en/pricing/",
+      "account_tier_marked_current": true,
+      "account_tier_marked_highest_appsumo_tier": true,
+      "monthly_credit_allowance": 5000,
+      "export_formats_declared": [
+        "pdf",
+        "epub",
+        "docx"
+      ],
+      "credit_costs_observed": {
+        "chapter_outline": 3,
+        "chapter_gemini": 15,
+        "chapter_grok": 20,
+        "chapter_claude": 30,
+        "book_cover": 30,
+        "translation_per_chapter": 15,
+        "translation_base": 30,
+        "audiobook_characters_per_credit": 25
+      }
+    },
+    "privacy_policy": {
+      "source": "https://aiwritebook.com/en/privacy-policy/",
+      "last_updated": "2026-01-25",
+      "content_used_to_train_models": false,
+      "content_shared_with_other_users": false,
+      "content_retained_until_deleted_or_account_closed": true,
+      "account_deletion_or_anonymization_window_days": 90,
+      "processing_region_declared": "United States",
+      "runtime_behavior_canary_verified": false
+    },
+    "terms": {
+      "source": "https://aiwritebook.com/en/terms-of-service/",
+      "last_updated": "2026-01-25",
+      "user_content_ownership_declared": true,
+      "human_review_required": true,
+      "unauthorized_automated_access_prohibited": true,
+      "export_formats_declared": [
+        "pdf",
+        "epub",
+        "docx"
+      ]
+    }
+  },
+  "byok": {
+    "providers": [
+      "gemini",
+      "xai_grok",
+      "anthropic_claude",
+      "elevenlabs"
+    ],
+    "connected_providers": []
+  },
+  "automation_posture": {
+    "official_api_verified": false,
+    "operator_required": true,
+    "unattended_automation_allowed": false,
+    "reason": "No official public API was verified and the public terms prohibit unauthorized automated systems."
+  },
+  "review_browser": {
+    "browser_id": "chrome_local_112032470089597128",
+    "browser_name": "aiwritebook-tier4-review",
+    "persistent": true,
+    "session_closed_after_review": true
+  },
+  "review_actions": {
+    "credits_spent": 0,
+    "source_uploaded": false,
+    "generation_started": false,
+    "publication_started": false,
+    "external_send_performed": false
+  },
+  "unintended_mutations": [
+    {
+      "kind": "empty_book_shell",
+      "provider_ref": "131502",
+      "content_added": false,
+      "deletion_requires_explicit_approval": true
+    }
+  ],
+  "open_verification": [
+    "runtime confirmation of declared privacy and retention behavior for a redacted canary packet",
+    "live export round-trip for PDF, EPUB, and DOCX",
+    "account-specific credit deductions for a canary book",
+    "operator review of generated outline and manuscript"
+  ],
+  "secret_material_in_receipt": false
+}

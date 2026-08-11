@@ -69,6 +69,59 @@ def test_provider_registry_routes_capability_with_provider_hints() -> None:
     assert route.executable is True
 
 
+def test_aiwritebook_is_configured_from_indirect_refs_but_never_executable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AIWRITEBOOK_USERNAME_REF", "EA_SHARED_LOGIN_USER")
+    monkeypatch.setenv("AIWRITEBOOK_PASSWORD_REF", "EA_SHARED_LOGIN_PASSWORD")
+    monkeypatch.setenv("EA_SHARED_LOGIN_USER", "operator@example.test")
+    monkeypatch.setenv("EA_SHARED_LOGIN_PASSWORD", "test-secret")
+
+    registry = ProviderRegistryService()
+    state = registry.binding_state("aiwritebook.com")
+
+    assert state is not None
+    assert state.provider_key == "aiwritebook"
+    assert state.auth_mode == "browser_login"
+    assert state.secret_configured is True
+    assert state.executable is False
+    assert state.enabled is True
+    assert set(state.capabilities) == {
+        "book_packet_handoff",
+        "book_production_review",
+        "book_artifact_import",
+    }
+    with pytest.raises(ToolExecutionError, match="provider_capability_unavailable:book_packet_handoff"):
+        registry.route_tool_by_capability(
+            capability_key="book_packet_handoff",
+            provider_hints=("AIWriteBook",),
+            allowed_tools=("provider.aiwritebook.book_packet_handoff",),
+        )
+
+    manual_route = registry.route_tool_by_capability(
+        capability_key="book_packet_handoff",
+        provider_hints=("AIWriteBook",),
+        allowed_tools=("provider.aiwritebook.book_packet_handoff",),
+        require_executable=False,
+    )
+    assert manual_route.provider_key == "aiwritebook"
+    assert manual_route.executable is False
+
+
+def test_aiwritebook_requires_both_valid_referenced_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AIWRITEBOOK_USERNAME_REF", "EA_SHARED_LOGIN_USER")
+    monkeypatch.setenv("AIWRITEBOOK_PASSWORD_REF", "missing-secret;unsafe")
+    monkeypatch.setenv("EA_SHARED_LOGIN_USER", "operator@example.test")
+    monkeypatch.delenv("missing-secret;unsafe", raising=False)
+
+    state = ProviderRegistryService().binding_state("ai_write_book")
+
+    assert state is not None
+    assert state.secret_configured is False
+    assert state.enabled is False
+    assert state.state == "catalog_only"
+
+
 def test_provider_registry_slot_pool_summary_keeps_live_ready_slots_separate_from_state_ready_slots() -> None:
     summary = ProviderRegistryService._slot_pool_summary(
         {

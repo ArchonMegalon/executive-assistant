@@ -635,6 +635,32 @@ class ProviderRegistryService:
                 source="catalog",
             ),
             ProviderBinding(
+                provider_key="aiwritebook",
+                display_name="AIWriteBook",
+                executable=False,
+                capabilities=(
+                    ProviderCapability(
+                        provider_key="aiwritebook",
+                        capability_key="book_packet_handoff",
+                        tool_name="provider.aiwritebook.book_packet_handoff",
+                        executable=False,
+                    ),
+                    ProviderCapability(
+                        provider_key="aiwritebook",
+                        capability_key="book_production_review",
+                        tool_name="provider.aiwritebook.book_production_review",
+                        executable=False,
+                    ),
+                    ProviderCapability(
+                        provider_key="aiwritebook",
+                        capability_key="book_artifact_import",
+                        tool_name="provider.aiwritebook.book_artifact_import",
+                        executable=False,
+                    ),
+                ),
+                source="catalog",
+            ),
+            ProviderBinding(
                 provider_key="browseract",
                 display_name="BrowserAct",
                 executable=True,
@@ -1295,6 +1321,7 @@ class ProviderRegistryService:
 
     def _secret_env_names(self, provider_key: str) -> tuple[str, ...]:
         mapping = {
+            "aiwritebook": ("AIWRITEBOOK_USERNAME_REF", "AIWRITEBOOK_PASSWORD_REF"),
             "browseract": ("BROWSERACT_API_KEY", "BROWSERACT_API_KEY_FALLBACK_1"),
             "browserly": ("BROWSERLY_API_KEY",),
             "comfyui": ("COMFYUI_URL",),
@@ -1338,7 +1365,7 @@ class ProviderRegistryService:
             return "cli"
         if binding.provider_key == "google_gmail":
             return "oauth"
-        if binding.provider_key == "workllm":
+        if binding.provider_key in {"aiwritebook", "workllm"}:
             return "browser_login"
         if binding.provider_key == "amazon":
             auth_mode = str(os.environ.get("AMAZON_AUTH_MODE") or "").strip().lower().replace("-", "_")
@@ -1378,6 +1405,16 @@ class ProviderRegistryService:
                 for name in ("CHUMMER_EA_WORKLLM_EMAIL", "CHUMMER_EA_WORKLLM_PASSWORD")
             )
             return canonical or compatibility
+        if auth_mode == "browser_login" and binding.provider_key == "aiwritebook":
+            reference_names = tuple(
+                str(os.environ.get(name) or "").strip()
+                for name in ("AIWRITEBOOK_USERNAME_REF", "AIWRITEBOOK_PASSWORD_REF")
+            )
+            if len(reference_names) != 2 or not all(reference_names):
+                return False
+            if any(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) is None for name in reference_names):
+                return False
+            return all(str(os.environ.get(name) or "").strip() for name in reference_names)
         if auth_mode == "secret_file" and binding.provider_key == "amazon":
             password_file = str(os.environ.get("AMAZON_PASSWORD_FILE") or "").strip()
             if password_file:
@@ -2379,6 +2416,8 @@ class ProviderRegistryService:
         aliases = {
             "1min.ai": "onemin",
             "1min_ai": "onemin",
+            "ai_write_book": "aiwritebook",
+            "aiwritebook.com": "aiwritebook",
             "ai_magicx": "magixai",
             "magicxai": "magixai",
             "aimagicx": "magixai",
