@@ -10,6 +10,7 @@ from typing import Literal, Protocol
 
 AudioFormat = Literal["wav", "mp3", "flac", "ogg"]
 ProviderName = Literal["unmixr", "vocallab", "piper_local"]
+_CONSENT_REQUIRED_RIGHTS_CLASSES = frozenset({"consented_clone"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,26 +194,71 @@ def _valid_sha256(value: object) -> bool:
     )
 
 
+def validate_synthesis_authority(request: SpeechSynthesisRequest) -> None:
+    """Validate provider-independent authority before any adapter is invoked."""
+
+    if (
+        not request.source_text
+        or not _valid_sha256(request.source_text_sha256)
+        or request.source_text_sha256
+        != _sha256_text(request.source_text)
+    ):
+        raise ValueError("source_text_authority_invalid")
+    if (
+        not request.voice.provider_voice_id
+        or not _valid_sha256(request.voice.voice_id_sha256)
+        or request.voice.voice_id_sha256
+        != _sha256_text(request.voice.provider_voice_id)
+        or not request.voice.safe_label.strip()
+        or not request.language.strip()
+        or request.language not in request.voice.supported_languages
+    ):
+        raise ValueError("voice_binding_invalid")
+    if (
+        not request.voice.rights_class.strip()
+        or not request.voice.rights_receipt_id.strip()
+    ):
+        raise ValueError("rights_authority_invalid")
+    if (
+        request.voice.rights_class in _CONSENT_REQUIRED_RIGHTS_CLASSES
+        and not request.voice.consent_receipt_id.strip()
+    ):
+        raise ValueError("consent_authority_invalid")
+    if (
+        not request.external_processing_authorization_id.strip()
+        or not _valid_sha256(
+            request.external_processing_authorization_sha256
+        )
+    ):
+        raise ValueError("external_processing_authority_invalid")
+    if request.workload == "voice_audition":
+        if (
+            not request.audition_authorization_id.strip()
+            or not _valid_sha256(request.audition_authorization_sha256)
+        ):
+            raise ValueError("audition_authority_invalid")
+    elif request.workload == "audiobook":
+        if not _valid_sha256(request.cast_snapshot_sha256):
+            raise ValueError("cast_authority_invalid")
+    else:
+        raise ValueError("workload_invalid")
+    if type(request.publication_intent) is not bool:
+        raise ValueError("publication_intent_invalid")
+    if not request.provider_contract_version.strip():
+        raise ValueError("provider_contract_version_missing")
+    if not request.idempotency_key.strip():
+        raise ValueError("idempotency_key_missing")
+
+
 def synthesis_fingerprint(request: SpeechSynthesisRequest) -> str:
     """Return a canonical cache identity without serializing private values."""
 
-    if request.voice.provider == "vocallab":
-        route_authority = (
-            request.audition_authorization_sha256
-            if request.workload == "voice_audition"
-            else request.cast_snapshot_sha256
-        )
-        if (
-            not _valid_sha256(request.source_text_sha256)
-            or not _valid_sha256(request.voice.voice_id_sha256)
-            or not _valid_sha256(
-                request.external_processing_authorization_sha256
-            )
-            or not _valid_sha256(route_authority)
-            or not request.external_processing_authorization_id
-            or not request.provider_contract_version
-        ):
-            raise ValueError("synthesis_authority_binding_invalid")
+    try:
+        validate_synthesis_authority(request)
+    except ValueError:
+        # Preserve the existing public fingerprint failure contract. The router
+        # exposes the narrower code before a provider adapter is selected.
+        raise ValueError("synthesis_authority_binding_invalid") from None
 
     payload = {
         "contract_name": "ea.audiobook_tts_segment_identity.v2",

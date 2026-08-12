@@ -477,8 +477,10 @@ class VocalLabProvider(BaseAudiobookTtsProvider):
             or parsed.path not in {"", "/"}
             or any(type(value) is not int for value in numeric_ints)
             or any(type(value) is not bool for value in boolean_flags)
-            or self.config.credential_rotation_required
-            == self.config.credential_production_eligible
+            or (
+                self.config.credential_production_eligible
+                and self.config.credential_rotation_required
+            )
             or (
                 self.config.enabled
                 and (

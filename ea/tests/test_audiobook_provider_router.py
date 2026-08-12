@@ -50,9 +50,15 @@ def _request(
         sample_rate=44100,
         performance_direction=performance_direction,
         external_processing_authorization_id="authorization-1",
+        external_processing_authorization_sha256="e" * 64,
         idempotency_key="idempotency-1",
         provider_selection=provider_selection,  # type: ignore[arg-type]
         cast_snapshot_sha256="c" * 64,
+        provider_contract_version=(
+            "ea.audiobook_tts.vocallab.v1"
+            if provider == "vocallab"
+            else "ea.audiobook_tts.unmixr.v1"
+        ),
     )
 
 
@@ -109,6 +115,69 @@ def test_router_rejects_duplicate_provider_registration() -> None:
     with pytest.raises(AudiobookProviderError) as caught:
         AudiobookProviderRouter((provider, provider))
     assert caught.value.failure.code == "duplicate_provider_registration"
+
+
+def test_router_enforces_provider_neutral_authority_before_adapter() -> None:
+    valid = _request()
+    variants = (
+        (replace(valid, source_text_sha256="0" * 64), "source_text_authority_invalid"),
+        (
+            replace(
+                valid,
+                voice=replace(valid.voice, rights_receipt_id=""),
+            ),
+            "rights_authority_invalid",
+        ),
+        (
+            replace(
+                valid,
+                voice=replace(
+                    valid.voice,
+                    rights_class="consented_clone",
+                    consent_receipt_id="",
+                ),
+            ),
+            "consent_authority_invalid",
+        ),
+        (
+            replace(valid, external_processing_authorization_sha256=""),
+            "external_processing_authority_invalid",
+        ),
+        (replace(valid, cast_snapshot_sha256=""), "cast_authority_invalid"),
+        (
+            replace(valid, provider_contract_version=""),
+            "provider_contract_version_missing",
+        ),
+        (replace(valid, idempotency_key=""), "idempotency_key_missing"),
+    )
+    router = AudiobookProviderRouter(
+        (UnmixrProvider(synthesize_request=lambda **_: (b"audio", "audio/wav")),)
+    )
+    for request, code in variants:
+        with pytest.raises(AudiobookProviderError) as caught:
+            router.decide(request)
+        assert caught.value.failure.code == code
+        assert caught.value.failure.charge_state == "not_charged"
+
+
+def test_router_requires_audition_authority_for_audition_workload() -> None:
+    request = replace(
+        _request(),
+        workload="voice_audition",
+        cast_snapshot_sha256="",
+        audition_authorization_id="audition-1",
+        audition_authorization_sha256="a" * 64,
+    )
+    decision = AudiobookProviderRouter(
+        (UnmixrProvider(synthesize_request=lambda **_: (b"audio", "audio/wav")),)
+    ).decide(request)
+    assert decision.provider == "unmixr"
+
+    with pytest.raises(AudiobookProviderError) as caught:
+        AudiobookProviderRouter(
+            (UnmixrProvider(synthesize_request=lambda **_: (b"audio", "audio/wav")),)
+        ).decide(replace(request, audition_authorization_sha256=""))
+    assert caught.value.failure.code == "audition_authority_invalid"
 
 
 class _VocalLabStub:

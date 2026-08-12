@@ -45,11 +45,13 @@ from app.services.voice_runtime import (
     unmixr_synthesize_request,
 )
 from app.services.audiobook_tts import (
-    AudiobookProviderRouter,
     ProviderVoiceRef,
     SpeechSynthesisRequest,
 )
 from app.services.audiobook_tts.providers import UnmixrProvider
+from app.services.audiobook_tts.providers.unmixr import (
+    UNMIXR_PROVIDER_CONTRACT_VERSION,
+)
 from app.services.audiobook_narration_planner import (
     BOUNDARY_POLICY_NAME,
     PLANNER_CONTRACT_NAME,
@@ -7912,6 +7914,7 @@ def _synthesize_unmixr_with_retries(
         performance_direction="",
         external_processing_authorization_id="",
         idempotency_key=idempotency_key,
+        provider_contract_version=UNMIXR_PROVIDER_CONTRACT_VERSION,
     )
     errors: list[str] = []
     for attempt in range(1, attempts + 1):
@@ -7927,7 +7930,11 @@ def _synthesize_unmixr_with_retries(
                 pronunciation_dict=unmixr_pronunciation_dict(),
                 legacy_error_compatibility=True,
             )
-            result = AudiobookProviderRouter((provider,)).synthesize(provider_request)
+            # This compatibility helper is called only after the established
+            # narration-plan authority checks. New synthesis entry points use
+            # AudiobookProviderRouter, which validates provider-neutral
+            # authority before invoking an adapter.
+            result = provider.synthesize(provider_request)
             return result.audio_bytes, result.content_type, errors
         except Exception as exc:
             errors.append(f"attempt_{attempt}:{_public_unmixr_error_reason(exc)}")

@@ -14,6 +14,7 @@ from app.services.audiobook_tts.contracts import (
     SpeechSynthesisRequest,
     SpeechSynthesisResult,
     synthesis_fingerprint,
+    validate_synthesis_authority,
 )
 from app.services.audiobook_tts.errors import (
     AudiobookProviderError,
@@ -33,4 +34,5 @@ __all__ = (
     "SpeechSynthesisRequest",
     "SpeechSynthesisResult",
     "synthesis_fingerprint",
+    "validate_synthesis_authority",
 )

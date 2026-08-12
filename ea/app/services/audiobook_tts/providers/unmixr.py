@@ -194,7 +194,20 @@ class UnmixrProvider(BaseAudiobookTtsProvider):
         del request
         return 0
 
+    def validate_route(self, request: SpeechSynthesisRequest) -> None:
+        if request.provider_contract_version != UNMIXR_PROVIDER_CONTRACT_VERSION:
+            raise AudiobookProviderError(
+                ProviderFailure(
+                    provider=self.name,
+                    code="provider_contract_version_missing",
+                    retryable=False,
+                    charge_state="not_charged",
+                    public_reason="provider_contract_version_invalid",
+                )
+            )
+
     def synthesize(self, request: SpeechSynthesisRequest) -> SpeechSynthesisResult:
+        self.validate_route(request)
         if request.voice.provider != self.name:
             raise AudiobookProviderError(
                 ProviderFailure(

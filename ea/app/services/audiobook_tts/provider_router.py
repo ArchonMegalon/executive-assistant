@@ -12,6 +12,7 @@ from app.services.audiobook_tts.contracts import (
     ProviderRouteDecision,
     SpeechSynthesisRequest,
     SpeechSynthesisResult,
+    validate_synthesis_authority,
 )
 from app.services.audiobook_tts.errors import (
     AudiobookProviderError,
@@ -61,6 +62,18 @@ class AudiobookProviderRouter:
                 )
             )
         provider = self._providers[provider_name]
+        try:
+            validate_synthesis_authority(request)
+        except ValueError as exc:
+            raise AudiobookProviderError(
+                ProviderFailure(
+                    provider=str(provider_name),
+                    code=str(exc),
+                    retryable=False,
+                    charge_state="not_charged",
+                    public_reason="synthesis_authority_invalid",
+                )
+            ) from None
         validate_route = getattr(provider, "validate_route", None)
         if callable(validate_route):
             validate_route(request)

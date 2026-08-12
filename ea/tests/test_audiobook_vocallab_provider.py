@@ -198,6 +198,20 @@ def test_enabled_provider_rejects_unrotated_credential_posture() -> None:
         )
 
 
+def test_unapproved_rotated_credential_posture_is_valid_but_disabled() -> None:
+    instance = VocalLabProvider(
+        config=VocalLabConfig(
+            enabled=False,
+            credential_rotation_required=False,
+            credential_production_eligible=False,
+        ),
+        session=FakeSession([]),
+    )
+    with pytest.raises(AudiobookProviderError) as caught:
+        instance.verify_capability()
+    assert caught.value.failure.code == "provider_disabled"
+
+
 def test_exact_post_uses_voice_never_voice_id_and_streams_json(tmp_path: Path) -> None:
     session = FakeSession([])
     request, instance, _ledger, _private = provider(tmp_path, session)

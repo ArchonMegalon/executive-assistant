@@ -13,6 +13,9 @@ from app.services.audiobook_tts import (
     SpeechSynthesisRequest,
 )
 from app.services.audiobook_tts.providers import UnmixrProvider
+from app.services.audiobook_tts.providers.unmixr import (
+    UNMIXR_PROVIDER_CONTRACT_VERSION,
+)
 
 
 def _request(
@@ -23,6 +26,7 @@ def _request(
 ) -> SpeechSynthesisRequest:
     source_sha256 = hashlib.sha256(source_text.encode("utf-8")).hexdigest()
     voice_sha256 = hashlib.sha256(voice_id.encode("utf-8")).hexdigest()
+    external_authority = "authorization-1"
     return SpeechSynthesisRequest(
         job_id="job-1",
         chapter_id="chapter-1",
@@ -50,6 +54,11 @@ def _request(
         performance_direction="",
         external_processing_authorization_id="authorization-1",
         idempotency_key="idempotency-1",
+        cast_snapshot_sha256=hashlib.sha256(b"cast-1").hexdigest(),
+        external_processing_authorization_sha256=hashlib.sha256(
+            external_authority.encode("utf-8")
+        ).hexdigest(),
+        provider_contract_version=UNMIXR_PROVIDER_CONTRACT_VERSION,
     )
 
 
