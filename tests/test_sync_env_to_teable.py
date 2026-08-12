@@ -959,6 +959,57 @@ def test_bootstrap_env_files_restores_root_and_service_scopes(monkeypatch, tmp_p
     assert (tmp_path / "config" / "onemin_api_keys.local.json").read_text(encoding="utf-8") == "file-secret\n"
 
 
+def test_restore_env_file_deduplicates_identical_rows_for_the_same_output(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    output = tmp_path / ".env"
+    duplicate = {
+        "projection_id": "ea-prod:ea_root:EA_API_TOKEN",
+        "source_scope": "ea_root",
+        "restore_enabled": True,
+        "env_name": "EA_API_TOKEN",
+        "env_value_secret": "root-token",
+    }
+    monkeypatch.setattr(module, "_list_records", lambda **_: [dict(duplicate), dict(duplicate)])
+
+    result = module.restore_env_file(
+        base_url="https://teable.example",
+        api_key="teable-key",
+        table_id="tbl_env",
+        output_path=output,
+        source_scope="ea_root",
+    )
+
+    assert result["restored"] == 1
+    assert result["hash_verified"] == 1
+    assert output.read_text(encoding="utf-8").count("EA_API_TOKEN=") == 1
+
+
+def test_restore_env_file_rejects_conflicting_rows_for_the_same_output(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    first = {
+        "projection_id": "ea-prod:ea_root:EA_API_TOKEN",
+        "source_scope": "ea_root",
+        "restore_enabled": True,
+        "env_name": "EA_API_TOKEN",
+        "env_value_secret": "first-token",
+    }
+    second = {**first, "env_value_secret": "second-token"}
+    monkeypatch.setattr(module, "_list_records", lambda **_: [first, second])
+
+    try:
+        module.restore_env_file(
+            base_url="https://teable.example",
+            api_key="teable-key",
+            table_id="tbl_env",
+            output_path=tmp_path / ".env",
+            source_scope="ea_root",
+        )
+    except SystemExit as exc:
+        assert str(exc) == "teable_restore_conflicting_duplicate:ea_root:EA_API_TOKEN"
+    else:
+        raise AssertionError("conflicting duplicate should fail closed")
+
+
 def test_drill_bootstrap_restore_materializes_into_drill_directory(monkeypatch, tmp_path: Path) -> None:
     module = _module()
     drill_dir = tmp_path / "drill"

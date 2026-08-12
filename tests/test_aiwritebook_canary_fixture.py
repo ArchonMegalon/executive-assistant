@@ -15,6 +15,9 @@ from app.services import ltd_provider_governance as governance
 ROOT = Path(__file__).resolve().parents[1]
 MATERIALIZER = ROOT / "scripts" / "materialize_aiwritebook_canary_fixture.py"
 VERIFIER = ROOT / "scripts" / "verify_aiwritebook_export_roundtrip.py"
+APPROVAL_REQUEST = ROOT / "scripts" / "materialize_aiwritebook_canary_approval_request.py"
+APPROVAL_RECORDER = ROOT / "scripts" / "record_aiwritebook_canary_approval.py"
+CREDIT_AUTHORITY_RECORDER = ROOT / "scripts" / "record_aiwritebook_canary_credit_authority.py"
 
 
 def _module(name: str, path: Path):
@@ -44,7 +47,7 @@ def _write_exports(tmp_path: Path, marker: str) -> tuple[Path, Path, Path]:
             "</rootfiles></container>",
         )
         archive.writestr("OEBPS/content.opf", '<package xmlns="http://www.idpf.org/2007/opf"/>')
-        archive.writestr("OEBPS/chapter.xhtml", f"<html><body>{marker}</body></html>")
+        archive.writestr("OEBPS/chapter.xhtml", f"<!DOCTYPE html><html><body>{marker}</body></html>")
 
     docx = tmp_path / "canary.docx"
     with zipfile.ZipFile(docx, "w") as archive:
@@ -64,6 +67,7 @@ def _approved_evidence(tmp_path: Path, manifest: dict[str, object]) -> tuple[Pat
             "contract_version": 1,
             "status": "approved",
             "fixture_manifest_sha256": digest,
+            "approval_request_sha256": "a" * 64,
             "approved_by_ref": "operator-approval-receipt-1",
             "approved_at": "2026-08-11T11:55:00+00:00",
             "maximum_credits": 18,
@@ -77,6 +81,7 @@ def _approved_evidence(tmp_path: Path, manifest: dict[str, object]) -> tuple[Pat
                 "publication": False,
                 "external_send": False,
             },
+            "secret_material_in_receipt": False,
         },
     )
     observation = tmp_path / "observation.json"
@@ -245,6 +250,26 @@ def test_aiwritebook_roundtrip_verifier_rejects_over_budget_or_markerless_export
         )
 
 
+def test_aiwritebook_xml_parser_allows_only_standard_html_doctype() -> None:
+    verifier = _module("verify_aiwritebook_export_roundtrip_doctype", VERIFIER)
+
+    root = verifier._xml_root(
+        b'<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html><html><body>safe</body></html>',
+        "invalid_xml",
+    )
+    assert root.tag == "html"
+
+    unsafe_payloads = (
+        b'<!DOCTYPE html SYSTEM "https://example.invalid/xhtml.dtd"><html/>',
+        b'<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "https://example.invalid/xhtml.dtd"><html/>',
+        b'<!DOCTYPE html [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><html><body>&xxe;</body></html>',
+        b'<!DOCTYPE html><!DOCTYPE html><html/>',
+    )
+    for payload in unsafe_payloads:
+        with pytest.raises(ValueError, match="invalid_xml"):
+            verifier._xml_root(payload, "invalid_xml")
+
+
 def test_aiwritebook_canary_materializer_refuses_symlink_outputs(tmp_path: Path) -> None:
     materializer = _module("materialize_aiwritebook_canary_fixture_symlink", MATERIALIZER)
     target = tmp_path / "target.md"
@@ -255,6 +280,94 @@ def test_aiwritebook_canary_materializer_refuses_symlink_outputs(tmp_path: Path)
     with pytest.raises(RuntimeError, match="output_symlink_not_allowed"):
         materializer.materialize(source_path=source, manifest_path=tmp_path / "manifest.json")
     assert target.read_text(encoding="utf-8") == "keep"
+
+
+def test_aiwritebook_approval_request_requires_exact_digest_bound_confirmation(tmp_path: Path) -> None:
+    materializer = _module("materialize_aiwritebook_canary_fixture_for_approval", MATERIALIZER)
+    request_module = _module("materialize_aiwritebook_canary_approval_request", APPROVAL_REQUEST)
+    recorder = _module("record_aiwritebook_canary_approval", APPROVAL_RECORDER)
+    manifest_path = tmp_path / "manifest.json"
+    manifest = materializer.materialize(source_path=tmp_path / "source.md", manifest_path=manifest_path)
+    request_path = tmp_path / "approval-request.json"
+    request = request_module.materialize_request(
+        manifest_path=manifest_path,
+        output_path=request_path,
+        generated_at="2026-08-11T12:30:00+00:00",
+    )
+    output = tmp_path / "approval.json"
+
+    assert request["status"] == "awaiting_explicit_approval"
+    assert request["provider_action_performed"] is False
+    assert request["required_confirmation_token"].startswith("approve-aiwritebook-canary-")
+    assert request["requested_actions"]["publication"] is False
+    assert request["requested_actions"]["external_send"] is False
+    with pytest.raises(ValueError, match="exact_aiwritebook_canary_confirmation_required"):
+        recorder.record_approval(
+            request_path=request_path,
+            output_path=output,
+            confirmation="continue",
+            approved_by_ref="conversation-receipt-1",
+            approved_at="2026-08-11T12:31:00+00:00",
+        )
+    assert not output.exists()
+
+    approval = recorder.record_approval(
+        request_path=request_path,
+        output_path=output,
+        confirmation=str(request["required_confirmation_token"]),
+        approved_by_ref="conversation-receipt-1",
+        approved_at="2026-08-11T12:31:00+00:00",
+    )
+    assert approval["status"] == "approved"
+    assert approval["fixture_manifest_sha256"] == manifest["manifest_sha256"]
+    assert approval["approval_request_sha256"] == request["request_sha256"]
+    assert approval["maximum_credits"] == 18
+    assert approval["approved_actions"]["provider_project_deletion"] is True
+    assert output.stat().st_mode & 0o777 == 0o600
+
+
+def test_aiwritebook_credit_authority_is_bounded_and_never_unlocks_other_actions(tmp_path: Path) -> None:
+    materializer = _module("materialize_aiwritebook_canary_fixture_for_credit", MATERIALIZER)
+    request_module = _module("materialize_aiwritebook_canary_approval_request_for_credit", APPROVAL_REQUEST)
+    sys.modules["materialize_aiwritebook_canary_approval_request"] = request_module
+    recorder = _module("record_aiwritebook_canary_credit_authority", CREDIT_AUTHORITY_RECORDER)
+    manifest_path = tmp_path / "manifest.json"
+    materializer.materialize(source_path=tmp_path / "source.md", manifest_path=manifest_path)
+    request_path = tmp_path / "request.json"
+    request_module.materialize_request(
+        manifest_path=manifest_path,
+        output_path=request_path,
+        generated_at="2026-08-11T12:30:00+00:00",
+    )
+    output = tmp_path / "credit-authority.json"
+
+    with pytest.raises(ValueError, match="within_the_canary_request"):
+        recorder.record_credit_authority(
+            request_path=request_path,
+            output_path=output,
+            maximum_credits=19,
+            approved_by_ref="conversation-credit-approval-1",
+            approved_at="2026-08-11T12:40:00+00:00",
+        )
+    receipt = recorder.record_credit_authority(
+        request_path=request_path,
+        output_path=output,
+        maximum_credits=18,
+        approved_by_ref="conversation-credit-approval-1",
+        approved_at="2026-08-11T12:40:00+00:00",
+    )
+    actions = receipt["approved_actions"]
+    assert receipt["status"] == "approved_partial"
+    assert receipt["satisfies_full_canary_approval"] is False
+    assert actions["generation"] is True
+    assert actions["credit_spend"] is True
+    assert actions["provider_project_creation"] is False
+    assert actions["source_upload"] is False
+    assert actions["export_download"] is False
+    assert actions["provider_project_deletion"] is False
+    assert actions["publication"] is False
+    assert actions["external_send"] is False
+    assert output.stat().st_mode & 0o777 == 0o600
 
 
 def _receipt_root(tmp_path: Path, receipt: dict[str, object]) -> Path:

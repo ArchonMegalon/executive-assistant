@@ -1,0 +1,78 @@
+{
+  "authorization": {
+    "approval_contract": "ea.aiwritebook.canary_approval",
+    "approved_at": "2026-08-11T10:50:58+00:00",
+    "approved_by_ref": "conversation-exact-canary-approval-20260811",
+    "credit_spend_approved": true,
+    "export_download_approved": true,
+    "external_send_approved": false,
+    "generation_approved": true,
+    "maximum_credits": 18,
+    "provider_project_creation_approved": true,
+    "provider_project_deletion_approved": true,
+    "publication_approved": false,
+    "source_upload_approved": true
+  },
+  "contract": "ea.aiwritebook.export_roundtrip",
+  "contract_version": 1,
+  "expected_formats": [
+    "pdf",
+    "epub",
+    "docx"
+  ],
+  "exports": {
+    "docx": {
+      "content_marker_verification": "embedded",
+      "content_marker_verified": true,
+      "filename": "The_Quiet_Signal.docx",
+      "sha256": "f2e918e5d4f8a26548b678e65b113e30d293d431c378b4ae7f557e4d343fe8c5",
+      "size_bytes": 10045,
+      "structure_valid": true
+    },
+    "epub": {
+      "content_marker_verification": "embedded",
+      "content_marker_verified": true,
+      "filename": "The_Quiet_Signal.epub",
+      "sha256": "ddf20b066c07ec7ca86933008d18d66b1b75de7a65d2d88120c92d51a96e8ed5",
+      "size_bytes": 13194,
+      "structure_valid": true
+    },
+    "pdf": {
+      "content_marker_verification": "human_review",
+      "content_marker_verified": true,
+      "filename": "The_Quiet_Signal.pdf",
+      "sha256": "b43b32e0d0db66cb76969dbbced418274afc95eaa2fba8d73ef6928848575afb",
+      "size_bytes": 77625,
+      "structure_valid": true
+    }
+  },
+  "fixture": {
+    "data_classification": "synthetic_no_personal_or_campaign_data",
+    "fixture_id": "aiwritebook-chronicle-export-canary-v1",
+    "manifest_sha256": "6525650cb1ead60396a60b76cc59bb9bf6ac4e5876e144d73973c6acea164071",
+    "rights": "CC0-1.0",
+    "source_sha256": "ede00575f68c4f304872a7fbfd240c6a022a76d38c5399f08423c975826bdd55"
+  },
+  "generated_at": "2026-08-11T13:30:18.324431+00:00",
+  "provider_run": {
+    "credits_after": 5087,
+    "credits_before": 5100,
+    "credits_spent": 13,
+    "delete_requested": true,
+    "exports_reviewed": true,
+    "external_send_performed": false,
+    "operator_run": true,
+    "outline_reviewed": true,
+    "pdf_content_marker_reviewed": true,
+    "project_inaccessible_after_delete": true,
+    "project_private_during_run": true,
+    "provider_project_ref": "aiwritebook-project-131594",
+    "publication_started": false,
+    "run_finished_at": "2026-08-11T13:28:40+00:00",
+    "run_started_at": "2026-08-11T13:19:23+00:00",
+    "shared_with_other_users": false,
+    "unattended_browser_automation_used": false
+  },
+  "secret_material_in_receipt": false,
+  "status": "pass"
+}

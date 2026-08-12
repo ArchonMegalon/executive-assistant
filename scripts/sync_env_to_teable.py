@@ -999,6 +999,7 @@ def _mapped_secret_file_output_path(
 
 def _restorable_rows_for_scope(records: list[dict[str, Any]], *, host_profile: str, source_scope: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    rows_by_output: dict[str, dict[str, Any]] = {}
     for row in records:
         if not _matches_host_profile(row, host_profile):
             continue
@@ -1006,7 +1007,19 @@ def _restorable_rows_for_scope(records: list[dict[str, Any]], *, host_profile: s
             continue
         if not _restore_enabled(row):
             continue
+        env_name = str(row.get("env_name") or "").strip()
+        projection_id = str(row.get("projection_id") or "").strip()
+        source_path = str(row.get("source_path") or "").strip()
+        output_identity = source_path if source_scope == "ea_file" else env_name
+        output_identity = output_identity or projection_id
+        if output_identity and output_identity in rows_by_output:
+            existing = rows_by_output[output_identity]
+            if _stored_secret_value_from_record(existing) != _stored_secret_value_from_record(row):
+                raise SystemExit(f"teable_restore_conflicting_duplicate:{source_scope}:{output_identity}")
+            continue
         rows.append(row)
+        if output_identity:
+            rows_by_output[output_identity] = row
     return rows
 
 
@@ -1332,8 +1345,13 @@ def verify_recovery_table(
             same_hash += 1
             continue
         different.append(label)
-    restored_by_scope: dict[str, int] = {"ea_root": 0, "ea_root_local": 0, "ea_service": 0}
-    file_restore_count = 0
+    restored_by_scope = {
+        scope: len(_restorable_rows_for_scope(records, host_profile=host_profile, source_scope=scope))
+        for scope in ("ea_root", "ea_root_local", "ea_service")
+    }
+    file_restore_count = len(
+        _restorable_rows_for_scope(records, host_profile=host_profile, source_scope="ea_file")
+    )
     extra_restorable = _extra_restorable_rows(
         records=records,
         expected_projection_ids=expected_projection_ids,
@@ -1341,18 +1359,6 @@ def verify_recovery_table(
     )
     local_file_coverage = audit_local_secret_file_coverage(env_files=env_files, host_profile=host_profile)
     compose_env_coverage = audit_compose_required_env_coverage(env_files=env_files)
-    for row in records:
-        if not _matches_host_profile(row, host_profile):
-            continue
-        if not _restore_enabled(row):
-            continue
-        projection_id = str(row.get("projection_id") or "").strip()
-        scope = str(row.get("source_scope") or "").strip()
-        env_name = str(row.get("env_name") or "").strip()
-        if scope in restored_by_scope and env_name:
-            restored_by_scope[scope] += 1
-        if scope == "ea_file" and env_name:
-            file_restore_count += 1
     status = (
         "pass"
         if env_file_audit.get("status") != "fail"

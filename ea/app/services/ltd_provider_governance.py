@@ -414,11 +414,11 @@ LANES: tuple[ProviderLane, ...] = (
         missing_state="blocked_pending_proof",
         off_switch_env=("EA_AIWRITEBOOK_CHRONICLE_STUDIO_ENABLED",),
         source_of_truth=(
-            "Chummer groups own project, consent, source-packet, outline approval, artifact, and publication truth; "
-            "AIWriteBook is an operator-run production workbench only."
+            "Chummer groups own project, consent, spoiler/redaction review, source-packet, approval, artifact, and publication truth; "
+            "AIWriteBook is used only through the operator-run production lane."
         ),
         allowed_inputs=(
-            "approved_redacted_chummer_source_packet",
+            "approved_consent_spoiler_redaction_reviewed_chummer_source_packet",
             "consented_runner_handle_snapshot",
             "operator_approved_outline_revision",
         ),
@@ -431,17 +431,27 @@ LANES: tuple[ProviderLane, ...] = (
             "provider_secret",
             "unattended_browser_automation",
             "credit_spend_without_approval",
+            "source_upload_without_approval",
+            "generation_without_approval",
+            "external_send_without_approval",
             "direct_publish",
             "publication_truth",
             "rules_truth",
         ),
         normalized_signal_schema=(
             "source_packet_id",
+            "source_packet_version",
             "source_packet_sha256",
             "provider_project_ref",
             "artifact_url",
             "artifact_sha256",
             "export_format",
+            "upload_approval_status",
+            "generation_approval_status",
+            "outline_approval_status",
+            "artifact_import_status",
+            "publication_approval_status",
+            "external_send_approval_status",
             "human_review_status",
         ),
         required_checks=(
@@ -451,8 +461,8 @@ LANES: tuple[ProviderLane, ...] = (
             LaneCheck("aiwritebook_declared_privacy", "Current privacy and retention declarations are captured.", "Privacy-policy evidence."),
             LaneCheck("aiwritebook_declared_exports", "PDF, EPUB, and DOCX support is declared on current provider surfaces.", "Pricing and terms evidence."),
             LaneCheck("aiwritebook_operator_boundary", "The lane cannot route unattended provider execution.", "Provider registry and lane boundary."),
-            LaneCheck("aiwritebook_source_packet", "Only approved, redacted source packets may leave Chummer.", "Chummer source-packet contract."),
-            LaneCheck("aiwritebook_human_review", "Outline, artifact, and publication remain separate human decisions.", "Chummer approval state machine."),
+            LaneCheck("aiwritebook_source_packet", "Only consented, spoiler-reviewed, redaction-reviewed source packets may leave Chummer.", "Chummer source-packet contract."),
+            LaneCheck("aiwritebook_human_review", "Upload, generation, outline, artifact, publication, and external send remain separate human decisions.", "Chummer approval state machine."),
             LaneCheck("aiwritebook_export_roundtrip", "A redacted export round-trip is verified.", "Approved canary receipt."),
         ),
     ),
@@ -724,6 +734,7 @@ def _valid_aiwritebook_export_roundtrip_receipt(root: Path) -> bool:
     for relative_path in (
         "ea/_completion/aiwritebook/AIWRITEBOOK_EXPORT_ROUNDTRIP.generated.json",
         "_completion/aiwritebook/AIWRITEBOOK_EXPORT_ROUNDTRIP.generated.json",
+        "config/provider_evidence/AIWRITEBOOK_EXPORT_ROUNDTRIP.source.json",
     ):
         path = root / relative_path
         if not path.is_file() or path.is_symlink():
@@ -1015,17 +1026,32 @@ def _check_passed(
         return ok, "operator_only_boundary_defined" if ok else "aiwritebook_operator_boundary_incomplete"
     if key == "aiwritebook_source_packet":
         ok = (
-            "approved_redacted_chummer_source_packet" in lane.allowed_inputs
+            "approved_consent_spoiler_redaction_reviewed_chummer_source_packet" in lane.allowed_inputs
             and "unapproved_source_packet" in lane.forbidden_inputs
             and "unredacted_gm_secret" in lane.forbidden_inputs
             and "source_packet_sha256" in lane.normalized_signal_schema
+            and "source_packet_version" in lane.normalized_signal_schema
         )
         return ok, "approved_source_packet_boundary_defined" if ok else "aiwritebook_source_packet_boundary_incomplete"
     if key == "aiwritebook_human_review":
+        approval_signals = {
+            "upload_approval_status",
+            "generation_approval_status",
+            "outline_approval_status",
+            "artifact_import_status",
+            "publication_approval_status",
+            "external_send_approval_status",
+            "human_review_status",
+        }
         ok = (
-            all(term in lane.source_of_truth.lower() for term in ("outline approval", "artifact", "publication truth"))
-            and "direct_publish" in lane.forbidden_inputs
-            and "human_review_status" in lane.normalized_signal_schema
+            {
+                "source_upload_without_approval",
+                "generation_without_approval",
+                "external_send_without_approval",
+                "direct_publish",
+            } <= set(lane.forbidden_inputs)
+            and approval_signals <= set(lane.normalized_signal_schema)
+            and all(term in lane.source_of_truth.lower() for term in ("approval", "artifact", "publication truth"))
         )
         return ok, "separate_human_approval_boundary_defined" if ok else "aiwritebook_human_review_boundary_incomplete"
     if key == "aiwritebook_export_roundtrip":
@@ -1556,14 +1582,29 @@ def _hard_contract_failures(lane: ProviderLane) -> list[str]:
             "provider_secret",
             "unattended_browser_automation",
             "credit_spend_without_approval",
+            "source_upload_without_approval",
+            "generation_without_approval",
+            "external_send_without_approval",
             "direct_publish",
             "publication_truth",
             "rules_truth",
         }
         if not required_forbidden <= set(lane.forbidden_inputs):
             failures.append("aiwritebook_operator_boundary_incomplete")
-        if "approved_redacted_chummer_source_packet" not in lane.allowed_inputs:
+        if "approved_consent_spoiler_redaction_reviewed_chummer_source_packet" not in lane.allowed_inputs:
             failures.append("aiwritebook_source_packet_missing")
+        required_schema = {
+            "source_packet_version",
+            "source_packet_sha256",
+            "upload_approval_status",
+            "generation_approval_status",
+            "outline_approval_status",
+            "artifact_import_status",
+            "publication_approval_status",
+            "external_send_approval_status",
+        }
+        if not required_schema <= set(lane.normalized_signal_schema):
+            failures.append("aiwritebook_approval_schema_incomplete")
         if "EA_AIWRITEBOOK_CHRONICLE_STUDIO_ENABLED" not in lane.off_switch_env:
             failures.append("aiwritebook_off_switch_missing")
     if lane.lane_key == "release_quality_gates":

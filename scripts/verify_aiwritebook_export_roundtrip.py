@@ -12,8 +12,7 @@ import tempfile
 from typing import Any
 import zipfile
 
-from defusedxml import ElementTree
-from defusedxml.common import DefusedXmlException
+from xml.etree import ElementTree
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +28,7 @@ SAFE_REF_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 MAX_ARTIFACT_BYTES = 100 * 1024 * 1024
 MAX_ARCHIVE_UNCOMPRESSED_BYTES = 200 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 2048
+SAFE_HTML_DOCTYPE_PATTERN = re.compile(br"<!DOCTYPE\s+html\s*>", re.IGNORECASE)
 
 
 def _load_object(path: Path, error: str) -> dict[str, Any]:
@@ -116,12 +116,36 @@ def _validate_approval(payload: dict[str, Any], manifest: dict[str, Any]) -> int
     maximum = payload.get("maximum_credits")
     expected_maximum = manifest["credit_budget"]["maximum_approved_credits"]
     if (
-        payload.get("contract") != APPROVAL_CONTRACT
+        set(payload) != {
+            "contract",
+            "contract_version",
+            "status",
+            "fixture_manifest_sha256",
+            "approval_request_sha256",
+            "approved_by_ref",
+            "approved_at",
+            "maximum_credits",
+            "approved_actions",
+            "secret_material_in_receipt",
+        }
+        or payload.get("contract") != APPROVAL_CONTRACT
         or payload.get("contract_version") != 1
         or payload.get("status") != "approved"
         or payload.get("fixture_manifest_sha256") != manifest.get("manifest_sha256")
         or not SAFE_REF_PATTERN.fullmatch(approved_by_ref)
+        or not SHA256_PATTERN.fullmatch(str(payload.get("approval_request_sha256") or ""))
+        or payload.get("secret_material_in_receipt") is not False
         or not isinstance(actions, dict)
+        or set(actions) != {
+            "provider_project_creation",
+            "source_upload",
+            "generation",
+            "credit_spend",
+            "export_download",
+            "provider_project_deletion",
+            "publication",
+            "external_send",
+        }
         or any(actions.get(key) is not True for key in (
             "provider_project_creation",
             "source_upload",
@@ -233,12 +257,24 @@ def _safe_zip_members(path: Path) -> tuple[zipfile.ZipFile, tuple[str, ...]]:
     return archive, names
 
 
-def _xml_text(payload: bytes, error: str) -> str:
+def _xml_root(payload: bytes, error: str) -> ElementTree.Element:
+    upper = payload.upper()
+    if b"<!ENTITY" in upper:
+        raise ValueError(error)
+    doctype_count = upper.count(b"<!DOCTYPE")
+    if doctype_count:
+        sanitized, replacements = SAFE_HTML_DOCTYPE_PATTERN.subn(b"", payload, count=1)
+        if replacements != 1 or doctype_count != 1 or b"<!DOCTYPE" in sanitized.upper():
+            raise ValueError(error)
+        payload = sanitized
     try:
-        root = ElementTree.fromstring(payload)
-    except (ElementTree.ParseError, DefusedXmlException) as exc:
+        return ElementTree.fromstring(payload)
+    except ElementTree.ParseError as exc:
         raise ValueError(error) from exc
-    return "".join(root.itertext())
+
+
+def _xml_text(payload: bytes, error: str) -> str:
+    return "".join(_xml_root(payload, error).itertext())
 
 
 def _inspect_pdf(path: Path, marker: str) -> dict[str, Any]:
@@ -281,10 +317,7 @@ def _inspect_epub(path: Path, marker: str) -> dict[str, Any]:
             or archive.read("mimetype") != b"application/epub+zip"
         ):
             raise ValueError("invalid_epub_mimetype")
-        try:
-            container = ElementTree.fromstring(archive.read("META-INF/container.xml"))
-        except (ElementTree.ParseError, DefusedXmlException) as exc:
-            raise ValueError("invalid_epub_container") from exc
+        container = _xml_root(archive.read("META-INF/container.xml"), "invalid_epub_container")
         rootfiles = [node.get("full-path") for node in container.findall(".//{*}rootfile")]
         if len(rootfiles) != 1 or not rootfiles[0] or rootfiles[0] not in names:
             raise ValueError("invalid_epub_rootfile")

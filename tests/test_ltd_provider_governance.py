@@ -190,6 +190,25 @@ def test_lane_boundaries_match_provider_risks() -> None:
         sendr.normalized_signal_schema
     )
 
+    aiwritebook = lane_by_key("aiwritebook_chronicle_studio")
+    assert aiwritebook is not None
+    assert "approved_consent_spoiler_redaction_reviewed_chummer_source_packet" in aiwritebook.allowed_inputs
+    assert {
+        "source_upload_without_approval",
+        "generation_without_approval",
+        "external_send_without_approval",
+    } <= set(aiwritebook.forbidden_inputs)
+    assert {
+        "source_packet_version",
+        "source_packet_sha256",
+        "upload_approval_status",
+        "generation_approval_status",
+        "outline_approval_status",
+        "artifact_import_status",
+        "publication_approval_status",
+        "external_send_approval_status",
+    } <= set(aiwritebook.normalized_signal_schema)
+
     hedy = lane_by_key("hedy_meeting_evidence")
     assert hedy is not None
     assert hedy.providers == ("Hedy.ai",)
@@ -230,15 +249,24 @@ def test_lane_boundaries_match_provider_risks() -> None:
     assert aiwritebook is not None
     assert aiwritebook.providers == ("AiWriteBook",)
     assert aiwritebook.integration_lane == "operator_required_book_production"
-    assert "approved_redacted_chummer_source_packet" in aiwritebook.allowed_inputs
+    assert "approved_consent_spoiler_redaction_reviewed_chummer_source_packet" in aiwritebook.allowed_inputs
     assert {
         "provider_secret",
         "unattended_browser_automation",
         "credit_spend_without_approval",
+        "source_upload_without_approval",
+        "generation_without_approval",
+        "external_send_without_approval",
         "direct_publish",
         "publication_truth",
         "rules_truth",
     } <= set(aiwritebook.forbidden_inputs)
+    assert {
+        "source_packet_version",
+        "upload_approval_status",
+        "generation_approval_status",
+        "external_send_approval_status",
+    } <= set(aiwritebook.normalized_signal_schema)
 
 
 def test_public_signal_lane_schema_is_single_normalized_object() -> None:
@@ -435,6 +463,44 @@ def test_aiwritebook_governance_accepts_tracked_source_when_generated_receipt_is
         "aiwritebook_declared_exports",
     } <= set(result["passed_checks"])
     assert result["missing_checks"] == ["aiwritebook_export_roundtrip"]
+
+
+def test_aiwritebook_governance_accepts_tracked_sanitized_roundtrip_on_fresh_checkout(tmp_path: Path) -> None:
+    source_dir = tmp_path / "config" / "provider_evidence"
+    source_dir.mkdir(parents=True)
+    for filename in (
+        "AIWRITEBOOK_ACCOUNT_REVIEW.source.json",
+        "AIWRITEBOOK_EXPORT_ROUNDTRIP.source.json",
+    ):
+        source_dir.joinpath(filename).write_text(
+            (ROOT / "config" / "provider_evidence" / filename).read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+    inventory_path = tmp_path / "LTDs.md"
+    inventory_path.write_text(
+        _minimal_ltds(
+            "| `AiWriteBook` | `Tier 4` | `1 account` | `Owned` |  | `Tier 2` | Governed operator handoff | Chummer owns publication truth. |",
+            "| `AiWriteBook` | `gmail.com` | `complete` | `authenticated_sanitized_account_review_and_canary` | 2026-08-11T13:30:18Z | Operator-only lane. |",
+        ),
+        encoding="utf-8",
+    )
+    lane = lane_by_key("aiwritebook_chronicle_studio")
+    assert lane is not None
+
+    result = build_ltd_provider_lane_receipt(
+        lane,
+        markdown_text=inventory_path.read_text(encoding="utf-8"),
+        inventory_rows=load_ltd_inventory_rows(inventory_path),
+        root=tmp_path,
+        env={},
+        generated_at="2026-08-11T13:31:00Z",
+    )
+
+    assert result["status"] == "pass"
+    assert result["lane_state"] == "verified_draft_operator_lane"
+    assert result["missing_checks"] == []
+    assert "aiwritebook_export_roundtrip" in result["passed_checks"]
+    assert result["runtime_enabled"] is False
 
 
 def test_priority_ltd_lanes_are_bounded_until_live_proof_exists(tmp_path: Path) -> None:

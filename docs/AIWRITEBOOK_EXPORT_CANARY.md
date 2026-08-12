@@ -20,13 +20,39 @@ The fixture requests one Gemini chapter with no cover, translation, or
 audiobook. The captured price table estimates 18 credits: 3 for the outline and
 15 for writing. The operator must stop if the provider displays a higher total.
 
+Create the non-authorizing, digest-bound approval request:
+
+```sh
+.venv/bin/python scripts/materialize_aiwritebook_canary_approval_request.py
+```
+
+This writes a mode-`0600` request and prints the only confirmation token that
+can be recorded for the current manifest. It does not create an approval receipt
+and does not perform a provider action.
+
 ## Approval boundary
 
-Do not open a provider project until an authorized operator has supplied an
-approval JSON bound to the generated `manifest_sha256`. Approval must explicitly
-cover project creation, source upload, generation, a maximum of 18 credits,
-export download, and deletion of the synthetic provider project. Publication and
-external send must remain false.
+Do not open a provider project until an authorized operator has replied with the
+exact confirmation token printed by the request materializer. Approval is bound
+to the generated `manifest_sha256` and explicitly covers project creation,
+source upload, generation, a maximum of 18 credits, export download, and deletion
+of the synthetic provider project. Publication and external send remain false.
+
+After that exact approval is received, record it with an opaque conversation or
+approval receipt reference. Do not use an email address as the reference:
+
+```sh
+.venv/bin/python scripts/record_aiwritebook_canary_approval.py \
+  --confirmation '<exact token supplied by the request>' \
+  --approved-by-ref '<opaque approval receipt reference>' \
+  --approved-at '<UTC timestamp>'
+```
+
+The recorder rejects `continue`, `approved`, and every other reply that is not
+the exact digest-bound token. Its generated JSON includes the approval request
+digest and is consumed by the offline verifier; it should not be written by hand.
+
+The resulting approval contract has this shape:
 
 ```json
 {
@@ -34,6 +60,7 @@ external send must remain false.
   "contract_version": 1,
   "status": "approved",
   "fixture_manifest_sha256": "<64 lowercase hex characters>",
+  "approval_request_sha256": "<64 lowercase hex characters>",
   "approved_by_ref": "<opaque approval receipt reference>",
   "approved_at": "<UTC timestamp>",
   "maximum_credits": 18,
@@ -46,7 +73,8 @@ external send must remain false.
     "provider_project_deletion": true,
     "publication": false,
     "external_send": false
-  }
+  },
+  "secret_material_in_receipt": false
 }
 ```
 
@@ -109,7 +137,7 @@ that can satisfy `aiwritebook_export_roundtrip`:
 ```sh
 .venv/bin/python scripts/verify_aiwritebook_export_roundtrip.py \
   --manifest ea/_completion/aiwritebook/canary/AIWRITEBOOK_CANARY_MANIFEST.generated.json \
-  --approval /approved/input/aiwritebook-canary-approval.json \
+  --approval ea/_completion/aiwritebook/canary/AIWRITEBOOK_CANARY_APPROVAL.generated.json \
   --observation /approved/input/aiwritebook-canary-observation.json \
   --pdf /downloaded/canary.pdf \
   --epub /downloaded/canary.epub \
@@ -125,3 +153,20 @@ not add a PDF text-extraction dependency merely to satisfy the canary.
 The resulting receipt contains only opaque references, hashes, sizes, timestamps,
 credit counts, and boolean observations. Governance validates the full contract;
 a JSON file containing only `{"status":"pass"}` cannot unlock the lane.
+
+## Completed canary evidence
+
+The authorized human-operated canary completed on 2026-08-11. It used the
+digest-bound synthetic CC0 fixture, deducted 13 credits (5,100 to 5,087) under
+the approved maximum of 18, produced PDF, EPUB, and DOCX exports, and passed the
+offline structural and marker checks. The project stayed private, no publication
+or external send occurred, and the synthetic provider project was deleted and
+confirmed inaccessible.
+
+The sanitized durable receipt is
+`config/provider_evidence/AIWRITEBOOK_EXPORT_ROUNDTRIP.source.json`. It contains
+no account address, credential, source body, or secret. The generated local
+receipt and downloaded exports remain private completion artifacts; governance
+uses the tracked sanitized receipt as its fresh-checkout fallback. This proves
+the observed canary journey, not undocumented provider backend behavior, and it
+does not authorize future provider mutations or unattended automation.
