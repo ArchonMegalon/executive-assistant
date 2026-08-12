@@ -584,9 +584,18 @@ def _apply_operator_status_receipt_fallback(report: dict[str, Any], args: argpar
     receipt_delivery_guard = dict(receipt.get("delivery_guard") or {})
     current_delivery_guard = dict(report.get("delivery_guard") or {})
     if receipt_delivery_guard:
-        merged_delivery_guard = dict(receipt_delivery_guard)
-        merged_delivery_guard.update(current_delivery_guard)
-        merged["delivery_guard"] = merged_delivery_guard
+        current_actionable_count = _safe_int(report.get("actionable_count"), default=0)
+        receipt_actionable_count = _safe_int(receipt.get("actionable_count"), default=0)
+        current_state = str(current_delivery_guard.get("delivery_state") or "").strip()
+        if (
+            current_state == "no_actionable_items"
+            and receipt_actionable_count > current_actionable_count
+        ):
+            merged["delivery_guard"] = receipt_delivery_guard
+        else:
+            merged_delivery_guard = dict(receipt_delivery_guard)
+            merged_delivery_guard.update(current_delivery_guard)
+            merged["delivery_guard"] = merged_delivery_guard
     context_grounding = _operator_status_context_grounding(receipt)
     if context_grounding:
         merged["context_grounding"] = context_grounding

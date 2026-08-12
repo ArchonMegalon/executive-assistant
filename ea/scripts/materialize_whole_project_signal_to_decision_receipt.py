@@ -336,6 +336,7 @@ def materialize_whole_project_signal_to_decision_receipt(
     office_loop_receipt_path: str | Path,
     acceptance_evidence_receipt_path: str | Path,
     ea_quality_receipt_path: str | Path,
+    active_media_receipt_path: str | Path | None = None,
     input_payload: dict[str, Any] | None = None,
     generated_at: str = "",
     preserve_existing: bool = True,
@@ -343,6 +344,7 @@ def materialize_whole_project_signal_to_decision_receipt(
     office = _load(office_loop_receipt_path)
     acceptance = _load(acceptance_evidence_receipt_path)
     quality = _load(ea_quality_receipt_path)
+    active_media = _load(active_media_receipt_path) if active_media_receipt_path else {}
     target = Path(receipt_path)
     payload = input_payload or {}
     stored_review, stored_follow = _existing_signal_evidence_rows(target, preserve_existing)
@@ -442,11 +444,16 @@ def materialize_whole_project_signal_to_decision_receipt(
                 "status": acceptance.get("status"),
             },
             "executive_assistant_quality": {"contract_name": quality.get("contract_name"), "status": quality.get("status")},
+            "active_media": {
+                "contract_name": active_media.get("contract_name"),
+                "status": active_media.get("status"),
+            },
         },
         "remaining_external_proofs": _remaining(
             office,
             acceptance,
             quality,
+            active_media,
             accepted=review_accepted,
             followed=follow_accepted,
         ),
@@ -461,6 +468,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--office-loop-receipt", default=str(DEFAULT_OFFICE_RECEIPT))
     parser.add_argument("--acceptance-evidence-receipt", default=str(DEFAULT_ACCEPTANCE_RECEIPT))
     parser.add_argument("--ea-quality-receipt", default=str(DEFAULT_QUALITY_RECEIPT))
+    parser.add_argument("--active-media-receipt", default="")
     parser.add_argument("--input")
     parser.add_argument("--generated-at", default="")
     parser.add_argument("--reset", action="store_true")
@@ -471,6 +479,7 @@ def main(argv: list[str] | None = None) -> int:
         office_loop_receipt_path=args.office_loop_receipt,
         acceptance_evidence_receipt_path=args.acceptance_evidence_receipt,
         ea_quality_receipt_path=args.ea_quality_receipt,
+        active_media_receipt_path=args.active_media_receipt,
         input_payload=input_payload,
         generated_at=args.generated_at,
         preserve_existing=not args.reset,
