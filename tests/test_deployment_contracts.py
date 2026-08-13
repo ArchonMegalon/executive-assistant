@@ -934,10 +934,20 @@ def test_emailit_compose_defaults_fail_closed_and_split_product_ownership() -> N
     api = ((compose.get("services") or {}).get("ea-api") or {})
     environment = {str(item) for item in list(api.get("environment") or [])}
 
+    property_compose = _load_yaml(ROOT / "docker-compose.property.yml")
+    property_api = ((property_compose.get("services") or {}).get("propertyquarry-api") or {})
+    property_environment = dict(property_api.get("environment") or {})
+
     assert "EA_EMAILIT_DELIVERY_ENABLED=${EA_EMAILIT_DELIVERY_ENABLED:-0}" in environment
     assert "EA_EMAILIT_OFFICE_DELIVERY_ENABLED=${EA_EMAILIT_OFFICE_DELIVERY_ENABLED:-0}" in environment
-    assert "PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED=${PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED:-0}" in environment
-    assert "CHUMMER_HUB_EMAILIT_DELIVERY_ENABLED=${CHUMMER_HUB_EMAILIT_DELIVERY_ENABLED:-0}" in environment
+    assert not any(item.startswith("PROPERTYQUARRY_EMAILIT_") for item in environment)
+    assert not any(item.startswith("CHUMMER_HUB_EMAILIT_") for item in environment)
+    assert property_environment["EA_EMAILIT_DELIVERY_ENABLED"] == (
+        "${EA_EMAILIT_DELIVERY_ENABLED:-0}"
+    )
+    assert property_environment["PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED"] == (
+        "${PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED:-0}"
+    )
 
 
 def _retired_memorial_override_restores_memorial_runtime_contract() -> None:
