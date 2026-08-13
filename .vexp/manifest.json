@@ -732,7 +732,7 @@
     "ea/tests/test_governed_spatial_prebuild.py": "aecf4357a3b208afe6f9059661f2c417670add26e5946a3c24e929fb9b43cc4b",
     "ea/tests/test_governed_spatial_render.py": "2d0623144c4066d915bfb5919b45969c8dca431c59d04043ad8f20e4c552090e",
     "ea/tests/test_governed_spatial_render_contract.py": "1c5653572b646231b6a3c2c2c38c38a3a606a3d9e6ec34667b302b519f4cde72",
-    "ea/tests/test_hardening.py": "c07b06e65cd606b8d8ffed0e72b451e0cfab23058e7dd575b53520e24a0e4916",
+    "ea/tests/test_hardening.py": "a2f1c317680ce17eeb979d48763af9eb7e74974591e81547518e378b31c0ea48",
     "ea/tests/test_landing_actions_acceptance_evidence.py": "4bc2c53bfbeca34ff6c776105a5ee5ec1291a097efea06b4c1c59f5c3124a904",
     "ea/tests/test_onemin_billing_fallback.py": "82f8640d919ca8c2b74aa517df53ac3382908a086bb4b4908553cd7d5f3ac4f5",
     "ea/tests/test_proactive_gmail_draft_followthrough.py": "1fb154ee945403017294a9cf9bc202b17afa0a86ff37baf1d9b3e94f4a50286c",
@@ -1634,11 +1634,11 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "02cc95310d94cb9f2d8baefc7830023d6efbd3c1",
-  "indexed_at_timestamp": "2026-08-13T12:37:03.909169221+00:00",
+  "indexed_at_commit": "b36490d91872c5764a5c05905648450285871b7a",
+  "indexed_at_timestamp": "2026-08-13T12:43:45.353872723+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 35515,
+    "total_edges": 35456,
     "total_files": 1633,
     "total_nodes": 24039
   },
