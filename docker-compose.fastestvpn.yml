@@ -84,9 +84,9 @@ services:
       - ONEMIN_DIRECT_API_PROXY_SERVER=http://ea-fastestvpn-proxy-ch:${FASTESTVPN_PROXY_PORT:-3128}
       - ONEMIN_DIRECT_API_PROXY_POOL=http://ea-fastestvpn-proxy-ch:${FASTESTVPN_PROXY_PORT:-3128}
       - DOCKER_HOST=tcp://ea-docker-socket-proxy:2375
+    # The exact compose inputs are baked into ea-runtime for both on-demand
+    # rotation and runtime attestation. Keep only provider material mutable.
     volumes:
-      - ./docker-compose.yml:/app/docker-compose.yml:ro
-      - ./docker-compose.fastestvpn.yml:/app/docker-compose.fastestvpn.yml:ro
       - ./vpn/fastestvpn:/app/vpn/fastestvpn:ro
 
 volumes:
