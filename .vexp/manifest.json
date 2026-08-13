@@ -1340,6 +1340,7 @@
     "tests/test_deployment_contracts.py": "499c4d9094af27f4adc9d567b71d1a42a374c161ee9882510c02d478a302fcaf",
     "tests/test_deployment_contracts.py": "272e1cddfefb66d2f53dd56cd91773578f7e5d31709c981f9594666b2e5af416",
     "tests/test_deployment_contracts.py": "dfd2bbeb89c0de442df7d891af19aa0e65748c7ce9e5ed3b2705dbdff2d6ddd5",
+    "tests/test_deployment_contracts.py": "3e84b467a09219cccd99827ed3fc906eb514fd5c9da7cccd9f4548ca14b8c4f7",
     "tests/test_design_mirror_bundle_contracts.py": "54ebbfb48b84edc0a5bb80ca1b90f2baf2df62dd30d169a8803951f3f882a6a9",
     "tests/test_di_container.py": "d0725ef67f804e324eb8d7f8ac0ff9f9d9974423f77dcf428e9159ef028e885f",
     "tests/test_docs_and_verifier_path_portability.py": "7041e44b34d2ce71c0dee311df5e639078dcfebd47be1a543acac11ce9a21f55",
@@ -1648,13 +1649,16 @@
   "indexed_at_timestamp": "2026-08-13T06:47:11.140894930+00:00",
   "indexed_at_commit": "1d22c65da1f5098250f0f665c1c38e4f8899ef6b",
   "indexed_at_timestamp": "2026-08-13T06:55:28.179597180+00:00",
+  "indexed_at_commit": "8287537a364ff66e3767b01034c7666637a9cf82",
+  "indexed_at_timestamp": "2026-08-13T07:04:02.525428978+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 35539,
+    "total_edges": 35540,
     "total_files": 1633,
     "total_nodes": 24029
     "total_nodes": 24035
     "total_nodes": 24036
+    "total_nodes": 24037
   },
   "vexp_version": "2.5.1"
 }
