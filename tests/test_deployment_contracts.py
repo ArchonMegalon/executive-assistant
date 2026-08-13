@@ -2750,6 +2750,12 @@ def _retired_deploy_script_materializes_release_manifest_after_health() -> None:
         'ensure_runtime_readable_file_projection "ONEMIN_DIRECT_API_KEYS_JSON_FILE"'
         in deploy
     )
+    assert (
+        'ensure_runtime_readable_file_projection \\\n'
+        '  "EA_RESPONSES_NO_RETENTION_CLIENT_TOKEN_HOST_FILE" \\\n'
+        '  "./.ea-runtime-secrets/no_retention_client_token"'
+        in deploy
+    )
     assert "ensure_runtime_writable_dir_projection() {" in deploy
     assert (
         'ensure_runtime_writable_dir_projection "EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT" "./data/pocket-ai-audio"'

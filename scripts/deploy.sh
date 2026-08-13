@@ -229,9 +229,13 @@ EOF
 
 ensure_runtime_readable_file_projection() {
   local env_name="$1"
+  local default_path="${2:-}"
   local raw_path
   raw_path="$(effective_value "${env_name}")"
   raw_path="$(normalize_origin_like "${raw_path}")"
+  if [[ -z "${raw_path}" ]]; then
+    raw_path="${default_path}"
+  fi
   [[ -z "${raw_path}" ]] && return 0
 
   local resolved_path
@@ -384,6 +388,9 @@ if [[ -n "${TEABLE_API_KEY:-}" ]]; then
 fi
 
 ensure_runtime_readable_file_projection "ONEMIN_DIRECT_API_KEYS_JSON_FILE"
+ensure_runtime_readable_file_projection \
+  "EA_RESPONSES_NO_RETENTION_CLIENT_TOKEN_HOST_FILE" \
+  "./.ea-runtime-secrets/no_retention_client_token"
 "${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_whatsapp_callback_secret_runtime_projection.py" \
   --generate-missing >/dev/null
 ensure_runtime_writable_dir_projection "EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT" "./data/pocket-ai-audio"
