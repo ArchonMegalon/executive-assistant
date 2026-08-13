@@ -426,3 +426,48 @@ Highest-leverage follow-ups after that:
 6. Materialize `LTD_PROOF_DEBT.generated.json` from Attention Items plus the four-plane drift table
 7. Close the pending OODA approval item and rematerialize the 2026-07-07 office-loop receipt
 8. Remove `magixai` from live default/fallback order while `AI_MAGICX_API_KEY` is empty
+
+## Remediation receipt — 2026-08-13
+
+This appendix records the work performed against the snapshot above. It does not rewrite the
+original observations and is not release authority.
+
+### Closed in source and verified runtime
+
+- VocalLab has an explicit catalog-only, non-executable governance lane; render, clone, top-up,
+  and automatic fallback remain fail-closed. Its authority wording is product-neutral and keeps
+  the separate Manfred product as the sole owner of voice authority and release truth.
+- Empty Magicx credentials disappear from effective provider order. Emailit is split into
+  product-owned switches and base EA Compose no longer inherits PropertyQuarry mail controls.
+- FastestVPN is Switzerland-only and owned only by the API's bounded 1min route. The socket proxy
+  has a read-only root filesystem, dropped capabilities, no-new-privileges, and memory/PID caps.
+  Exact Compose verification inputs are baked into the attested image; only reviewed VPN material
+  remains host-mounted.
+- The 1min bounded-capacity lane, LTD scheduler/blast-radius/router, 55-row proof-debt projection,
+  Teable operation projections, and vexp opportunity index are materialized. Rafter/Pixefy
+  false-complete checks are in the LTD release gate.
+- Release candidate `codex/ea-audit-release-final-20260813` is based directly on the current
+  `origin/main`. It reconciles the audit hardening with the newer Property/Chummer ownership and
+  provider-neutral authority changes instead of overwriting them.
+
+### Verification
+
+- Focused current-main conflict suite: 405 passed, 1 skipped.
+- EA Property boundary and VocalLab schema suite: 27 passed.
+- Audiobook candidate and WorkLLM regression rerun: 62 passed.
+- The preceding exact-source deployment passed the complete root and EA suites, local quality
+  gates, LTD release gates, runtime smoke, CodexEA easy/core probes, and public release-authority
+  and supply-chain gates. The final current-main candidate is reverified before deployment.
+- `git diff --check`: pass.
+
+### Still honest blockers
+
+- Review and merge the release-candidate PR before Memorial's formal clean-`origin/main` closeout
+  can pass. Do not weaken the gate or manufacture a merge.
+- Google Workspace needs real account-side reauthorization and one accepted morning brief.
+- WhatsApp Web needs QR pairing plus a real rights-safe audiobook delivery and listening decision.
+- OODA needs a genuine current packet and an actual operator approve/reject decision.
+- VocalLab execution in EA remains blocked pending dedicated rotated credentials and explicit
+  authority/deletion/hearing/spend receipts. Catalog inventory is not Manfred release authority.
+- Host storage is at 98% with 18 GB free. Additional Docker image reclamation requires shared-host
+  ownership review; unrelated project images were not deleted.

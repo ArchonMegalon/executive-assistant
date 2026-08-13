@@ -120,6 +120,13 @@ def test_runtime_builds_bind_the_exact_deploy_source_revision() -> None:
     ) in deploy
     assert deploy.index(resolve_revision) < deploy.index(bind_revision)
     assert deploy.index(bind_revision) < deploy.index(compose_build)
+    dockerfile = (ROOT / "ea" / "Dockerfile").read_text(encoding="utf-8")
+    assert dockerfile.index("RUN apt-get update") < dockerfile.index(
+        'ARG EA_SOURCE_REVISION=""'
+    )
+    assert dockerfile.index('ARG EA_SOURCE_REVISION=""') < dockerfile.index(
+        "ENV EA_SOURCE_REVISION=${EA_SOURCE_REVISION}"
+    )
 
 
 def test_runtime_build_context_excludes_local_state_and_secrets() -> None:
@@ -415,6 +422,16 @@ def test_proactive_ooda_deploy_keeps_runtime_outputs_group_writable() -> None:
     assert "a+rwX" not in deploy
 
 
+def test_telegram_teable_sync_can_read_restricted_release_worktree() -> None:
+    compose = _load_yaml(ROOT / "docker-compose.yml")
+    service = dict(
+        (compose.get("services") or {}).get("ea-telegram-teable-sync") or {}
+    )
+
+    assert "1000" in [str(item) for item in list(service.get("group_add") or [])]
+    assert "./:/app:ro" in [str(item) for item in list(service.get("volumes") or [])]
+
+
 def test_deploy_verifies_the_effective_pocket_archive_host_root() -> None:
     deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
     runtime_gates = (ROOT / "scripts" / "runtime_hard_exit_gates.sh").read_text(
@@ -631,6 +648,23 @@ def test_overlay_compose_pins_third_party_runtime_images_by_digest() -> None:
     assert "no-new-privileges:true" in list(
         cloudflared_service.get("security_opt") or []
     )
+
+
+def test_socket_proxy_renders_config_into_writable_ephemeral_run() -> None:
+    for overlay_name in (
+        "docker-compose.host-tools.yml",
+        "docker-compose.fastestvpn.yml",
+    ):
+        compose = _load_yaml(ROOT / overlay_name)
+        service = (compose.get("services") or {}).get("ea-docker-socket-proxy") or {}
+        command = "\n".join(str(item) for item in list(service.get("command") or []))
+
+        assert service.get("read_only") is True, overlay_name
+        assert service.get("entrypoint") == ["/bin/sh", "-ec"], overlay_name
+        assert "/run" in [str(item) for item in list(service.get("tmpfs") or [])]
+        assert "/run/haproxy.cfg" in command, overlay_name
+        assert "/usr/local/etc/haproxy/haproxy.cfg.template" in command, overlay_name
+        assert "> /usr/local/etc/haproxy/haproxy.cfg" not in command, overlay_name
 
 
 def test_ea_runtime_preserves_tour_publication_volume_and_isolates_tunnel_network() -> (
@@ -877,11 +911,7 @@ def test_fastestvpn_override_mounts_only_runtime_compose_inputs() -> None:
     assert set(str(item) for item in list(proxy.get("cap_drop") or [])) == {"ALL"}
     assert "no-new-privileges:true" in list(proxy.get("security_opt") or [])
     assert set(str(item) for item in list(proxy.get("tmpfs") or [])) == {"/run"}
-    expected_mounts = {
-        "./docker-compose.yml:/app/docker-compose.yml:ro",
-        "./docker-compose.fastestvpn.yml:/app/docker-compose.fastestvpn.yml:ro",
-        "./vpn/fastestvpn:/app/vpn/fastestvpn:ro",
-    }
+    expected_mounts = {"./vpn/fastestvpn:/app/vpn/fastestvpn:ro"}
     service = services.get("ea-api") or {}
     volumes = {str(item) for item in list(service.get("volumes") or [])}
     environment = {str(item) for item in list(service.get("environment") or [])}
@@ -899,7 +929,10 @@ def test_fastestvpn_override_prefers_bounded_switzerland_lane_for_onemin() -> No
     services = compose.get("services") or {}
     swiss = services.get("ea-fastestvpn-proxy-ch") or {}
     swiss_environment = {str(item) for item in list(swiss.get("environment") or [])}
+    swiss_env_files = [str(item) for item in list(swiss.get("env_file") or [])]
 
+    assert swiss_env_files == [".ea-runtime-secrets/ea_runtime.env"]
+    assert ".env" not in swiss_env_files
     assert "FASTESTVPN_CONFIG_GLOB=${FASTESTVPN_CH_CONFIG_GLOB:-switzerland*.ovpn}" in swiss_environment
     assert "127.0.0.1:${FASTESTVPN_CH_PROXY_HOST_PORT:-9315}:${FASTESTVPN_PROXY_PORT:-3128}" in {
         str(item) for item in list(swiss.get("ports") or [])
@@ -2750,6 +2783,16 @@ def _retired_deploy_script_materializes_release_manifest_after_health() -> None:
         'ensure_runtime_readable_file_projection "ONEMIN_DIRECT_API_KEYS_JSON_FILE"'
         in deploy
     )
+    assert (
+        'ensure_runtime_readable_file_projection \\\n'
+        '  "EA_RESPONSES_NO_RETENTION_CLIENT_TOKEN_HOST_FILE" \\\n'
+        '  "./.ea-runtime-secrets/no_retention_client_token" \\\n'
+        '  "runtime_group_1000"'
+        in deploy
+    )
+    assert 'chgrp 1000 "${resolved_path}"' in deploy
+    assert 'chmod 0640 "${resolved_path}"' in deploy
+    assert 'if [[ "${strict_mode}" != "640" ]]; then' in deploy
     assert "ensure_runtime_writable_dir_projection() {" in deploy
     assert (
         'ensure_runtime_writable_dir_projection "EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT" "./data/pocket-ai-audio"'
@@ -2884,6 +2927,10 @@ def test_deploy_script_extends_runtime_topology_for_whatsapp_overlay() -> None:
         in deploy
     )
     assert "recreate_services_without_build() {" in deploy
+    assert "wait_for_service_ready() {" in deploy
+    assert 'EA_DEPLOY_SERVICE_READY_TIMEOUT_SECONDS:-150' in deploy
+    assert 'wait_for_service_ready "${service}"' in deploy
+    assert "EA_DEPLOY_SERVICE_READY_TIMEOUT_SECONDS must be an integer from 1 to 600." in deploy
     assert 'compose up -d --no-build --no-deps --force-recreate "${service}"' in deploy
     assert (
         'echo "Service failed to become ready during no-build deploy: ${service}" >&2'

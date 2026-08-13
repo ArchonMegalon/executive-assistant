@@ -73,6 +73,8 @@ def _fixture(tmp_path: Path, *, suffix: str = "one") -> tuple[dict[str, object],
     environment = {
         **MODULE.SAFE_ENVIRONMENT,
         **sensitive_values,
+        "EA_UNMIXR_PREFERRED_SLOTS": "UNMIXR_API_KEY_FALLBACK_1",
+        "EA_UNMIXR_RESERVE_SLOTS": "UNMIXR_API_KEY",
         "EA_SOURCE_REVISION": REVISION,
         "EA_DEPLOY_COMMIT_SHA": REVISION,
         "EA_AUDIOBOOK_RUNTIME_CANDIDATE_REVISION": REVISION,
@@ -303,6 +305,8 @@ def _prepare_real_compose(tmp_path: Path) -> tuple[Path, dict[str, str]]:
             "EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL": "https://player.example.invalid",
             "EA_AUDIOBOOK_ACCESS_SIGNING_SECRET": "static-render-access-signing-secret",
             "EA_AUDIOBOOK_CANARY_RECEIPT_HMAC_KEY": "static-render-canary-hmac-secret",
+            "EA_UNMIXR_PREFERRED_SLOTS": "UNMIXR_API_KEY_FALLBACK_1",
+            "EA_UNMIXR_RESERVE_SLOTS": "UNMIXR_API_KEY",
             "EA_SOURCE_REVISION": REVISION,
         }
     )

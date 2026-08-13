@@ -1,6 +1,19 @@
 services:
   ea-docker-socket-proxy:
     image: tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2
+    # Upstream writes its rendered HAProxy config beside the image template.
+    # Keep the rootfs read-only and render the same config into ephemeral /run.
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        disable_ipv6_lower="$$(printf '%s' "$${DISABLE_IPV6:-}" | tr '[:upper:]' '[:lower:]')"
+        case "$${disable_ipv6_lower}" in
+          1|true|yes) bind_config=':2375' ;;
+          *) bind_config='[::]:2375 v4v6' ;;
+        esac
+        sed 's/$${BIND_CONFIG}/'"$${bind_config}"'/g' \
+          /usr/local/etc/haproxy/haproxy.cfg.template > /run/haproxy.cfg
+        exec haproxy -W -db -f /run/haproxy.cfg
     restart: unless-stopped
     mem_limit: 256m
     mem_reservation: 64m
@@ -36,7 +49,7 @@ services:
     container_name: ea-fastestvpn-proxy-ch
     restart: unless-stopped
     env_file:
-      - .env
+      - .ea-runtime-secrets/ea_runtime.env
     environment:
       - FASTESTVPN_CONFIG_DIR=/vpn/fastestvpn
       - FASTESTVPN_CONFIG_GLOB=${FASTESTVPN_CH_CONFIG_GLOB:-switzerland*.ovpn}
@@ -65,14 +78,15 @@ services:
   # this provider transport.
   ea-api:
     mem_limit: 2g
+    mem_reservation: 512m
     pids_limit: 512
     environment:
       - ONEMIN_DIRECT_API_PROXY_SERVER=http://ea-fastestvpn-proxy-ch:${FASTESTVPN_PROXY_PORT:-3128}
       - ONEMIN_DIRECT_API_PROXY_POOL=http://ea-fastestvpn-proxy-ch:${FASTESTVPN_PROXY_PORT:-3128}
       - DOCKER_HOST=tcp://ea-docker-socket-proxy:2375
+    # The exact compose inputs are baked into ea-runtime for both on-demand
+    # rotation and runtime attestation. Keep only provider material mutable.
     volumes:
-      - ./docker-compose.yml:/app/docker-compose.yml:ro
-      - ./docker-compose.fastestvpn.yml:/app/docker-compose.fastestvpn.yml:ro
       - ./vpn/fastestvpn:/app/vpn/fastestvpn:ro
 
 volumes:

@@ -229,9 +229,14 @@ EOF
 
 ensure_runtime_readable_file_projection() {
   local env_name="$1"
+  local default_path="${2:-}"
+  local access_policy="${3:-runtime_uid}"
   local raw_path
   raw_path="$(effective_value "${env_name}")"
   raw_path="$(normalize_origin_like "${raw_path}")"
+  if [[ -z "${raw_path}" ]]; then
+    raw_path="${default_path}"
+  fi
   [[ -z "${raw_path}" ]] && return 0
 
   local resolved_path
@@ -241,6 +246,18 @@ ensure_runtime_readable_file_projection() {
     resolved_path="${APP_ROOT}/${raw_path}"
   fi
   [[ -f "${resolved_path}" ]] || return 0
+
+  if [[ "${access_policy}" == "runtime_group_1000" ]]; then
+    chgrp 1000 "${resolved_path}"
+    chmod 0640 "${resolved_path}"
+    local strict_mode
+    strict_mode="$(stat -c '%a' "${resolved_path}" 2>/dev/null || true)"
+    if [[ "${strict_mode}" != "640" ]]; then
+      echo "Unable to secure runtime group-readable secret projection: ${resolved_path}" >&2
+      return 1
+    fi
+    return 0
+  fi
 
   # Bind-mounted secret projections must be readable by the non-root EA runtime
   # UID inside Docker. Prefer a narrow ACL; fall back to read-only world access on
@@ -384,6 +401,10 @@ if [[ -n "${TEABLE_API_KEY:-}" ]]; then
 fi
 
 ensure_runtime_readable_file_projection "ONEMIN_DIRECT_API_KEYS_JSON_FILE"
+ensure_runtime_readable_file_projection \
+  "EA_RESPONSES_NO_RETENTION_CLIENT_TOKEN_HOST_FILE" \
+  "./.ea-runtime-secrets/no_retention_client_token" \
+  "runtime_group_1000"
 "${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_whatsapp_callback_secret_runtime_projection.py" \
   --generate-missing >/dev/null
 ensure_runtime_writable_dir_projection "EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT" "./data/pocket-ai-audio"
@@ -760,13 +781,7 @@ build_and_recreate_services() {
   local service
   for service in "${build_services[@]}"; do
     compose up -d --no-build --no-deps --force-recreate "${service}"
-    for _ in $(seq 1 30); do
-      if service_container_ready "${service}"; then
-        break
-      fi
-      sleep 1
-    done
-    if ! service_container_ready "${service}"; then
+    if ! wait_for_service_ready "${service}"; then
       echo "Service failed to become ready during deploy: ${service}" >&2
       return 1
     fi
@@ -805,13 +820,7 @@ recreate_services_without_build() {
   local service
   for service in "${recreate_services[@]}"; do
     compose up -d --no-build --no-deps --force-recreate "${service}"
-    for _ in $(seq 1 30); do
-      if service_container_ready "${service}"; then
-        break
-      fi
-      sleep 1
-    done
-    if ! service_container_ready "${service}"; then
+    if ! wait_for_service_ready "${service}"; then
       echo "Service failed to become ready during no-build deploy: ${service}" >&2
       return 1
     fi
@@ -841,6 +850,23 @@ service_container_ready() {
   if [[ -n "${health}" && "${health}" != "healthy" ]]; then
     return 1
   fi
+}
+
+wait_for_service_ready() {
+  local service="$1"
+  local timeout_seconds="${EA_DEPLOY_SERVICE_READY_TIMEOUT_SECONDS:-150}"
+  if [[ ! "${timeout_seconds}" =~ ^[0-9]+$ ]] || (( timeout_seconds < 1 || timeout_seconds > 600 )); then
+    echo "EA_DEPLOY_SERVICE_READY_TIMEOUT_SECONDS must be an integer from 1 to 600." >&2
+    return 1
+  fi
+  local elapsed
+  for ((elapsed = 0; elapsed < timeout_seconds; elapsed++)); do
+    if service_container_ready "${service}"; then
+      return 0
+    fi
+    sleep 1
+  done
+  service_container_ready "${service}"
 }
 
 cd "${APP_ROOT}"
@@ -876,13 +902,7 @@ else
   if [[ "${CLOUDFLARED_OVERLAY_ENABLED}" == "1" ]]; then
     echo "Refreshing Cloudflare tunnel after API recreate"
     compose up -d --no-build --no-deps --force-recreate ea-cloudflared
-    for _ in $(seq 1 30); do
-      if service_container_ready ea-cloudflared; then
-        break
-      fi
-      sleep 1
-    done
-    if ! service_container_ready ea-cloudflared; then
+    if ! wait_for_service_ready ea-cloudflared; then
       echo "Cloudflare tunnel failed to restart cleanly during deploy" >&2
       exit 1
     fi

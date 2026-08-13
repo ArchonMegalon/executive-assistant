@@ -5,6 +5,7 @@ import time
 import urllib.parse
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -101,8 +102,9 @@ def test_public_result_and_tour_artifacts_default_to_repo_local_completion(monke
     assert public_results_route._result_dir() == public_result_dir()
     assert public_tours_route._tour_dir() == public_tour_dir()
     assert BrowserActToolAdapter._crezlo_public_tour_dir() == public_tour_dir()
-    assert "/docker/fleet" not in public_result_dir().as_posix()
-    assert "/docker/fleet" not in public_tour_dir().as_posix()
+    repository_root = Path(__file__).resolve().parents[1]
+    assert public_result_dir().resolve().is_relative_to(repository_root)
+    assert public_tour_dir().resolve().is_relative_to(repository_root)
 
     monkeypatch.setenv("EA_PUBLIC_RESULT_DIR", "/tmp/public-results")
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", "/tmp/public-tours")

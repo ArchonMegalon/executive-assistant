@@ -834,6 +834,22 @@ SPACING_REPAIR_WORDS = {
     "you",
     "you're",
     "your",
+    # Provider highlight views occasionally collapse fresh prose that is not
+    # present in the source. Keep the fallback deterministic even when the
+    # optional wordninja dependency is unavailable in the release image.
+    "bag",
+    "beneath",
+    "check",
+    "finally",
+    "fondness",
+    "frustration",
+    "hint",
+    "like",
+    "machine",
+    "showed",
+    "sneaking",
+    "usual",
+    "wasn't",
 }
 SPACING_REPAIR_SHORT_WORDS = {
     "a",

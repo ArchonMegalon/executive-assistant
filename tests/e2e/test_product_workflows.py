@@ -143,6 +143,27 @@ def _png_visual_bytes(value: bytes) -> bytes:
     return ihdr + zlib.decompress(b"".join(idat_parts))
 
 
+def _write_visual_diff_artifacts(
+    snapshot_name: str, *, actual: bytes, expected: bytes
+) -> tuple[str, str]:
+    configured_root = str(os.environ.get("EA_VISUAL_DIFF_ARTIFACT_DIR") or "").strip()
+    artifact_root = (
+        Path(configured_root)
+        if configured_root
+        else Path(__file__).resolve().parents[2] / ".runtime" / "e2e-visual-diffs"
+    )
+    safe_name = Path(snapshot_name).name
+    actual_path = artifact_root / f"{safe_name}.actual.png"
+    expected_path = artifact_root / f"{safe_name}.expected.png"
+    try:
+        artifact_root.mkdir(parents=True, exist_ok=True)
+        actual_path.write_bytes(actual)
+        expected_path.write_bytes(expected)
+    except OSError:
+        return "", ""
+    return str(actual_path), str(expected_path)
+
+
 def _assert_visual_baseline(page: Page, snapshot_name: str, *, full_page: bool = True) -> None:
     baseline_dir = Path(__file__).resolve().with_name("visual_baselines")
     baseline_path = baseline_dir / snapshot_name
@@ -172,7 +193,14 @@ def _assert_visual_baseline(page: Page, snapshot_name: str, *, full_page: bool =
     diff = abs(len(actual_visual) - len(expected_visual))
     diff += sum(1 for index in range(overlap) if actual_visual[index] != expected_visual[index])
     allowed = max(4096, int(max(len(actual_visual), len(expected_visual)) * 0.002))
-    assert diff <= allowed
+    if diff > allowed:
+        actual_path, expected_path = _write_visual_diff_artifacts(
+            snapshot_name, actual=actual, expected=expected
+        )
+        raise AssertionError(
+            f"visual baseline drift for {snapshot_name}: diff={diff}, allowed={allowed}, "
+            f"actual={actual_path or 'unavailable'}, expected={expected_path or 'unavailable'}"
+        )
 
 
 def _take_visual_screenshot(page: Page, *, full_page: bool) -> bytes:
@@ -1254,9 +1282,39 @@ def test_commitment_candidate_can_be_edited_before_accept_in_real_browser(page: 
 
 
 @pytest.fixture()
-def operator_browser_server() -> Iterator[dict[str, object]]:
+def operator_browser_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, object]]:
     os.environ.pop("EA_ALLOW_LOOPBACK_NO_AUTH", None)
+    from app.product import service as product_service
     from tests.product_test_helpers import seed_executive_operator_fixture
+
+    product_control_projection = product_service.ProductService._product_control_projection
+
+    def stable_visual_product_control(self) -> dict[str, object]:  # type: ignore[no-untyped-def]
+        projection = product_control_projection(self)
+        route_stewardship = dict(projection.get("provider_route_stewardship") or {})
+        route_stewardship["review_due"] = "2026-08-20T07:10:24.377Z"
+        projection["provider_route_stewardship"] = route_stewardship
+        projection["public_guide_freshness"] = {
+            "state": "stale",
+            "detail": product_service.compact_text(
+                (
+                    "Downstream public guide manifest is not available on this host; "
+                    "using mirrored design export sources. 16/24 mapped public-guide "
+                    "sources are mirrored. Export manifest updated at "
+                    "2026-06-22T06:47:31.089057+00:00. Missing source mappings: "
+                    "public_help, public_status, and public_download."
+                ),
+                fallback="Public-guide freshness is not available.",
+                limit=220,
+            ),
+        }
+        return projection
+
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_product_control_projection",
+        stable_visual_product_control,
+    )
 
     principal_id = "fixture-operator-browser"
     client, seeded = seed_executive_operator_fixture(principal_id=principal_id)

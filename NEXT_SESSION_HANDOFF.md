@@ -14,6 +14,11 @@ OODA sections as history.
 
 ### Completed release state
 
+- The EA audit closeout is reconciled onto current `origin/main` on
+  `codex/ea-audit-release-final-20260813`. It preserves the newer product-owned Emailit split and
+  provider-neutral Manfred authority boundary while carrying forward the exact-source release,
+  socket-proxy, supply-chain, and deploy hardening.
+
 - `/docker/Memorial` is clean, pushed to `origin/main`, and deployed at exact revision
   `661eb568834f9657ee25f288379ad059ca13c042`.
 - `https://memorial.myexternalbrain.com` is publicly healthy and ready. PostgreSQL, worker,
@@ -70,11 +75,11 @@ OODA sections as history.
 
 Only two of 16 formal gates remain red:
 
-1. `ea_core_closeout`: the standalone repository boundary passes, but `/docker/EA` has preserved
-   unrelated worktree changes, `origin/main` is not exact HEAD, and the configured loopback EA
-   runtime was unavailable/mismatched during the exact audit. Do not reset or commit the broad
-   dirty worktree to make this receipt green. Align a reviewed clean EA main/runtime first, then
-   regenerate `ea-core-closeout.json` for Memorial revision `661eb568...`.
+1. `ea_core_closeout`: runtime revision, public smoke, five retired-route 404s, and both repository
+   boundary checks pass against the exact EA release lane. The remaining formal boundary is a
+   reviewed merge of `codex/ea-audit-release-final-20260813` to `origin/main`, followed by an exact
+   main deploy and receipt refresh. Do not reset the shared dirty `/docker/EA` worktree, weaken the
+   clean-main contract, or manufacture a merge.
 2. `operator_release_dossier`: no human-reviewed canonical dossier and Ed25519 signature exists.
    Do not manufacture legal, accessibility, monitored-support, owner-authority, store, Gmail/IMAP,
    alert-drill, or EA acceptance. A real operator must review the actual evidence and sign it.
@@ -100,6 +105,21 @@ Unmixr key were already invalidated.
   must not replace VocalLab or hide quota/deletion limitations.
 - Keep provider credits, identities, deletion receipts, and user consent fail-closed. A green LTD
   inventory means verified-or-blocked governance, not that every paid tool is a live dependency.
+
+### EA local-audit remediation — 2026-08-13
+
+- Emailit ownership, Magicx configuration filtering, VocalLab catalog-only governance, 1min
+  bounded capacity, and the LTD operating mesh are implemented with fail-closed receipts.
+- FastestVPN remains explicit and Swiss-only. Only `ea-api` has proxy/socket-proxy settings; worker,
+  scheduler, responses proxy, OODA, WhatsApp, and public ingress remain outside that transport.
+- Runtime supply-chain inputs are baked into the attested image instead of being replaced by host
+  `0600` Compose bind mounts. The unprivileged container can verify them without broader host-file
+  permissions.
+- The final current-main conflict suite passed 405 tests with one skip; EA Property/voice boundary
+  coverage passed 27; audiobook candidate/WorkLLM rerun passed 62.
+- Remaining work is operator/account-side: PR review/merge, Google reauth and accepted brief,
+  WhatsApp pairing/listening proof, real OODA decision, Memorial dossier signature, required vendor
+  credential rotations, and real Play tester opt-ins.
 
 ### Working-tree rule
 
