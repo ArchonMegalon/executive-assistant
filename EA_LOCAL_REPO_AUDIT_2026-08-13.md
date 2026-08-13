@@ -460,10 +460,20 @@ original observations and is not release authority.
   and supply-chain gates. The final current-main candidate is reverified before deployment.
 - `git diff --check`: pass.
 
+### Canonical-main closeout
+
+- Pull request `#12` passed the independent GitGuardian check and was merged without a force
+  update on 2026-08-13. Canonical `origin/main` now points at merge commit
+  `d70f3def7f532345c118774fde9beca36f28f5f8` and contains the exact reviewed release-candidate
+  history through `d340213cfb6269f4f1b373a2138ccba1e423feda`.
+- The failed local branch-deletion attempt after the merge changed no source or remote state; Git
+  correctly retained the local branch because its clean verification worktree is still attached.
+- Memorial's branch and origin-main repository-state checks may now be rerun against the canonical
+  merge. Runtime and provider evidence remain independently scoped and are not inferred from the
+  merge itself.
+
 ### Still honest blockers
 
-- Review and merge the release-candidate PR before Memorial's formal clean-`origin/main` closeout
-  can pass. Do not weaken the gate or manufacture a merge.
 - Google Workspace needs real account-side reauthorization and one accepted morning brief.
 - WhatsApp Web needs QR pairing plus a real rights-safe audiobook delivery and listening decision.
 - OODA needs a genuine current packet and an actual operator approve/reject decision.
