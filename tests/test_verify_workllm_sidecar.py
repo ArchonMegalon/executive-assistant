@@ -39,7 +39,7 @@ def test_verifier_writes_candidate_only_redacted_receipt(
     assert receipt["verdict"] == "CANDIDATE_ONLY"
     assert receipt["checks"]["local_contract_ready"] is True
     assert receipt["checks"]["credentials_protected"] is True
-    assert receipt["checks"]["tenant_surface_reachable"] is True
+    assert receipt["checks"]["tenant_surface_reachable"] is False
     assert receipt["promotion"]["account_verified"] is False
     assert receipt["promotion"]["provider_verified"] is False
     assert receipt["promotion"]["manual_lane_promoted"] is False

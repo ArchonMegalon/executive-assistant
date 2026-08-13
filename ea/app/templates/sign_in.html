@@ -364,7 +364,7 @@
     <p class="lead">Open the latest message from {{ brand.name }} on this device. It will return you to the workspace page you requested.</p>
     {% else %}
     <h1 id="sign-in-title">{% if brand.key == 'propertyquarry' %}Welcome back to your property search.{% else %}Welcome back to your workspace.{% endif %}</h1>
-    <p class="lead">{% if sign_in_google_enabled %}Continue with the Google identity already approved for this workspace. Secure email remains available as a fallback.{% else %}Enter the email already attached to your workspace. We will send a fresh, time-limited link—no password to remember.{% endif %}</p>
+    <p class="lead">{% if sign_in_google_enabled %}Continue with the Google identity already approved for this workspace.{% if sign_in_link_enabled %} Secure email remains available as a fallback.{% endif %}{% else %}Enter the email already attached to your workspace. We will send a fresh, time-limited link—no password to remember.{% endif %}</p>
     {% endif %}
 
     {% if sign_in_google_error %}

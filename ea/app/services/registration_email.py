@@ -61,9 +61,9 @@ def _emailit_delivery_explicitly_enabled(*, kind: str = "ea_registration_verific
     return master in _EMAILIT_TRUE_VALUES and lane in _EMAILIT_TRUE_VALUES
 
 
-def email_delivery_enabled() -> bool:
+def email_delivery_enabled(*, kind: str = "ea_registration_verification") -> bool:
     return bool(str(os.environ.get("EMAILIT_API_KEY") or "").strip()) and _emailit_delivery_explicitly_enabled(
-        kind="ea_registration_verification"
+        kind=kind
     )
 
 

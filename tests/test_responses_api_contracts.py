@@ -5379,17 +5379,24 @@ def test_responses_upstream_provider_order_prefers_onemin_by_default(monkeypatch
     from app.services import responses_upstream
 
     monkeypatch.delenv("EA_RESPONSES_PROVIDER_ORDER", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_MAGICX_API_KEY", raising=False)
+    monkeypatch.delenv("AI_MAGICX_API_KEY", raising=False)
 
-    assert responses_upstream._provider_order() == ("onemin", "magixai", "gemini_vortex")
+    assert responses_upstream._provider_order() == ("onemin", "gemini_vortex")
 
 
 def test_responses_upstream_cheap_provider_order_is_policy_configurable(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services import responses_upstream
 
     monkeypatch.delenv("EA_RESPONSES_CHEAP_PROVIDER_ORDER", raising=False)
-    assert responses_upstream._cheap_provider_order() == ("onemin", "magixai", "gemini_vortex")
+    monkeypatch.delenv("EA_RESPONSES_MAGICX_API_KEY", raising=False)
+    monkeypatch.delenv("AI_MAGICX_API_KEY", raising=False)
+    assert responses_upstream._cheap_provider_order() == ("onemin", "gemini_vortex")
 
     monkeypatch.setenv("EA_RESPONSES_CHEAP_PROVIDER_ORDER", "1min,magicx,gemini_vortex")
+    assert responses_upstream._cheap_provider_order() == ("onemin", "gemini_vortex")
+
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_API_KEY", "magicx-key")
     assert responses_upstream._cheap_provider_order() == ("onemin", "magixai", "gemini_vortex")
 
 
