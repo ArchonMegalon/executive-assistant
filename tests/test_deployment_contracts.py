@@ -652,6 +652,23 @@ def test_overlay_compose_pins_third_party_runtime_images_by_digest() -> None:
     )
 
 
+def test_socket_proxy_renders_config_into_writable_ephemeral_run() -> None:
+    for overlay_name in (
+        "docker-compose.host-tools.yml",
+        "docker-compose.fastestvpn.yml",
+    ):
+        compose = _load_yaml(ROOT / overlay_name)
+        service = (compose.get("services") or {}).get("ea-docker-socket-proxy") or {}
+        command = "\n".join(str(item) for item in list(service.get("command") or []))
+
+        assert service.get("read_only") is True, overlay_name
+        assert service.get("entrypoint") == ["/bin/sh", "-ec"], overlay_name
+        assert "/run" in [str(item) for item in list(service.get("tmpfs") or [])]
+        assert "/run/haproxy.cfg" in command, overlay_name
+        assert "/usr/local/etc/haproxy/haproxy.cfg.template" in command, overlay_name
+        assert "> /usr/local/etc/haproxy/haproxy.cfg" not in command, overlay_name
+
+
 def test_ea_runtime_preserves_tour_publication_volume_and_isolates_tunnel_network() -> (
     None
 ):

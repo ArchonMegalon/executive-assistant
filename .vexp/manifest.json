@@ -1335,7 +1335,7 @@
     "tests/test_compose_portable_storage_defaults.py": "09327953617d13291f307cc7ceca88a068e325cb987b5a3b2b918e19eb5a0abe",
     "tests/test_continuous_improvement_goal_posture.py": "a725077c25558af3031b51b74d2668c09fc0b907d6bbdd8a5ccd74ab63979b68",
     "tests/test_crezlo_email_runtime_defaults.py": "ac6a6c2caeedbd418290d40c9275c15e3a3fc14747997a2c11b05957f9e744d2",
-    "tests/test_deployment_contracts.py": "dfd2bbeb89c0de442df7d891af19aa0e65748c7ce9e5ed3b2705dbdff2d6ddd5",
+    "tests/test_deployment_contracts.py": "3e84b467a09219cccd99827ed3fc906eb514fd5c9da7cccd9f4548ca14b8c4f7",
     "tests/test_design_mirror_bundle_contracts.py": "54ebbfb48b84edc0a5bb80ca1b90f2baf2df62dd30d169a8803951f3f882a6a9",
     "tests/test_di_container.py": "d0725ef67f804e324eb8d7f8ac0ff9f9d9974423f77dcf428e9159ef028e885f",
     "tests/test_docs_and_verifier_path_portability.py": "7041e44b34d2ce71c0dee311df5e639078dcfebd47be1a543acac11ce9a21f55",
@@ -1634,13 +1634,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "1d22c65da1f5098250f0f665c1c38e4f8899ef6b",
-  "indexed_at_timestamp": "2026-08-13T06:55:28.179597180+00:00",
+  "indexed_at_commit": "8287537a364ff66e3767b01034c7666637a9cf82",
+  "indexed_at_timestamp": "2026-08-13T07:04:02.525428978+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 35539,
+    "total_edges": 35540,
     "total_files": 1633,
-    "total_nodes": 24036
+    "total_nodes": 24037
   },
   "vexp_version": "2.5.1"
 }
