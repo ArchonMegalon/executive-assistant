@@ -215,10 +215,16 @@ def _probe_http_player_route(*, token: str) -> dict[str, object]:
     if not token:
         return {"status": "failed", "reason": "player_token_missing"}
     try:
-        from app.api.app import create_app
+        from app.api.routes.audiobook_player import router as audiobook_player_router
+        from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        client = TestClient(create_app())
+        # Exercise the real player router without importing the full, process-wide
+        # EA application. The proof is intentionally local and must not inherit
+        # unrelated container/storage state left by another test or operator lane.
+        app = FastAPI()
+        app.include_router(audiobook_player_router)
+        client = TestClient(app)
         metadata_response = client.get(f"/internal/audiobooks/player/{token}")
         metadata_payload = metadata_response.json() if metadata_response.status_code == 200 else {}
         download_url = str(dict(metadata_payload).get("download_url") or "").strip()

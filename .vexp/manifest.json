@@ -673,7 +673,7 @@
     "ea/scripts/materialize_telegram_audiobook_live_readiness.py": "8ba627b7968d5a7783a5e399de1376a0e60170100e918c4be860adb5be4ea64c",
     "ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py": "fa8255f1e538ba41d567902b3e9ccac67b5b8f7006203d5db4fef3827900a7fa",
     "ea/scripts/materialize_whatsapp_audiobook_live_voice_selection_shadow.py": "c09e26a5e75114e8a39b7133a6e8c7a93ddd3e2e6a7330dc0c0f50896e0c84ce",
-    "ea/scripts/materialize_whatsapp_audiobook_local_intake_proof.py": "91fd51aa18facc6898c060b0be3f88cf30089e1b7b2653b3225400f5b09c6c78",
+    "ea/scripts/materialize_whatsapp_audiobook_local_intake_proof.py": "aa49589865f87b3e246280bbe5e4ac821b70d052710ca5f8f9043240423fa755",
     "ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py": "7fbb5c7e39b07e66000c024a8b53842d2d49ec4213e9cdfc61fe804aa7ee1343",
     "ea/scripts/materialize_whole_project_scope_gap_audit.py": "383934a60a32c3ea540824dd7e1283361f70166326c2c9e0594205ff5bbb5e0f",
     "ea/scripts/materialize_whole_project_signal_to_decision_receipt.py": "a02f05cd729a0dd463d2f76d2487767b3ff408565900ff638ad199757be1447a",
@@ -1634,11 +1634,11 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "c0844dba8d393c35be3732a0295cac6a47f089c8",
-  "indexed_at_timestamp": "2026-08-13T10:52:13.479804812+00:00",
+  "indexed_at_commit": "02cc95310d94cb9f2d8baefc7830023d6efbd3c1",
+  "indexed_at_timestamp": "2026-08-13T12:37:03.909169221+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 35541,
+    "total_edges": 35515,
     "total_files": 1633,
     "total_nodes": 24039
   },
