@@ -150,7 +150,7 @@
     "CUSTOMER_DIAGNOSTICS.md": "afef88a121f558d0cd7a461aaa481671e3e97bb2ca1c9b633914acdd2f2a637e",
     "Dockerfile": "bf72debfe0f0cf6fbd5ca170c08ebb7762005ffab7c56b2b41d59f4064a680d1",
     "EA_GOVERNED_SPATIAL_RENDER_DESIGN_PETITION.md": "61b15f3c007df19dad80c78514b8b5ff218925f7a96b8b846be2dae4e1b88d0b",
-    "EA_LOCAL_REPO_AUDIT_2026-08-13.md": "c2d828574a62a6c4df2869795176747048f1ca6961ab840653dceb9f646a5946",
+    "EA_LOCAL_REPO_AUDIT_2026-08-13.md": "96d3a2ca6559a92934f67d3ac077b67db1193f157f47bd5ca151ae5b83559b6b",
     "ENVIRONMENT_MATRIX.md": "e186749528eaeeece73b7dc67d5a36b5016e4927c188bb028c22313258c4e99c",
     "EXECUTIVE_ASSISTANT_MILESTONE_DEV_GUIDE.md": "151109cd1ba77033b12ad320ae690677fb2ccebdb6cab9f0f352ef3cc97129fa",
     "FIXTURE_SCENARIOS.md": "61e22e87f81f3040611468c17be7dfeefe78549a7030f66967c9fcc2cec6f76e",
@@ -1634,11 +1634,11 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "a2af0f62a3b318ecdc95bb0ba7609b4c6f52616d",
-  "indexed_at_timestamp": "2026-08-13T09:08:54.210011161+00:00",
+  "indexed_at_commit": "3c7deebdd8f11d68cf32033820b13336e0ea2a9d",
+  "indexed_at_timestamp": "2026-08-13T10:24:18.837911995+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 35533,
+    "total_edges": 35531,
     "total_files": 1633,
     "total_nodes": 24029
   },
