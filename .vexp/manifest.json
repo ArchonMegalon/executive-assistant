@@ -228,7 +228,7 @@
     "docs/preference_profiles/README.md": "bf0d1009ce0f927f73cb2d0b720f6903c73cb3b87c591dff3156270277ff9c1b",
     "docs/runbooks/WORKLLM_ACCOUNT_REVIEW_OODA.md": "ef4b8dec4925996d068a47c7cdd4cf40ee2dc339fedf920652ccf515e4e9dfde",
     "docs/runbooks/WORKLLM_MANUAL_CANARY.md": "b190361e6b27840a14d164fa021acff5ec1eb0bb6116db27c66c357336c1eec3",
-    "ea/Dockerfile": "ece698538a0f50b1f3e57867930afc96310a02c0661dd0c66a51f3438c8c038e",
+    "ea/Dockerfile": "58430f637a03b5a08b381aeb906e61f761a34aec0d1b23307ffc36c3b8d36970",
     "ea/Dockerfile.operator": "7117716bd3f575bd3858e59db44777c0d5ba76bb52864ac3245851e36a9a9c19",
     "ea/Dockerfile.property": "c20041a369456c54382f2c53c6963cb86b5d93540e5e211e6219b7012d73d27a",
     "ea/app/__init__.py": "b960faa1d8cc0c38513ea6d1999c20db42d700d13464355e40f06de0ac5173df",
@@ -1018,7 +1018,7 @@
     "scripts/db_retention.sh": "2adf6fb18c9a7dbc7adb2bfb01540186e2c4676adcd3c3cc478e68110137834a",
     "scripts/db_size.sh": "e837d6409b5854c873828a97f93a2257a2a20ca312b1cb6c9b8670b21ce408e5",
     "scripts/db_status.sh": "63f643d2b232f81ab3eca748df989f42589eeb766ad8a56c670203e254af9d25",
-    "scripts/deploy.sh": "513a549f3a64053103f027342a53f22bbfcfd8f01a7b11ab23d70fbe02b46ca7",
+    "scripts/deploy.sh": "3e6055745d070010a679454401186eebf7f632065b4681268ffd58ab826ff952",
     "scripts/deploy_ea_audiobook_runtime.py": "1f5cce71b8450d5ca0efdf97afd55d758a940ea2fab2514301f5c1ca080cdb1b",
     "scripts/deploy_proactive_ooda_runtime.sh": "1090c0450bbbc0c04024ea098df63980f1981a062c48a7a3620c3887f4410b0e",
     "scripts/diff_openapi.sh": "3e9259551ce0a3ed922cc1f3078c78bec125f0e5112db768cbb9e36aeef51f97",
@@ -1338,6 +1338,7 @@
     "tests/test_deployment_contracts.py": "6396cca73c980296a07c7c29a380a6e5a710432d5ba47e5720c1ebf065aae618",
     "tests/test_deployment_contracts.py": "289dba17592712d3ef8853a29172101a5727b4f1adda02eb7789f1ab5a089428",
     "tests/test_deployment_contracts.py": "499c4d9094af27f4adc9d567b71d1a42a374c161ee9882510c02d478a302fcaf",
+    "tests/test_deployment_contracts.py": "272e1cddfefb66d2f53dd56cd91773578f7e5d31709c981f9594666b2e5af416",
     "tests/test_design_mirror_bundle_contracts.py": "54ebbfb48b84edc0a5bb80ca1b90f2baf2df62dd30d169a8803951f3f882a6a9",
     "tests/test_di_container.py": "d0725ef67f804e324eb8d7f8ac0ff9f9d9974423f77dcf428e9159ef028e885f",
     "tests/test_docs_and_verifier_path_portability.py": "7041e44b34d2ce71c0dee311df5e639078dcfebd47be1a543acac11ce9a21f55",
@@ -1642,11 +1643,14 @@
   "indexed_at_timestamp": "2026-08-13T06:35:43.756362701+00:00",
   "indexed_at_commit": "0700636911b2a61de0404c8bcba97aebdf77adbd",
   "indexed_at_timestamp": "2026-08-13T06:40:45.730316645+00:00",
+  "indexed_at_commit": "bc8ef931e087f0e383dad180c1e0daa1526fb803",
+  "indexed_at_timestamp": "2026-08-13T06:47:11.140894930+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 35537,
+    "total_edges": 35538,
     "total_files": 1633,
     "total_nodes": 24029
+    "total_nodes": 24035
   },
   "vexp_version": "2.5.1"
 }

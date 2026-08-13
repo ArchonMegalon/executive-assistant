@@ -781,13 +781,7 @@ build_and_recreate_services() {
   local service
   for service in "${build_services[@]}"; do
     compose up -d --no-build --no-deps --force-recreate "${service}"
-    for _ in $(seq 1 30); do
-      if service_container_ready "${service}"; then
-        break
-      fi
-      sleep 1
-    done
-    if ! service_container_ready "${service}"; then
+    if ! wait_for_service_ready "${service}"; then
       echo "Service failed to become ready during deploy: ${service}" >&2
       return 1
     fi
@@ -826,13 +820,7 @@ recreate_services_without_build() {
   local service
   for service in "${recreate_services[@]}"; do
     compose up -d --no-build --no-deps --force-recreate "${service}"
-    for _ in $(seq 1 30); do
-      if service_container_ready "${service}"; then
-        break
-      fi
-      sleep 1
-    done
-    if ! service_container_ready "${service}"; then
+    if ! wait_for_service_ready "${service}"; then
       echo "Service failed to become ready during no-build deploy: ${service}" >&2
       return 1
     fi
@@ -862,6 +850,23 @@ service_container_ready() {
   if [[ -n "${health}" && "${health}" != "healthy" ]]; then
     return 1
   fi
+}
+
+wait_for_service_ready() {
+  local service="$1"
+  local timeout_seconds="${EA_DEPLOY_SERVICE_READY_TIMEOUT_SECONDS:-150}"
+  if [[ ! "${timeout_seconds}" =~ ^[0-9]+$ ]] || (( timeout_seconds < 1 || timeout_seconds > 600 )); then
+    echo "EA_DEPLOY_SERVICE_READY_TIMEOUT_SECONDS must be an integer from 1 to 600." >&2
+    return 1
+  fi
+  local elapsed
+  for ((elapsed = 0; elapsed < timeout_seconds; elapsed++)); do
+    if service_container_ready "${service}"; then
+      return 0
+    fi
+    sleep 1
+  done
+  service_container_ready "${service}"
 }
 
 cd "${APP_ROOT}"
@@ -897,13 +902,7 @@ else
   if [[ "${CLOUDFLARED_OVERLAY_ENABLED}" == "1" ]]; then
     echo "Refreshing Cloudflare tunnel after API recreate"
     compose up -d --no-build --no-deps --force-recreate ea-cloudflared
-    for _ in $(seq 1 30); do
-      if service_container_ready ea-cloudflared; then
-        break
-      fi
-      sleep 1
-    done
-    if ! service_container_ready ea-cloudflared; then
+    if ! wait_for_service_ready ea-cloudflared; then
       echo "Cloudflare tunnel failed to restart cleanly during deploy" >&2
       exit 1
     fi
