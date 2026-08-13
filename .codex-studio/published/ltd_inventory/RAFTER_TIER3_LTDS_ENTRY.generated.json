@@ -1,0 +1,10 @@
+{
+  "status": "pass",
+  "service": "Rafter",
+  "plan": "License Tier 3 / highest AppSumo tier",
+  "account_identity_policy": "account identities stay in local runtime config and are not serialized",
+  "workspace_integration_tier": "Tier 2",
+  "verification_status": "fleet_verified",
+  "missing_tokens": [],
+  "source_path": "/docker/EA/LTDs.md"
+}

@@ -141,7 +141,7 @@ VOCALLAB_STAGE_ENVIRONMENT = {
     "EA_AUDIOBOOK_VOCALLAB_VOICE_CATALOG_FILE": (
         "config/vocallab_voice_catalog.local.json"
     ),
-    "EA_AUDIOBOOK_TTS_PROVIDER_ORDER": "unmixr,vocallab,piper_local",
+    "EA_AUDIOBOOK_TTS_PROVIDER_ORDER": "unmixr,piper_local",
     "EA_AUDIOBOOK_TTS_ALLOW_CROSS_PROVIDER_FALLBACK": "0",
 }
 

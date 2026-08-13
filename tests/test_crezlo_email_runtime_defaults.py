@@ -52,6 +52,27 @@ def test_emailit_scripts_default_to_generic_sender() -> None:
     assert outbox.DEFAULT_SENDER_NAME == "Executive Assistant"
 
 
+def test_direct_emailit_scripts_require_named_product_switches(monkeypatch: pytest.MonkeyPatch) -> None:
+    tour_email = _load_script(
+        ROOT / "scripts" / "send_crezlo_property_tour_results_email.py",
+        "send_crezlo_property_tour_results_email_switches",
+    )
+    outbox = _load_script(
+        ROOT / "scripts" / "process_emailit_delivery_outbox.py",
+        "process_emailit_delivery_outbox_switches",
+    )
+
+    monkeypatch.setenv("EA_EMAILIT_DELIVERY_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED", "0")
+    with pytest.raises(SystemExit, match="emailit_delivery_disabled:propertyquarry"):
+        tour_email.require_propertyquarry_emailit_enabled()
+
+    monkeypatch.setenv("EA_EMAILIT_OFFICE_DELIVERY_ENABLED", "1")
+    assert outbox.require_emailit_lane_enabled("ea_office") == "ea_office"
+    with pytest.raises(SystemExit, match="emailit_delivery_lane_required"):
+        outbox.require_emailit_lane_enabled("")
+
+
 def test_emailit_outbox_daily_limit_fails_fast_without_sleeping(monkeypatch: pytest.MonkeyPatch) -> None:
     outbox = _load_script(
         ROOT / "scripts" / "process_emailit_delivery_outbox.py",
@@ -148,6 +169,8 @@ def test_emailit_outbox_main_reschedules_provider_rate_limit(monkeypatch: pytest
         "attempt_count": 99,
     }
     seen: dict[str, object] = {}
+    monkeypatch.setenv("EA_EMAILIT_DELIVERY_ENABLED", "1")
+    monkeypatch.setenv("EA_EMAILIT_OFFICE_DELIVERY_ENABLED", "1")
 
     monkeypatch.setattr(
         outbox,
@@ -156,6 +179,7 @@ def test_emailit_outbox_main_reschedules_provider_rate_limit(monkeypatch: pytest
             host="http://ea.test",
             api_token="token",
             emailit_api_key="emailit-key",
+            delivery_lane="ea_office",
             limit=50,
             default_from_email="default@example.test",
             default_from_name="EA",

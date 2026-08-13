@@ -1,0 +1,29 @@
+{
+  "contract": "ea.ltd_capacity_status.v1",
+  "status": "ready_for_bounded_dispatch",
+  "generated_at": "2026-08-13T05:48:14Z",
+  "config_sha256": "e7291743dcac9707cd3387659be9f293e629c576d226ede27b175ec204fafee0",
+  "truth_posture": "readiness projection only; no dispatch, balance, or provider success is claimed",
+  "eligible_provider_count": 1,
+  "secret_material_exposed": false,
+  "providers": [
+    {
+      "provider": "1min.AI",
+      "configured_state": "active_background_candidate",
+      "credential_slot": "ONEMIN_AI_API_KEY",
+      "credential_present": true,
+      "route_state": "eligible_for_health_probe",
+      "maximum_blast_radius": "public_safe",
+      "review_required": true
+    },
+    {
+      "provider": "AI Magicx",
+      "configured_state": "staged_optional",
+      "credential_slot": "AI_MAGICX_API_KEY",
+      "credential_present": false,
+      "route_state": "omitted_empty_credential",
+      "maximum_blast_radius": "public_safe",
+      "review_required": true
+    }
+  ]
+}

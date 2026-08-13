@@ -1,0 +1,451 @@
+{
+  "contract": "ea.ltd_proof_debt.v1",
+  "status": "projection_ready",
+  "generated_at": "2026-08-13T05:48:00Z",
+  "source": "LTDs.md",
+  "source_sha256": "ec751760f843442bd1cfce04d6aaf0257316006aa44381f326306060252d1f5d",
+  "truth_posture": "operator projection only; not product canon or provider proof",
+  "row_count": 55,
+  "rows": [
+    {
+      "service": "AI Magicx",
+      "current_workspace_tier": "Tier 2",
+      "candidate_lane": "background_capacity_scheduler",
+      "next_proof": "refresh provider/runtime receipt and re-run false-complete promotion gate",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "AiWriteBook",
+      "current_workspace_tier": "Tier 2",
+      "candidate_lane": "inventory_review",
+      "next_proof": "refresh provider/runtime receipt and re-run false-complete promotion gate",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Answerly.io",
+      "current_workspace_tier": "Tier 2",
+      "candidate_lane": "inventory_review",
+      "next_proof": "refresh provider/runtime receipt and re-run false-complete promotion gate",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "ApproveThis",
+      "current_workspace_tier": "Tier 2",
+      "candidate_lane": "meeting_to_decision",
+      "next_proof": "refresh provider/runtime receipt and re-run false-complete promotion gate",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "AvoMap",
+      "current_workspace_tier": "Tier 2",
+      "candidate_lane": "runsite_walkthrough_artifacts",
+      "next_proof": "refresh provider/runtime receipt and re-run false-complete promotion gate",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "blipai.app",
+      "current_workspace_tier": "Tier 2",
+      "candidate_lane": "inventory_review",
+      "next_proof": "refresh provider/runtime receipt and re-run false-complete promotion gate",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "ClickRank.ai",
+      "current_workspace_tier": "Tier 2",
+      "candidate_lane": "inventory_review",
+      "next_proof": "refresh provider/runtime receipt and re-run false-complete promotion gate",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "FastestVPN PRO",
+      "current_workspace_tier": "Tier 2",
+      "candidate_lane": "inventory_review",
+      "next_proof": "refresh provider/runtime receipt and re-run false-complete promotion gate",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "First Book ai",
+      "current_workspace_tier": "Tier 2",
+      "candidate_lane": "inventory_review",
+      "next_proof": "refresh provider/runtime receipt and re-run false-complete promotion gate",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "FlipLink.me",
+      "current_workspace_tier": "Tier 2",
+      "candidate_lane": "public_trust_shelf",
+      "next_proof": "refresh provider/runtime receipt and re-run false-complete promotion gate",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "MetaSurvey",
+      "current_workspace_tier": "Tier 2",
+      "candidate_lane": "inventory_review",
+      "next_proof": "refresh provider/runtime receipt and re-run false-complete promotion gate",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Mootion",
+      "current_workspace_tier": "Tier 2",
+      "candidate_lane": "inventory_review",
+      "next_proof": "refresh provider/runtime receipt and re-run false-complete promotion gate",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Nonverbia",
+      "current_workspace_tier": "Tier 2",
+      "candidate_lane": "inventory_review",
+      "next_proof": "refresh provider/runtime receipt and re-run false-complete promotion gate",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Pixefy",
+      "current_workspace_tier": "Tier 2",
+      "candidate_lane": "release_trust_factory",
+      "next_proof": "refresh provider/runtime receipt and re-run false-complete promotion gate",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Poppy AI",
+      "current_workspace_tier": "Tier 2",
+      "candidate_lane": "inventory_review",
+      "next_proof": "refresh provider/runtime receipt and re-run false-complete promotion gate",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "ProductLift.dev",
+      "current_workspace_tier": "Tier 2",
+      "candidate_lane": "inventory_review",
+      "next_proof": "refresh provider/runtime receipt and re-run false-complete promotion gate",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Rafter",
+      "current_workspace_tier": "Tier 2",
+      "candidate_lane": "proof_debt_operations",
+      "next_proof": "refresh provider/runtime receipt and re-run false-complete promotion gate",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Syllabbles",
+      "current_workspace_tier": "Tier 2",
+      "candidate_lane": "black_ledger_media_bakeoff",
+      "next_proof": "refresh provider/runtime receipt and re-run false-complete promotion gate",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Unmixr AI",
+      "current_workspace_tier": "Tier 2",
+      "candidate_lane": "black_ledger_media_bakeoff",
+      "next_proof": "refresh provider/runtime receipt and re-run false-complete promotion gate",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "ApiX-Drive",
+      "current_workspace_tier": "Tier 3",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture account capability, privacy boundary, and bounded smoke receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "ChatPlayground AI",
+      "current_workspace_tier": "Tier 3",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture account capability, privacy boundary, and bounded smoke receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Headway",
+      "current_workspace_tier": "Tier 3",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture account capability, privacy boundary, and bounded smoke receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Internxt Cloud Storage",
+      "current_workspace_tier": "Tier 3",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture account capability, privacy boundary, and bounded smoke receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Invoiless",
+      "current_workspace_tier": "Tier 3",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture account capability, privacy boundary, and bounded smoke receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "MarkupGo",
+      "current_workspace_tier": "Tier 3",
+      "candidate_lane": "public_trust_shelf",
+      "next_proof": "capture bounded account-use and failure-mode receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "OMagic",
+      "current_workspace_tier": "Tier 3",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture bounded account-use and failure-mode receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "OneAir",
+      "current_workspace_tier": "Tier 3",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture account capability, privacy boundary, and bounded smoke receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Pano2VR",
+      "current_workspace_tier": "Tier 3",
+      "candidate_lane": "runsite_walkthrough_artifacts",
+      "next_proof": "capture bounded account-use and failure-mode receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Paperguide",
+      "current_workspace_tier": "Tier 3",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture account capability, privacy boundary, and bounded smoke receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "PayFunnels",
+      "current_workspace_tier": "Tier 3",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture bounded account-use and failure-mode receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "PeekShot",
+      "current_workspace_tier": "Tier 3",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture account capability, privacy boundary, and bounded smoke receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Vizologi",
+      "current_workspace_tier": "Tier 3",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture account capability, privacy boundary, and bounded smoke receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "VocalLab.ai",
+      "current_workspace_tier": "Tier 3",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture bounded account-use and failure-mode receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Deftform",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "no_desktop_onboarding_funnel",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Documentation.AI",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "public_trust_shelf",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "FacePop",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "FineTuning.ai",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "GetNextStep.io",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Gracker.ai",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "hedy.ai",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "meeting_to_decision",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "ICanpreneur",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "JoggAI",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "katteb.com",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Lunacal",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "no_desktop_onboarding_funnel",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "MagicFit",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "black_ledger_media_bakeoff",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "NeuronWriter",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "PayPal API",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Prompt Architects",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Sendr",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Signitic",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "no_desktop_onboarding_funnel",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Soundmadeseen",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "audio_campaign_memory",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "Subscribr",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "black_ledger_media_bakeoff",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "VidBoard.ai",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "WorkLLM",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    },
+    {
+      "service": "YouBooks",
+      "current_workspace_tier": "Tier 4",
+      "candidate_lane": "inventory_review",
+      "next_proof": "capture provider contract, safe export, and human-review receipt",
+      "must_not_claim": "runtime promotion, product truth, release truth, or direct publication without a fresh accepted receipt",
+      "owner_review_required": true
+    }
+  ]
+}

@@ -273,6 +273,225 @@ LANES: tuple[ProviderLane, ...] = (
         ),
     ),
     ProviderLane(
+        lane_key="vocallab_catalog_authority",
+        title="VocalLab Catalog and Authority Boundary",
+        providers=("VocalLab.ai",),
+        integration_lane="voice_catalog_only",
+        verified_state="verified_catalog_only",
+        missing_state="blocked_pending_proof",
+        off_switch_env=(
+            "EA_AUDIOBOOK_VOCALLAB_ENABLED",
+            "EA_AUDIOBOOK_VOCALLAB_AUTO_RENDER",
+            "EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES",
+            "EA_AUDIOBOOK_VOCALLAB_ALLOW_TOPUP_POINTS",
+        ),
+        source_of_truth=(
+            "EA owns audiobook source, rights, cast, budget, quality, recipient, and publication truth; "
+            "Memorial exclusively owns Manfred authority, samples, profiles, hearing, deletion, rollback, and release truth; "
+            "VocalLab is catalog visibility only in this lane."
+        ),
+        allowed_inputs=(
+            "redacted_voice_inventory_probe",
+            "hashed_provider_voice_id",
+            "approved_safe_voice_label",
+        ),
+        forbidden_inputs=(
+            "raw_voice_sample",
+            "real_person_voice_upload",
+            "unconsented_likeness",
+            "provider_voice_id_in_operator_name",
+            "automatic_voice_render",
+            "automatic_voice_clone",
+            "automatic_point_topup",
+            "cross_provider_fallback",
+            "memorial_authority",
+            "publication_truth",
+            "release_truth",
+        ),
+        normalized_signal_schema=(
+            "credential_present",
+            "voice_count",
+            "voice_id_sha256",
+            "inventory_checked_at",
+            "spend_authorized",
+        ),
+        required_checks=(
+            LaneCheck("inventory_recorded", "VocalLab is recorded in LTDs.md.", "Inventory row exists."),
+            LaneCheck(
+                "vocallab_runtime_key_seeded",
+                "The EA runtime has its own non-empty VocalLab key.",
+                "VOCALLAB_API_KEY is populated in the evaluated runtime environment.",
+            ),
+            LaneCheck(
+                "vocallab_registry_non_executable",
+                "Generic provider routing cannot execute VocalLab inventory or rendering.",
+                "ProviderRegistry binding and capabilities are non-executable.",
+            ),
+            LaneCheck(
+                "vocallab_spend_controls_off",
+                "Catalog verification cannot spend points, render, clone, or top up.",
+                "All VocalLab spend/runtime switches remain off.",
+            ),
+            LaneCheck(
+                "vocallab_memorial_authority_boundary",
+                "Memorial retains exclusive Manfred authority and release truth.",
+                "Lane boundary and forbidden inputs.",
+            ),
+        ),
+    ),
+    ProviderLane(
+        lane_key="emailit_transactional_delivery",
+        title="Emailit Governed Transactional Delivery",
+        providers=("Emailit",),
+        integration_lane="transactional_delivery_outbox",
+        verified_state="verified_runtime_lane",
+        missing_state="blocked_pending_proof",
+        off_switch_env=(
+            "EA_EMAILIT_DELIVERY_ENABLED",
+            "EA_EMAILIT_OFFICE_DELIVERY_ENABLED",
+            "PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED",
+            "CHUMMER_HUB_EMAILIT_DELIVERY_ENABLED",
+        ),
+        source_of_truth=(
+            "EA owns recipient eligibility, template, suppression, approval, delivery, and closeout truth for EA-office notices only; "
+            "PropertyQuarry owns property-mail truth and Chummer Hub owns lifecycle-notification truth; "
+            "Emailit transports approved transactional notices and returns a provider receipt only."
+        ),
+        allowed_inputs=(
+            "approved_transactional_notice",
+            "approved_invite",
+            "approved_followup",
+            "approved_closeout_notice",
+        ),
+        forbidden_inputs=(
+            "raw_gmail",
+            "raw_calendar",
+            "unsanitized_attachment",
+            "unapproved_marketing_broadcast",
+            "unsuppressed_recipient",
+            "direct_send_without_approval",
+            "support_truth",
+            "billing_truth",
+            "product_truth",
+            "publication_truth",
+        ),
+        normalized_signal_schema=(
+            "recipient_sha256",
+            "template_ref",
+            "template_version",
+            "source_event_ref",
+            "suppression_status",
+            "approval_status",
+            "provider_message_ref",
+            "delivery_status",
+        ),
+        required_checks=(
+            LaneCheck("inventory_recorded", "Emailit Tier 5 is recorded.", "LTD inventory row."),
+            LaneCheck("emailit_provider_verification", "Recorded live provider capability proof exists.", "Discovery proof."),
+            LaneCheck("emailit_api_key_private", "The API key is private runtime configuration.", "EMAILIT_API_KEY outside git."),
+            LaneCheck("emailit_delivery_adapter", "The bounded transactional adapter is wired.", "Registration email adapter contract."),
+            LaneCheck("emailit_receipt_contract", "Accepted sends return a provider receipt.", "RegistrationEmailReceipt contract."),
+            LaneCheck("emailit_approval_suppression_boundary", "Approval and suppression boundaries are fail-closed.", "Lane and outbound guard contract."),
+            LaneCheck("emailit_off_switch", "Global and product-scoped runtime kill switches exist.", "Named EA, PropertyQuarry, and Hub Emailit switch contract."),
+        ),
+    ),
+    ProviderLane(
+        lane_key="fastestvpn_governed_provider_transport",
+        title="FastestVPN Governed Provider Transport",
+        providers=("FastestVPN PRO",),
+        integration_lane="provider_transport_proxy",
+        verified_state="verified_runtime_lane",
+        missing_state="blocked_pending_proof",
+        off_switch_env=("EA_ENABLE_FASTESTVPN",),
+        source_of_truth=(
+            "EA owns provider routing, account, quota, billing, product, and release truth; "
+            "FastestVPN supplies bounded transport for approved provider probes only."
+        ),
+        allowed_inputs=("approved_provider_api_probe", "approved_browser_login", "sanitized_country_probe"),
+        forbidden_inputs=(
+            "customer_public_ingress",
+            "provider_rate_limit_evasion",
+            "access_policy_bypass",
+            "raw_proxy_credential",
+            "raw_exit_ip_receipt",
+            "account_truth",
+            "quota_truth",
+            "billing_truth",
+            "product_truth",
+            "release_truth",
+        ),
+        normalized_signal_schema=(
+            "proxy_mode",
+            "proxy_pool_size",
+            "proxy_reachable_count",
+            "expected_country",
+            "observed_country",
+            "country_verified",
+            "secret_material_exposed",
+            "provider_cooldown_status",
+        ),
+        required_checks=(
+            LaneCheck("inventory_recorded", "FastestVPN PRO is recorded.", "LTD inventory row."),
+            LaneCheck("fastestvpn_runtime_contract", "The isolated proxy runtime is reproducible.", "Pinned Docker/Compose contract."),
+            LaneCheck("fastestvpn_ch_profile_boundary", "The 1min lane is pinned to Switzerland profiles.", "Compose profile contract."),
+            LaneCheck("fastestvpn_secret_boundary", "VPN profiles, credentials, and exit IPs stay private.", "Build and receipt privacy contract."),
+            LaneCheck("fastestvpn_rate_limit_boundary", "Provider cooldown remains authoritative.", "Live-ops receipt and lane boundary."),
+            LaneCheck("fastestvpn_off_switch", "The lane retains an explicit deployment off-switch.", "EA_ENABLE_FASTESTVPN contract."),
+        ),
+    ),
+    ProviderLane(
+        lane_key="onemin_bounded_capacity_scheduler",
+        title="1min.AI Bounded Capacity Scheduler",
+        providers=("1min.AI",),
+        integration_lane="background_capacity_scheduler",
+        verified_state="verified_runtime_lane",
+        missing_state="blocked_pending_proof",
+        off_switch_env=("EA_RESPONSES_ONEMIN_BACKGROUND_REFRESH_ENABLED",),
+        source_of_truth=(
+            "EA owns task eligibility, model selection, account selection, quota, credit, evidence, approval, product, and release truth; "
+            "1min.AI supplies bounded inference capacity only."
+        ),
+        allowed_inputs=(
+            "public_safe_background_task",
+            "sanitized_repository_task",
+            "approved_operator_prompt",
+            "synthetic_health_probe",
+        ),
+        forbidden_inputs=(
+            "raw_gmail",
+            "raw_calendar",
+            "people_memory",
+            "unredacted_attachment",
+            "secret_value",
+            "unbounded_parallel_dispatch",
+            "quota_bypass",
+            "provider_rate_limit_evasion",
+            "automatic_publication",
+            "approval_truth",
+            "product_truth",
+            "release_truth",
+        ),
+        normalized_signal_schema=(
+            "task_class",
+            "provider",
+            "credential_present",
+            "maximum_blast_radius",
+            "quota_state",
+            "dispatch_state",
+            "receipt_sha256",
+            "owner_review_required",
+        ),
+        required_checks=(
+            LaneCheck("inventory_recorded", "1min.AI is recorded.", "LTD inventory row."),
+            LaneCheck("onemin_credential_pool", "A private 1min credential pool is present.", "Secret-safe credential presence only."),
+            LaneCheck("onemin_scheduler_contract", "The bounded scheduler and blast-radius contracts exist.", "Local operating-mesh contracts."),
+            LaneCheck("onemin_quota_controls", "Request and credit ceilings are enforced.", "Responses runtime quota contract."),
+            LaneCheck("onemin_secret_safe_receipt", "Capacity receipts expose no credential material.", "LTD capacity projection contract."),
+            LaneCheck("onemin_background_off_switch", "Background capacity has a fail-closed off-switch.", "EA_RESPONSES_ONEMIN_BACKGROUND_REFRESH_ENABLED contract."),
+            LaneCheck("onemin_review_boundary", "Dispatch cannot own approval or release truth.", "Lane boundary contract."),
+        ),
+    ),
+    ProviderLane(
         lane_key="magicfit_media_factory_candidate",
         title="MagicFit Media Factory Candidate",
         providers=("MagicFit",),
@@ -1248,6 +1467,225 @@ def _check_passed(
             "docs/realtime_voice_redesign.md",
         )
         return ok, "fallback_policy_present" if ok else "fallback_policy_missing"
+    if key == "vocallab_runtime_key_seeded":
+        ok = _env_present(env, "VOCALLAB_API_KEY")
+        return ok, "VOCALLAB_API_KEY_present_in_runtime" if ok else "VOCALLAB_API_KEY_missing_in_runtime"
+    if key == "vocallab_registry_non_executable":
+        source_path = root / "ea" / "app" / "services" / "provider_registry.py"
+        source_text = source_path.read_text(encoding="utf-8") if source_path.is_file() else ""
+        binding_marker = 'provider_key="vocallab"'
+        binding_start = source_text.find(binding_marker)
+        binding_window = source_text[binding_start : binding_start + 1800] if binding_start >= 0 else ""
+        ok = (
+            binding_start >= 0
+            and 'executable=False' in binding_window
+            and 'capability_key="voice_inventory"' in binding_window
+            and 'capability_key="voice_render"' in binding_window
+            and binding_window.count('executable=False') >= 3
+        )
+        return ok, "vocallab_registry_catalog_only" if ok else "vocallab_registry_execution_boundary_missing"
+    if key == "vocallab_spend_controls_off":
+        spend_switches = (
+            "EA_AUDIOBOOK_VOCALLAB_ENABLED",
+            "EA_AUDIOBOOK_VOCALLAB_AUTO_RENDER",
+            "EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES",
+            "EA_AUDIOBOOK_VOCALLAB_ALLOW_TOPUP_POINTS",
+        )
+        enabled_values = {"1", "true", "yes", "on", "enabled"}
+        enabled = [
+            name
+            for name in spend_switches
+            if str(env.get(name) or "").strip().lower() in enabled_values
+        ]
+        return (not enabled), "vocallab_spend_controls_off" if not enabled else "vocallab_spend_control_enabled"
+    if key == "vocallab_memorial_authority_boundary":
+        required_forbidden = {
+            "raw_voice_sample",
+            "real_person_voice_upload",
+            "unconsented_likeness",
+            "memorial_authority",
+            "publication_truth",
+            "release_truth",
+        }
+        boundary = lane.source_of_truth.lower()
+        ok = (
+            required_forbidden <= set(lane.forbidden_inputs)
+            and "memorial exclusively owns manfred authority" in boundary
+            and "release truth" in boundary
+        )
+        return ok, "vocallab_memorial_authority_retained" if ok else "vocallab_memorial_authority_boundary_missing"
+    if key == "emailit_provider_verification":
+        row = discovery.get(_normalize("Emailit"), {})
+        ok = (
+            str(row.get("discovery_status") or "").strip().lower() in {"complete", "manual_seeded"}
+            and "emailit_api_live" in str(row.get("verification_source") or "").strip().lower()
+        )
+        return ok, "recorded_emailit_api_live_proof" if ok else "emailit_provider_verification_missing"
+    if key == "emailit_api_key_private":
+        ok = _env_present(env, "EMAILIT_API_KEY")
+        return ok, "EMAILIT_API_KEY_present_outside_git" if ok else "EMAILIT_API_KEY_missing"
+    if key in {"emailit_delivery_adapter", "emailit_receipt_contract", "emailit_off_switch"}:
+        source_path = root / "ea" / "app" / "services" / "registration_email.py"
+        source_text = source_path.read_text(encoding="utf-8") if source_path.is_file() else ""
+        if key == "emailit_delivery_adapter":
+            required = ("EMAILIT_API_BASE", "def _send_emailit_email", "bounded_outbound_email")
+            ok = all(token in source_text for token in required)
+            return ok, "bounded_emailit_adapter_present" if ok else "emailit_delivery_adapter_missing"
+        if key == "emailit_receipt_contract":
+            required = ("class RegistrationEmailReceipt", "provider: str", "message_id: str", "accepted_at: str")
+            ok = all(token in source_text for token in required)
+            return ok, "emailit_provider_receipt_contract_present" if ok else "emailit_receipt_contract_missing"
+        required_switches = {
+            "EA_EMAILIT_DELIVERY_ENABLED",
+            "EA_EMAILIT_OFFICE_DELIVERY_ENABLED",
+            "PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED",
+            "CHUMMER_HUB_EMAILIT_DELIVERY_ENABLED",
+        }
+        switch_declared = (
+            required_switches <= set(lane.off_switch_env)
+            and all(name in source_text for name in required_switches)
+            and "registration_email_delivery_disabled" in source_text
+        )
+        switch_value = str(env.get("EA_EMAILIT_DELIVERY_ENABLED") or "").strip().lower()
+        switch_engaged = switch_value in {"0", "false", "no", "off", "disabled"}
+        ok = switch_declared and not switch_engaged
+        if not switch_declared:
+            return False, "emailit_off_switch_contract_missing"
+        return ok, "emailit_off_switch_available" if ok else "emailit_off_switch_engaged"
+    if key == "emailit_approval_suppression_boundary":
+        forbidden = {
+            "unapproved_marketing_broadcast",
+            "unsuppressed_recipient",
+            "direct_send_without_approval",
+            "raw_gmail",
+            "raw_calendar",
+        }
+        required_schema = {"recipient_sha256", "suppression_status", "approval_status", "provider_message_ref"}
+        ok = (
+            forbidden <= set(lane.forbidden_inputs)
+            and required_schema <= set(lane.normalized_signal_schema)
+            and "approval" in lane.source_of_truth.lower()
+            and "suppression" in lane.source_of_truth.lower()
+        )
+        return ok, "emailit_approval_suppression_boundary_defined" if ok else "emailit_approval_suppression_boundary_missing"
+    if key in {
+        "fastestvpn_runtime_contract",
+        "fastestvpn_ch_profile_boundary",
+        "fastestvpn_secret_boundary",
+        "fastestvpn_rate_limit_boundary",
+        "fastestvpn_off_switch",
+    }:
+        compose_path = root / "docker-compose.fastestvpn.yml"
+        dockerfile_path = root / "docker" / "fastestvpn-proxy" / "Dockerfile"
+        ignore_path = root / ".dockerignore"
+        live_ops_path = root / "scripts" / "ea_live_ops.py"
+        compose_text = compose_path.read_text(encoding="utf-8") if compose_path.is_file() else ""
+        dockerfile_text = dockerfile_path.read_text(encoding="utf-8") if dockerfile_path.is_file() else ""
+        ignore_text = ignore_path.read_text(encoding="utf-8") if ignore_path.is_file() else ""
+        live_ops_text = live_ops_path.read_text(encoding="utf-8") if live_ops_path.is_file() else ""
+        if key == "fastestvpn_runtime_contract":
+            ok = (
+                "ea-fastestvpn-proxy-ch:" in compose_text
+                and "FROM alpine:3.20@sha256:" in dockerfile_text
+                and "no-new-privileges:true" in compose_text
+            )
+            return ok, "fastestvpn_pinned_runtime_contract" if ok else "fastestvpn_runtime_contract_missing"
+        if key == "fastestvpn_ch_profile_boundary":
+            ok = (
+                "FASTESTVPN_CH_CONFIG_GLOB:-switzerland*.ovpn" in compose_text
+                and "ONEMIN_DIRECT_API_PROXY_SERVER=http://ea-fastestvpn-proxy-ch" in compose_text
+                and "--expected-proxy-country" in live_ops_text
+            )
+            return ok, "fastestvpn_ch_profile_and_country_contract" if ok else "fastestvpn_ch_profile_boundary_missing"
+        if key == "fastestvpn_secret_boundary":
+            ok = (
+                "*.ovpn" in ignore_text
+                and "proxy_secret_material_exposed" in live_ops_text
+                and "raw_proxy_credential" in lane.forbidden_inputs
+                and "raw_exit_ip_receipt" in lane.forbidden_inputs
+            )
+            return ok, "fastestvpn_secret_safe_receipt_contract" if ok else "fastestvpn_secret_boundary_missing"
+        if key == "fastestvpn_rate_limit_boundary":
+            ok = (
+                "provider_rate_limit_evasion" in lane.forbidden_inputs
+                and "resume_not_before" in live_ops_text
+                and "retry_after_seconds" in live_ops_text
+            )
+            return ok, "fastestvpn_provider_cooldown_boundary" if ok else "fastestvpn_rate_limit_boundary_missing"
+        deploy_path = root / "scripts" / "deploy.sh"
+        deploy_text = deploy_path.read_text(encoding="utf-8") if deploy_path.is_file() else ""
+        ok = "EA_ENABLE_FASTESTVPN" in lane.off_switch_env and "EA_ENABLE_FASTESTVPN" in deploy_text
+        return ok, "fastestvpn_deployment_off_switch" if ok else "fastestvpn_off_switch_missing"
+    if key in {
+        "onemin_credential_pool",
+        "onemin_scheduler_contract",
+        "onemin_quota_controls",
+        "onemin_secret_safe_receipt",
+        "onemin_background_off_switch",
+        "onemin_review_boundary",
+    }:
+        scheduler_path = root / "config" / "ltd_capacity_scheduler.yaml"
+        blast_radius_path = root / "config" / "ltd_blast_radius.yaml"
+        responses_path = root / "ea" / "app" / "services" / "responses_upstream.py"
+        capacity_path = root / "scripts" / "materialize_ltd_capacity_status.py"
+        scheduler_text = scheduler_path.read_text(encoding="utf-8") if scheduler_path.is_file() else ""
+        blast_radius_text = blast_radius_path.read_text(encoding="utf-8") if blast_radius_path.is_file() else ""
+        responses_text = responses_path.read_text(encoding="utf-8") if responses_path.is_file() else ""
+        capacity_text = capacity_path.read_text(encoding="utf-8") if capacity_path.is_file() else ""
+        if key == "onemin_credential_pool":
+            manifest = root / "config" / "onemin_api_keys.local.json"
+            ok = _env_present(env, "ONEMIN_AI_API_KEY") or manifest.is_file()
+            return ok, "onemin_private_credential_pool_present" if ok else "onemin_credential_pool_missing"
+        if key == "onemin_scheduler_contract":
+            ok = (
+                "1min.AI:" in scheduler_text
+                and "default_policy: fail_closed" in scheduler_text
+                and "public_safe" in blast_radius_text
+                and "private_sensitive" in blast_radius_text
+            )
+            return ok, "onemin_bounded_scheduler_contract" if ok else "onemin_scheduler_contract_missing"
+        if key == "onemin_quota_controls":
+            required = (
+                "EA_RESPONSES_ONEMIN_MAX_REQUESTS_PER_HOUR",
+                "EA_RESPONSES_ONEMIN_MAX_CREDITS_PER_HOUR",
+                "EA_RESPONSES_ONEMIN_MAX_CREDITS_PER_DAY",
+                "EA_RESPONSES_ONEMIN_RATE_LIMIT_COOLDOWN_SECONDS",
+            )
+            ok = all(marker in responses_text for marker in required)
+            return ok, "onemin_request_credit_ceiling_contract" if ok else "onemin_quota_controls_missing"
+        if key == "onemin_secret_safe_receipt":
+            ok = (
+                '"secret_material_exposed": False' in capacity_text
+                and '"credential_present"' in capacity_text
+                and "credential_value" not in capacity_text
+            )
+            return ok, "onemin_secret_safe_capacity_receipt" if ok else "onemin_secret_safe_receipt_missing"
+        if key == "onemin_background_off_switch":
+            enabled_values = {"1", "true", "yes", "on", "enabled"}
+            value = str(env.get("EA_RESPONSES_ONEMIN_BACKGROUND_REFRESH_ENABLED") or "1").strip().lower()
+            declared = (
+                "EA_RESPONSES_ONEMIN_BACKGROUND_REFRESH_ENABLED" in lane.off_switch_env
+                and "EA_RESPONSES_ONEMIN_BACKGROUND_REFRESH_ENABLED" in responses_text
+            )
+            ok = declared and value in enabled_values
+            return ok, "onemin_background_off_switch_available" if ok else "onemin_background_off_switch_engaged_or_missing"
+        required_forbidden = {
+            "raw_gmail",
+            "raw_calendar",
+            "people_memory",
+            "secret_value",
+            "unbounded_parallel_dispatch",
+            "quota_bypass",
+            "approval_truth",
+            "product_truth",
+            "release_truth",
+        }
+        ok = (
+            required_forbidden <= set(lane.forbidden_inputs)
+            and "ea owns task eligibility" in lane.source_of_truth.lower()
+            and "release truth" in lane.source_of_truth.lower()
+        )
+        return ok, "onemin_ea_review_truth_boundary" if ok else "onemin_review_boundary_missing"
     if key in {"commercial_use", "watermark_export", "watermark_duration_export", "credit_budget", "safety_scan", "human_review", "likeness_policy", "quality_score"}:
         if key == "human_review" and lane.lane_key == "markupgo_fliplink_premium_delivery":
             if _provider_contract_check(
@@ -1607,6 +2045,105 @@ def _hard_contract_failures(lane: ProviderLane) -> list[str]:
             failures.append("aiwritebook_approval_schema_incomplete")
         if "EA_AIWRITEBOOK_CHRONICLE_STUDIO_ENABLED" not in lane.off_switch_env:
             failures.append("aiwritebook_off_switch_missing")
+    if lane.lane_key == "emailit_transactional_delivery":
+        required_forbidden = {
+            "raw_gmail",
+            "raw_calendar",
+            "unapproved_marketing_broadcast",
+            "unsuppressed_recipient",
+            "direct_send_without_approval",
+            "support_truth",
+            "billing_truth",
+            "product_truth",
+            "publication_truth",
+        }
+        if not required_forbidden <= set(lane.forbidden_inputs):
+            failures.append("emailit_privacy_or_send_boundary_incomplete")
+        required_schema = {"recipient_sha256", "suppression_status", "approval_status", "provider_message_ref", "delivery_status"}
+        if not required_schema <= set(lane.normalized_signal_schema):
+            failures.append("emailit_signal_schema_incomplete")
+        required_switches = {
+            "EA_EMAILIT_DELIVERY_ENABLED",
+            "EA_EMAILIT_OFFICE_DELIVERY_ENABLED",
+            "PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED",
+            "CHUMMER_HUB_EMAILIT_DELIVERY_ENABLED",
+        }
+        if not required_switches <= set(lane.off_switch_env):
+            failures.append("emailit_off_switch_missing")
+        boundary = lane.source_of_truth.lower()
+        if not all(owner in boundary for owner in ("ea-office", "propertyquarry", "chummer hub")):
+            failures.append("emailit_product_ownership_boundary_missing")
+    if lane.lane_key == "vocallab_catalog_authority":
+        if lane.verified_state == "verified_runtime_lane":
+            failures.append("vocallab_catalog_lane_must_not_be_runtime")
+        required_forbidden = {
+            "raw_voice_sample",
+            "real_person_voice_upload",
+            "unconsented_likeness",
+            "automatic_voice_render",
+            "automatic_voice_clone",
+            "automatic_point_topup",
+            "memorial_authority",
+            "publication_truth",
+            "release_truth",
+        }
+        if not required_forbidden <= set(lane.forbidden_inputs):
+            failures.append("vocallab_authority_or_spend_boundary_incomplete")
+        required_switches = {
+            "EA_AUDIOBOOK_VOCALLAB_ENABLED",
+            "EA_AUDIOBOOK_VOCALLAB_AUTO_RENDER",
+            "EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES",
+            "EA_AUDIOBOOK_VOCALLAB_ALLOW_TOPUP_POINTS",
+        }
+        if not required_switches <= set(lane.off_switch_env):
+            failures.append("vocallab_spend_switch_missing")
+    if lane.lane_key == "fastestvpn_governed_provider_transport":
+        required_forbidden = {
+            "customer_public_ingress",
+            "provider_rate_limit_evasion",
+            "access_policy_bypass",
+            "raw_proxy_credential",
+            "raw_exit_ip_receipt",
+            "account_truth",
+            "quota_truth",
+            "billing_truth",
+            "product_truth",
+            "release_truth",
+        }
+        if not required_forbidden <= set(lane.forbidden_inputs):
+            failures.append("fastestvpn_transport_boundary_incomplete")
+        if "EA_ENABLE_FASTESTVPN" not in lane.off_switch_env:
+            failures.append("fastestvpn_off_switch_missing")
+    if lane.lane_key == "onemin_bounded_capacity_scheduler":
+        required_forbidden = {
+            "raw_gmail",
+            "raw_calendar",
+            "people_memory",
+            "unredacted_attachment",
+            "secret_value",
+            "unbounded_parallel_dispatch",
+            "quota_bypass",
+            "provider_rate_limit_evasion",
+            "automatic_publication",
+            "approval_truth",
+            "product_truth",
+            "release_truth",
+        }
+        if not required_forbidden <= set(lane.forbidden_inputs):
+            failures.append("onemin_capacity_boundary_incomplete")
+        if "EA_RESPONSES_ONEMIN_BACKGROUND_REFRESH_ENABLED" not in lane.off_switch_env:
+            failures.append("onemin_background_off_switch_missing")
+        required_schema = {
+            "task_class",
+            "credential_present",
+            "maximum_blast_radius",
+            "quota_state",
+            "dispatch_state",
+            "receipt_sha256",
+            "owner_review_required",
+        }
+        if not required_schema <= set(lane.normalized_signal_schema):
+            failures.append("onemin_capacity_signal_schema_incomplete")
     if lane.lane_key == "release_quality_gates":
         if "release_truth" not in lane.forbidden_inputs:
             failures.append("release_quality_truth_boundary_missing")

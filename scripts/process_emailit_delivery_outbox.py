@@ -15,6 +15,12 @@ DEFAULT_HOST = "http://127.0.0.1:8090"
 DEFAULT_SENDER_EMAIL = "no-reply@example.test"
 DEFAULT_SENDER_NAME = "Executive Assistant"
 EMAILIT_API_BASE = "https://api.emailit.com/v2/emails"
+EMAILIT_LANE_SWITCHES = {
+    "ea_office": "EA_EMAILIT_OFFICE_DELIVERY_ENABLED",
+    "propertyquarry": "PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED",
+    "chummer_hub": "CHUMMER_HUB_EMAILIT_DELIVERY_ENABLED",
+}
+_TRUE_VALUES = {"1", "true", "yes", "on", "enabled"}
 
 
 class EmailitRateLimitedError(RuntimeError):
@@ -24,6 +30,18 @@ class EmailitRateLimitedError(RuntimeError):
         self.detail = str(detail or "").strip()
         label = self.provider_error or "rate_limited"
         super().__init__(f"emailit_rate_limited:{label}:retry_after={self.retry_after_seconds}")
+
+
+def require_emailit_lane_enabled(lane: str) -> str:
+    normalized = str(lane or "").strip().lower()
+    lane_switch = EMAILIT_LANE_SWITCHES.get(normalized)
+    if lane_switch is None:
+        raise SystemExit("emailit_delivery_lane_required")
+    master_enabled = str(os.environ.get("EA_EMAILIT_DELIVERY_ENABLED") or "").strip().lower() in _TRUE_VALUES
+    lane_enabled = str(os.environ.get(lane_switch) or "").strip().lower() in _TRUE_VALUES
+    if not master_enabled or not lane_enabled:
+        raise SystemExit(f"emailit_delivery_disabled:{normalized}")
+    return normalized
 
 
 def emailit_max_429_sleep_seconds() -> int:
@@ -189,6 +207,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--api-token", default=os.environ.get("EA_API_TOKEN", ""))
     parser.add_argument("--emailit-api-key", default=os.environ.get("EMAILIT_API_KEY", ""))
+    parser.add_argument(
+        "--delivery-lane",
+        choices=tuple(EMAILIT_LANE_SWITCHES),
+        default=os.environ.get("EA_EMAILIT_OUTBOX_LANE", ""),
+        help="Required product ownership lane for this batch.",
+    )
     parser.add_argument("--limit", type=int, default=50)
     parser.add_argument("--default-from-email", default=os.environ.get("EA_EMAIL_DEFAULT_FROM", DEFAULT_SENDER_EMAIL))
     parser.add_argument("--default-from-name", default=os.environ.get("EA_EMAIL_DEFAULT_NAME", DEFAULT_SENDER_NAME))
@@ -198,6 +222,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    delivery_lane = require_emailit_lane_enabled(str(getattr(args, "delivery_lane", "") or ""))
     if not str(args.api_token or "").strip():
         raise SystemExit("ea_api_token_missing")
     if not str(args.emailit_api_key or "").strip():
@@ -235,6 +260,7 @@ def main() -> int:
                 content=str(row.get("content") or ""),
                 metadata={
                     "delivery_id": delivery_id,
+                    "delivery_lane": delivery_lane,
                     "principal_id": principal_id,
                     "binding_id": binding_id,
                     "connector_name": str(binding.get("connector_name") or ""),

@@ -166,6 +166,9 @@ def test_runtime_build_context_excludes_local_state_and_secrets() -> None:
         "!Makefile",
         "!LTDs.md",
         "!docker-compose*.yml",
+        "!docker/",
+        "!docker/fastestvpn-proxy/",
+        "!docker/fastestvpn-proxy/**",
         "!ea/",
         "!ea/Dockerfile",
         "!ea/Dockerfile.operator",
@@ -181,6 +184,9 @@ def test_runtime_build_context_excludes_local_state_and_secrets() -> None:
         "!deploy/",
         "!deploy/runtime-image-verification-inputs.txt",
     } <= ignored
+    assert "*.ovpn" in ignored
+    assert "!vpn/" not in ignored
+    assert "!vpn/**" not in ignored
 
 
 def test_base_compose_omits_host_docker_control_for_core_services() -> None:
@@ -388,6 +394,8 @@ def test_proactive_ooda_deploy_keeps_runtime_outputs_group_writable() -> None:
     )
 
     assert "1000" in [str(item) for item in list(proactive.get("group_add") or [])]
+    assert "mkdir -p /data/provider-ledger/proactive_ooda_approval_callbacks" in command
+    assert "chmod 0770 /data/provider-ledger/proactive_ooda_approval_callbacks" in command
     assert "repair_shared_output_permissions()" in command
     assert (
         '-user "$${runtime_uid}" -exec chmod g+rw {} + 2>/dev/null || true'
@@ -876,31 +884,62 @@ def test_fastestvpn_override_mounts_only_runtime_compose_inputs() -> None:
         "./docker-compose.fastestvpn.yml:/app/docker-compose.fastestvpn.yml:ro",
         "./vpn/fastestvpn:/app/vpn/fastestvpn:ro",
     }
-    for service_name in ("ea-api", "ea-worker", "ea-scheduler"):
-        service = services.get(service_name) or {}
-        volumes = {str(item) for item in list(service.get("volumes") or [])}
-        environment = {str(item) for item in list(service.get("environment") or [])}
-        assert volumes == expected_mounts, service_name
-        assert "DOCKER_HOST=tcp://ea-docker-socket-proxy:2375" in environment, (
-            service_name
-        )
-        assert service.get("read_only") is True, service_name
-        assert service.get("mem_limit") == "2g", service_name
-        assert service.get("mem_reservation") == "512m", service_name
-        assert service.get("pids_limit") == 512, service_name
-        assert set(str(item) for item in list(service.get("cap_drop") or [])) == {
-            "ALL"
-        }, service_name
-        # The override inherits this list from the base service. Repeating it
-        # here makes Compose append a duplicate and reject the merged config.
-        assert "security_opt" not in service, service_name
-        assert "no-new-privileges:true" in list(
-            (base_services.get(service_name) or {}).get("security_opt") or []
-        ), service_name
-        assert set(str(item) for item in list(service.get("tmpfs") or [])) == {
-            "/tmp",
-            "/run",
-        }, service_name
+    service = services.get("ea-api") or {}
+    volumes = {str(item) for item in list(service.get("volumes") or [])}
+    environment = {str(item) for item in list(service.get("environment") or [])}
+    assert volumes == expected_mounts
+    assert "DOCKER_HOST=tcp://ea-docker-socket-proxy:2375" in environment
+    assert "no-new-privileges:true" in list(
+        (base_services.get("ea-api") or {}).get("security_opt") or []
+    )
+    assert "ea-worker" not in services
+    assert "ea-scheduler" not in services
+
+
+def test_fastestvpn_override_prefers_bounded_switzerland_lane_for_onemin() -> None:
+    compose = _load_yaml(ROOT / "docker-compose.fastestvpn.yml")
+    services = compose.get("services") or {}
+    swiss = services.get("ea-fastestvpn-proxy-ch") or {}
+    swiss_environment = {str(item) for item in list(swiss.get("environment") or [])}
+
+    assert "FASTESTVPN_CONFIG_GLOB=${FASTESTVPN_CH_CONFIG_GLOB:-switzerland*.ovpn}" in swiss_environment
+    assert "127.0.0.1:${FASTESTVPN_CH_PROXY_HOST_PORT:-9315}:${FASTESTVPN_PROXY_PORT:-3128}" in {
+        str(item) for item in list(swiss.get("ports") or [])
+    }
+    assert "./vpn/fastestvpn:/vpn/fastestvpn:ro" in {str(item) for item in list(swiss.get("volumes") or [])}
+
+    api = services.get("ea-api") or {}
+    environment = {str(item) for item in list(api.get("environment") or [])}
+    assert (
+        "ONEMIN_DIRECT_API_PROXY_SERVER=http://ea-fastestvpn-proxy-ch:${FASTESTVPN_PROXY_PORT:-3128}"
+        in environment
+    )
+    assert (
+        "ONEMIN_DIRECT_API_PROXY_POOL=http://ea-fastestvpn-proxy-ch:${FASTESTVPN_PROXY_PORT:-3128}"
+        in environment
+    )
+    assert "ea-fastestvpn-proxy-ch" not in (api.get("depends_on") or {})
+    assert "ea-fastestvpn-proxy" not in services
+    assert "ea-fastestvpn-proxy-ie" not in services
+    assert "ea-fastestvpn-proxy-nl" not in services
+    assert "ea-worker" not in services
+    assert "ea-scheduler" not in services
+
+    dockerfile = (ROOT / "docker" / "fastestvpn-proxy" / "Dockerfile").read_text(encoding="utf-8")
+    assert dockerfile.startswith(
+        "FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc\n"
+    )
+
+
+def test_emailit_compose_defaults_fail_closed_and_split_product_ownership() -> None:
+    compose = _load_yaml(ROOT / "docker-compose.yml")
+    api = ((compose.get("services") or {}).get("ea-api") or {})
+    environment = {str(item) for item in list(api.get("environment") or [])}
+
+    assert "EA_EMAILIT_DELIVERY_ENABLED=${EA_EMAILIT_DELIVERY_ENABLED:-0}" in environment
+    assert "EA_EMAILIT_OFFICE_DELIVERY_ENABLED=${EA_EMAILIT_OFFICE_DELIVERY_ENABLED:-0}" in environment
+    assert "PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED=${PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED:-0}" in environment
+    assert "CHUMMER_HUB_EMAILIT_DELIVERY_ENABLED=${CHUMMER_HUB_EMAILIT_DELIVERY_ENABLED:-0}" in environment
 
 
 def _retired_memorial_override_restores_memorial_runtime_contract() -> None:

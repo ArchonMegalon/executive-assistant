@@ -1,0 +1,37 @@
+{
+  "applied": true,
+  "contract": "ea.ltd.teable_operations.v1",
+  "secret_material_exposed": false,
+  "status": "projection_ready",
+  "tables": {
+    "ltd_proof_debt": {
+      "created_table": false,
+      "fields_created": 0,
+      "remote_table_id": {
+        "present": true,
+        "sha256": "93f8eb22bdd44b9c5444f2a2ade1533f16fa4d07aa4aaaa81f63e77d5742da82"
+      },
+      "row_count": 55,
+      "upsert": {
+        "created": 0,
+        "current": 55,
+        "updated": 0
+      }
+    },
+    "ltd_provider_status": {
+      "created_table": false,
+      "fields_created": 0,
+      "remote_table_id": {
+        "present": true,
+        "sha256": "3e687c013dedfdf08b00042429edbf102333b5362f09f221d1cc3e57a0a2be63"
+      },
+      "row_count": 2,
+      "upsert": {
+        "created": 0,
+        "current": 2,
+        "updated": 0
+      }
+    }
+  },
+  "truth_posture": "Teable is an operator projection only; source receipts remain authoritative."
+}

@@ -38,6 +38,93 @@ def test_register_start_returns_magic_link_and_local_code_without_email_transpor
     assert body["email_delivery_status"] == ""
 
 
+def test_emailit_runtime_kill_switch_is_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_EMAILIT_DELIVERY_ENABLED", "false")
+
+    from app.services import registration_email as service
+
+    assert service.email_delivery_enabled() is False
+    with pytest.raises(RuntimeError, match="registration_email_delivery_disabled"):
+        service.send_registration_email(
+            recipient_email="principal.user@example.test",
+            verification_code="654321",
+            magic_link_url="https://assistant.example.test/register?token=test&code=654321",
+            expires_at=2_000_000_000,
+        )
+
+
+def test_emailit_runtime_kill_switch_defaults_to_enabled_for_configured_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.delenv("EA_EMAILIT_DELIVERY_ENABLED", raising=False)
+
+    from app.services import registration_email as service
+
+    assert service.email_delivery_enabled() is True
+
+
+def test_emailit_product_switches_isolate_office_and_property_delivery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_EMAILIT_DELIVERY_ENABLED", "1")
+    monkeypatch.setenv("EA_EMAILIT_OFFICE_DELIVERY_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED", "0")
+
+    from app.services import registration_email as service
+
+    assert service.email_delivery_enabled() is True
+    with pytest.raises(RuntimeError, match="registration_email_delivery_disabled"):
+        service.send_property_tour_email(
+            recipient_email="principal.user@example.test",
+            property_title="Test property",
+            property_url="https://example.test/property",
+            tour_url="https://example.test/tour",
+        )
+
+
+def test_register_start_uses_link_only_flow_when_emailit_kill_switch_is_engaged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_EMAILIT_DELIVERY_ENABLED", "off")
+    client = _client(monkeypatch)
+
+    from app.api.routes import onboarding as onboarding_route
+
+    monkeypatch.setattr(
+        onboarding_route,
+        "send_registration_email",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("disabled transport must not be called")),
+    )
+
+    response = client.post("/v1/register/start", json={"email": "principal.user@example.test"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["email_delivery_status"] == ""
+    assert body["email_delivery_provider"] == ""
+    assert body["email_delivery_id"] == ""
+    assert body["magic_link_url"].startswith("/register?token=")
+
+
+def test_emailit_direct_sender_preserves_missing_key_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
+    monkeypatch.delenv("EA_EMAILIT_DELIVERY_ENABLED", raising=False)
+
+    from app.services import registration_email as service
+
+    with pytest.raises(RuntimeError, match="registration_email_api_key_missing"):
+        service.send_registration_email(
+            recipient_email="principal.user@example.test",
+            verification_code="654321",
+            magic_link_url="https://assistant.example.test/register?token=test&code=654321",
+            expires_at=2_000_000_000,
+        )
+
+
 def test_register_start_uses_absolute_magic_link_when_email_delivery_is_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -1,0 +1,63 @@
+schema_version: ea.ltd_blast_radius.v1
+default_class: regulated_or_high_risk
+classes:
+  public_safe:
+    rank: 10
+    examples: [public_release_copy, public_docs, approved_marketing_copy]
+  operator_internal:
+    rank: 20
+    examples: [internal_memo, proof_debt_dashboard, audit_note]
+  approved_outreach_packet:
+    rank: 25
+    examples: [approved_recipient_basis, approved_message_copy, suppression_checked_contact]
+  support_safe_redacted:
+    rank: 30
+    examples: [redacted_support_summary, known_issue_text, approved_response_draft]
+  private_sensitive:
+    rank: 40
+    examples: [support_ticket, private_campaign_data, gmail, calendar, people_memory, secret]
+  regulated_or_high_risk:
+    rank: 50
+    examples: [billing, entitlement, account_access, release_promotion, publication_approval]
+provider_policies:
+  1min.AI:
+    max_input_class: public_safe
+    may_publish: false
+    may_own_truth: false
+    human_review_required: true
+  AI Magicx:
+    max_input_class: public_safe
+    may_publish: false
+    may_own_truth: false
+    human_review_required: true
+    credential_required: AI_MAGICX_API_KEY
+  WorkLLM:
+    max_input_class: public_safe
+    may_publish: false
+    may_own_truth: false
+    human_review_required: true
+  Sendr:
+    max_input_class: approved_outreach_packet
+    may_publish: false
+    may_send_directly: false
+    may_own_truth: false
+    human_review_required: true
+  Emailit:
+    max_input_class: approved_outreach_packet
+    may_publish: false
+    may_own_truth: false
+    human_review_required: false
+    product_switch_required: true
+  VocalLab.ai:
+    max_input_class: public_safe
+    may_publish: false
+    may_render: false
+    may_clone: false
+    may_own_truth: false
+    human_review_required: true
+  FastestVPN PRO:
+    max_input_class: operator_internal
+    may_publish: false
+    may_own_truth: false
+    allowed_transport: onemin_refresh_only
+
