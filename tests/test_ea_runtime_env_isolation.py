@@ -116,6 +116,24 @@ def test_operator_only_spatial_tour_credentials_are_denied_from_both_runtime_env
     assert receipt["removed_key_count"] == 4
 
 
+def test_service_scoped_proxy_configuration_is_not_broadcast_to_every_service(
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    root = _repo(tmp_path)
+    _secret_file(
+        root / ".env",
+        b"EA_KEEP=yes\n"
+        b"ONEMIN_DIRECT_API_PROXY_SERVER=http://operator-proxy.invalid\n"
+        b"ONEMIN_DIRECT_API_PROXY_POOL=http://operator-pool.invalid\n",
+    )
+
+    receipt = module.prepare_runtime_env(root)
+
+    assert (root / RUNTIME_DIR / "ea_runtime.env").read_bytes() == b"EA_KEEP=yes\n"
+    assert receipt["removed_key_count"] == 2
+
+
 def test_absent_optional_source_removes_a_safe_stale_local_projection(tmp_path: Path) -> None:
     module = _module()
     root = _repo(tmp_path)
