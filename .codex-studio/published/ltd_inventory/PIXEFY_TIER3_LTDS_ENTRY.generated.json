@@ -6,5 +6,5 @@
   "workspace_integration_tier": "Tier 2",
   "verification_status": "fleet_verified",
   "missing_tokens": [],
-  "source_path": "/docker/EA/LTDs.md"
+  "source_path": "LTDs.md"
 }

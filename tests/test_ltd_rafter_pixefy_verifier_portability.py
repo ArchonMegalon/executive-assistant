@@ -12,6 +12,7 @@ def test_rafter_pixefy_ltd_verifier_uses_repo_local_or_env_paths() -> None:
     assert "/docker/" + "chummercomplete" not in text
     assert "EA_LTD_INVENTORY_COMPLETION_ROOT" in text
     assert ".codex-studio" in text
+    assert '"source_path": LTD_PATH.relative_to(ROOT).as_posix()' in text
 
 
 def test_rafter_pixefy_ltd_verifier_does_not_serialize_account_identities() -> None:
