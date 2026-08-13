@@ -1336,6 +1336,7 @@
     "tests/test_continuous_improvement_goal_posture.py": "a725077c25558af3031b51b74d2668c09fc0b907d6bbdd8a5ccd74ab63979b68",
     "tests/test_crezlo_email_runtime_defaults.py": "ac6a6c2caeedbd418290d40c9275c15e3a3fc14747997a2c11b05957f9e744d2",
     "tests/test_deployment_contracts.py": "d7acae3edf26b1920dd5669fd231a60f05df1c5b7fab095d5a1f57c18de5aa12",
+    "tests/test_deployment_contracts.py": "6c1e188dc9b559786827ae7d44a27ff9c78da05a70889fbdc75584a6a806a168",
     "tests/test_design_mirror_bundle_contracts.py": "54ebbfb48b84edc0a5bb80ca1b90f2baf2df62dd30d169a8803951f3f882a6a9",
     "tests/test_di_container.py": "d0725ef67f804e324eb8d7f8ac0ff9f9d9974423f77dcf428e9159ef028e885f",
     "tests/test_docs_and_verifier_path_portability.py": "7041e44b34d2ce71c0dee311df5e639078dcfebd47be1a543acac11ce9a21f55",
@@ -1636,6 +1637,8 @@
   },
   "indexed_at_commit": "f9b12f55aca6fe9a44eb0c12ea51140071674298",
   "indexed_at_timestamp": "2026-08-13T10:26:36.084553955+00:00",
+  "indexed_at_commit": "350b243f60e4f0282a5633505494a2094c7badc7",
+  "indexed_at_timestamp": "2026-08-13T10:13:51.489447887+00:00",
   "schema_version": 3,
   "stats": {
     "total_edges": 34445,

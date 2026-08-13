@@ -911,11 +911,7 @@ def test_fastestvpn_override_mounts_only_runtime_compose_inputs() -> None:
     assert set(str(item) for item in list(proxy.get("cap_drop") or [])) == {"ALL"}
     assert "no-new-privileges:true" in list(proxy.get("security_opt") or [])
     assert set(str(item) for item in list(proxy.get("tmpfs") or [])) == {"/run"}
-    expected_mounts = {
-        "./docker-compose.yml:/app/docker-compose.yml:ro",
-        "./docker-compose.fastestvpn.yml:/app/docker-compose.fastestvpn.yml:ro",
-        "./vpn/fastestvpn:/app/vpn/fastestvpn:ro",
-    }
+    expected_mounts = {"./vpn/fastestvpn:/app/vpn/fastestvpn:ro"}
     service = services.get("ea-api") or {}
     volumes = {str(item) for item in list(service.get("volumes") or [])}
     environment = {str(item) for item in list(service.get("environment") or [])}
