@@ -26,11 +26,22 @@ def test_verifier_writes_candidate_only_redacted_receipt(
 ) -> None:
     env_path = tmp_path / ".env"
     output_path = tmp_path / "receipt.json"
+    reachability_path = tmp_path / "reachability.json"
     _write_env(env_path)
+    reachability_path.write_text(
+        json.dumps(
+            {
+                "verdict": "TENANT_SURFACE_REACHABLE_AUTH_PENDING",
+                "irreversible_actions_attempted": [],
+            }
+        ),
+        encoding="utf-8",
+    )
 
     receipt = build_receipt(
         env_path=env_path,
         output_path=output_path,
+        public_reachability_receipt=reachability_path,
     )
     serialized = json.dumps(receipt)
 

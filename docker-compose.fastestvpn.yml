@@ -78,6 +78,7 @@ services:
   # this provider transport.
   ea-api:
     mem_limit: 2g
+    mem_reservation: 512m
     pids_limit: 512
     environment:
       - ONEMIN_DIRECT_API_PROXY_SERVER=http://ea-fastestvpn-proxy-ch:${FASTESTVPN_PROXY_PORT:-3128}
