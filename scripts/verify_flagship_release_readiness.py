@@ -1201,20 +1201,26 @@ def verify(
     required_contract_paths: tuple[Path, ...] = REQUIRED_RELEASE_CONTRACT_PATHS,
 ) -> list[str]:
     issues: list[str] = []
-    if (
+    canonical_source_unconfigured = (
         canonical_pulse_source_path == CANONICAL_CHUMMER_PULSE_SOURCE
         and CHUMMER_DESIGN_ROOT is None
-    ):
+    )
+    if canonical_source_unconfigured:
         issues.append(
             "weekly product pulse canonical source is not configured; "
             "set CHUMMER_DESIGN_ROOT or pass --canonical-pulse-source"
         )
-    pulse, pulse_issues = _load_bound_pulse(
-        pulse_path=pulse_path,
-        manifest_path=design_mirror_manifest_path,
-        canonical_source_path=canonical_pulse_source_path,
-    )
-    issues.extend(pulse_issues)
+        # The sentinel path is deliberately host-local. Do not pass it into the
+        # normal parity loader, whose diagnostic would disclose the checkout's
+        # absolute host path even though no canonical source was configured.
+        pulse = {}
+    else:
+        pulse, pulse_issues = _load_bound_pulse(
+            pulse_path=pulse_path,
+            manifest_path=design_mirror_manifest_path,
+            canonical_source_path=canonical_pulse_source_path,
+        )
+        issues.extend(pulse_issues)
     receipt = _json(flagship_receipt_path)
     browser = _json(browser_proof_path)
     journey_summary = _journey_summary(journey_gates_path, pulse=pulse)
