@@ -1018,7 +1018,7 @@
     "scripts/db_retention.sh": "2adf6fb18c9a7dbc7adb2bfb01540186e2c4676adcd3c3cc478e68110137834a",
     "scripts/db_size.sh": "e837d6409b5854c873828a97f93a2257a2a20ca312b1cb6c9b8670b21ce408e5",
     "scripts/db_status.sh": "63f643d2b232f81ab3eca748df989f42589eeb766ad8a56c670203e254af9d25",
-    "scripts/deploy.sh": "7678f50f7e2eec2d228135ab04c2193e8a7dd82ebff20a1576618452d858633c",
+    "scripts/deploy.sh": "90a8652811b733d0071a0e53cf39b244798da4c6ff19336949bb5aba6a16e2b1",
     "scripts/deploy_ea_audiobook_runtime.py": "1f5cce71b8450d5ca0efdf97afd55d758a940ea2fab2514301f5c1ca080cdb1b",
     "scripts/deploy_proactive_ooda_runtime.sh": "1090c0450bbbc0c04024ea098df63980f1981a062c48a7a3620c3887f4410b0e",
     "scripts/diff_openapi.sh": "3e9259551ce0a3ed922cc1f3078c78bec125f0e5112db768cbb9e36aeef51f97",
@@ -1335,7 +1335,7 @@
     "tests/test_compose_portable_storage_defaults.py": "09327953617d13291f307cc7ceca88a068e325cb987b5a3b2b918e19eb5a0abe",
     "tests/test_continuous_improvement_goal_posture.py": "a725077c25558af3031b51b74d2668c09fc0b907d6bbdd8a5ccd74ab63979b68",
     "tests/test_crezlo_email_runtime_defaults.py": "ac6a6c2caeedbd418290d40c9275c15e3a3fc14747997a2c11b05957f9e744d2",
-    "tests/test_deployment_contracts.py": "6c0bdff604e01fb34ff7de0781630d4748f46a2a40514f49a9d711e907aa487e",
+    "tests/test_deployment_contracts.py": "289dba17592712d3ef8853a29172101a5727b4f1adda02eb7789f1ab5a089428",
     "tests/test_design_mirror_bundle_contracts.py": "54ebbfb48b84edc0a5bb80ca1b90f2baf2df62dd30d169a8803951f3f882a6a9",
     "tests/test_di_container.py": "d0725ef67f804e324eb8d7f8ac0ff9f9d9974423f77dcf428e9159ef028e885f",
     "tests/test_docs_and_verifier_path_portability.py": "7041e44b34d2ce71c0dee311df5e639078dcfebd47be1a543acac11ce9a21f55",
@@ -1634,11 +1634,11 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "de48784280f0087287617db19807ff473db51fb6",
-  "indexed_at_timestamp": "2026-08-13T06:24:54.128545748+00:00",
+  "indexed_at_commit": "ec13e952f44de1c77428e71108c8d01d3b0bd7b5",
+  "indexed_at_timestamp": "2026-08-13T06:35:43.756362701+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 35531,
+    "total_edges": 35537,
     "total_files": 1633,
     "total_nodes": 24033
   },
