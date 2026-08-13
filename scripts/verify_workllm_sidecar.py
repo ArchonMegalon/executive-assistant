@@ -338,6 +338,7 @@ def build_receipt(
     *,
     env_path: Path,
     output_path: Path,
+    public_reachability_receipt: Path = PUBLIC_REACHABILITY_RECEIPT,
 ) -> dict[str, object]:
     presence, env_mode_600, workspace_url = _load_env_presence(env_path)
     canary = _run_contract_canary(workspace_url)
@@ -346,9 +347,9 @@ def build_receipt(
         encoding="utf-8"
     )
     public_reachability: dict[str, object] = {}
-    if PUBLIC_REACHABILITY_RECEIPT.is_file():
+    if public_reachability_receipt.is_file():
         loaded = json.loads(
-            PUBLIC_REACHABILITY_RECEIPT.read_text(encoding="utf-8")
+            public_reachability_receipt.read_text(encoding="utf-8")
         )
         if isinstance(loaded, dict):
             public_reachability = loaded
@@ -399,10 +400,14 @@ def build_receipt(
         },
         "evidence_receipts": {
             "public_reachability": {
-                "path": str(PUBLIC_REACHABILITY_RECEIPT.relative_to(ROOT)),
+                "path": (
+                    str(public_reachability_receipt.relative_to(ROOT))
+                    if public_reachability_receipt.is_relative_to(ROOT)
+                    else public_reachability_receipt.name
+                ),
                 "sha256": (
-                    _sha256_file(PUBLIC_REACHABILITY_RECEIPT)
-                    if PUBLIC_REACHABILITY_RECEIPT.is_file()
+                    _sha256_file(public_reachability_receipt)
+                    if public_reachability_receipt.is_file()
                     else ""
                 ),
             }

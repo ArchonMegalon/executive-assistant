@@ -972,7 +972,7 @@ def test_emailit_compose_defaults_fail_closed_and_split_product_ownership() -> N
 
     assert "EA_EMAILIT_DELIVERY_ENABLED=${EA_EMAILIT_DELIVERY_ENABLED:-0}" in environment
     assert "EA_EMAILIT_OFFICE_DELIVERY_ENABLED=${EA_EMAILIT_OFFICE_DELIVERY_ENABLED:-0}" in environment
-    assert "PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED=${PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED:-0}" in environment
+    assert not any(item.startswith("PROPERTYQUARRY_") for item in environment)
     assert "CHUMMER_HUB_EMAILIT_DELIVERY_ENABLED=${CHUMMER_HUB_EMAILIT_DELIVERY_ENABLED:-0}" in environment
 
 

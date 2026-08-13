@@ -149,6 +149,10 @@ Auth:
 - `make ltd-release-gates` runs all LTD release verifiers together.
 - `make verify-ltd-critical-entries`, `make verify-ltd-flagship-subset`, and `make verify-ltd-provider-lanes` are the corresponding operator entrypoints.
 
+- Prepare operator-local FastestVPN profiles with `scripts/bootstrap_fastestvpn_configs.sh`; generated provider configuration stays under `vpn/fastestvpn/`.
+- `ea-docker-socket-proxy` constrains that sidecar with dropped capabilities, a read-only rootfs, and bounded memory/PID limits; operator services keep their default non-root user, and the operator image drops all ambient Linux capabilities. Rotate the tunnel with `scripts/rotate_fastestvpn_proxy.sh` using `--no-build --force-recreate --no-deps`.
+- If you use `scripts/deploy.sh`, keep that overlay explicit with `EA_ENABLE_FASTESTVPN=1`.
+
 Runtime mode:
 - Set `EA_RUNTIME_MODE=prod` for durable environments; the app will fail fast instead of falling back from `EA_STORAGE_BACKEND=auto` or `memory` to in-process storage.
 - In `prod`, workspace-access token binding must resolve from `EA_PUBLIC_APP_BASE_URL`, `EA_GOOGLE_OAUTH_REDIRECT_URI`, or `EA_WORKSPACE_ACCESS_TOKEN_ISSUER`; keep `EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE` and `EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION` explicit so session cookies and workspace links stay verifiable across deploys. Placeholder or loopback binding origins such as `https://example.test`, `https://property.example.test`, or `http://localhost` are rejected.

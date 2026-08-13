@@ -287,7 +287,7 @@ LANES: tuple[ProviderLane, ...] = (
         ),
         source_of_truth=(
             "EA owns audiobook source, rights, cast, budget, quality, recipient, and publication truth; "
-            "Memorial exclusively owns Manfred authority, samples, profiles, hearing, deletion, rollback, and release truth; "
+            "The separate Manfred product exclusively owns authority, samples, profiles, hearing, deletion, rollback, and release truth; "
             "VocalLab is catalog visibility only in this lane."
         ),
         allowed_inputs=(
@@ -304,7 +304,7 @@ LANES: tuple[ProviderLane, ...] = (
             "automatic_voice_clone",
             "automatic_point_topup",
             "cross_provider_fallback",
-            "memorial_authority",
+            "manfred_product_authority",
             "publication_truth",
             "release_truth",
         ),
@@ -333,8 +333,8 @@ LANES: tuple[ProviderLane, ...] = (
                 "All VocalLab spend/runtime switches remain off.",
             ),
             LaneCheck(
-                "vocallab_memorial_authority_boundary",
-                "Memorial retains exclusive Manfred authority and release truth.",
+                "vocallab_manfred_product_authority_boundary",
+                "The separate Manfred product retains exclusive authority and release truth.",
                 "Lane boundary and forbidden inputs.",
             ),
         ),
@@ -1498,22 +1498,22 @@ def _check_passed(
             if str(env.get(name) or "").strip().lower() in enabled_values
         ]
         return (not enabled), "vocallab_spend_controls_off" if not enabled else "vocallab_spend_control_enabled"
-    if key == "vocallab_memorial_authority_boundary":
+    if key == "vocallab_manfred_product_authority_boundary":
         required_forbidden = {
             "raw_voice_sample",
             "real_person_voice_upload",
             "unconsented_likeness",
-            "memorial_authority",
+            "manfred_product_authority",
             "publication_truth",
             "release_truth",
         }
         boundary = lane.source_of_truth.lower()
         ok = (
             required_forbidden <= set(lane.forbidden_inputs)
-            and "memorial exclusively owns manfred authority" in boundary
+            and "separate manfred product exclusively owns authority" in boundary
             and "release truth" in boundary
         )
-        return ok, "vocallab_memorial_authority_retained" if ok else "vocallab_memorial_authority_boundary_missing"
+        return ok, "vocallab_manfred_product_authority_retained" if ok else "vocallab_manfred_product_authority_boundary_missing"
     if key == "emailit_provider_verification":
         row = discovery.get(_normalize("Emailit"), {})
         ok = (
@@ -2083,7 +2083,7 @@ def _hard_contract_failures(lane: ProviderLane) -> list[str]:
             "automatic_voice_render",
             "automatic_voice_clone",
             "automatic_point_topup",
-            "memorial_authority",
+            "manfred_product_authority",
             "publication_truth",
             "release_truth",
         }

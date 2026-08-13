@@ -216,6 +216,7 @@ Then open `http://localhost:8090/health`.
 - `make verify-ltd-provider-lanes` runs the governed provider-lane verifier.
 - `make ltd-release-gates` runs all LTD release verifiers together.
 - Optional FastestVPN support is available in [docker-compose.fastestvpn.yml](docker-compose.fastestvpn.yml). The overlay has one Switzerland-only sidecar and exposes it only to the API's operator-triggered 1min refresh route. Worker, scheduler, WhatsApp, browser UI, and public ingress stay outside this transport. `refresh-onemin-direct-api --proxy-mode configured` performs a secret-safe reachability and country preflight and fails closed when the proxy is unavailable. Normal EA startup does not depend on VPN health. Keep deployment explicit with `EA_ENABLE_FASTESTVPN=1`.
+- If you deploy through `scripts/deploy.sh`, keep the overlay explicit with `EA_ENABLE_FASTESTVPN=1`.
 - The overlay uses `ea-docker-socket-proxy` instead of handing the raw host socket to the API, mounts only the two Compose inputs and `vpn/fastestvpn/`, binds the host proxy to loopback, and removes the retired generic, Ireland, and Netherlands proxy pool.
 - Verify the live boundary without exposing proxy or credential values with `.venv/bin/python scripts/ea_live_ops.py probe-fastestvpn-transport --format operator`.
 

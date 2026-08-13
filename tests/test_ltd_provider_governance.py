@@ -259,7 +259,7 @@ def test_lane_boundaries_match_provider_risks() -> None:
     assert vocallab.providers == ("VocalLab.ai",)
     assert vocallab.integration_lane == "voice_catalog_only"
     assert vocallab.verified_state == "verified_catalog_only"
-    assert {"real_person_voice_upload", "automatic_voice_render", "memorial_authority", "release_truth"} <= set(
+    assert {"real_person_voice_upload", "automatic_voice_render", "manfred_product_authority", "release_truth"} <= set(
         vocallab.forbidden_inputs
     )
 
