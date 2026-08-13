@@ -2745,9 +2745,13 @@ def _retired_deploy_script_materializes_release_manifest_after_health() -> None:
     assert (
         'ensure_runtime_readable_file_projection \\\n'
         '  "EA_RESPONSES_NO_RETENTION_CLIENT_TOKEN_HOST_FILE" \\\n'
-        '  "./.ea-runtime-secrets/no_retention_client_token"'
+        '  "./.ea-runtime-secrets/no_retention_client_token" \\\n'
+        '  "runtime_group_1000"'
         in deploy
     )
+    assert 'chgrp 1000 "${resolved_path}"' in deploy
+    assert 'chmod 0640 "${resolved_path}"' in deploy
+    assert 'if [[ "${strict_mode}" != "640" ]]; then' in deploy
     assert "ensure_runtime_writable_dir_projection() {" in deploy
     assert (
         'ensure_runtime_writable_dir_projection "EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT" "./data/pocket-ai-audio"'
