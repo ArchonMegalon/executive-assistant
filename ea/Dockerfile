@@ -1,16 +1,7 @@
 FROM python:3.12-slim@sha256:c2d8472b831337ab296a8ce652e1ba786e9e3034fc445dc58b50a7f5251f0003
 
-ARG EA_SOURCE_REVISION=""
-
-RUN set -eu; \
-    if [ -n "$EA_SOURCE_REVISION" ]; then \
-      [ "${#EA_SOURCE_REVISION}" -eq 40 ]; \
-      case "$EA_SOURCE_REVISION" in *[!0-9a-f]*) exit 1 ;; esac; \
-    fi
-
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    EA_SOURCE_REVISION=${EA_SOURCE_REVISION}
+    PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -131,6 +122,17 @@ RUN test -f requirements.lock && \
 
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh && \
     find /app/scripts -maxdepth 1 -type f -name '*.sh' -exec chmod +x {} \;
+
+# Keep the source attestation in the final cheap image layer. A new Git SHA
+# must not invalidate the pinned OS/toolchain layer before application source
+# and dependency changes are evaluated.
+ARG EA_SOURCE_REVISION=""
+RUN set -eu; \
+    if [ -n "$EA_SOURCE_REVISION" ]; then \
+      [ "${#EA_SOURCE_REVISION}" -eq 40 ]; \
+      case "$EA_SOURCE_REVISION" in *[!0-9a-f]*) exit 1 ;; esac; \
+    fi
+ENV EA_SOURCE_REVISION=${EA_SOURCE_REVISION}
 
 USER ea
 HEALTHCHECK --interval=30s --timeout=15s --start-period=30s --retries=5 \

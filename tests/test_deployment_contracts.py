@@ -120,6 +120,13 @@ def test_runtime_builds_bind_the_exact_deploy_source_revision() -> None:
     ) in deploy
     assert deploy.index(resolve_revision) < deploy.index(bind_revision)
     assert deploy.index(bind_revision) < deploy.index(compose_build)
+    dockerfile = (ROOT / "ea" / "Dockerfile").read_text(encoding="utf-8")
+    assert dockerfile.index("RUN apt-get update") < dockerfile.index(
+        'ARG EA_SOURCE_REVISION=""'
+    )
+    assert dockerfile.index('ARG EA_SOURCE_REVISION=""') < dockerfile.index(
+        "ENV EA_SOURCE_REVISION=${EA_SOURCE_REVISION}"
+    )
 
 
 def test_runtime_build_context_excludes_local_state_and_secrets() -> None:
@@ -2886,6 +2893,10 @@ def test_deploy_script_extends_runtime_topology_for_whatsapp_overlay() -> None:
         in deploy
     )
     assert "recreate_services_without_build() {" in deploy
+    assert "wait_for_service_ready() {" in deploy
+    assert 'EA_DEPLOY_SERVICE_READY_TIMEOUT_SECONDS:-150' in deploy
+    assert 'wait_for_service_ready "${service}"' in deploy
+    assert "EA_DEPLOY_SERVICE_READY_TIMEOUT_SECONDS must be an integer from 1 to 600." in deploy
     assert 'compose up -d --no-build --no-deps --force-recreate "${service}"' in deploy
     assert (
         'echo "Service failed to become ready during no-build deploy: ${service}" >&2'
