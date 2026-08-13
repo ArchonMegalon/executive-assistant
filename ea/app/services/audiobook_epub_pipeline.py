@@ -37,6 +37,7 @@ from app.services.voice_runtime import (
     unmixr_language,  # noqa: F401 - compatibility patch surface
     unmixr_api_key,
     unmixr_api_key_slot_count,
+    unmixr_slot_policy_summary,
     unmixr_voice_id,
     unmixr_pronunciation_dict,
     unmixr_speaking_pitch,
@@ -16331,6 +16332,7 @@ def audiobook_runtime_preflight() -> dict[str, object]:
     public_share_enabled = audiobookshelf_public_share_enabled()
     player_access_base_url_present = bool(str(os.getenv("EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL") or "").strip())
     bulk_pacing_enabled = _unmixr_max_segments_per_run() > 0
+    slot_policy = unmixr_slot_policy_summary()
 
     telegram_audiobook_enabled = telegram_audiobook_skill_enabled()
     add("telegram_audiobook_enabled", telegram_audiobook_enabled, detail="Telegram audiobook intake switch.")
@@ -16350,6 +16352,11 @@ def audiobook_runtime_preflight() -> dict[str, object]:
         "unmixr_auto_render_enabled",
         unmixr_auto_render_enabled(),
         detail="Telegram audiobook jobs can render without a separate manual resume.",
+    )
+    add(
+        "unmixr_slot_policy_valid",
+        slot_policy["status"] != "invalid",
+        detail="Preferred, standard, and reserve account tiers use configured opaque slot names without account identifiers.",
     )
     add("voice_catalog_configured", bool(voice_presets), detail="At least one narration voice is configured or discovered.")
     add(
@@ -16431,6 +16438,7 @@ def audiobook_runtime_preflight() -> dict[str, object]:
             "external_tts_enabled": external_tts_enabled(),
             "unmixr_auto_render_enabled": unmixr_auto_render_enabled(),
             "api_key_slot_count": unmixr_api_key_slot_count(),
+            "slot_policy": slot_policy,
             "voice_catalog_count": len(voice_presets),
             "voice_discovery_enabled": audiobook_voice_discovery_enabled(),
             "voice_discovery_target_count": audiobook_voice_discovery_target_count(),

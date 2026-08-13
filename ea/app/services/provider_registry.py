@@ -731,6 +731,46 @@ class ProviderRegistryService:
                 ),
             ),
             ProviderBinding(
+                provider_key="emailit",
+                display_name="Emailit",
+                executable=False,
+                capabilities=(
+                    ProviderCapability(
+                        provider_key="emailit",
+                        capability_key="transactional_email_delivery",
+                        tool_name="connector.dispatch",
+                        executable=False,
+                    ),
+                    ProviderCapability(
+                        provider_key="emailit",
+                        capability_key="delivery_receipt",
+                        tool_name="connector.dispatch",
+                        executable=False,
+                    ),
+                ),
+                source="runtime",
+            ),
+            ProviderBinding(
+                provider_key="fastestvpn",
+                display_name="FastestVPN PRO",
+                executable=False,
+                capabilities=(
+                    ProviderCapability(
+                        provider_key="fastestvpn",
+                        capability_key="governed_provider_transport",
+                        tool_name="connector.dispatch",
+                        executable=False,
+                    ),
+                    ProviderCapability(
+                        provider_key="fastestvpn",
+                        capability_key="proxy_country_verification",
+                        tool_name="connector.dispatch",
+                        executable=False,
+                    ),
+                ),
+                source="runtime",
+            ),
+            ProviderBinding(
                 provider_key="gemini_vortex",
                 display_name="Gemini Vortex",
                 executable=True,
@@ -948,6 +988,26 @@ class ProviderRegistryService:
                         provider_key="unmixr",
                         capability_key="voice_render",
                         tool_name="provider.unmixr.voice_render",
+                        executable=False,
+                    ),
+                ),
+                source="catalog",
+            ),
+            ProviderBinding(
+                provider_key="vocallab",
+                display_name="VocalLab AI",
+                executable=False,
+                capabilities=(
+                    ProviderCapability(
+                        provider_key="vocallab",
+                        capability_key="voice_inventory",
+                        tool_name="provider.vocallab.voice_inventory",
+                        executable=False,
+                    ),
+                    ProviderCapability(
+                        provider_key="vocallab",
+                        capability_key="voice_render",
+                        tool_name="provider.vocallab.voice_render",
                         executable=False,
                     ),
                 ),
@@ -1325,6 +1385,8 @@ class ProviderRegistryService:
             "browseract": ("BROWSERACT_API_KEY", "BROWSERACT_API_KEY_FALLBACK_1"),
             "browserly": ("BROWSERLY_API_KEY",),
             "comfyui": ("COMFYUI_URL",),
+            "emailit": ("EMAILIT_API_KEY",),
+            "fastestvpn": ("FASTESTVPN_USERNAME", "FASTESTVPN_PASSWORD"),
             "gemini_vortex": ("EA_GEMINI_VORTEX_COMMAND",),
             "google_gmail": (
                 "EA_GOOGLE_OAUTH_CLIENT_ID",
@@ -1345,6 +1407,7 @@ class ProviderRegistryService:
             "prompting_systems": ("PROMPTING_SYSTEMS_API_KEY",),
             "teable": ("TEABLE_API_KEY",),
             "unmixr": ("UNMIXR_API_KEY", "UNMIXR_VOICE_ID"),
+            "vocallab": ("VOCALLAB_API_KEY",),
             "workllm": (
                 "WORKLLM_EMAIL",
                 "WORKLLM_PASSWORD",
@@ -2434,5 +2497,12 @@ class ProviderRegistryService:
             "gemini_cli": "gemini_vortex",
             "vortex": "gemini_vortex",
             "gemini_vortex": "gemini_vortex",
+            "fastestvpn_pro": "fastestvpn",
+            "fastestvpn_pro_vpn": "fastestvpn",
+            "vocal_lab": "vocallab",
+            "vocallab.ai": "vocallab",
+            "voice_lab": "vocallab",
+            "voicelab": "vocallab",
+            "voicelab.ai": "vocallab",
         }
         return aliases.get(normalized, normalized)

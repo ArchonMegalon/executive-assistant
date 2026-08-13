@@ -60,7 +60,7 @@ def test_vocallab_stage_defaults_are_complete_and_fail_closed() -> None:
         "EA_AUDIOBOOK_VOCALLAB_VOICE_CATALOG_FILE": (
             "config/vocallab_voice_catalog.local.json"
         ),
-        "EA_AUDIOBOOK_TTS_PROVIDER_ORDER": "unmixr,vocallab,piper_local",
+        "EA_AUDIOBOOK_TTS_PROVIDER_ORDER": "unmixr,piper_local",
         "EA_AUDIOBOOK_TTS_ALLOW_CROSS_PROVIDER_FALLBACK": "0",
     }
     for service in production.STAGE_MUTATION_SERVICES:

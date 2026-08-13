@@ -865,7 +865,10 @@ else
     FAILURE_LOG_SERVICES+=(ea-cloudflared)
   fi
   if [[ "${FASTESTVPN_OVERLAY_ENABLED}" == "1" ]]; then
-    FAILURE_LOG_SERVICES+=(ea-fastestvpn-proxy ea-fastestvpn-proxy-ie ea-fastestvpn-proxy-nl)
+    RUNTIME_BUILD_SERVICES=(ea-fastestvpn-proxy-ch "${RUNTIME_BUILD_SERVICES[@]}")
+    RUNTIME_RECREATE_ONLY_SERVICES+=(ea-docker-socket-proxy)
+    TOPOLOGY_SERVICES+=(ea-fastestvpn-proxy-ch ea-docker-socket-proxy)
+    FAILURE_LOG_SERVICES+=(ea-fastestvpn-proxy-ch ea-docker-socket-proxy)
   fi
   build_and_recreate_services "${RUNTIME_BUILD_SERVICES[@]}"
   recover_docker_build_pressure

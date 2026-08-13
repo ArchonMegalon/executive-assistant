@@ -2096,10 +2096,27 @@ def test_audit_model_candidates_route_to_chatplayground_when_onemin_unconfigured
 
 def test_normalize_provider_aliases_for_onemin_in_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "1min,magicx")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "om-best")
 
     assert upstream._provider_order() == ("onemin", "magixai")
+
+
+def test_empty_magicx_key_is_removed_from_effective_provider_orders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "onemin,magixai,gemini_vortex")
+    monkeypatch.setenv("EA_RESPONSES_CHEAP_PROVIDER_ORDER", "onemin,magixai,gemini_vortex")
+    monkeypatch.setenv("EA_RESPONSES_GROUNDWORK_PROVIDER_ORDER", "onemin,magixai,gemini_vortex")
+    monkeypatch.setenv("EA_RESPONSES_HARD_PROVIDER_ORDER", "onemin,magixai,gemini_vortex")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_API_KEY", "")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "")
+
+    assert upstream._provider_order() == ("onemin", "gemini_vortex")
+    assert upstream._cheap_provider_order() == ("onemin", "gemini_vortex")
+    assert upstream._groundwork_provider_order() == ("onemin", "gemini_vortex")
+    assert upstream._hard_provider_order() == ("onemin", "gemini_vortex")
 
 
 def test_plain_onemin_model_stays_provider_exact_without_magicx_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2117,6 +2134,7 @@ def test_plain_onemin_model_stays_provider_exact_without_magicx_fallback(monkeyp
 
 def test_plain_magicx_model_skips_onemin(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "onemin,magicxai")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "x-ai/grok-code-fast-1")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "gpt-5")
 

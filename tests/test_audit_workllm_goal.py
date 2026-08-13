@@ -30,16 +30,36 @@ EA_WORKLLM_KILL_SWITCH=1
     path.chmod(0o600)
 
 
+def _write_local_contract(path: Path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "verdict": "CANDIDATE_ONLY",
+                "checks": {
+                    "local_contract_ready": True,
+                    "persistent_credit_audit_review": True,
+                    "durable_rollback_override": True,
+                },
+                "authority": {"canonical_write_allowed": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_goal_audit_stays_incomplete_without_account_and_real_canary(
     tmp_path: Path,
 ) -> None:
     env_path = tmp_path / ".env"
     output_path = tmp_path / "goal-audit.json"
+    local_contract_path = tmp_path / "local-contract.json"
     _write_env(env_path)
+    _write_local_contract(local_contract_path)
 
     receipt = build_goal_audit(
         env_path=env_path,
         output_path=output_path,
+        local_contract_receipt=local_contract_path,
         account_verification_receipt=tmp_path / "missing-account.json",
         manual_canary_receipt=tmp_path / "missing-canary.json",
     )
@@ -67,11 +87,14 @@ def test_goal_audit_accepts_disabled_api_lane_without_fake_api_proof(
 ) -> None:
     env_path = tmp_path / ".env"
     output_path = tmp_path / "goal-audit.json"
+    local_contract_path = tmp_path / "local-contract.json"
     _write_env(env_path)
+    _write_local_contract(local_contract_path)
 
     receipt = build_goal_audit(
         env_path=env_path,
         output_path=output_path,
+        local_contract_receipt=local_contract_path,
         account_verification_receipt=tmp_path / "missing-account.json",
         manual_canary_receipt=tmp_path / "missing-canary.json",
     )

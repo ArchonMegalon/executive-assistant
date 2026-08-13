@@ -4556,6 +4556,14 @@ def _provider_order_from_env(raw: str, *, fallback: tuple[str, ...], env_name: s
         if provider_key not in _KNOWN_PROVIDER_KEYS:
             unknown.append(provider_key)
             continue
+        # AI Magicx is an optional staged lane. Keep it out of every effective
+        # default/fallback order until at least one credential is actually
+        # configured, even when a stale environment value still names it.
+        if provider_key == "magixai" and not _non_empty_values(
+            _env("EA_RESPONSES_MAGICX_API_KEY"),
+            _env("AI_MAGICX_API_KEY"),
+        ):
+            continue
         seen.add(provider_key)
         ordered.append(provider_key)
     if unknown and env_name not in _PROVIDER_ORDER_WARNING_EMITTED:
@@ -4567,8 +4575,18 @@ def _provider_order_from_env(raw: str, *, fallback: tuple[str, ...], env_name: s
         )
     if ordered:
         return tuple(ordered)
-    valid_fallback = [key for key in fallback if key in _KNOWN_PROVIDER_KEYS]
-    return tuple(valid_fallback) if valid_fallback else ("onemin", "magixai", "gemini_vortex")
+    magicx_configured = bool(
+        _non_empty_values(
+            _env("EA_RESPONSES_MAGICX_API_KEY"),
+            _env("AI_MAGICX_API_KEY"),
+        )
+    )
+    valid_fallback = [
+        key
+        for key in fallback
+        if key in _KNOWN_PROVIDER_KEYS and (key != "magixai" or magicx_configured)
+    ]
+    return tuple(valid_fallback) if valid_fallback else ("onemin", "gemini_vortex")
 
 
 def _provider_order() -> tuple[str, ...]:

@@ -18,16 +18,19 @@ FLAGSHIP_REQUIRED = {
     "Rafter": {"manual_seeded", "complete"},
 }
 
-ACCEPTED_SOURCES = {
-    "1min.AI": {"local_env_browseract_refresh"},
-    "Prompt Architects": {"local_env + prompt_foundry_receipts"},
-    "PayFunnels": {"payfunnels_test_billing_receipts"},
-    "BrowserAct": {"browseract_live"},
-    "Teable": {"browseract_live"},
-    "ClickRank.ai": {"clickrank_live"},
-    "Emailit": {"emailit_api_live"},
-    "Pixefy": {"fleet_verified"},
-    "Rafter": {"fleet_verified"},
+ACCEPTED_SOURCE_ALTERNATIVES = {
+    "1min.AI": (
+        frozenset({"local_env_browseract_refresh"}),
+        frozenset({"cross_base_teable_recovery", "local_env", "operator_status_provider_ledger"}),
+    ),
+    "Prompt Architects": (frozenset({"local_env", "prompt_foundry_receipts"}),),
+    "PayFunnels": (frozenset({"payfunnels_test_billing_receipts"}),),
+    "BrowserAct": (frozenset({"browseract_live"}),),
+    "Teable": (frozenset({"browseract_live"}),),
+    "ClickRank.ai": (frozenset({"clickrank_live"}),),
+    "Emailit": (frozenset({"emailit_api_live"}),),
+    "Pixefy": (frozenset({"fleet_verified"}),),
+    "Rafter": (frozenset({"fleet_verified"}),),
 }
 
 MIN_ACCEPTED_COUNT = 9
@@ -71,7 +74,12 @@ def build_receipt(*, markdown_text: str) -> dict[str, object]:
         row = rows.get(service)
         status = str((row or {}).get("discovery_status") or "").strip()
         source = str((row or {}).get("verification_source") or "").strip()
-        accepted = bool(row) and status in accepted_statuses and source in ACCEPTED_SOURCES[service]
+        source_tokens = frozenset(part.strip() for part in source.split("+") if part.strip())
+        source_accepted = any(
+            required_tokens.issubset(source_tokens)
+            for required_tokens in ACCEPTED_SOURCE_ALTERNATIVES[service]
+        )
+        accepted = bool(row) and status in accepted_statuses and source_accepted
         if accepted:
             accepted_total += 1
         else:

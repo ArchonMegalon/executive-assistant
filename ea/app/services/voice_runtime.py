@@ -37,6 +37,8 @@ _UNMIXR_API_KEY_FALLBACK_PREFIX = "UNMIXR_API_KEY_FALLBACK_"
 _UNMIXR_API_KEYS_ENV = "UNMIXR_API_KEYS"
 _UNMIXR_SLOT_SELECTOR_ENABLED_ENV = "EA_UNMIXR_SLOT_SELECTOR_ENABLED"
 _UNMIXR_SLOT_SELECTOR_STATE_FILE_ENV = "EA_UNMIXR_SLOT_SELECTOR_STATE_FILE"
+_UNMIXR_PREFERRED_SLOTS_ENV = "EA_UNMIXR_PREFERRED_SLOTS"
+_UNMIXR_RESERVE_SLOTS_ENV = "EA_UNMIXR_RESERVE_SLOTS"
 _UNMIXR_SLOT_COOLDOWN_DEFAULT_SECONDS_ENV = "EA_UNMIXR_SLOT_COOLDOWN_DEFAULT_SECONDS"
 _UNMIXR_SLOT_COOLDOWN_MAX_SECONDS_ENV = "EA_UNMIXR_SLOT_COOLDOWN_MAX_SECONDS"
 _UNMIXR_VOICE_ID_ENV = "UNMIXR_VOICE_ID"
@@ -262,9 +264,82 @@ def _rotate_unmixr_slots(slots: list[tuple[str, str]], last_slot_name: str) -> l
     return slots[index:] + slots[:index]
 
 
+def _configured_unmixr_policy_slots(env_name: str) -> tuple[str, ...]:
+    values: list[str] = []
+    for raw in re.split(r"[\s,;]+", str(os.environ.get(env_name) or "")):
+        if not raw:
+            continue
+        normalized = _normalize_unmixr_account_slot(raw)
+        if normalized not in values:
+            values.append(normalized)
+    return tuple(values)
+
+
+def _unmixr_slot_policy(
+    slots: tuple[tuple[str, str], ...],
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    slot_names = tuple(name for name, _key in slots)
+    available_names = set(slot_names)
+    preferred = _configured_unmixr_policy_slots(_UNMIXR_PREFERRED_SLOTS_ENV)
+    reserve = _configured_unmixr_policy_slots(_UNMIXR_RESERVE_SLOTS_ENV)
+    overlap = set(preferred).intersection(reserve)
+    if overlap:
+        raise HTTPException(status_code=409, detail="unmixr_slot_policy_overlap")
+    unknown = (set(preferred) | set(reserve)).difference(available_names)
+    if unknown:
+        raise HTTPException(status_code=409, detail="unmixr_slot_policy_unknown_slot")
+    standard = tuple(
+        name for name in slot_names if name not in preferred and name not in reserve
+    )
+    return preferred, standard, reserve
+
+
+def unmixr_slot_policy_summary() -> dict[str, object]:
+    slots = _unmixr_api_key_slots()
+    configured = bool(
+        str(os.environ.get(_UNMIXR_PREFERRED_SLOTS_ENV) or "").strip()
+        or str(os.environ.get(_UNMIXR_RESERVE_SLOTS_ENV) or "").strip()
+    )
+    try:
+        preferred, standard, reserve = _unmixr_slot_policy(slots)
+    except HTTPException as exc:
+        return {
+            "status": "invalid",
+            "configured": configured,
+            "reason": str(exc.detail or "unmixr_slot_policy_invalid"),
+            "preferred_slot_count": 0,
+            "standard_slot_count": 0,
+            "reserve_slot_count": 0,
+            "policy_sha256": "",
+            "raw_credentials_exposed": False,
+            "account_emails_exposed": False,
+        }
+    canonical = json.dumps(
+        {
+            "preferred": preferred,
+            "standard": standard,
+            "reserve": reserve,
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return {
+        "status": "configured" if configured else "default_round_robin",
+        "configured": configured,
+        "reason": "",
+        "preferred_slot_count": len(preferred),
+        "standard_slot_count": len(standard),
+        "reserve_slot_count": len(reserve),
+        "policy_sha256": hashlib.sha256(canonical).hexdigest(),
+        "raw_credentials_exposed": False,
+        "account_emails_exposed": False,
+    }
+
+
 def _selected_unmixr_slots(slots: tuple[tuple[str, str], ...]) -> list[tuple[str, str]]:
     if not _unmixr_slot_selector_enabled():
         return list(slots)
+    preferred_names, standard_names, reserve_names = _unmixr_slot_policy(slots)
     state = _load_unmixr_slot_state()
     slot_state = dict(state.get("slots") or {})
     now = time.time()
@@ -279,7 +354,20 @@ def _selected_unmixr_slots(slots: tuple[tuple[str, str], ...]) -> list[tuple[str
         else:
             available.append(slot)
     if available:
-        return _rotate_unmixr_slots(available, str(state.get("last_slot_name") or ""))
+        last_slot_name = str(state.get("last_slot_name") or "")
+        if not preferred_names and not reserve_names:
+            return _rotate_unmixr_slots(available, last_slot_name)
+        by_name = {name: (name, key) for name, key in available}
+
+        def ordered(names: tuple[str, ...]) -> list[tuple[str, str]]:
+            tier = [by_name[name] for name in names if name in by_name]
+            return _rotate_unmixr_slots(tier, last_slot_name)
+
+        return [
+            *ordered(preferred_names),
+            *ordered(standard_names),
+            *ordered(reserve_names),
+        ]
     if cooling:
         wait_seconds = max(1, int(min(item[0] for item in cooling) - now))
         raise HTTPException(status_code=429, detail=f"unmixr_slots_cooling_down:{wait_seconds}")

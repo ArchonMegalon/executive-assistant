@@ -22,7 +22,7 @@ from app.services.google_oauth import (
     GOOGLE_PROVIDER_KEY,
 )
 from app.services.proactive_ooda_telegram_approval import resume_latest_telegram_gmail_draft_after_google_connect
-from app.services.registration_email import send_registration_email
+from app.services.registration_email import email_delivery_enabled, send_registration_email
 
 router = APIRouter(prefix="/v1/onboarding", tags=["onboarding"])
 register_router = APIRouter(prefix="/v1/register", tags=["registration"])
@@ -430,7 +430,7 @@ def register_start(
     email_delivery_provider = ""
     email_delivery_id = ""
     email_delivery_error = ""
-    if str(os.environ.get("EMAILIT_API_KEY") or "").strip():
+    if email_delivery_enabled():
         try:
             receipt = send_registration_email(
                 recipient_email=email,

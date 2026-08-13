@@ -19,6 +19,14 @@ VARIANT_ORDER = {
     "light_and_view": 1,
     "shortlist_comparison": 2,
 }
+_TRUE_VALUES = {"1", "true", "yes", "on", "enabled"}
+
+
+def require_propertyquarry_emailit_enabled() -> None:
+    master = str(os.environ.get("EA_EMAILIT_DELIVERY_ENABLED") or "").strip().lower()
+    lane = str(os.environ.get("PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED") or "").strip().lower()
+    if master not in _TRUE_VALUES or lane not in _TRUE_VALUES:
+        raise SystemExit("emailit_delivery_disabled:propertyquarry")
 
 
 def load_json(path: Path) -> object:
@@ -256,6 +264,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    require_propertyquarry_emailit_enabled()
     api_key = str(args.api_key or "").strip()
     if not api_key:
         raise SystemExit("emailit_api_key_missing")

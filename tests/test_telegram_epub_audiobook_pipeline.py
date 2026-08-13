@@ -8773,6 +8773,8 @@ def test_audiobook_runtime_preflight_passes_with_ffmpeg_fallback_without_secret_
     monkeypatch.setenv("EA_AUDIOBOOK_DEFAULT_VOICE_TAGS", "audiobook,narration,german,clear")
     monkeypatch.setenv("UNMIXR_API_KEY", "raw-primary-unmixr-key")
     monkeypatch.setenv("UNMIXR_API_KEY_FALLBACK_1", "raw-fallback-unmixr-key")
+    monkeypatch.setenv("EA_UNMIXR_PREFERRED_SLOTS", "UNMIXR_API_KEY_FALLBACK_1")
+    monkeypatch.setenv("EA_UNMIXR_RESERVE_SLOTS", "UNMIXR_API_KEY")
     monkeypatch.setenv("UNMIXR_VOICE_ID", "raw-secret-voice-id")
     monkeypatch.setenv(
         "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
@@ -8810,6 +8812,11 @@ def test_audiobook_runtime_preflight_passes_with_ffmpeg_fallback_without_secret_
     assert receipt["assembly"]["m4b_assembly_available"] is True
     assert receipt["access"]["player_access_signing_secret_present"] is True
     assert receipt["provider"]["api_key_slot_count"] == 2
+    assert receipt["provider"]["slot_policy"]["status"] == "configured"
+    assert receipt["provider"]["slot_policy"]["preferred_slot_count"] == 1
+    assert receipt["provider"]["slot_policy"]["reserve_slot_count"] == 1
+    assert receipt["provider"]["slot_policy"]["raw_credentials_exposed"] is False
+    assert receipt["provider"]["slot_policy"]["account_emails_exposed"] is False
     assert receipt["scheduler"]["priority_source_kinds"] == ["origin_dossier_story", "origin_dossier"]
     assert receipt["scheduler"]["resume_order"] == ("priority_source", "retry_at", "job_dir_name")
     assert receipt["provider"]["voice_catalog"][0]["language"] == "de"
