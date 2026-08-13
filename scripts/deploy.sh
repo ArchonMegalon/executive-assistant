@@ -230,6 +230,7 @@ EOF
 ensure_runtime_readable_file_projection() {
   local env_name="$1"
   local default_path="${2:-}"
+  local access_policy="${3:-runtime_uid}"
   local raw_path
   raw_path="$(effective_value "${env_name}")"
   raw_path="$(normalize_origin_like "${raw_path}")"
@@ -245,6 +246,18 @@ ensure_runtime_readable_file_projection() {
     resolved_path="${APP_ROOT}/${raw_path}"
   fi
   [[ -f "${resolved_path}" ]] || return 0
+
+  if [[ "${access_policy}" == "runtime_group_1000" ]]; then
+    chgrp 1000 "${resolved_path}"
+    chmod 0640 "${resolved_path}"
+    local strict_mode
+    strict_mode="$(stat -c '%a' "${resolved_path}" 2>/dev/null || true)"
+    if [[ "${strict_mode}" != "640" ]]; then
+      echo "Unable to secure runtime group-readable secret projection: ${resolved_path}" >&2
+      return 1
+    fi
+    return 0
+  fi
 
   # Bind-mounted secret projections must be readable by the non-root EA runtime
   # UID inside Docker. Prefer a narrow ACL; fall back to read-only world access on
@@ -390,7 +403,8 @@ fi
 ensure_runtime_readable_file_projection "ONEMIN_DIRECT_API_KEYS_JSON_FILE"
 ensure_runtime_readable_file_projection \
   "EA_RESPONSES_NO_RETENTION_CLIENT_TOKEN_HOST_FILE" \
-  "./.ea-runtime-secrets/no_retention_client_token"
+  "./.ea-runtime-secrets/no_retention_client_token" \
+  "runtime_group_1000"
 "${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_whatsapp_callback_secret_runtime_projection.py" \
   --generate-missing >/dev/null
 ensure_runtime_writable_dir_projection "EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT" "./data/pocket-ai-audio"
