@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -68,6 +69,7 @@ from app.services.audiobook_epub_pipeline import audiobook_runtime_preflight  # 
 from app.services.proactive_ooda_operator_actions import proactive_next_action_surface  # noqa: E402
 from app.services.proactive_ooda_runtime_artifacts import approval_callback_runtime_summary, load_runtime_artifact_bundle  # noqa: E402
 from app.services.proactive_ooda_telegram_approval import expire_stale_proactive_ooda_telegram_approval_callbacks  # noqa: E402
+from app.services.provider_registry import ProviderRegistryService  # noqa: E402
 from app.services.responses_upstream import _provider_health_report  # noqa: E402
 from app.services.telegram_delivery import send_telegram_message_for_principal  # noqa: E402
 from app.services.tool_runtime import build_tool_runtime  # noqa: E402
@@ -125,6 +127,13 @@ DEFAULT_ONEMIN_DIRECT_REFRESH_STATE_DIR = ROOT / ".state" / "onemin-direct-refre
 DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_SIZE = 1
 DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_BACKOFF_SECONDS = 1.0
 DEFAULT_ONEMIN_DIRECT_REFRESH_MAX_RATE_LIMIT_SLEEP_SECONDS = 120.0
+DEFAULT_ONEMIN_DIRECT_REFRESH_PROXY_MODE = "direct"
+ONEMIN_DIRECT_REFRESH_PROXY_MODES = ("direct", "configured")
+DEFAULT_ONEMIN_DIRECT_REFRESH_PROXY_COUNTRY_ENDPOINT = "https://ipinfo.io/country"
+ONEMIN_DIRECT_REFRESH_RETRY_AFTER_RE = re.compile(
+    r'"retryAfter"\s*:\s*(\d+)|after\s+(\d+)\s+seconds',
+    re.IGNORECASE,
+)
 OPERATOR_STREAM_OFFICE_LOOP = "office_loop"
 OPERATOR_STREAM_OFFICE_SETUP = "office_setup"
 OPERATOR_STREAM_RECOVERY = "recovery"
@@ -799,6 +808,157 @@ def _onemin_direct_refresh_output_path(path_text: str = "") -> Path:
     return DEFAULT_ONEMIN_DIRECT_REFRESH_STATE_DIR / f"onemin_direct_refresh_{timestamp}.json"
 
 
+ONEMIN_DIRECT_REFRESH_PROXY_ENV_FAMILIES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "ea_onemin",
+        (
+            "EA_ONEMIN_DIRECT_API_PROXY_SERVER",
+            "EA_ONEMIN_DIRECT_API_PROXY_POOL",
+            "EA_ONEMIN_DIRECT_API_PROXY_USERNAME",
+            "EA_ONEMIN_DIRECT_API_PROXY_PASSWORD",
+        ),
+    ),
+    (
+        "onemin",
+        (
+            "ONEMIN_DIRECT_API_PROXY_SERVER",
+            "ONEMIN_DIRECT_API_PROXY_POOL",
+            "ONEMIN_DIRECT_API_PROXY_USERNAME",
+            "ONEMIN_DIRECT_API_PROXY_PASSWORD",
+        ),
+    ),
+    (
+        "ui_browser",
+        (
+            "EA_UI_BROWSER_PROXY_SERVER",
+            "EA_UI_BROWSER_PROXY_POOL",
+            "EA_UI_BROWSER_PROXY_USERNAME",
+            "EA_UI_BROWSER_PROXY_PASSWORD",
+        ),
+    ),
+)
+
+
+def _onemin_direct_refresh_proxy_family() -> tuple[str, tuple[str, ...]]:
+    for family_name, keys in ONEMIN_DIRECT_REFRESH_PROXY_ENV_FAMILIES:
+        server, pool = keys[:2]
+        if str(os.environ.get(server) or "").strip() or str(os.environ.get(pool) or "").strip():
+            return family_name, keys
+    return "", ()
+
+
+def _onemin_direct_refresh_proxy_env_overrides() -> dict[str, object]:
+    _family_name, selected_keys = _onemin_direct_refresh_proxy_family()
+    selected = set(selected_keys)
+    return {
+        key: None
+        for _name, keys in ONEMIN_DIRECT_REFRESH_PROXY_ENV_FAMILIES
+        for key in keys
+        if key not in selected
+    }
+
+
+def _onemin_direct_refresh_proxy_pool_size(proxy_mode: str) -> int:
+    if str(proxy_mode or "").strip().lower() != "configured":
+        return 0
+    _family_name, keys = _onemin_direct_refresh_proxy_family()
+    if not keys:
+        return 0
+    server_key, pool_key = keys[:2]
+    pool = {
+        value.strip()
+        for value in str(os.environ.get(pool_key) or "").split(",")
+        if value.strip() and value.strip().lower() not in {"direct", "direct://", "none", "off", "disabled"}
+    }
+    if pool:
+        return len(pool)
+    server = str(os.environ.get(server_key) or "").strip().lower()
+    return 1 if server and server not in {"direct", "direct://", "none", "off", "disabled"} else 0
+
+
+def _onemin_direct_refresh_proxy_urls(proxy_mode: str) -> tuple[str, ...]:
+    if str(proxy_mode or "").strip().lower() != "configured":
+        return ()
+    _family_name, keys = _onemin_direct_refresh_proxy_family()
+    if not keys:
+        return ()
+    server_key, pool_key = keys[:2]
+    values = [value.strip() for value in str(os.environ.get(pool_key) or "").split(",") if value.strip()]
+    if not values:
+        server = str(os.environ.get(server_key) or "").strip()
+        values = [server] if server else []
+    direct_markers = {"direct", "direct://", "none", "off", "disabled"}
+    return tuple(dict.fromkeys(value for value in values if value.lower() not in direct_markers))
+
+
+def _onemin_direct_refresh_reachable_proxy_count(proxy_mode: str, *, timeout_seconds: float = 1.0) -> int:
+    reachable = 0
+    for proxy_url in _onemin_direct_refresh_proxy_urls(proxy_mode):
+        parsed = urllib.parse.urlsplit(proxy_url if "://" in proxy_url else f"http://{proxy_url}")
+        host = str(parsed.hostname or "").strip()
+        port = int(parsed.port or (443 if parsed.scheme == "https" else 80))
+        if not host:
+            continue
+        try:
+            with socket.create_connection((host, port), timeout=max(float(timeout_seconds or 1.0), 0.1)):
+                reachable += 1
+        except OSError:
+            continue
+    return reachable
+
+
+def _onemin_direct_refresh_proxy_country(proxy_mode: str, *, timeout_seconds: float = 15.0) -> str:
+    proxy_urls = _onemin_direct_refresh_proxy_urls(proxy_mode)
+    if not proxy_urls:
+        return ""
+    proxy_url = proxy_urls[0]
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url}))
+    request = urllib.request.Request(
+        DEFAULT_ONEMIN_DIRECT_REFRESH_PROXY_COUNTRY_ENDPOINT,
+        headers={"Accept": "text/plain", "User-Agent": "EA-Live-Ops/1.0"},
+        method="GET",
+    )
+    try:
+        with opener.open(request, timeout=max(float(timeout_seconds or 15.0), 1.0)) as response:
+            country = response.read(16).decode("ascii", errors="ignore").strip().upper()
+    except Exception:
+        return ""
+    return country if re.fullmatch(r"[A-Z]{2}", country) else ""
+
+
+def _onemin_direct_refresh_retry_after_seconds(errors: Sequence[Mapping[str, object]]) -> int:
+    matched = 0
+    rate_limited = False
+    for row in errors:
+        text = str(row.get("error") or "").strip()
+        lowered = text.lower()
+        rate_limited = rate_limited or any(
+            marker in lowered
+            for marker in ("onemin_login_http_429", "onemin_api_http_429", "error 1015", "error code: 1015")
+        )
+        for match in ONEMIN_DIRECT_REFRESH_RETRY_AFTER_RE.finditer(text):
+            for group in match.groups():
+                if group:
+                    matched = max(matched, int(group))
+    if matched > 0:
+        return max(60, matched + 15)
+    return 300 if rate_limited else 0
+
+
+def _utc_after_seconds(seconds: int) -> str:
+    timestamp = time.time() + max(int(seconds or 0), 0)
+    return datetime.fromtimestamp(timestamp, tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _onemin_direct_refresh_resume_not_before(observed_at: str, retry_after_seconds: int) -> str:
+    try:
+        observed = datetime.fromisoformat(str(observed_at or "").strip().replace("Z", "+00:00"))
+        timestamp = observed.timestamp() + max(int(retry_after_seconds or 0), 0)
+    except Exception:
+        return _utc_after_seconds(retry_after_seconds)
+    return datetime.fromtimestamp(timestamp, tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
 def _onemin_direct_refresh_resume_labels(output_path: Path) -> set[str]:
     payload = _read_json_file(output_path)
     labels: set[str] = set()
@@ -923,13 +1083,18 @@ def probe_onemin_direct_refresh_posture(
     controls = {
         "batch_size": max(int(receipt.get("batch_size") or DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_SIZE), 1),
         "batch_backoff_seconds": max(
-            float(receipt.get("batch_backoff_seconds") or DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_BACKOFF_SECONDS),
+            float(
+                receipt.get("batch_backoff_seconds")
+                if receipt.get("batch_backoff_seconds") is not None
+                else DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_BACKOFF_SECONDS
+            ),
             0.0,
         ),
         "max_rate_limit_sleep_seconds": max(
             float(
                 receipt.get("max_rate_limit_sleep_seconds")
-                or DEFAULT_ONEMIN_DIRECT_REFRESH_MAX_RATE_LIMIT_SLEEP_SECONDS
+                if receipt.get("max_rate_limit_sleep_seconds") is not None
+                else DEFAULT_ONEMIN_DIRECT_REFRESH_MAX_RATE_LIMIT_SLEEP_SECONDS
             ),
             0.0,
         ),
@@ -940,6 +1105,11 @@ def probe_onemin_direct_refresh_posture(
         ),
         "refresh_transport": str(receipt.get("refresh_transport") or "direct_provider_api").strip(),
         "proxy_mode": str(receipt.get("proxy_mode") or "direct_no_ui_proxy").strip(),
+        "proxy_pool_size": max(int(receipt.get("proxy_pool_size") or 0), 0),
+        "proxy_reachable_count": max(int(receipt.get("proxy_reachable_count") or 0), 0),
+        "expected_proxy_country": str(receipt.get("expected_proxy_country") or "").strip().upper(),
+        "proxy_country": str(receipt.get("proxy_country") or "").strip().upper(),
+        "proxy_country_verified": bool(receipt.get("proxy_country_verified")),
         "controls_inferred_from_defaults": any(
             key not in receipt
             for key in (
@@ -997,12 +1167,18 @@ def probe_onemin_direct_refresh_posture(
             },
         }
     else:
+        receipt_errors = [dict(item) for item in list(receipt.get("errors") or []) if isinstance(item, Mapping)]
+        inferred_retry_after = (
+            int(receipt.get("retry_after_seconds") or 0)
+            or (_onemin_direct_refresh_retry_after_seconds(receipt_errors) if bool(receipt.get("rate_limited")) else 0)
+        )
+        receipt_observed_at = str(receipt.get("observed_at") or receipt.get("generated_at") or "").strip()
         report = {
             "checked": True,
             "probe_ok": True,
             "status": str(receipt.get("status") or "unknown").strip() or "unknown",
             "source": f"private_receipt:{resolved_path.name}" if resolved_path is not None else "private_receipt",
-            "observed_at": str(receipt.get("observed_at") or receipt.get("generated_at") or "").strip(),
+            "observed_at": receipt_observed_at,
             "reason": str(receipt.get("reason") or "").strip(),
             "next_action": str(receipt.get("next_action") or "").strip(),
             "ready": bool(receipt.get("ready")),
@@ -1020,6 +1196,13 @@ def probe_onemin_direct_refresh_posture(
                 if str(key).strip()
             },
             "rate_limited": bool(receipt.get("rate_limited")),
+            "retry_after_seconds": inferred_retry_after,
+            "resume_not_before": (
+                str(receipt.get("resume_not_before") or "").strip()
+                or _onemin_direct_refresh_resume_not_before(receipt_observed_at, inferred_retry_after)
+                if inferred_retry_after
+                else ""
+            ),
             "remaining_credits_total": receipt.get("remaining_credits_total"),
             "remaining_credits_min": receipt.get("remaining_credits_min"),
             "remaining_credits_max": receipt.get("remaining_credits_max"),
@@ -2159,6 +2342,133 @@ def _docker_inspect_container_json(
     return dict(payload[0])
 
 
+def _inspect_environment(inspect_payload: Mapping[str, object]) -> dict[str, str]:
+    config = dict(inspect_payload.get("Config") or {})
+    resolved: dict[str, str] = {}
+    for raw in config.get("Env") or []:
+        line = str(raw or "")
+        if "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        if name:
+            resolved[name] = value
+    return resolved
+
+
+def _inspect_health(inspect_payload: Mapping[str, object]) -> tuple[bool, str]:
+    state = dict(inspect_payload.get("State") or {})
+    health = dict(state.get("Health") or {})
+    label = str(health.get("Status") or state.get("Status") or "missing").strip().lower()
+    running = bool(state.get("Running")) or label in {"running", "healthy"}
+    return running, label
+
+
+def probe_fastestvpn_transport_status(
+    *,
+    output_format: str = "json",
+    timeout_seconds: float = 15.0,
+) -> dict[str, object]:
+    """Report the bounded CH transport topology without exposing env values."""
+
+    observed_at = _utc_now()
+    proxy_name = "ea-fastestvpn-proxy-ch"
+    api_name = "ea-api"
+    excluded_names = ("ea-worker", "ea-scheduler", "ea-whatsapp-web-session")
+    proxy = _docker_inspect_container_json(proxy_name, timeout_seconds=timeout_seconds)
+    api = _docker_inspect_container_json(api_name, timeout_seconds=timeout_seconds)
+    excluded = {
+        name: _docker_inspect_container_json(name, timeout_seconds=timeout_seconds)
+        for name in excluded_names
+    }
+
+    proxy_running, proxy_health = _inspect_health(proxy)
+    ports = dict(dict(proxy.get("NetworkSettings") or {}).get("Ports") or {})
+    proxy_bindings = [
+        dict(binding)
+        for binding in ports.get("3128/tcp") or []
+        if isinstance(binding, dict)
+    ]
+    host_ips = {str(binding.get("HostIp") or "").strip() for binding in proxy_bindings}
+    host_ports = {str(binding.get("HostPort") or "").strip() for binding in proxy_bindings}
+    loopback_only = bool(proxy_bindings) and bool(host_ips) and host_ips.issubset({"127.0.0.1", "::1"})
+
+    api_env = _inspect_environment(api)
+    api_proxy_values = [
+        str(api_env.get(name) or "").strip()
+        for name in ("ONEMIN_DIRECT_API_PROXY_SERVER", "ONEMIN_DIRECT_API_PROXY_POOL")
+    ]
+    api_proxy_configured = all(api_proxy_values)
+    api_ch_only = api_proxy_configured and all(
+        all(part.strip().startswith("http://ea-fastestvpn-proxy-ch:") for part in value.split(",") if part.strip())
+        for value in api_proxy_values
+    )
+    labels = dict(dict(api.get("Config") or {}).get("Labels") or {})
+    compose_files = str(labels.get("com.docker.compose.project.config_files") or "")
+    overlay_applied = "docker-compose.fastestvpn.yml" in compose_files
+
+    excluded_rows: dict[str, dict[str, object]] = {}
+    excluded_clean = True
+    for name, payload in excluded.items():
+        env = _inspect_environment(payload)
+        proxy_env_present = any(
+            bool(str(env.get(key) or "").strip())
+            for key in ("ONEMIN_DIRECT_API_PROXY_SERVER", "ONEMIN_DIRECT_API_PROXY_POOL")
+        )
+        excluded_rows[name] = {
+            "container_present": bool(payload),
+            "proxy_env_present": proxy_env_present,
+        }
+        excluded_clean = excluded_clean and bool(payload) and not proxy_env_present
+
+    proxy_ready = bool(proxy) and proxy_running and proxy_health == "healthy"
+    ready = all((proxy_ready, loopback_only, bool(api), overlay_applied, api_ch_only, excluded_clean))
+    failed_checks = [
+        key
+        for key, passed in (
+            ("ch_proxy_healthy", proxy_ready),
+            ("loopback_only", loopback_only),
+            ("ea_api_present", bool(api)),
+            ("fastestvpn_overlay_applied", overlay_applied),
+            ("ea_api_ch_only_proxy_owner", api_ch_only),
+            ("excluded_services_proxy_free", excluded_clean),
+        )
+        if not passed
+    ]
+    report: dict[str, object] = {
+        "contract": "ea.live_ops.fastestvpn_ch_transport.v1",
+        "probe_ok": ready,
+        "ready": ready,
+        "status": "ready" if ready else "blocked",
+        "reason": "" if ready else "fastestvpn_transport_topology_drift",
+        "next_action": "" if ready else "reapply_bounded_fastestvpn_overlay",
+        "failed_checks": failed_checks,
+        "proxy": {
+            "container_present": bool(proxy),
+            "running": proxy_running,
+            "health": proxy_health,
+            "published_binding_count": len(proxy_bindings),
+            "loopback_only": loopback_only,
+            "published_host_port_count": len({port for port in host_ports if port}),
+        },
+        "ea_api": {
+            "container_present": bool(api),
+            "overlay_applied": overlay_applied,
+            "proxy_configured": api_proxy_configured,
+            "ch_only": api_ch_only,
+        },
+        "excluded_services": excluded_rows,
+        "secret_material_exposed": False,
+        "observed_at": observed_at,
+        "source": "docker_inspect:secret_safe_topology",
+    }
+    report["operator_text"] = (
+        f"fastestvpn_ch status={report['status']} proxy={proxy_health} "
+        f"loopback_only={str(loopback_only).lower()} ea_api_owner={str(api_ch_only).lower()} "
+        f"excluded_services_clean={str(excluded_clean).lower()}"
+    )
+    return report
+
+
 def _host_root_disk_posture() -> dict[str, object]:
     try:
         usage = shutil.disk_usage("/")
@@ -2510,9 +2820,21 @@ def _container():
     return build_container(settings=settings_with_storage_backend(get_settings(), "memory"))
 
 
+@lru_cache(maxsize=1)
+def _catalog_provider_registry() -> ProviderRegistryService:
+    """Return the storage-free provider catalog for host-side fallbacks.
+
+    Production settings deliberately refuse an in-memory application container.
+    Live-ops catalog reads must therefore not bootstrap the full container merely
+    to resolve a provider name or normalized key.
+    """
+
+    return ProviderRegistryService()
+
+
 def _provider_display_name(provider_key: str) -> str:
     try:
-        state = _container().provider_registry.binding_state(provider_key)
+        state = _catalog_provider_registry().binding_state(provider_key)
     except Exception:
         state = None
     if state is not None and str(state.display_name or "").strip():
@@ -2523,7 +2845,7 @@ def _provider_display_name(provider_key: str) -> str:
 def _normalize_provider_key(value: object) -> str:
     fallback = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
     try:
-        registry = _container().provider_registry
+        registry = _catalog_provider_registry()
         normalizer = getattr(registry, "_normalize_provider_key", None)
     except Exception:
         return fallback
@@ -2531,6 +2853,43 @@ def _normalize_provider_key(value: object) -> str:
         normalized = str(normalizer(value) or "").strip()
         return normalized or fallback
     return fallback
+
+
+def _runtime_container_provider_state(
+    provider_key: str,
+    *,
+    timeout_seconds: float = 20.0,
+) -> tuple[dict[str, object], str, str]:
+    normalized = _normalize_provider_key(provider_key)
+    code = (
+        "import json\n"
+        "from app.container import build_container\n"
+        f"provider_key = {normalized!r}\n"
+        "state = build_container().provider_registry.binding_state(provider_key)\n"
+        "if state is None:\n"
+        "    print(json.dumps({'ok': False, 'reason': 'provider_not_found'}, sort_keys=True))\n"
+        "else:\n"
+        "    print(json.dumps({\n"
+        "        'ok': True,\n"
+        "        'provider_key': state.provider_key,\n"
+        "        'display_name': state.display_name,\n"
+        "        'state': state.state,\n"
+        "        'status': state.status,\n"
+        "        'enabled': bool(state.enabled),\n"
+        "        'executable': bool(state.executable),\n"
+        "        'health_state': state.health_state,\n"
+        "        'capabilities': list(state.capabilities or ()),\n"
+        "        'updated_at': state.updated_at,\n"
+        "    }, sort_keys=True))\n"
+    )
+    exit_code, payload, container = _runtime_container_exec_json(
+        code=code,
+        timeout_seconds=max(float(timeout_seconds or 20.0), 1.0),
+    )
+    if exit_code == 0 and payload.get("ok") is True:
+        return dict(payload), container, ""
+    reason = str(payload.get("reason") or f"runtime_container_exec_exit_{exit_code}").strip()
+    return {}, container, reason
 
 
 def _operator_text_for_provider(report: dict[str, object]) -> str:
@@ -3418,22 +3777,55 @@ def probe_provider(provider: str, *, output_format: str = "json", timeout_second
             },
         }
     else:
-        state = _container().provider_registry.binding_state(provider_key)
+        runtime_state, runtime_container, runtime_reason = _runtime_container_provider_state(
+            provider_key,
+            timeout_seconds=max(float(timeout_seconds or 20.0), 1.0),
+        )
+        if runtime_state:
+            state = runtime_state
+            display_name = str(runtime_state.get("display_name") or provider_key.replace("_", " ")).strip()
+            status = str(runtime_state.get("state") or runtime_state.get("status") or "unknown").strip() or "unknown"
+            observed_at = str(runtime_state.get("updated_at") or "").strip()
+            enabled = bool(runtime_state.get("enabled"))
+            executable = bool(runtime_state.get("executable"))
+            health_state = str(runtime_state.get("health_state") or "").strip()
+            capabilities = list(runtime_state.get("capabilities") or [])
+            source = f"runtime_container_exec:{runtime_container}:provider_registry.binding_state"
+            fallback_reason = ""
+        else:
+            catalog_state = _catalog_provider_registry().binding_state(provider_key)
+            state = catalog_state
+            display_name = str(getattr(catalog_state, "display_name", "") or provider_key.replace("_", " ")).strip()
+            status = str(
+                getattr(catalog_state, "state", "")
+                or getattr(catalog_state, "status", "")
+                or "unknown"
+            ).strip() or "unknown"
+            observed_at = str(getattr(catalog_state, "updated_at", "") or "").strip()
+            enabled = bool(getattr(catalog_state, "enabled", False))
+            executable = bool(getattr(catalog_state, "executable", False))
+            health_state = str(getattr(catalog_state, "health_state", "") or "").strip()
+            capabilities = list(getattr(catalog_state, "capabilities", ()) or ())
+            source = "host_catalog_fallback:provider_registry.binding_state"
+            fallback_reason = runtime_reason or "runtime_provider_state_unavailable"
         report = {
             "provider_key": provider_key,
-            "display_name": _provider_display_name(provider_key),
-            "status": str(getattr(state, "state", "") or getattr(state, "status", "") or "unknown").strip() or "unknown",
+            "display_name": display_name,
+            "status": status,
             "remaining": None,
             "unit": "",
             "refresh_at": "",
-            "observed_at": str(getattr(state, "updated_at", "") or "").strip(),
+            "observed_at": observed_at,
             "account_label": "",
-            "source": "provider_registry.binding_state",
+            "source": source,
             "raw": {
-                "enabled": bool(getattr(state, "enabled", False)),
-                "executable": bool(getattr(state, "executable", False)),
-                "health_state": str(getattr(state, "health_state", "") or "").strip(),
-                "capabilities": list(getattr(state, "capabilities", ()) or ()),
+                "enabled": enabled,
+                "executable": executable,
+                "health_state": health_state,
+                "capabilities": capabilities,
+                "runtime_container": runtime_container,
+                "runtime_fallback_reason": fallback_reason,
+                "raw_credentials_exposed": False,
             },
         }
     if output_format == "operator" and provider_key != "pushbullet":
@@ -3537,28 +3929,36 @@ def _run_onemin_direct_api_refresh(
     batch_backoff_seconds: float,
     max_rate_limit_sleep_seconds: float,
     continue_on_rate_limit: bool,
+    proxy_mode: str,
 ) -> tuple[list[dict[str, object]], list[dict[str, object]], list[dict[str, object]], int, int, bool]:
     from app.api.routes import providers as providers_route
 
-    env_overrides = {
+    env_overrides: dict[str, object] = {
         "EA_RESPONSES_ONEMIN_OWNER_LEDGER_PATH": owner_ledger_path.as_posix(),
         "ONEMIN_DIRECT_API_BATCH_SIZE": str(max(int(batch_size or 1), 1)),
         "ONEMIN_DIRECT_API_BATCH_BACKOFF_SECONDS": str(max(float(batch_backoff_seconds or 0.0), 0.0)),
         "ONEMIN_DIRECT_API_MAX_RATE_LIMIT_SLEEP_SECONDS": str(max(float(max_rate_limit_sleep_seconds or 0.0), 0.0)),
-        "ONEMIN_DIRECT_API_PROXY_SERVER": None,
-        "ONEMIN_DIRECT_API_PROXY_POOL": None,
-        "ONEMIN_DIRECT_API_PROXY_USERNAME": None,
-        "ONEMIN_DIRECT_API_PROXY_PASSWORD": None,
-        "EA_ONEMIN_DIRECT_API_PROXY_SERVER": None,
-        "EA_ONEMIN_DIRECT_API_PROXY_POOL": None,
-        "EA_ONEMIN_DIRECT_API_PROXY_USERNAME": None,
-        "EA_ONEMIN_DIRECT_API_PROXY_PASSWORD": None,
-        "EA_UI_BROWSER_PROXY_SERVER": None,
-        "EA_UI_BROWSER_PROXY_POOL": None,
-        "EA_UI_BROWSER_PROXY_USERNAME": None,
-        "EA_UI_BROWSER_PROXY_PASSWORD": None,
-        "EA_UI_BROWSER_PROXY_BYPASS": None,
     }
+    if str(proxy_mode or "").strip().lower() != "configured":
+        env_overrides.update(
+            {
+                "ONEMIN_DIRECT_API_PROXY_SERVER": None,
+                "ONEMIN_DIRECT_API_PROXY_POOL": None,
+                "ONEMIN_DIRECT_API_PROXY_USERNAME": None,
+                "ONEMIN_DIRECT_API_PROXY_PASSWORD": None,
+                "EA_ONEMIN_DIRECT_API_PROXY_SERVER": None,
+                "EA_ONEMIN_DIRECT_API_PROXY_POOL": None,
+                "EA_ONEMIN_DIRECT_API_PROXY_USERNAME": None,
+                "EA_ONEMIN_DIRECT_API_PROXY_PASSWORD": None,
+                "EA_UI_BROWSER_PROXY_SERVER": None,
+                "EA_UI_BROWSER_PROXY_POOL": None,
+                "EA_UI_BROWSER_PROXY_USERNAME": None,
+                "EA_UI_BROWSER_PROXY_PASSWORD": None,
+                "EA_UI_BROWSER_PROXY_BYPASS": None,
+            }
+        )
+    else:
+        env_overrides.update(_onemin_direct_refresh_proxy_env_overrides())
     with _temporary_env(env_overrides):
         clear_quarantine = getattr(providers_route, "_clear_onemin_direct_api_quarantine", None)
         if callable(clear_quarantine):
@@ -3583,6 +3983,8 @@ def refresh_onemin_direct_api(
     batch_backoff_seconds: float = DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_BACKOFF_SECONDS,
     max_rate_limit_sleep_seconds: float = DEFAULT_ONEMIN_DIRECT_REFRESH_MAX_RATE_LIMIT_SLEEP_SECONDS,
     continue_on_rate_limit: bool = True,
+    proxy_mode: str = DEFAULT_ONEMIN_DIRECT_REFRESH_PROXY_MODE,
+    expected_proxy_country: str = "",
     send_telegram_to_principal: str = "",
     dry_run: bool = False,
     timeout_seconds: float = 180.0,
@@ -3596,6 +3998,23 @@ def refresh_onemin_direct_api(
     effective_batch_backoff_seconds = max(float(batch_backoff_seconds or 0.0), 0.0)
     effective_max_rate_limit_sleep_seconds = max(float(max_rate_limit_sleep_seconds or 0.0), 0.0)
     effective_continue_on_rate_limit = bool(continue_on_rate_limit)
+    effective_proxy_mode = str(proxy_mode or DEFAULT_ONEMIN_DIRECT_REFRESH_PROXY_MODE).strip().lower()
+    if effective_proxy_mode not in ONEMIN_DIRECT_REFRESH_PROXY_MODES:
+        effective_proxy_mode = DEFAULT_ONEMIN_DIRECT_REFRESH_PROXY_MODE
+    proxy_pool_size = _onemin_direct_refresh_proxy_pool_size(effective_proxy_mode)
+    proxy_config_source = _onemin_direct_refresh_proxy_family()[0] if effective_proxy_mode == "configured" else ""
+    proxy_reachable_count = _onemin_direct_refresh_reachable_proxy_count(effective_proxy_mode)
+    normalized_expected_proxy_country = str(expected_proxy_country or "").strip().upper()
+    proxy_country = (
+        _onemin_direct_refresh_proxy_country(effective_proxy_mode)
+        if effective_proxy_mode == "configured" and normalized_expected_proxy_country and proxy_reachable_count > 0
+        else ""
+    )
+    proxy_country_verified = bool(
+        normalized_expected_proxy_country
+        and proxy_country
+        and proxy_country == normalized_expected_proxy_country
+    )
     resolved_owner_ledger_path, all_owner_rows, owner_row_reason = _load_onemin_owner_rows_for_live_ops(owner_ledger_path)
     resolved_output_path = _onemin_direct_refresh_output_path(output_json)
     prior_payload = _read_json_file(resolved_output_path)
@@ -3649,7 +4068,17 @@ def refresh_onemin_direct_api(
         "source": "scripts.ea_live_ops.refresh_onemin_direct_api",
         "observed_at": observed_at,
         "refresh_transport": "direct_provider_api",
-        "proxy_mode": "direct_no_ui_proxy",
+        "proxy_mode": "configured_proxy_pool" if effective_proxy_mode == "configured" else "direct_no_ui_proxy",
+        "proxy_pool_size": proxy_pool_size,
+        "proxy_reachable_count": proxy_reachable_count,
+        "proxy_config_source": proxy_config_source,
+        "expected_proxy_country": normalized_expected_proxy_country,
+        "proxy_country": proxy_country,
+        "proxy_country_verified": proxy_country_verified,
+        "proxy_country_source": (
+            "ipinfo_country_via_configured_proxy" if proxy_country else ""
+        ),
+        "proxy_secret_material_exposed": False,
         "batch_size": effective_batch_size,
         "batch_backoff_seconds": effective_batch_backoff_seconds,
         "max_rate_limit_sleep_seconds": effective_max_rate_limit_sleep_seconds,
@@ -3671,6 +4100,31 @@ def refresh_onemin_direct_api(
         report["status"] = "blocked_password_missing"
         report["reason"] = "onemin_password_missing"
         report["next_action"] = "configure_onemin_default_password"
+    elif effective_proxy_mode == "configured" and proxy_pool_size <= 0:
+        report["probe_ok"] = False
+        report["status"] = "blocked_proxy_not_configured"
+        report["reason"] = "configured_proxy_pool_missing"
+        report["next_action"] = "configure_onemin_direct_api_proxy"
+    elif effective_proxy_mode == "configured" and proxy_reachable_count <= 0:
+        report["probe_ok"] = False
+        report["status"] = "blocked_proxy_unreachable"
+        report["reason"] = "configured_proxy_pool_unreachable"
+        report["next_action"] = "start_or_repair_onemin_direct_api_proxy"
+    elif normalized_expected_proxy_country and not re.fullmatch(r"[A-Z]{2}", normalized_expected_proxy_country):
+        report["probe_ok"] = False
+        report["status"] = "blocked_proxy_country_invalid"
+        report["reason"] = "expected_proxy_country_invalid"
+        report["next_action"] = "configure_two_letter_proxy_country"
+    elif normalized_expected_proxy_country and not proxy_country:
+        report["probe_ok"] = False
+        report["status"] = "blocked_proxy_country_unverified"
+        report["reason"] = "configured_proxy_country_unverified"
+        report["next_action"] = "repair_proxy_country_probe"
+    elif normalized_expected_proxy_country and not proxy_country_verified:
+        report["probe_ok"] = False
+        report["status"] = "blocked_proxy_country_mismatch"
+        report["reason"] = "configured_proxy_country_mismatch"
+        report["next_action"] = "switch_to_expected_proxy_country"
     elif not pending_rows:
         report["ready"] = True
         report["status"] = "already_refreshed"
@@ -3701,6 +4155,7 @@ def refresh_onemin_direct_api(
                 batch_backoff_seconds=effective_batch_backoff_seconds,
                 max_rate_limit_sleep_seconds=effective_max_rate_limit_sleep_seconds,
                 continue_on_rate_limit=effective_continue_on_rate_limit,
+                proxy_mode=effective_proxy_mode,
             )
         except Exception as exc:
             refresh_exception = exc
@@ -3767,6 +4222,7 @@ def refresh_onemin_direct_api(
                 }
             )
         if refresh_exception is None:
+            retry_after_seconds = _onemin_direct_refresh_retry_after_seconds(normalized_errors) if rate_limited else 0
             report.update(
                 {
                     "ready": bool(len(all_results) >= len(selected_rows) and not normalized_errors),
@@ -3805,6 +4261,8 @@ def refresh_onemin_direct_api(
                     "skipped_count": int(skipped_count or 0),
                     "error_count": len(normalized_errors),
                     "rate_limited": bool(rate_limited),
+                    "retry_after_seconds": retry_after_seconds,
+                    "resume_not_before": _utc_after_seconds(retry_after_seconds) if retry_after_seconds else "",
                     "current_run_error_code_counts": current_error_code_counts,
                     "error_code_counts": current_error_code_counts,
                     "results": all_results,
@@ -15296,6 +15754,13 @@ def parse_args() -> argparse.Namespace:
     onemin_direct_refresh_posture.add_argument("--receipt-path", default="")
     onemin_direct_refresh_posture.add_argument("--format", choices=("json", "operator"), default="json")
 
+    fastestvpn_transport = subparsers.add_parser(
+        "probe-fastestvpn-transport",
+        help="Probe the secret-safe Switzerland-only 1min transport topology.",
+    )
+    fastestvpn_transport.add_argument("--format", choices=("json", "operator"), default="json")
+    _add_timeout_seconds_argument(fastestvpn_transport)
+
     onemin_direct_refresh = subparsers.add_parser(
         "refresh-onemin-direct-api",
         help="Refresh 1min.AI credits through the bounded direct API lane and optionally send an operator packet over Telegram.",
@@ -15317,6 +15782,17 @@ def parse_args() -> argparse.Namespace:
         dest="continue_on_rate_limit",
         action="store_false",
         default=True,
+    )
+    onemin_direct_refresh.add_argument(
+        "--proxy-mode",
+        choices=ONEMIN_DIRECT_REFRESH_PROXY_MODES,
+        default=DEFAULT_ONEMIN_DIRECT_REFRESH_PROXY_MODE,
+        help="Use direct provider traffic or a proxy pool configured through private ONEMIN/EA proxy environment variables.",
+    )
+    onemin_direct_refresh.add_argument(
+        "--expected-proxy-country",
+        default="",
+        help="Optional two-letter egress country code; configured proxy mode fails closed when live egress does not match.",
     )
     onemin_direct_refresh.add_argument("--telegram-principal-id", default=_default_proactive_principal_id())
     onemin_direct_refresh.add_argument("--send-telegram", action="store_true")
@@ -15717,6 +16193,16 @@ def main() -> int:
         else:
             print(_json_dumps(report))
         return 0 if bool(report.get("probe_ok")) else 2
+    if args.command == "probe-fastestvpn-transport":
+        report = probe_fastestvpn_transport_status(
+            output_format=args.format,
+            timeout_seconds=float(getattr(args, "timeout_seconds", None) or 15.0),
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("probe_ok")) else 2
     if args.command == "refresh-onemin-direct-api":
         report = refresh_onemin_direct_api(
             account_labels=list(getattr(args, "account_labels", []) or []),
@@ -15726,13 +16212,16 @@ def main() -> int:
             batch_size=int(getattr(args, "batch_size", DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_SIZE) or DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_SIZE),
             batch_backoff_seconds=float(
                 getattr(args, "batch_backoff_seconds", DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_BACKOFF_SECONDS)
-                or DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_BACKOFF_SECONDS
             ),
             max_rate_limit_sleep_seconds=float(
                 getattr(args, "max_rate_limit_sleep_seconds", DEFAULT_ONEMIN_DIRECT_REFRESH_MAX_RATE_LIMIT_SLEEP_SECONDS)
-                or DEFAULT_ONEMIN_DIRECT_REFRESH_MAX_RATE_LIMIT_SLEEP_SECONDS
             ),
             continue_on_rate_limit=bool(getattr(args, "continue_on_rate_limit", True)),
+            proxy_mode=str(
+                getattr(args, "proxy_mode", DEFAULT_ONEMIN_DIRECT_REFRESH_PROXY_MODE)
+                or DEFAULT_ONEMIN_DIRECT_REFRESH_PROXY_MODE
+            ),
+            expected_proxy_country=str(getattr(args, "expected_proxy_country", "") or "").strip(),
             send_telegram_to_principal=(
                 str(getattr(args, "telegram_principal_id", "") or "").strip()
                 if bool(getattr(args, "send_telegram", False))

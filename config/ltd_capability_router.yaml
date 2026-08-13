@@ -1,0 +1,59 @@
+schema_version: ea.ltd_capability_router.v1
+authority:
+  product_truth: Chummer
+  orchestration_receipts_policy_review: EA
+  external_providers: bounded_capability_only
+hard_rules:
+  can_publish_directly: false
+  can_own_truth: false
+  empty_credential_can_be_ready: false
+  fixture_can_be_production: false
+  approval_can_be_bypassed: false
+named_lanes:
+  background_capacity_scheduler:
+    providers: [1min.AI, AI Magicx]
+    owner: chummer6-hub
+    output: LTD_CAPACITY_STATUS.generated.json
+  cross_repo_opportunity_index:
+    providers: [vexp.dev]
+    owner: executive-assistant
+    output: VEXP_LTD_OPPORTUNITY_INDEX.generated.json
+  proof_debt_operations:
+    providers: [Teable, Rafter]
+    owner: executive-assistant
+    output: LTD_PROOF_DEBT.generated.json
+  release_trust_factory:
+    providers: [Rafter, Pixefy, BrowserAct, ClickRank]
+    owner: chummer6-hub
+  public_trust_shelf:
+    providers: [Documentation.AI, FlipLink.me, MarkupGo, ClickRank]
+    owner: chummer6-design
+  meeting_to_decision:
+    providers: [Hedy.ai, ApproveThis, Teable, Emailit]
+    owner: chummer6-hub
+  black_ledger_media_bakeoff:
+    providers: [Subscribr, Syllabbles, Unmixr AI, MagicFit, Pixefy]
+    owner: chummer6-media-factory
+  no_desktop_onboarding_funnel:
+    providers: [Deftform, Lunacal, Signitic, Emailit]
+    owner: chummer6-hub
+  runsite_walkthrough_artifacts:
+    providers: [Crezlo Tours, AvoMap, Pano2VR]
+    owner: chummer6-media-factory
+  audio_campaign_memory:
+    providers: [Unmixr AI, Soundmadeseen]
+    owner: chummer6-media-factory
+catalog_only:
+  VocalLab.ai:
+    lane: voice_catalog_only
+    executable: false
+    owner_boundary: Memorial owns Manfred authority and release truth
+transport_only:
+  FastestVPN PRO:
+    lane: onemin_refresh_only
+    executable: false
+  Emailit:
+    product_owners:
+      ea_office: EA
+      propertyquarry: PropertyQuarry
+      chummer_hub: Chummer Hub

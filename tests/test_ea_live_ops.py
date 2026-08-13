@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import logging
+import os
 import subprocess
 import sys
 import urllib.error
@@ -67,6 +68,11 @@ def _patch_onemin_direct_refresh_ready(monkeypatch, module) -> None:
                 "continue_on_rate_limit": True,
                 "refresh_transport": "direct_provider_api",
                 "proxy_mode": "direct_no_ui_proxy",
+                "proxy_pool_size": 0,
+                "proxy_reachable_count": 0,
+                "expected_proxy_country": "",
+                "proxy_country": "",
+                "proxy_country_verified": False,
                 "controls_inferred_from_defaults": False,
                 "single_account_batch_mode": True,
             },
@@ -1677,6 +1683,75 @@ def test_probe_teable_recovery_reports_ready_without_raw_table_id(monkeypatch) -
     assert report["wrong_mode_count"] == 0
     assert "teable_recovery status=ready" in str(report["operator_text"])
     assert "tbl-secret-id" not in serialized
+
+
+def test_probe_fastestvpn_transport_reports_bounded_ch_topology_without_env_values(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-08-13T06:00:00Z")
+    payloads = {
+        "ea-fastestvpn-proxy-ch": {
+            "State": {"Running": True, "Health": {"Status": "healthy"}},
+            "NetworkSettings": {"Ports": {"3128/tcp": [{"HostIp": "127.0.0.1", "HostPort": "9315"}]}},
+        },
+        "ea-api": {
+            "Config": {
+                "Env": [
+                    "ONEMIN_DIRECT_API_PROXY_SERVER=http://ea-fastestvpn-proxy-ch:3128",
+                    "ONEMIN_DIRECT_API_PROXY_POOL=http://ea-fastestvpn-proxy-ch:3128",
+                    "PRIVATE_TOKEN=never-serialize-me",
+                ],
+                "Labels": {
+                    "com.docker.compose.project.config_files": "/docker/EA/docker-compose.yml,/docker/EA/docker-compose.fastestvpn.yml"
+                },
+            }
+        },
+        "ea-worker": {"Config": {"Env": ["EA_ROLE=worker"]}},
+        "ea-scheduler": {"Config": {"Env": ["EA_ROLE=scheduler"]}},
+        "ea-whatsapp-web-session": {"Config": {"Env": ["EA_ROLE=whatsapp"]}},
+    }
+    monkeypatch.setattr(module, "_docker_inspect_container_json", lambda name, **_kwargs: payloads.get(name, {}))
+
+    report = module.probe_fastestvpn_transport_status(output_format="operator")
+    serialized = json.dumps(report, sort_keys=True)
+
+    assert report["ready"] is True
+    assert report["failed_checks"] == []
+    assert report["proxy"]["loopback_only"] is True
+    assert report["ea_api"]["ch_only"] is True
+    assert all(not row["proxy_env_present"] for row in report["excluded_services"].values())
+    assert report["secret_material_exposed"] is False
+    assert "never-serialize-me" not in serialized
+    assert "http://ea-fastestvpn-proxy-ch:3128" not in serialized
+
+
+def test_probe_fastestvpn_transport_fails_on_public_bind_or_worker_proxy(monkeypatch) -> None:
+    module = _module()
+    payloads = {
+        "ea-fastestvpn-proxy-ch": {
+            "State": {"Running": True, "Health": {"Status": "healthy"}},
+            "NetworkSettings": {"Ports": {"3128/tcp": [{"HostIp": "0.0.0.0", "HostPort": "9315"}]}},
+        },
+        "ea-api": {
+            "Config": {
+                "Env": [
+                    "ONEMIN_DIRECT_API_PROXY_SERVER=http://ea-fastestvpn-proxy-ch:3128",
+                    "ONEMIN_DIRECT_API_PROXY_POOL=http://ea-fastestvpn-proxy-ch:3128",
+                ],
+                "Labels": {"com.docker.compose.project.config_files": "docker-compose.fastestvpn.yml"},
+            }
+        },
+        "ea-worker": {"Config": {"Env": ["ONEMIN_DIRECT_API_PROXY_SERVER=http://retired-proxy:3128"]}},
+        "ea-scheduler": {"Config": {"Env": []}},
+        "ea-whatsapp-web-session": {"Config": {"Env": []}},
+    }
+    monkeypatch.setattr(module, "_docker_inspect_container_json", lambda name, **_kwargs: payloads.get(name, {}))
+
+    report = module.probe_fastestvpn_transport_status()
+
+    assert report["ready"] is False
+    assert report["status"] == "blocked"
+    assert "loopback_only" in report["failed_checks"]
+    assert "excluded_services_proxy_free" in report["failed_checks"]
 
 
 def test_probe_teable_recovery_maps_wrong_secret_mode_to_operator_action(monkeypatch) -> None:
@@ -4048,10 +4123,9 @@ def test_mymedia_pairing_preserve_previous_actionable_handoff_restores_waiting_b
     assert (pairing_dir / "surface.png").read_bytes() == original_screenshot
 
 
-def test_provider_display_name_uses_memory_backed_host_container(monkeypatch) -> None:
+def test_provider_display_name_uses_storage_free_catalog(monkeypatch) -> None:
     module = _module()
-    module._container.cache_clear()
-    sentinel_settings = object()
+    module._catalog_provider_registry.cache_clear()
     seen: dict[str, object] = {}
 
     class _State:
@@ -4062,28 +4136,69 @@ def test_provider_display_name_uses_memory_backed_host_container(monkeypatch) ->
             seen["provider_key"] = provider_key
             return _State()
 
-    class _Container:
-        provider_registry = _Registry()
-
-    monkeypatch.setattr(module, "get_settings", lambda: "settings")
-    monkeypatch.setattr(
-        module,
-        "settings_with_storage_backend",
-        lambda settings, backend: sentinel_settings if settings == "settings" and backend == "memory" else None,
-    )
-
-    def _fake_build_container(*, settings=None):
-        seen["settings"] = settings
-        return _Container()
-
-    monkeypatch.setattr(module, "build_container", _fake_build_container)
+    monkeypatch.setattr(module, "ProviderRegistryService", _Registry)
 
     try:
         assert module._provider_display_name("pushbullet") == "Pushbullet"
-        assert seen["settings"] is sentinel_settings
         assert seen["provider_key"] == "pushbullet"
     finally:
-        module._container.cache_clear()
+        module._catalog_provider_registry.cache_clear()
+
+
+def test_probe_provider_prefers_runtime_container_state(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "_runtime_container_provider_state",
+        lambda provider_key, **_kwargs: (
+            {
+                "ok": True,
+                "provider_key": provider_key,
+                "display_name": "Teable",
+                "state": "configured",
+                "status": "enabled",
+                "enabled": True,
+                "executable": False,
+                "health_state": "pass",
+                "capabilities": ["operator_projection"],
+                "updated_at": "2026-08-12T04:00:00Z",
+            },
+            "ea-api",
+            "",
+        ),
+    )
+
+    report = module.probe_provider("teable", output_format="json")
+
+    assert report["status"] == "configured"
+    assert report["source"] == "runtime_container_exec:ea-api:provider_registry.binding_state"
+    assert report["raw"]["health_state"] == "pass"
+    assert report["raw"]["runtime_fallback_reason"] == ""
+    assert report["raw"]["raw_credentials_exposed"] is False
+
+
+def test_probe_provider_falls_back_to_catalog_without_bootstrapping_database(monkeypatch) -> None:
+    module = _module()
+    module._catalog_provider_registry.cache_clear()
+    monkeypatch.setattr(
+        module,
+        "_runtime_container_provider_state",
+        lambda provider_key, **_kwargs: ({}, "ea-api", "runtime_container_exec_exit_1"),
+    )
+
+    def _database_bootstrap_forbidden(*_args, **_kwargs):
+        raise AssertionError("generic provider fallback must not bootstrap the application database")
+
+    monkeypatch.setattr(module, "build_container", _database_bootstrap_forbidden)
+    try:
+        report = module.probe_provider("teable", output_format="json")
+    finally:
+        module._catalog_provider_registry.cache_clear()
+
+    assert report["source"] == "host_catalog_fallback:provider_registry.binding_state"
+    assert report["raw"]["runtime_container"] == "ea-api"
+    assert report["raw"]["runtime_fallback_reason"] == "runtime_container_exec_exit_1"
+    assert report["raw"]["raw_credentials_exposed"] is False
 
 
 def test_trigger_mymedia_amazon_pairing_dry_run_reports_operator_safe_handoff(monkeypatch) -> None:
@@ -11455,6 +11570,200 @@ def test_refresh_onemin_direct_api_dry_run_writes_resume_ready_receipt(monkeypat
     assert persisted["output_json"] == str(output_path)
     assert persisted["batch_size"] == 1
     assert persisted["refresh_transport"] == "direct_provider_api"
+    assert persisted["proxy_mode"] == "direct_no_ui_proxy"
+    assert persisted["proxy_pool_size"] == 0
+    assert persisted["proxy_secret_material_exposed"] is False
+
+
+def test_refresh_onemin_direct_api_configured_proxy_mode_preserves_proxy_env_without_leaking_it(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    module = _module()
+    output_path = tmp_path / "onemin-direct-refresh.json"
+    monkeypatch.setattr(
+        module,
+        "_load_onemin_owner_rows_for_live_ops",
+        lambda owner_ledger_path="": (
+            Path("/tmp/onemin_slot_owners.local.json"),
+            [{"account_name": "ONEMIN_AI_API_KEY", "owner_email": "owner@example.com", "owner_name": "Owner", "slot": "primary"}],
+            "",
+        ),
+    )
+    monkeypatch.setenv("ONEMIN_DEFAULT_PASSWORD", "secret")
+    for key in (
+        "EA_ONEMIN_DIRECT_API_PROXY_POOL",
+        "ONEMIN_DIRECT_API_PROXY_SERVER",
+        "ONEMIN_DIRECT_API_PROXY_POOL",
+        "EA_UI_BROWSER_PROXY_SERVER",
+        "EA_UI_BROWSER_PROXY_POOL",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("EA_ONEMIN_DIRECT_API_PROXY_SERVER", "http://proxy-user:proxy-pass@proxy.internal:3128")
+    monkeypatch.setenv("ONEMIN_DIRECT_API_PROXY_POOL", "http://docker-only.internal:3128")
+    monkeypatch.setenv("EA_UI_BROWSER_PROXY_POOL", "http://ui-fallback.internal:3128")
+    monkeypatch.setattr(module, "_onemin_direct_refresh_reachable_proxy_count", lambda proxy_mode: 1)
+    monkeypatch.setattr(module, "_onemin_direct_refresh_proxy_country", lambda proxy_mode: "CH")
+    observed: dict[str, object] = {}
+
+    from app.api.routes import providers as providers_route
+
+    def _fake_refresh(**kwargs):
+        observed["proxy_server"] = os.environ.get("EA_ONEMIN_DIRECT_API_PROXY_SERVER")
+        observed["legacy_pool"] = os.environ.get("ONEMIN_DIRECT_API_PROXY_POOL")
+        observed["ui_pool"] = os.environ.get("EA_UI_BROWSER_PROXY_POOL")
+        return (
+            [
+                {
+                    "account_label": "ONEMIN_AI_API_KEY",
+                    "remaining_credits": 100.0,
+                    "next_topup_at": "2026-08-13T00:00:00Z",
+                    "refresh_backend": "onemin_api",
+                    "observed_at": "2026-08-12T04:00:00Z",
+                }
+            ],
+            [],
+            [],
+            1,
+            0,
+            False,
+        )
+
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", _fake_refresh)
+
+    report = module.refresh_onemin_direct_api(
+        output_json=str(output_path),
+        proxy_mode="configured",
+        expected_proxy_country="CH",
+        output_format="json",
+    )
+
+    assert observed == {
+        "proxy_server": "http://proxy-user:proxy-pass@proxy.internal:3128",
+        "legacy_pool": None,
+        "ui_pool": None,
+    }
+    assert report["status"] == "ready"
+    assert report["proxy_mode"] == "configured_proxy_pool"
+    assert report["proxy_pool_size"] == 1
+    assert report["proxy_reachable_count"] == 1
+    assert report["proxy_config_source"] == "ea_onemin"
+    assert report["expected_proxy_country"] == "CH"
+    assert report["proxy_country"] == "CH"
+    assert report["proxy_country_verified"] is True
+    assert report["proxy_country_source"] == "ipinfo_country_via_configured_proxy"
+    assert report["proxy_secret_material_exposed"] is False
+    serialized = json.dumps(report, sort_keys=True)
+    assert "proxy-user" not in serialized
+    assert "proxy-pass" not in serialized
+    assert "proxy.internal" not in serialized
+
+
+def test_refresh_onemin_direct_api_configured_proxy_mode_fails_closed_without_proxy(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    module = _module()
+    output_path = tmp_path / "onemin-direct-refresh.json"
+    monkeypatch.setattr(
+        module,
+        "_load_onemin_owner_rows_for_live_ops",
+        lambda owner_ledger_path="": (
+            Path("/tmp/onemin_slot_owners.local.json"),
+            [{"account_name": "ONEMIN_AI_API_KEY", "owner_email": "owner@example.com", "owner_name": "Owner", "slot": "primary"}],
+            "",
+        ),
+    )
+    for key in (
+        "EA_ONEMIN_DIRECT_API_PROXY_SERVER",
+        "EA_ONEMIN_DIRECT_API_PROXY_POOL",
+        "ONEMIN_DIRECT_API_PROXY_SERVER",
+        "ONEMIN_DIRECT_API_PROXY_POOL",
+        "EA_UI_BROWSER_PROXY_SERVER",
+        "EA_UI_BROWSER_PROXY_POOL",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    report = module.refresh_onemin_direct_api(
+        dry_run=True,
+        output_json=str(output_path),
+        proxy_mode="configured",
+        output_format="json",
+    )
+
+    assert report["probe_ok"] is False
+    assert report["status"] == "blocked_proxy_not_configured"
+    assert report["next_action"] == "configure_onemin_direct_api_proxy"
+    assert report["proxy_pool_size"] == 0
+
+
+def test_refresh_onemin_direct_api_configured_proxy_mode_fails_closed_when_proxy_is_unreachable(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    module = _module()
+    output_path = tmp_path / "onemin-direct-refresh.json"
+    monkeypatch.setattr(
+        module,
+        "_load_onemin_owner_rows_for_live_ops",
+        lambda owner_ledger_path="": (
+            Path("/tmp/onemin_slot_owners.local.json"),
+            [{"account_name": "ONEMIN_AI_API_KEY", "owner_email": "owner@example.com", "owner_name": "Owner", "slot": "primary"}],
+            "",
+        ),
+    )
+    monkeypatch.setenv("EA_ONEMIN_DIRECT_API_PROXY_SERVER", "http://unreachable.internal:3128")
+    monkeypatch.delenv("EA_ONEMIN_DIRECT_API_PROXY_POOL", raising=False)
+    monkeypatch.setattr(module, "_onemin_direct_refresh_reachable_proxy_count", lambda proxy_mode: 0)
+
+    report = module.refresh_onemin_direct_api(
+        dry_run=True,
+        output_json=str(output_path),
+        proxy_mode="configured",
+        output_format="json",
+    )
+
+    assert report["probe_ok"] is False
+    assert report["status"] == "blocked_proxy_unreachable"
+    assert report["next_action"] == "start_or_repair_onemin_direct_api_proxy"
+    assert report["proxy_pool_size"] == 1
+    assert report["proxy_reachable_count"] == 0
+
+
+def test_refresh_onemin_direct_api_configured_proxy_mode_rejects_wrong_country(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    module = _module()
+    output_path = tmp_path / "onemin-direct-refresh.json"
+    monkeypatch.setattr(
+        module,
+        "_load_onemin_owner_rows_for_live_ops",
+        lambda owner_ledger_path="": (
+            Path("/tmp/onemin_slot_owners.local.json"),
+            [{"account_name": "ONEMIN_AI_API_KEY", "owner_email": "owner@example.com", "owner_name": "Owner", "slot": "primary"}],
+            "",
+        ),
+    )
+    monkeypatch.setenv("EA_ONEMIN_DIRECT_API_PROXY_SERVER", "http://proxy.internal:3128")
+    monkeypatch.delenv("EA_ONEMIN_DIRECT_API_PROXY_POOL", raising=False)
+    monkeypatch.setattr(module, "_onemin_direct_refresh_reachable_proxy_count", lambda proxy_mode: 1)
+    monkeypatch.setattr(module, "_onemin_direct_refresh_proxy_country", lambda proxy_mode: "DE")
+
+    report = module.refresh_onemin_direct_api(
+        dry_run=True,
+        output_json=str(output_path),
+        proxy_mode="configured",
+        expected_proxy_country="CH",
+        output_format="json",
+    )
+
+    assert report["probe_ok"] is False
+    assert report["status"] == "blocked_proxy_country_mismatch"
+    assert report["expected_proxy_country"] == "CH"
+    assert report["proxy_country"] == "DE"
+    assert report["proxy_country_verified"] is False
+    assert report["next_action"] == "switch_to_expected_proxy_country"
 
 
 def test_probe_onemin_direct_refresh_posture_prefers_latest_non_dry_run_receipt(monkeypatch, tmp_path) -> None:
@@ -11483,6 +11792,7 @@ def test_probe_onemin_direct_refresh_posture_prefers_latest_non_dry_run_receipt(
                 "refreshed_count": 0,
                 "error_count": 1,
                 "error_code_counts": {"onemin_login_http_429": 1},
+                "errors": [{"error": 'onemin_login_http_429:{"status":429}'}],
                 "rate_limited": True,
                 "batch_size": 1,
                 "batch_backoff_seconds": 1.0,
@@ -11527,6 +11837,10 @@ def test_probe_onemin_direct_refresh_posture_prefers_latest_non_dry_run_receipt(
     assert report["controls"]["batch_size"] == 1
     assert report["controls"]["single_account_batch_mode"] is True
     assert report["controls"]["refresh_transport"] == "direct_provider_api"
+    assert report["controls"]["proxy_pool_size"] == 0
+    assert report["controls"]["proxy_country_verified"] is False
+    assert report["retry_after_seconds"] == 300
+    assert report["resume_not_before"] == "2026-07-10T02:15:57Z"
     assert report["telegram_delivery"]["sent"] is True
     assert report["telegram_delivery"]["message_count"] == 1
 
@@ -11638,10 +11952,26 @@ def test_refresh_onemin_direct_api_reports_partial_rate_limit_and_merges_resume_
     assert report["refreshed_count"] == 2
     assert report["rate_limited"] is True
     assert report["error_code_counts"] == {"onemin_login_http_429": 1}
+    assert report["retry_after_seconds"] == 300
+    assert str(report["resume_not_before"]).endswith("Z")
     assert report["remaining_credits_total"] == 4056367.0
     assert report["next_action"] == "resume_onemin_direct_refresh_after_cooldown"
     persisted = json.loads(output_path.read_text(encoding="utf-8"))
     assert len(persisted["results"]) == 2
+
+
+def test_onemin_direct_refresh_retry_after_prefers_provider_hint() -> None:
+    module = _module()
+
+    seconds = module._onemin_direct_refresh_retry_after_seconds(
+        [
+            {
+                "error": 'onemin_login_http_429:{"message":"Too many requests after 206 seconds","retryAfter":206}'
+            }
+        ]
+    )
+
+    assert seconds == 221
 
 
 def test_refresh_onemin_direct_api_blocks_when_owner_ledger_missing(monkeypatch, tmp_path) -> None:
@@ -11694,3 +12024,43 @@ def test_main_refresh_onemin_direct_api_returns_zero_for_partial_rate_limit(monk
     assert module.main() == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "partial_rate_limited"
+
+
+def test_main_refresh_onemin_direct_api_preserves_explicit_zero_backoff_controls(monkeypatch, capsys) -> None:
+    module = _module()
+    observed: dict[str, object] = {}
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: Namespace(
+            command="refresh-onemin-direct-api",
+            account_labels=[],
+            max_accounts=0,
+            owner_ledger_path="",
+            output_json="",
+            batch_size=1,
+            batch_backoff_seconds=0.0,
+            max_rate_limit_sleep_seconds=0.0,
+            continue_on_rate_limit=False,
+            proxy_mode="direct",
+            expected_proxy_country="",
+            telegram_principal_id="",
+            send_telegram=False,
+            dry_run=True,
+            timeout_seconds=30.0,
+            format="json",
+            telegram_operator_streams="",
+        ),
+    )
+
+    def _fake_refresh(**kwargs):
+        observed.update(kwargs)
+        return {"probe_ok": True, "status": "dry_run", "ready": False, "reason": "dry_run"}
+
+    monkeypatch.setattr(module, "refresh_onemin_direct_api", _fake_refresh)
+
+    assert module.main() == 0
+    json.loads(capsys.readouterr().out)
+    assert observed["batch_backoff_seconds"] == 0.0
+    assert observed["max_rate_limit_sleep_seconds"] == 0.0
+    assert observed["continue_on_rate_limit"] is False

@@ -30,6 +30,9 @@ def _sample_ltd_markdown() -> str:
 |---|---|---|---|---|---|---|---|
 | `blipai` | `No tier recorded` | `1 account` | `Owned` |  | `Tier 4` | Local credentials | Operator note capture only. |
 | `hedy.ai` | `LTD account` | `1 account` | `Owned` |  | `Tier 4` | Governed meeting-evidence lane defined | Hedy captures consented transcripts only; EA owns evidence, commitment, decision, draft and people-memory truth. |
+| `Emailit` | `Tier 5` | `1 account / 1 key` | `Owned` |  | `Tier 1` | Governed transactional delivery | EA owns recipient, suppression, approval, delivery and closeout truth. |
+| `FastestVPN PRO` | `15 Devices` | `1 subscription/account` | `Owned` |  | `Tier 2` | Governed provider transport | EA owns account, quota, billing, product and release truth. |
+| `VocalLab.ai` | `License Tier 3` | `1 account` | `Owned` |  | `Tier 3` | Catalog-only binding | Memorial exclusively owns Manfred authority and release truth; EA spend remains disabled. |
 | `Teable` | `Tier 2` | `1 account` | `Owned` |  | `Tier 2` | Projection adapter | Projection only, not source of truth. |
 | `Syllabbles` | `No tier recorded` | `1 account` | `Owned` |  | `Tier 4` | Draft workbench | Dispatch draft only. |
 
@@ -74,6 +77,9 @@ def _sample_ltd_markdown() -> str:
 | `ApproveThis` |  | `manual_seeded` | `manual_inventory` | 2026-06-18T00:00:00Z | Governed external approval edge defined; live provider proof pending. |
 | `MarkupGo` |  | `manual_seeded` | `manual_inventory` | 2026-06-18T00:00:00Z | Governed premium renderer lane defined; provider proof pending. |
 | `hedy.ai` | `ltd.account@example.test` | `manual_seeded` | `local_env` | 2026-06-18T00:00:00Z | Governed meeting-evidence lane defined; provider proof pending. |
+| `Emailit` |  | `manual_seeded` | `emailit_api_live` | 2026-05-01T05:00:00Z | Tier 5 and live API proof recorded. |
+| `FastestVPN PRO` |  | `complete` | `local_runtime_ch_country_probe` | 2026-08-12T04:25:35Z | Switzerland lane verified. |
+| `VocalLab.ai` |  | `complete` | `authenticated_redacted_inventory` | 2026-08-12T09:54:26Z | Catalog proof only; no runtime promotion. |
 | `Unmixr AI` | `ltd.account@example.test` | `manual_seeded` | `user_report + local_runtime_docs` | 2026-06-03T09:58:09Z | API key and voice ID pending. |
 | `Poppy AI` | `ltd.account@example.test` | `user_reported` | `live_google_session_probe` | 2026-06-09T10:25:00Z | Session proof recorded; privacy, export and tenant isolation still pending. |
 | `Rafter` | `ltd.account@example.test` | `manual_seeded` | `fleet_verified` | 2026-05-29T20:16:00Z | Fleet proof passes. |
@@ -121,6 +127,9 @@ def test_all_requested_ltd_provider_lanes_are_defined() -> None:
         "approvethis_external_approval_edge",
         "documentation_ai_publication",
         "unmixr_voice_runtime",
+        "vocallab_catalog_authority",
+        "emailit_transactional_delivery",
+        "fastestvpn_governed_provider_transport",
         "magicfit_media_factory_candidate",
         "poppy_draft_workbench",
         "release_quality_gates",
@@ -209,6 +218,40 @@ def test_lane_boundaries_match_provider_risks() -> None:
         "external_send_approval_status",
     } <= set(aiwritebook.normalized_signal_schema)
 
+    emailit = lane_by_key("emailit_transactional_delivery")
+    assert emailit is not None
+    assert emailit.providers == ("Emailit",)
+    assert emailit.integration_lane == "transactional_delivery_outbox"
+    assert set(emailit.off_switch_env) == {
+        "EA_EMAILIT_DELIVERY_ENABLED",
+        "EA_EMAILIT_OFFICE_DELIVERY_ENABLED",
+        "PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED",
+        "CHUMMER_HUB_EMAILIT_DELIVERY_ENABLED",
+    }
+    assert {"raw_gmail", "raw_calendar", "unsuppressed_recipient", "direct_send_without_approval"} <= set(
+        emailit.forbidden_inputs
+    )
+    assert {"recipient_sha256", "suppression_status", "approval_status", "provider_message_ref"} <= set(
+        emailit.normalized_signal_schema
+    )
+
+    fastestvpn = lane_by_key("fastestvpn_governed_provider_transport")
+    assert fastestvpn is not None
+    assert fastestvpn.providers == ("FastestVPN PRO",)
+    assert fastestvpn.off_switch_env == ("EA_ENABLE_FASTESTVPN",)
+    assert {"provider_rate_limit_evasion", "raw_proxy_credential", "raw_exit_ip_receipt", "release_truth"} <= set(
+        fastestvpn.forbidden_inputs
+    )
+
+    vocallab = lane_by_key("vocallab_catalog_authority")
+    assert vocallab is not None
+    assert vocallab.providers == ("VocalLab.ai",)
+    assert vocallab.integration_lane == "voice_catalog_only"
+    assert vocallab.verified_state == "verified_catalog_only"
+    assert {"real_person_voice_upload", "automatic_voice_render", "memorial_authority", "release_truth"} <= set(
+        vocallab.forbidden_inputs
+    )
+
     hedy = lane_by_key("hedy_meeting_evidence")
     assert hedy is not None
     assert hedy.providers == ("Hedy.ai",)
@@ -293,10 +336,15 @@ def test_receipts_pass_hard_contracts_even_when_proofs_are_missing(tmp_path: Pat
     )
 
     assert receipt["status"] == "pass"
+    assert receipt["status_scope"] == "governance_contract_integrity_only"
+    assert receipt["readiness_status"] == "blocked_pending_proof"
+    assert receipt["ready_lane_count"] + receipt["blocked_lane_count"] == receipt["lane_count"]
     assert receipt["lane_count"] == len(LANES)
     lanes = {str(row["lane_key"]): row for row in receipt["lanes"]}
     assert lanes["fliplink_document_portal"]["not_source_of_truth"] is True
     assert lanes["fliplink_document_portal"]["lane_state"] == "blocked_pending_proof"
+    assert lanes["fliplink_document_portal"]["status_scope"] == "lane_contract_integrity_only"
+    assert lanes["fliplink_document_portal"]["readiness_asserted"] is False
     assert "first_publication_receipt" in lanes["fliplink_document_portal"]["missing_checks"]
     assert lanes["release_quality_gates"]["lane_state"] in {"verified_runtime_lane", "blocked_pending_proof"}
     assert lanes["public_signal_ingest"]["normalized_signal_schema"]
@@ -723,6 +771,152 @@ def test_priority_ltd_lane_hard_contracts_prevent_scope_creep() -> None:
         off_switch_env=tuple(value for value in sendr.off_switch_env if value != "EA_SENDR_DIRECT_SEND_ENABLED"),
     )
     assert "sendr_fail_closed_switch_missing" in _hard_contract_failures(sendr_switch_regressed)
+
+    emailit = lane_by_key("emailit_transactional_delivery")
+    assert emailit is not None
+    emailit_privacy_regressed = replace(
+        emailit,
+        forbidden_inputs=tuple(value for value in emailit.forbidden_inputs if value != "raw_gmail"),
+    )
+    assert "emailit_privacy_or_send_boundary_incomplete" in _hard_contract_failures(emailit_privacy_regressed)
+
+    fastestvpn = lane_by_key("fastestvpn_governed_provider_transport")
+    assert fastestvpn is not None
+    fastestvpn_boundary_regressed = replace(
+        fastestvpn,
+        forbidden_inputs=tuple(
+            value for value in fastestvpn.forbidden_inputs if value != "provider_rate_limit_evasion"
+        ),
+    )
+    assert "fastestvpn_transport_boundary_incomplete" in _hard_contract_failures(fastestvpn_boundary_regressed)
+
+    fastestvpn_switch_regressed = replace(
+        fastestvpn,
+        off_switch_env=tuple(value for value in fastestvpn.off_switch_env if value != "EA_ENABLE_FASTESTVPN"),
+    )
+    assert "fastestvpn_off_switch_missing" in _hard_contract_failures(fastestvpn_switch_regressed)
+
+    emailit_switch_regressed = replace(emailit, off_switch_env=())
+    assert "emailit_off_switch_missing" in _hard_contract_failures(emailit_switch_regressed)
+
+
+def test_emailit_lane_is_verified_only_with_private_key_adapter_and_open_switch(tmp_path: Path) -> None:
+    ltd_path = _write_ltd(tmp_path)
+    service_path = tmp_path / "ea" / "app" / "services" / "registration_email.py"
+    service_path.parent.mkdir(parents=True)
+    service_path.write_text(
+        """
+EMAILIT_API_BASE = "https://api.emailit.com/v2/emails"
+EA_EMAILIT_DELIVERY_ENABLED = "contract marker"
+EA_EMAILIT_OFFICE_DELIVERY_ENABLED = "contract marker"
+PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED = "contract marker"
+CHUMMER_HUB_EMAILIT_DELIVERY_ENABLED = "contract marker"
+class RegistrationEmailReceipt:
+    provider: str
+    message_id: str
+    accepted_at: str
+def email_delivery_enabled():
+    raise RuntimeError("registration_email_delivery_disabled")
+def _send_emailit_email():
+    with bounded_outbound_email():
+        pass
+""".strip(),
+        encoding="utf-8",
+    )
+    lane = lane_by_key("emailit_transactional_delivery")
+    assert lane is not None
+    markdown_text = ltd_path.read_text(encoding="utf-8")
+    inventory_rows = load_ltd_inventory_rows(ltd_path)
+
+    enabled = build_ltd_provider_lane_receipt(
+        lane,
+        markdown_text=markdown_text,
+        inventory_rows=inventory_rows,
+        env={"EMAILIT_API_KEY": "private-test-key"},
+        root=tmp_path,
+        generated_at="2026-08-12T04:00:00Z",
+    )
+    disabled = build_ltd_provider_lane_receipt(
+        lane,
+        markdown_text=markdown_text,
+        inventory_rows=inventory_rows,
+        env={"EMAILIT_API_KEY": "private-test-key", "EA_EMAILIT_DELIVERY_ENABLED": "off"},
+        root=tmp_path,
+        generated_at="2026-08-12T04:00:00Z",
+    )
+
+    assert enabled["status"] == "pass"
+    assert enabled["lane_state"] == "verified_runtime_lane"
+    assert enabled["runtime_enabled"] is True
+    assert enabled["missing_checks"] == []
+    assert disabled["status"] == "pass"
+    assert disabled["lane_state"] == "blocked_pending_proof"
+    assert disabled["runtime_enabled"] is False
+    assert disabled["missing_checks"] == ["emailit_off_switch"]
+    assert next(
+        check["source"] for check in disabled["required_checks"] if check["check_key"] == "emailit_off_switch"
+    ) == "emailit_off_switch_engaged"
+
+
+def test_vocallab_lane_stays_non_executable_and_fails_without_runtime_key(tmp_path: Path) -> None:
+    ltd_path = _write_ltd(tmp_path)
+    registry_path = tmp_path / "ea" / "app" / "services" / "provider_registry.py"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        '''
+ProviderBinding(
+    provider_key="vocallab",
+    executable=False,
+    capabilities=(
+        ProviderCapability(provider_key="vocallab", capability_key="voice_inventory", tool_name="provider.vocallab.voice_inventory", executable=False),
+        ProviderCapability(provider_key="vocallab", capability_key="voice_render", tool_name="provider.vocallab.voice_render", executable=False),
+    ),
+)
+'''.strip(),
+        encoding="utf-8",
+    )
+    lane = lane_by_key("vocallab_catalog_authority")
+    assert lane is not None
+    markdown_text = ltd_path.read_text(encoding="utf-8")
+    inventory_rows = load_ltd_inventory_rows(ltd_path)
+
+    missing_key = build_ltd_provider_lane_receipt(
+        lane,
+        markdown_text=markdown_text,
+        inventory_rows=inventory_rows,
+        env={},
+        root=tmp_path,
+        generated_at="2026-08-13T12:00:00Z",
+    )
+    catalog_ready = build_ltd_provider_lane_receipt(
+        lane,
+        markdown_text=markdown_text,
+        inventory_rows=inventory_rows,
+        env={"VOCALLAB_API_KEY": "private-test-key"},
+        root=tmp_path,
+        generated_at="2026-08-13T12:00:00Z",
+    )
+    spend_enabled = build_ltd_provider_lane_receipt(
+        lane,
+        markdown_text=markdown_text,
+        inventory_rows=inventory_rows,
+        env={
+            "VOCALLAB_API_KEY": "private-test-key",
+            "EA_AUDIOBOOK_VOCALLAB_AUTO_RENDER": "1",
+        },
+        root=tmp_path,
+        generated_at="2026-08-13T12:00:00Z",
+    )
+
+    assert missing_key["lane_state"] == "blocked_pending_proof"
+    assert missing_key["runtime_enabled"] is False
+    assert missing_key["missing_checks"] == ["vocallab_runtime_key_seeded"]
+    assert catalog_ready["lane_state"] == "verified_catalog_only"
+    assert catalog_ready["runtime_enabled"] is False
+    assert catalog_ready["missing_checks"] == []
+    assert spend_enabled["lane_state"] == "blocked_pending_proof"
+    assert spend_enabled["runtime_enabled"] is False
+    assert spend_enabled["missing_checks"] == ["vocallab_spend_controls_off"]
 
 
 def test_lane_receipt_never_leaks_env_secret_values(tmp_path: Path) -> None:

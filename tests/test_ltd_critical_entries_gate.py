@@ -36,3 +36,20 @@ def test_ltd_critical_entries_gate_fails_closed_on_missing_inventory_or_env() ->
     assert "teable_discovery" in receipt["failures"]
     assert "prompt_architects_env" in receipt["failures"]
     assert "onemin_env" in receipt["failures"]
+
+
+def test_ltd_critical_entries_gate_accepts_current_composite_evidence_rows() -> None:
+    markdown = """
+| `1min.AI` | `Advanced Business Plan` | `12 licenses / 12 accounts / 74 restored runtime slots` | `Owned` |  | `Tier 1` | Local `.env` key rotation pool plus restored `config/onemin_api_keys.local.json` | Latest refresh confirmed `15025` remaining credits. |
+| `Prompt Architects` | `Tier 4` | `1 account` | `Activated` |  | `Tier 4` | `PROMPTING_SYSTEMS_API_KEY`; Prompt Foundry | ok |
+| `BrowserAct` | ops@example.com | `complete` | `browseract_live` | 2026-03-07T00:00:00Z | ok |
+| `Teable` | ops@teable.example | `complete` | `browseract_live + env_recovery_readiness_receipt + live_teable_sync_env` | 2026-07-07T12:56:30Z | ok |
+""".strip()
+
+    receipt = build_receipt(
+        markdown_text=markdown,
+        env={"PROMPTING_SYSTEMS_API_KEY": "pa_test", "ONEMIN_AI_API_KEY": "onemin_test"},
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["failures"] == []

@@ -1,5 +1,111 @@
 # Next Session Handoff
 
+## Priority override: Memorial release and governed EA integration
+
+Date: 2026-08-13
+EA repo: `/docker/EA`
+Memorial repo: `/docker/Memorial`
+Memorial exact source: `661eb568834f9657ee25f288379ad059ca13c042`
+Goal status: active; Memorial is deployed and Alpha Build 39 is in Google review, but the
+cross-repo/operator promotion gate remains deliberately open.
+
+This section is current and overrides older Memorial claims below. Keep the later audiobook and
+OODA sections as history.
+
+### Completed release state
+
+- `/docker/Memorial` is clean, pushed to `origin/main`, and deployed at exact revision
+  `661eb568834f9657ee25f288379ad059ca13c042`.
+- `https://memorial.myexternalbrain.com` is publicly healthy and ready. PostgreSQL, worker,
+  scheduler, studio, mail import, Android download, generation, quality audit, VocalLab voice,
+  and the Manfred demo all report `ready`. `https://myexternalbrain.com` remains the separate EA
+  origin.
+- The UI is minimal, locale-aware, and status-first. Dictation keeps its compact microphone
+  control instead of replacing it with visible label text. Browser/native back gestures,
+  packages, login return, microphone permissions, talk-mode notifications, source-grounded
+  answers, and free conversation passed Android 15 E2E.
+- The browser now derives the user's preferred locale; Manfred and status copy follow the
+  supported local language. Speech state distinguishes listening, Manfred speaking, and
+  thinking/failure states.
+- VocalLab is the production voice provider. The authorized German Manfred clone exists under
+  `the.girscheles`, a real synthesis passed, the provider lifecycle canary passed, and the
+  production demo is pinned through the protected
+  `runtime/secrets/personal-manfred-demo-voice-ref` file. The retired Unmixr demo reference is
+  removed from host state and is actively deleted from older runtime secret volumes.
+- The temporary Unmixr Pro API key was revoked after its quota proved unsuitable. The temporary
+  VocalLab browser token was invalidated by signing out. Never treat the remaining seven Unmixr
+  clone credits as a dependable production lane.
+- Exact verification: 488 tests, 19 documentation gates, 416 mobile checks, zero npm audit
+  findings, supply-chain pass, browser E2E pass, Android 15 emulator E2E pass, isolated product
+  persistence pass, 250-request load smoke with zero failures, 56-table encrypted
+  backup/restore pass, nine route/privacy checks, and 12/12 healthy alert rules.
+- Read-only Cloudflare evidence proves exactly one Memorial hostname binding, the expected
+  internal service, and separation from the EA root.
+- Android version 39 / 2.3.23 was built with unit tests, lint, shrinking, and R8. The signed
+  direct APK SHA-256 is `27ae203de2bf439b7847a792bef0c56fb712565db508c3d1b7cd6f778da6d64c`.
+  The signed upload AAB SHA-256 is
+  `bf856f076701ede29720a42fa85cc0141daea445929d92a8927e1baa6fbef727`.
+- Google Play accepted Build 39 into Closed Alpha for 177/177 regions. It is in review for full
+  Alpha rollout. The Play-generated universal APK SHA-256 is
+  `f1206dd99cc8cbef22bc157722de795b1c56a557d1bed12ae703d2b1ac2c3ea7`; both the Play app-signing
+  and upload certificates passed the exact release receipt.
+- The exact promotion receipt now passes 14 of 16 gates. Android handoff/signing, direct APK,
+  browser E2E, Android E2E, product integration, load, backup, privacy, observability, public
+  ingress, VocalLab, Cloudflare binding, and supply chain are green.
+
+### Current evidence
+
+- Promotion: `/docker/Memorial/dist/cutover/release-promotion.json`
+- Public ingress and Cloudflare binding: `/docker/Memorial/dist/cutover/public-ingress.json` and
+  `/docker/Memorial/dist/cutover/ingress-binding.json`
+- EA boundary: `/docker/Memorial/dist/cutover/ea-core-closeout.json`
+- VocalLab and Android signing: `/docker/Memorial/dist/cutover/vocallab-contract.json`,
+  `android-signing.json`, and `android-direct-signing.json`
+- Browser/native E2E: `/docker/Memorial/dist/e2e/`
+- Signed Android artifacts and rollback archives:
+  `/docker/Memorial/runtime/mobile-signing/android/`
+- Direct install handoff: `/docker/Memorial/runtime/release-downloads/`
+
+### Remaining real blockers
+
+Only two of 16 formal gates remain red:
+
+1. `ea_core_closeout`: the standalone repository boundary passes, but `/docker/EA` has preserved
+   unrelated worktree changes, `origin/main` is not exact HEAD, and the configured loopback EA
+   runtime was unavailable/mismatched during the exact audit. Do not reset or commit the broad
+   dirty worktree to make this receipt green. Align a reviewed clean EA main/runtime first, then
+   regenerate `ea-core-closeout.json` for Memorial revision `661eb568...`.
+2. `operator_release_dossier`: no human-reviewed canonical dossier and Ed25519 signature exists.
+   Do not manufacture legal, accessibility, monitored-support, owner-authority, store, Gmail/IMAP,
+   alert-drill, or EA acceptance. A real operator must review the actual evidence and sign it.
+
+Google production is separately time-gated: Closed Alpha still reports one of twelve required
+opted-in testers. `susanna.hoza@gmail.com` is listed but must opt in herself. Production requires
+at least twelve real testers continuously for fourteen days. Build 39 review can complete without
+pretending that production eligibility exists.
+
+Security follow-up: a Pano2VR license key was exposed in local terminal output when the EA `.env`
+was accidentally sourced. Rotate that vendor credential. Do not source `/docker/EA/.env`; parse
+only required keys without echoing values. The VocalLab short-lived browser token and temporary
+Unmixr key were already invalidated.
+
+### Opportunities and LTD posture
+
+- The consent-first email profile/import app is ingest-ready. Use the existing product-owned
+  Gmail/IMAP selection, review, deletion, and entitlement lane before buying another profile app.
+  Emailit remains transactional delivery only.
+- AiWriteBook Tier 4 remains a bounded human-operated export opportunity, not a Memorial runtime
+  dependency or publication authority.
+- VocalLab is now the verified Manfred lane. Unmixr remains synthesis-only fallback capacity and
+  must not replace VocalLab or hide quota/deletion limitations.
+- Keep provider credits, identities, deletion receipts, and user consent fail-closed. A green LTD
+  inventory means verified-or-blocked governance, not that every paid tool is a live dependency.
+
+### Working-tree rule
+
+The EA worktree contains unrelated concurrent generated and audiobook work. Preserve it. Do not
+reset, clean, or fold unrelated files into the Memorial release slice.
+
 ## Priority override: flagship audiobook narration lane
 
 Date: 2026-07-11

@@ -494,12 +494,13 @@ def build_goal_audit(
     *,
     env_path: Path,
     output_path: Path,
+    local_contract_receipt: Path = LOCAL_CONTRACT_RECEIPT,
     account_verification_receipt: Path = ACCOUNT_VERIFICATION_RECEIPT,
     manual_canary_receipt: Path = MANUAL_CANARY_RECEIPT,
 ) -> dict[str, object]:
     env = _env_facts(env_path)
     flags = dict(env.get("flags") or {})
-    local_contract = _load_json(LOCAL_CONTRACT_RECEIPT)
+    local_contract = _load_json(local_contract_receipt)
     public_reachability = _load_json(PUBLIC_REACHABILITY_RECEIPT)
     account_verification = _load_json(account_verification_receipt)
     manual_canary = _load_json(manual_canary_receipt)
@@ -674,7 +675,7 @@ def build_goal_audit(
         ),
         "local_sidecar_governance": _status(
             achieved=local_contract_ready,
-            evidence=[_evidence_ref(LOCAL_CONTRACT_RECEIPT)],
+            evidence=[_evidence_ref(local_contract_receipt)],
             detail=(
                 "Packet, classification, redaction, persistent credits, "
                 "hash-chained audit, review, canary, and rollback controls "
@@ -683,7 +684,7 @@ def build_goal_audit(
         ),
         "authority_boundary": _status(
             achieved=authority_boundary,
-            evidence=[_evidence_ref(LOCAL_CONTRACT_RECEIPT)],
+            evidence=[_evidence_ref(local_contract_receipt)],
             detail=(
                 "Repository writes, routing, approvals, publication, and "
                 "canonical memory remain outside WorkLLM."

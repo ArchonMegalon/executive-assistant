@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import hashlib
 import math
 import re
+import unicodedata
 from typing import Any, Mapping
 
 
@@ -33,7 +34,7 @@ _GENERATION_STATUSES = (
     | VOCALLAB_GENERATION_SUCCESS
     | VOCALLAB_GENERATION_FAILED
 )
-_PRIVATE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$")
+_PRIVATE_ID_RE = re.compile(r"^[^\s\x00-\x1f\x7f]{1,256}$")
 _MODEL_SEMANTICS = (
     ("v-studio", True, True, 1.0),
     ("v-pro", False, False, 1.0),
@@ -47,6 +48,14 @@ class VocalLabSchemaError(RuntimeError):
     def __init__(self) -> None:
         super().__init__("invalid_provider_response")
         self.code = "invalid_provider_response"
+
+
+def _valid_private_id(value: object) -> bool:
+    return bool(
+        isinstance(value, str)
+        and _PRIVATE_ID_RE.fullmatch(value)
+        and all(not unicodedata.category(character).startswith("C") for character in value)
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,29 +201,58 @@ def parse_models(payload: object) -> tuple[ModelObservation, ...]:
 def parse_voices(payload: object) -> tuple[VoiceObservation, ...]:
     try:
         value = _mapping(payload)
-        if set(value) != {"voices"} or not isinstance(value.get("voices"), list):
+        if set(value) != {"count", "has_more", "offset", "total", "voices"}:
+            raise VocalLabSchemaError()
+        rows = value.get("voices")
+        count = value.get("count")
+        offset = value.get("offset")
+        total = value.get("total")
+        has_more = value.get("has_more")
+        if (
+            not isinstance(rows, list)
+            or type(count) is not int
+            or type(offset) is not int
+            or type(total) is not int
+            or type(has_more) is not bool
+            or not 0 <= count <= 500
+            or offset < 0
+            or total < 0
+            or count != len(rows)
+            or offset + count > total
+            or has_more is not (offset + count < total)
+        ):
             raise VocalLabSchemaError()
         observations: list[VoiceObservation] = []
         seen: set[str] = set()
-        for row in value["voices"]:
+        for row in rows:
             item = _mapping(row)
-            if set(item) != {"id", "languages", "name", "type"}:
+            if set(item) != {
+                "accent",
+                "category",
+                "id",
+                "language_code",
+                "languages",
+                "name",
+                "slug",
+                "type",
+            }:
                 raise VocalLabSchemaError()
             voice_id = item.get("id")
             name = item.get("name")
             provider_type = item.get("type")
             languages = item.get("languages")
+            metadata = tuple(
+                item.get(key)
+                for key in ("accent", "category", "language_code", "slug")
+            )
             if (
-                not isinstance(voice_id, str)
-                or not _PRIVATE_ID_RE.fullmatch(voice_id)
+                not _valid_private_id(voice_id)
                 or voice_id in seen
                 or not isinstance(name, str)
                 or not name.strip()
                 or name != name.strip()
                 or len(name) > 120
-                or not isinstance(provider_type, str)
-                or not provider_type.strip()
-                or provider_type != provider_type.strip()
+                or provider_type not in {"preset", "clone", "designed"}
                 or not isinstance(languages, list)
                 or not languages
                 or any(
@@ -224,6 +262,13 @@ def parse_voices(payload: object) -> tuple[VoiceObservation, ...]:
                     for language in languages
                 )
                 or len(set(languages)) != len(languages)
+                or any(
+                    not isinstance(field, str)
+                    or not field.strip()
+                    or field != field.strip()
+                    or len(field) > 200
+                    for field in metadata
+                )
             ):
                 raise VocalLabSchemaError()
             seen.add(voice_id)
@@ -235,14 +280,23 @@ def parse_voices(payload: object) -> tuple[VoiceObservation, ...]:
                     languages=tuple(languages),
                 )
             )
+        # Provider labels are operator-visible. Preserve legitimate labels, but
+        # never echo any private provider identifier that appears in any label
+        # (including a cross-entry label) back to an operator surface.
         identifiers = tuple(item.provider_voice_id.casefold() for item in observations)
-        if any(
-            identifier in item.name.casefold()
-            for item in observations
-            for identifier in identifiers
-        ):
-            raise VocalLabSchemaError()
-        return tuple(observations)
+        return tuple(
+            VoiceObservation(
+                provider_voice_id=item.provider_voice_id,
+                name=(
+                    f"Catalog voice {index}"
+                    if any(identifier in item.name.casefold() for identifier in identifiers)
+                    else item.name
+                ),
+                provider_type=item.provider_type,
+                languages=item.languages,
+            )
+            for index, item in enumerate(observations, start=1)
+        )
     except VocalLabSchemaError:
         raise
     except Exception:
