@@ -36,6 +36,13 @@ Still external or operational, not closable by a repository patch:
 
 Validation for this closeout is recorded in the merge/CI history. Focused gates cover Emailit, FastestVPN, VocalLab, provider routing, the LTD mesh, Teable projection, audiobook candidate isolation, WorkLLM evidence injection, and the BrowserAct humanizer repair. No provider spend, email send, public publish, or release promotion is authorized by those tests.
 
+The clean follow-up branch also completed the entire repository suite after
+closing the remaining lane-gating, sign-in-copy, Magicx ordering, and WorkLLM
+reachability baseline drift: **6,102 passed, 27 skipped, 2 dependency
+deprecation warnings in 2,733.17 seconds**. The warnings come from the installed
+`websockets` compatibility layer used by the real-browser workflow test; they
+are not EA test failures.
+
 ## Review checklist
 
 | Check | Result |

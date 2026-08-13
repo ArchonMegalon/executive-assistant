@@ -99,6 +99,12 @@ def _validate_property_surface_client_allowlist() -> None:
     assert not unresolved, f"unknown PropertyQuarry contract tests: {unresolved}"
 
 
+def _enable_property_emailit_delivery(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_EMAILIT_DELIVERY_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED", "1")
+
+
 @pytest.fixture(autouse=True)
 def _select_property_surface_client(
     request: pytest.FixtureRequest,
@@ -2285,7 +2291,7 @@ def test_property_scout_route_notifies_high_fit_and_creates_tour_for_existing_re
 def test_property_scout_route_sends_client_email_alerts_via_emailit(monkeypatch) -> None:
     from app.services.registration_email import RegistrationEmailReceipt
 
-    monkeypatch.setenv("EMAILIT_API_KEY", "emailit-test-key")
+    _enable_property_emailit_delivery(monkeypatch)
     principal_id = "cf-email:principal.user@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Scout Email Office")
@@ -2381,7 +2387,7 @@ def test_property_scout_hit_email_does_not_silently_fallback_to_gmail_by_default
     start_workspace(client, mode="personal", workspace_name="Property Scout Gmail Fallback Guard")
     product = ProductService(client.app.state.container)
 
-    monkeypatch.setattr(product_service, "email_delivery_enabled", lambda: True)
+    monkeypatch.setattr(product_service, "email_delivery_enabled", lambda **_kwargs: True)
     monkeypatch.setattr(
         product,
         "_render_property_scout_dossier",
@@ -3942,7 +3948,7 @@ def test_signal_ingest_willhaben_search_agent_mail_can_auto_create_and_send_to_t
         "EA_WILLHABEN_PROPERTY_TOUR_RECIPIENT_MAP_JSON",
         '{"property.alerts@example.test":"principal.user@example.test"}',
     )
-    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    _enable_property_emailit_delivery(monkeypatch)
 
     principal_id = "cf-email:property.alerts@example.test"
     client = build_product_client(principal_id=principal_id)
@@ -4058,7 +4064,7 @@ def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatc
     from app.domain.models import Artifact
     from app.services.registration_email import RegistrationEmailReceipt
 
-    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    _enable_property_emailit_delivery(monkeypatch)
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     principal_id = "cf-email:principal.user@example.test"
@@ -5586,7 +5592,7 @@ def test_willhaben_property_tour_route_uses_personal_fit_assessment_when_profile
     from app.domain.models import Artifact
     from app.services.registration_email import RegistrationEmailReceipt
 
-    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    _enable_property_emailit_delivery(monkeypatch)
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     principal_id = "cf-email:principal.user@example.test"
     client = build_product_client(principal_id=principal_id)
@@ -5695,7 +5701,7 @@ def test_willhaben_property_tour_records_video_followup_when_telegram_video_deli
     from app.domain.models import Artifact
     from app.services.registration_email import RegistrationEmailReceipt
 
-    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    _enable_property_emailit_delivery(monkeypatch)
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     principal_id = "cf-email:principal.user@example.test"
@@ -6859,7 +6865,7 @@ def test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_ava
     from app.services.registration_email import RegistrationEmailReceipt
 
     monkeypatch.delenv("BROWSERACT_API_KEY", raising=False)
-    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    _enable_property_emailit_delivery(monkeypatch)
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     principal_id = "cf-email:principal.user@example.test"
     client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
@@ -7015,7 +7021,7 @@ def test_office_signal_can_auto_create_willhaben_property_tour(monkeypatch) -> N
     from app.domain.models import Artifact
     from app.services.registration_email import RegistrationEmailReceipt
 
-    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    _enable_property_emailit_delivery(monkeypatch)
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     principal_id = "cf-email:principal.user@example.test"
     client = build_product_client(principal_id=principal_id)
@@ -14328,7 +14334,7 @@ def test_workspace_sign_in_email_links_fall_back_to_google_gmail_when_explicitly
         expires_in_hours=24,
     )
     monkeypatch.setenv("EA_WORKSPACE_SIGN_IN_GMAIL_FALLBACK_ENABLED", "1")
-    monkeypatch.setattr(product_service, "email_delivery_enabled", lambda: False)
+    monkeypatch.setattr(product_service, "email_delivery_enabled", lambda **_kwargs: False)
     sent: list[dict[str, object]] = []
 
     class _FakeGmailReceipt:
@@ -14362,7 +14368,7 @@ def test_google_connect_email_link_carries_expected_google_account(monkeypatch) 
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Work Gmail Office")
     product = ProductService(client.app.state.container)
-    monkeypatch.setattr(product_service, "email_delivery_enabled", lambda: True)
+    monkeypatch.setattr(product_service, "email_delivery_enabled", lambda **_kwargs: True)
     captured: dict[str, object] = {}
 
     def _fake_send_google_connect_email(**kwargs):

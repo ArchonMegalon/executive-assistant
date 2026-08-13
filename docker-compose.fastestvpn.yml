@@ -64,6 +64,8 @@ services:
   # scheduler, WhatsApp, browser UI, and public ingress are not placed behind
   # this provider transport.
   ea-api:
+    mem_limit: 2g
+    pids_limit: 512
     environment:
       - ONEMIN_DIRECT_API_PROXY_SERVER=http://ea-fastestvpn-proxy-ch:${FASTESTVPN_PROXY_PORT:-3128}
       - ONEMIN_DIRECT_API_PROXY_POOL=http://ea-fastestvpn-proxy-ch:${FASTESTVPN_PROXY_PORT:-3128}
