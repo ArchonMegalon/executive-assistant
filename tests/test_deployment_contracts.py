@@ -929,7 +929,10 @@ def test_fastestvpn_override_prefers_bounded_switzerland_lane_for_onemin() -> No
     services = compose.get("services") or {}
     swiss = services.get("ea-fastestvpn-proxy-ch") or {}
     swiss_environment = {str(item) for item in list(swiss.get("environment") or [])}
+    swiss_env_files = [str(item) for item in list(swiss.get("env_file") or [])]
 
+    assert swiss_env_files == [".ea-runtime-secrets/ea_runtime.env"]
+    assert ".env" not in swiss_env_files
     assert "FASTESTVPN_CONFIG_GLOB=${FASTESTVPN_CH_CONFIG_GLOB:-switzerland*.ovpn}" in swiss_environment
     assert "127.0.0.1:${FASTESTVPN_CH_PROXY_HOST_PORT:-9315}:${FASTESTVPN_PROXY_PORT:-3128}" in {
         str(item) for item in list(swiss.get("ports") or [])
