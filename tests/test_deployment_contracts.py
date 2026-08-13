@@ -424,6 +424,16 @@ def test_proactive_ooda_deploy_keeps_runtime_outputs_group_writable() -> None:
     assert "a+rwX" not in deploy
 
 
+def test_telegram_teable_sync_can_read_restricted_release_worktree() -> None:
+    compose = _load_yaml(ROOT / "docker-compose.yml")
+    service = dict(
+        (compose.get("services") or {}).get("ea-telegram-teable-sync") or {}
+    )
+
+    assert "1000" in [str(item) for item in list(service.get("group_add") or [])]
+    assert "./:/app:ro" in [str(item) for item in list(service.get("volumes") or [])]
+
+
 def test_deploy_verifies_the_effective_pocket_archive_host_root() -> None:
     deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
     runtime_gates = (ROOT / "scripts" / "runtime_hard_exit_gates.sh").read_text(

@@ -807,6 +807,10 @@ services:
   ea-telegram-teable-sync:
     image: ea-runtime:latest
     container_name: ea-telegram-teable-sync
+    # The service reads the read-only host source bind. Release worktrees are
+    # intentionally owner/group-only, so the unprivileged image user needs the
+    # host source group just like the API and proactive OODA services.
+    group_add: ["1000"]
     restart: unless-stopped
     env_file:
       - .ea-runtime-secrets/ea_runtime.env
