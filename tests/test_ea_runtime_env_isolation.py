@@ -91,6 +91,31 @@ def test_all_named_mail_and_google_keys_are_denied_alongside_future_prefix_keys(
     assert receipt["removed_key_count"] == len(blocked)
 
 
+def test_operator_only_spatial_tour_credentials_are_denied_from_both_runtime_env_files(
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    root = _repo(tmp_path)
+    _secret_file(
+        root / ".env",
+        b"EA_KEEP=yes\n"
+        b"PANO2VR_EMAIL=operator@example.invalid\n"
+        b"PANO2VR_LICENSE_KEY=license-secret\n",
+    )
+    _secret_file(
+        root / ".env.local",
+        b"EA_LOCAL_KEEP=yes\n"
+        b"PANO2VR_PASSWORD=account-secret\n"
+        b"PANO2VR_FUTURE_VENDOR_TOKEN=future-secret\n",
+    )
+
+    receipt = module.prepare_runtime_env(root)
+
+    assert (root / RUNTIME_DIR / "ea_runtime.env").read_bytes() == b"EA_KEEP=yes\n"
+    assert (root / RUNTIME_DIR / "ea_runtime.local.env").read_bytes() == b"EA_LOCAL_KEEP=yes\n"
+    assert receipt["removed_key_count"] == 4
+
+
 def test_absent_optional_source_removes_a_safe_stale_local_projection(tmp_path: Path) -> None:
     module = _module()
     root = _repo(tmp_path)

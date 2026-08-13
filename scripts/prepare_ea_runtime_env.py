@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Materialize EA-only Docker env files without PropertyQuarry identity data."""
+"""Materialize EA-only Docker env files without product-external operator credentials."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from typing import Any
 MAX_SOURCE_BYTES = 16 * 1024 * 1024
 RUNTIME_DIRECTORY = ".ea-runtime-secrets"
 BLOCKED_PREFIX = b"PROPERTYQUARRY_"
+OPERATOR_ONLY_PROVIDER_PREFIXES = (b"PANO2VR_",)
 REGISTRATION_MAIL_KEYS = frozenset(
     {
         b"EMAILIT_API_KEY",
@@ -175,13 +176,17 @@ def _assignment_key(line: bytes) -> bytes | None:
 
 
 def sanitize_env_bytes(content: bytes) -> tuple[bytes, int]:
-    """Remove PropertyQuarry assignments while preserving every other byte."""
+    """Remove product-external assignments while preserving every other byte."""
 
     retained: list[bytes] = []
     removed_count = 0
     for line in content.splitlines(keepends=True):
         key = _assignment_key(line)
-        if key is not None and (key.startswith(BLOCKED_PREFIX) or key in BLOCKED_EXACT_KEYS):
+        if key is not None and (
+            key.startswith(BLOCKED_PREFIX)
+            or key.startswith(OPERATOR_ONLY_PROVIDER_PREFIXES)
+            or key in BLOCKED_EXACT_KEYS
+        ):
             removed_count += 1
             continue
         retained.append(line)
@@ -451,7 +456,7 @@ def prepare_runtime_env(root: Path) -> dict[str, Any]:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Prepare owner-only EA runtime env files without PropertyQuarry keys."
+        description="Prepare owner-only EA runtime env files without product-external keys."
     )
     parser.add_argument(
         "--root",
