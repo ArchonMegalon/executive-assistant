@@ -445,7 +445,7 @@
     "ea/app/services/audiobook_tts/providers/base.py": "cc74f0378940178a63c5dd3aeef6c0c7b036ade156c6836b4d9e349968aaba40",
     "ea/app/services/audiobook_tts/providers/unmixr.py": "d1587f467037f9455e55e75c9a2fd4cfff2592fa929e078fe6de829579a6e94b",
     "ea/app/services/audiobook_tts/providers/vocallab.py": "308c72550aed82d95e497efbe54ecb3bc198f68ecb42bee919856ca06b0ddaad",
-    "ea/app/services/audiobook_tts/providers/vocallab_schema.py": "69dfe16a55f7416f9c45c869a2830cffde29e7a8ed02d8159c75e5235617a1e1",
+    "ea/app/services/audiobook_tts/providers/vocallab_schema.py": "8dc3fd04307007eb01e3f5d4188ca6c00faf2fa60fd71bffefbe1303de8b1c58",
     "ea/app/services/audiobook_tts/voice_catalog.py": "3c50bd3d60c9e145157c1450fb50bb71ab94275c4289205ef14065d6a70369a4",
     "ea/app/services/brain_catalog.py": "27324d1b1f6348f787e06eacf0eadddf510edd68b579e5a365999ccd8a3abb21",
     "ea/app/services/brain_router.py": "2a0fb6ae37e26f276596e9cc2b9c59450c7c332fe0e4a41fcc133bb76b68ccaf",
@@ -1587,6 +1587,7 @@
     "tests/test_verify_whatsapp_audiobook_public_share_playback.py": "167e1f1de6c936176a474d02e52360902343db5663ad7a8ef4260e58857676fa",
     "tests/test_verify_workllm_sidecar.py": "3305b236ce2c959655e0a0c00bd99f1854c627c3000a1ce45965927734f0ba7b",
     "tests/test_vocallab_provider_verification.py": "fa2f04d8dab02f52c78df32277a16b4c96f2b96b9115a2a7194b70c8c73ea2fe",
+    "tests/test_vocallab_schema_current_contract.py": "8aebef27e7db3e929755250622d8ccb163e6355af524e6ede65adcfe3c624b0c",
     "tests/test_voice_runtime_unmixr_slot_policy.py": "68d2dd706acd4d779855ed86d2028bd4dd11851225b38f6c895d14c05ba06b5e",
     "tests/test_weekly_product_pulse_materializer.py": "dc056301f7806ef92467bad7ae6e427f632ac528f52d2d9f6a03e884f38e4a26",
     "tests/test_whatsapp_audiobook_live_delivery_receipt.py": "f9fd2700ffd9cce3d1bbe1f112cc791e900d32d528115c00504e5dd5594b5d71",
@@ -1634,13 +1635,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "808274dcb24e21a835f379549da0c496f72a8c9c",
-  "indexed_at_timestamp": "2026-08-14T11:10:57.151654906+00:00",
+  "indexed_at_commit": "5a0646d280eee1ec6984caa2cb014eebf364300c",
+  "indexed_at_timestamp": "2026-08-14T11:19:10.470061849+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 35444,
-    "total_files": 1633,
-    "total_nodes": 24053
+    "total_edges": 35567,
+    "total_files": 1634,
+    "total_nodes": 24057
   },
   "vexp_version": "2.5.1"
 }
