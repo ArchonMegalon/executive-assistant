@@ -13,6 +13,231 @@ import pytest
 pytest.importorskip("fastapi")
 
 
+def test_google_inbox_readonly_bundle_excludes_every_write_and_non_gmail_scope() -> None:
+    from app.services import google_oauth as google_service
+
+    details = google_service.google_scope_bundle_details("inbox_readonly")
+    scopes = set(details["scopes"])
+
+    assert scopes == {
+        *google_service.GOOGLE_SCOPE_IDENTITY,
+        google_service.GOOGLE_SCOPE_GMAIL_READONLY,
+    }
+    assert google_service.GOOGLE_SCOPE_SEND not in scopes
+    assert google_service.GOOGLE_SCOPE_GMAIL_COMPOSE not in scopes
+    assert google_service.GOOGLE_SCOPE_GMAIL_MODIFY not in scopes
+    assert google_service.GOOGLE_SCOPE_CALENDAR not in scopes
+    assert google_service.GOOGLE_SCOPE_CALENDAR_READONLY not in scopes
+    assert google_service.GOOGLE_SCOPE_CONTACTS_READONLY not in scopes
+    assert google_service.GOOGLE_SCOPE_DRIVE_METADATA_READONLY not in scopes
+    assert google_service.google_bundle_supports_workspace_sync(scopes=tuple(scopes)) is True
+    assert details["label"] == "Gmail inbox — read only"
+
+
+def test_google_inbox_readonly_binding_reads_bodies_but_cannot_send_or_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import google_oauth as google_service
+
+    binding = SimpleNamespace(
+        binding_id="exec-google:google_gmail",
+        principal_id="exec-google",
+        provider_key=google_service.GOOGLE_PROVIDER_KEY,
+        status="enabled",
+        priority=80,
+        probe_state="ready",
+        probe_details_json={},
+        scope_json={"bundle": "inbox_readonly"},
+        updated_at="2026-08-14T00:00:00Z",
+        auth_metadata_json={
+            "google_email": "principal.user@example.test",
+            "granted_scopes": [google_service.GOOGLE_SCOPE_GMAIL_READONLY],
+            "refresh_token_ref": "encrypted-refresh",
+            "token_status": "active",
+        },
+    )
+
+    class _Registry:
+        def __init__(self) -> None:
+            self.upserts: list[dict[str, object]] = []
+
+        def list_persisted_binding_records(self, *, principal_id: str, limit: int = 100):
+            return (binding,) if principal_id == "exec-google" else ()
+
+        def get_persisted_binding_record(self, *, binding_id: str, principal_id: str | None = None):
+            if binding_id == binding.binding_id and principal_id == binding.principal_id:
+                return binding
+            return None
+
+        def upsert_binding_record(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.upserts.append(dict(kwargs))
+            return kwargs
+
+    registry = _Registry()
+    container = SimpleNamespace(provider_registry=registry)
+    monkeypatch.setattr(
+        google_service,
+        "load_google_oauth_config",
+        lambda: SimpleNamespace(
+            provider_secret_key="secret",
+            client_id="client-id",
+            client_secret="client-secret",
+        ),
+    )
+    monkeypatch.setattr(google_service, "_decrypt_secret", lambda value, key: value)
+    monkeypatch.setattr(
+        google_service,
+        "_refresh_google_access_token",
+        lambda **kwargs: {"access_token": "access-token", "expires_in": 3600},
+    )
+
+    gmail_calls: list[dict[str, object]] = []
+
+    def _read_mail(**kwargs):  # type: ignore[no-untyped-def]
+        gmail_calls.append(dict(kwargs))
+        return []
+
+    monkeypatch.setattr(google_service, "_list_recent_gmail_signals", _read_mail)
+
+    packet = google_service.list_recent_workspace_signals(
+        container=container,
+        principal_id="exec-google",
+        email_limit=5,
+        calendar_limit=5,
+        account_email_filter="principal.user@example.test",
+        gmail_query="from:vocallab.ai",
+    )
+
+    assert packet.account_email == "principal.user@example.test"
+    assert packet.granted_scopes == (google_service.GOOGLE_SCOPE_GMAIL_READONLY,)
+    assert len(gmail_calls) == 1
+    assert gmail_calls[0]["include_message_body"] is True
+    assert gmail_calls[0]["gmail_query"] == "from:vocallab.ai"
+
+    with pytest.raises(RuntimeError, match="google_gmail_send_scope_missing"):
+        google_service._load_google_send_context(
+            container=container,
+            principal_id="exec-google",
+        )
+    with pytest.raises(RuntimeError, match="google_gmail_draft_scope_missing"):
+        google_service._load_google_draft_context(
+            container=container,
+            principal_id="exec-google",
+        )
+
+
+def test_google_draft_assist_bundle_reads_and_drafts_but_ea_send_path_is_denied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import google_oauth as google_service
+
+    details = google_service.google_scope_bundle_details("draft_assist")
+    scopes = set(details["scopes"])
+    assert scopes == {
+        *google_service.GOOGLE_SCOPE_IDENTITY,
+        google_service.GOOGLE_SCOPE_GMAIL_READONLY,
+        google_service.GOOGLE_SCOPE_GMAIL_COMPOSE,
+    }
+    assert google_service.GOOGLE_SCOPE_SEND not in scopes
+    assert google_service.GOOGLE_SCOPE_GMAIL_MODIFY not in scopes
+    assert google_service.GOOGLE_SCOPE_CALENDAR not in scopes
+    assert google_service.GOOGLE_SCOPE_CALENDAR_READONLY not in scopes
+    assert google_service.GOOGLE_SCOPE_CONTACTS_READONLY not in scopes
+    assert google_service.GOOGLE_SCOPE_DRIVE_METADATA_READONLY not in scopes
+    assert details["label"] == "Gmail read + draft assist"
+    assert google_service.google_bundle_supports_workspace_sync(scopes=tuple(scopes)) is True
+
+    binding = SimpleNamespace(
+        binding_id="exec-google:google_gmail",
+        principal_id="exec-google",
+        provider_key=google_service.GOOGLE_PROVIDER_KEY,
+        status="enabled",
+        priority=80,
+        probe_state="ready",
+        probe_details_json={},
+        scope_json={"bundle": "draft_assist"},
+        updated_at="2026-08-14T00:00:00Z",
+        auth_metadata_json={
+            "google_email": "principal.user@example.test",
+            "granted_scopes": [
+                google_service.GOOGLE_SCOPE_GMAIL_READONLY,
+                google_service.GOOGLE_SCOPE_GMAIL_COMPOSE,
+            ],
+            "refresh_token_ref": "encrypted-refresh",
+            "token_status": "active",
+        },
+    )
+
+    class _Registry:
+        def get_persisted_binding_record(self, *, binding_id: str, principal_id: str | None = None):
+            if binding_id == binding.binding_id and principal_id == binding.principal_id:
+                return binding
+            return None
+
+        def upsert_binding_record(self, **kwargs):  # type: ignore[no-untyped-def]
+            return binding
+
+    container = SimpleNamespace(provider_registry=_Registry())
+    monkeypatch.setattr(
+        google_service,
+        "load_google_oauth_config",
+        lambda: SimpleNamespace(
+            provider_secret_key="secret",
+            client_id="client-id",
+            client_secret="client-secret",
+        ),
+    )
+    monkeypatch.setattr(google_service, "_decrypt_secret", lambda value, key: value)
+    monkeypatch.setattr(
+        google_service,
+        "_refresh_google_access_token",
+        lambda **kwargs: {"access_token": "access-token", "expires_in": 3600},
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_gmail_create_draft",
+        lambda **kwargs: ("draft-123", "message-123"),
+    )
+
+    draft = google_service.create_google_gmail_draft(
+        container=container,
+        principal_id="exec-google",
+        recipient_email="recipient@example.test",
+        subject="Draft subject",
+        body_text="Draft body",
+    )
+    assert draft.gmail_draft_id == "draft-123"
+    assert draft.gmail_message_id == "message-123"
+    assert draft.sender_email == "principal.user@example.test"
+    with pytest.raises(RuntimeError, match="google_gmail_send_scope_missing"):
+        google_service._load_google_send_context(
+            container=container,
+            principal_id="exec-google",
+        )
+
+
+def test_google_workspace_assist_is_read_context_plus_unsent_drafts_only() -> None:
+    from app.services import google_oauth as google_service
+
+    details = google_service.google_scope_bundle_details("workspace_assist")
+    scopes = set(details["scopes"])
+
+    assert scopes == {
+        *google_service.GOOGLE_SCOPE_IDENTITY,
+        google_service.GOOGLE_SCOPE_GMAIL_READONLY,
+        google_service.GOOGLE_SCOPE_GMAIL_COMPOSE,
+        google_service.GOOGLE_SCOPE_CALENDAR_READONLY,
+        google_service.GOOGLE_SCOPE_CONTACTS_READONLY,
+        google_service.GOOGLE_SCOPE_DRIVE_METADATA_READONLY,
+    }
+    assert google_service.GOOGLE_SCOPE_SEND not in scopes
+    assert google_service.GOOGLE_SCOPE_GMAIL_MODIFY not in scopes
+    assert google_service.GOOGLE_SCOPE_CALENDAR not in scopes
+    assert google_service.GOOGLE_SCOPE_PHOTOS_PICKER not in scopes
+    assert google_service.google_bundle_supports_workspace_sync(scopes=tuple(scopes)) is True
+    assert details["label"] == "Google Workspace read + draft assist"
+
+
 def test_google_signal_loader_retries_without_q_for_metadata_scope(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services import google_oauth as google_service
 

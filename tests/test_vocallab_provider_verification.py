@@ -728,6 +728,12 @@ def test_rotation_authority_binds_revoked_exposed_key_to_replacement(
     authority_file.write_bytes(probe._canonical_bytes(payload))
     authority_file.chmod(0o600)
 
+    # A completed rotation must remain verifiable after the revoked bearer
+    # secret has been destroyed. The protected authority retains its digest.
+    probe._load_credential_rotation_authority(
+        authority_file,
+        replacement_credential_binding_sha256=replacement,
+    )
     probe._load_credential_rotation_authority(
         authority_file,
         exposed_credential_binding_sha256=exposed,
