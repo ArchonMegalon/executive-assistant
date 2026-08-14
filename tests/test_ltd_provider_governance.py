@@ -57,6 +57,7 @@ def _sample_ltd_markdown() -> str:
 | `katteb.com` | `10x code-based` | `10 codes` | `Owned` |  | `Tier 4` | Credentials only | Article drafts only. |
 | `Prompt Architects` | `Tier 4` | `1 account` | `Activated` |  | `Tier 4` | PROMPTING_SYSTEMS_API_KEY | Prompt Foundry receipts verify template seed/operator assist, retention and tenant isolation boundary. |
 | `AiWriteBook` | `Tier 4` | `1 account` | `Owned` |  | `Tier 2` | Governed operator handoff | Chummer owns approved source packets and publication truth; no unattended browser automation or direct publish. |
+| `Tough Tongue AI` | `License Tier 4` | `1 account` | `Owned` |  | `Tier 4` | Governed synthetic rehearsal scaffold | Synthetic/public-safe operator rehearsal only; account and lifecycle proof pending. |
 | `VidBoard.ai` | `Tier 5` | `1 account` | `Owned` |  | `Tier 4` | Credentials | Commercial-use, watermark, duration, export, likeness and quality proof pending. |
 | `FacePop` | `Tier 5` | `1 account` | `Activated` |  | `Tier 4` | Credentials | Presenter candidate only. |
 | `Nonverbia` | `Tier 4` | `1 account` | `Activated` |  | `Tier 2` | BrowserAct credentials | Presenter candidate only. |
@@ -86,6 +87,7 @@ def _sample_ltd_markdown() -> str:
 | `Pixefy` | `ltd.account@example.test` | `manual_seeded` | `fleet_verified` | 2026-05-29T20:16:00Z | Fleet proof passes. |
 | `Prompt Architects` |  | `manual_seeded` | `local_env + prompt_foundry_receipts` | 2026-06-01T20:54:48Z | Prompt Foundry receipts exist. |
 | `AiWriteBook` | `gmail.com` | `complete` | `authenticated_sanitized_account_review` | 2026-08-11T07:33:00Z | AppSumo Tier 4 verified; operator-only lane, export canary pending. |
+| `Tough Tongue AI` | `gmail.com` | `manual_seeded` | `user_report_tier4 + public_api_privacy_terms_review + governed_lane_scaffold` | 2026-08-14T00:00:00Z | Authenticated account, API entitlement, and synthetic lifecycle proof pending. |
 | `Sendr` |  | `manual_seeded` | `user_report_tier4 + governed_lane_scaffold` | 2026-06-30T20:45:00Z | License Tier 4 is recorded; EA campaign packet, provider proof, suppression sync, and human approval receipts remain pending. |
 """.strip()
 
@@ -137,6 +139,7 @@ def test_all_requested_ltd_provider_lanes_are_defined() -> None:
         "docs_draft_factory",
         "prompt_foundry",
         "aiwritebook_chronicle_studio",
+        "tough_tongue_synthetic_rehearsal",
         "subscribr_chummer_script_factory",
         "sendr_ea_growth_outreach",
         "operator_control_plane",
@@ -217,6 +220,42 @@ def test_lane_boundaries_match_provider_risks() -> None:
         "publication_approval_status",
         "external_send_approval_status",
     } <= set(aiwritebook.normalized_signal_schema)
+
+    tough_tongue = lane_by_key("tough_tongue_synthetic_rehearsal")
+    assert tough_tongue is not None
+    assert tough_tongue.providers == ("Tough Tongue AI",)
+    assert tough_tongue.verified_state == "verified_draft_operator_lane"
+    assert {
+        "EA_TOUGH_TONGUE_OUTBOUND_ENABLED",
+        "EA_TOUGH_TONGUE_MEETING_BOTS_ENABLED",
+        "EA_TOUGH_TONGUE_PHONE_CALLS_ENABLED",
+        "EA_TOUGH_TONGUE_EXTERNAL_INTEGRATIONS_ENABLED",
+    } <= set(tough_tongue.off_switch_env)
+    assert {
+        "real_person_voice_or_video",
+        "manfred_voice_or_likeness",
+        "raw_gmail",
+        "raw_calendar",
+        "customer_contact",
+        "customer_recording",
+        "meeting_destination",
+        "phone_destination",
+        "outbound_action",
+        "direct_publish",
+        "product_truth",
+        "release_truth",
+        "publication_truth",
+    } <= set(tough_tongue.forbidden_inputs)
+    assert {
+        "input_packet_sha256",
+        "scenario_ref_sha256",
+        "session_ref_sha256",
+        "synthetic_data_asserted",
+        "recording_deleted",
+        "transcript_deleted",
+        "cleanup_verified",
+        "human_review_status",
+    } <= set(tough_tongue.normalized_signal_schema)
 
     emailit = lane_by_key("emailit_transactional_delivery")
     assert emailit is not None
@@ -1390,3 +1429,29 @@ def test_materialize_poppy_draft_packet_rejects_private_or_truth_inputs(tmp_path
     assert "poppy_source_packet_rejected" in result.stderr
     assert "forbidden_flag_set:contains_private_campaign_data" in result.stderr
     assert "input_kind_not_allowed:private_campaign_data" in result.stderr
+
+
+def test_tough_tongue_public_contract_passes_but_live_use_stays_blocked() -> None:
+    receipt = build_ltd_provider_governance_receipt(
+        markdown_path=ROOT / "LTDs.md",
+        env={},
+        root=ROOT,
+        generated_at="2026-08-14T00:00:00Z",
+    )
+    lane = next(row for row in receipt["lanes"] if row["lane_key"] == "tough_tongue_synthetic_rehearsal")
+
+    assert lane["status"] == "pass"
+    assert lane["lane_state"] == "blocked_pending_proof"
+    assert lane["runtime_enabled"] is False
+    assert lane["readiness_asserted"] is False
+    assert lane["hard_contract_failures"] == []
+    assert set(lane["passed_checks"]) == {
+        "inventory_recorded",
+        "tough_tongue_public_contract",
+        "tough_tongue_operator_boundary",
+    }
+    assert set(lane["missing_checks"]) == {
+        "tough_tongue_account_review",
+        "tough_tongue_api_entitlement",
+        "tough_tongue_synthetic_lifecycle",
+    }

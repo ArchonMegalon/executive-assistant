@@ -24,5 +24,6 @@ This is an operator query pack, not product canon. It uses the local vexp index 
 18. Which operator-facing provider label could expose a private identifier?
 19. Which parked LTD is described as live or production-ready?
 20. Which external provider appears to own product, rules, or release truth?
+21. Which public-safe, synthetic conversation rehearsal could use Tough Tongue without carrying a real voice, private office data, a customer destination, or outbound authority?
 
 Run `python scripts/query_ltd_opportunity_index.py --execute` for a fresh local projection. The runner invokes `vexp capsule`, redacts terminal output to bounded excerpts, records the source HEAD, and fails if fewer than 20 opportunity candidates can be derived. It never edits canon or provider configuration.

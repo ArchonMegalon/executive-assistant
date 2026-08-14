@@ -32,6 +32,7 @@ Updated: 2026-05-02
 | `Documentation.AI` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Owned for operator docs and cited answers. |
 | `FlipLink.me` | `Tier 10` | `1 account` | `Owned` |  | `Tier 2` | Local `.env` credentials plus bounded PropertyQuarry review-packet flipbook lane | Use only for shareable redacted review packets downstream of PropertyQuarry. |
 | `MarkupGo` | `7x code-based` | `7 codes` | `Activated` |  | `Tier 3` | None | BrowserAct workspace reader exists even though the direct provider lane is not executable. |
+| `Tough Tongue AI` | `License Tier 4` | `1 account` | `Owned` |  | `Tier 4` | Non-executable catalog binding | Synthetic rehearsal only; live account proof pending. |
 """.strip()
 
 
@@ -161,6 +162,12 @@ def test_ltd_runtime_catalog_derives_provider_ui_and_runtime_managed_profiles(tm
     assert markupgo is not None
     assert markupgo.runtime_state == "browseract_ui_ready"
     assert markupgo.matched_provider_key == "markupgo"
+
+    tough_tongue = catalog.get_profile("Tough Tongue AI")
+    assert tough_tongue is not None
+    assert tough_tongue.runtime_state == "browseract_discoverable"
+    assert tough_tongue.matched_provider_key == "tough_tongue"
+    assert {action.action_key for action in tough_tongue.actions} == {"discover_account"}
     assert {action.action_key for action in markupgo.actions} == {
         "discover_account",
         "inspect_workspace",
