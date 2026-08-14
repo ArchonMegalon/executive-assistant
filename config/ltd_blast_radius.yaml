@@ -36,6 +36,15 @@ provider_policies:
     may_publish: false
     may_own_truth: false
     human_review_required: true
+  Tough Tongue AI:
+    max_input_class: public_safe
+    may_publish: false
+    may_send_directly: false
+    may_call_or_join_meetings: false
+    may_receive_real_person_recordings: false
+    may_own_truth: false
+    human_review_required: true
+    credential_required: TOUGH_TONGUE_API_KEY
   Sendr:
     max_input_class: approved_outreach_packet
     may_publish: false

@@ -936,6 +936,38 @@ class ProviderRegistryService:
                 source="runtime",
             ),
             ProviderBinding(
+                provider_key="tough_tongue",
+                display_name="Tough Tongue AI",
+                executable=False,
+                capabilities=(
+                    ProviderCapability(
+                        provider_key="tough_tongue",
+                        capability_key="synthetic_conversation_rehearsal",
+                        tool_name="provider.tough_tongue.synthetic_conversation_rehearsal",
+                        executable=False,
+                    ),
+                    ProviderCapability(
+                        provider_key="tough_tongue",
+                        capability_key="session_analysis",
+                        tool_name="provider.tough_tongue.session_analysis",
+                        executable=False,
+                    ),
+                    ProviderCapability(
+                        provider_key="tough_tongue",
+                        capability_key="meeting_bot",
+                        tool_name="provider.tough_tongue.meeting_bot",
+                        executable=False,
+                    ),
+                    ProviderCapability(
+                        provider_key="tough_tongue",
+                        capability_key="phone_call",
+                        tool_name="provider.tough_tongue.phone_call",
+                        executable=False,
+                    ),
+                ),
+                source="catalog",
+            ),
+            ProviderBinding(
                 provider_key="workllm",
                 display_name="WorkLLM",
                 executable=False,
@@ -1406,6 +1438,7 @@ class ProviderRegistryService:
             "onemin": _onemin_secret_env_names(),
             "prompting_systems": ("PROMPTING_SYSTEMS_API_KEY",),
             "teable": ("TEABLE_API_KEY",),
+            "tough_tongue": ("TOUGH_TONGUE_API_KEY",),
             "unmixr": ("UNMIXR_API_KEY", "UNMIXR_VOICE_ID"),
             "vocallab": ("VOCALLAB_API_KEY",),
             "workllm": (
@@ -2491,6 +2524,10 @@ class ProviderRegistryService:
             "browserly.ai": "browserly",
             "browsely": "browserly",
             "prompting.systems": "prompting_systems",
+            "tough_tongue_ai": "tough_tongue",
+            "toughtongue": "tough_tongue",
+            "toughtongueai": "tough_tongue",
+            "toughtongueai.com": "tough_tongue",
             "work_llm": "workllm",
             "workllm.io": "workllm",
             "gemini": "gemini_vortex",

@@ -122,6 +122,45 @@ def test_aiwritebook_requires_both_valid_referenced_secrets(monkeypatch: pytest.
     assert state.state == "catalog_only"
 
 
+def test_tough_tongue_is_visible_with_api_key_but_never_routes_external_actions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TOUGH_TONGUE_API_KEY", "tough-tongue-test-key")
+
+    registry = ProviderRegistryService()
+    state = registry.binding_state("toughtongueai.com")
+
+    assert state is not None
+    assert state.provider_key == "tough_tongue"
+    assert state.display_name == "Tough Tongue AI"
+    assert state.auth_mode == "api_key"
+    assert state.secret_configured is True
+    assert state.enabled is True
+    assert state.executable is False
+    assert state.state == "configured"
+    assert set(state.capabilities) == {
+        "synthetic_conversation_rehearsal",
+        "session_analysis",
+        "meeting_bot",
+        "phone_call",
+    }
+    with pytest.raises(ToolExecutionError, match="provider_capability_unavailable:phone_call"):
+        registry.route_tool_by_capability(
+            capability_key="phone_call",
+            provider_hints=("Tough Tongue AI",),
+            allowed_tools=("provider.tough_tongue.phone_call",),
+        )
+
+    manual_route = registry.route_tool_by_capability(
+        capability_key="synthetic_conversation_rehearsal",
+        provider_hints=("Tough Tongue AI",),
+        allowed_tools=("provider.tough_tongue.synthetic_conversation_rehearsal",),
+        require_executable=False,
+    )
+    assert manual_route.provider_key == "tough_tongue"
+    assert manual_route.executable is False
+
+
 def test_emailit_is_configured_but_not_a_free_form_direct_send_tool(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

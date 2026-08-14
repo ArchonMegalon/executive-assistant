@@ -43,11 +43,19 @@ named_lanes:
   audio_campaign_memory:
     providers: [Unmixr AI, Soundmadeseen]
     owner: chummer6-media-factory
+  synthetic_conversation_rehearsal:
+    providers: [Tough Tongue AI]
+    owner: executive-assistant
+    output: TOUGH_TONGUE_SYNTHETIC_LIFECYCLE.generated.json
 catalog_only:
   VocalLab.ai:
     lane: voice_catalog_only
     executable: false
     owner_boundary: Memorial owns Manfred authority and release truth
+  Tough Tongue AI:
+    lane: operator_only_synthetic_conversation_rehearsal
+    executable: false
+    owner_boundary: EA owns approved packets, privacy, review, cleanup, decisions, and product truth
 transport_only:
   FastestVPN PRO:
     lane: onemin_refresh_only

@@ -1,0 +1,45 @@
+{
+  "contract": "ea.tough_tongue.public_capability",
+  "contract_version": 1,
+  "status": "pass",
+  "observed_at": "2026-08-14T00:00:00Z",
+  "proof_scope": "public_provider_declarations_only",
+  "sources": {
+    "api_reference": "https://app.toughtongueai.com/docs/api-integration/",
+    "privacy_policy": "https://app.toughtongueai.com/privacy-policy/",
+    "terms": "https://app.toughtongueai.com/terms/",
+    "release_notes": "https://app.toughtongueai.com/docs/resources/release-notes/"
+  },
+  "public_api": {
+    "base_url": "https://api.toughtongueai.com/api/public",
+    "auth": "bearer_personal_access_token",
+    "resource_families": [
+      "scenarios",
+      "sessions",
+      "meeting_bots",
+      "phone_calls",
+      "commerce",
+      "analytics",
+      "balance"
+    ],
+    "signed_session_webhooks_declared": true,
+    "webhook_delivery_log_retention_days": 7
+  },
+  "privacy_policy": {
+    "last_updated": "2026-04-22",
+    "audio_video_and_transcripts_collected": true,
+    "session_deletion_declared": true,
+    "deleted_account_retention_days": 30,
+    "anonymous_analytics_retention_months": 12,
+    "full_export_request_declared": true,
+    "runtime_deletion_behavior_verified": false
+  },
+  "terms": {
+    "user_retains_recording_and_transcript_rights": true,
+    "provider_owns_ai_responses": true,
+    "recording_consent_required": true
+  },
+  "account_entitlement_verified": false,
+  "runtime_enabled": false,
+  "secret_material_in_receipt": false
+}

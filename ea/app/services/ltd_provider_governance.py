@@ -634,6 +634,78 @@ LANES: tuple[ProviderLane, ...] = (
         ),
     ),
     ProviderLane(
+        lane_key="tough_tongue_synthetic_rehearsal",
+        title="Tough Tongue Synthetic Conversation Rehearsal",
+        providers=("Tough Tongue AI",),
+        integration_lane="operator_only_synthetic_conversation_rehearsal",
+        verified_state="verified_draft_operator_lane",
+        missing_state="blocked_pending_proof",
+        off_switch_env=(
+            "EA_TOUGH_TONGUE_REHEARSAL_ENABLED",
+            "EA_TOUGH_TONGUE_API_ENABLED",
+            "EA_TOUGH_TONGUE_OUTBOUND_ENABLED",
+            "EA_TOUGH_TONGUE_MEETING_BOTS_ENABLED",
+            "EA_TOUGH_TONGUE_PHONE_CALLS_ENABLED",
+            "EA_TOUGH_TONGUE_EXTERNAL_INTEGRATIONS_ENABLED",
+        ),
+        source_of_truth=(
+            "EA owns approved rehearsal packets, privacy classification, review, cleanup, decisions, and product truth; "
+            "Tough Tongue may return candidate coaching analysis for synthetic conversations only."
+        ),
+        allowed_inputs=(
+            "synthetic_conversation_script",
+            "synthetic_objection_set",
+            "approved_public_product_copy",
+            "public_release_faq",
+            "operator_authored_rubric",
+        ),
+        forbidden_inputs=(
+            "real_person_voice_or_video",
+            "manfred_voice_or_likeness",
+            "raw_gmail",
+            "raw_calendar",
+            "customer_contact",
+            "customer_recording",
+            "private_campaign_data",
+            "people_memory",
+            "workspace_secret",
+            "sourcebook_pdf",
+            "copied_rulebook_prose",
+            "meeting_destination",
+            "phone_destination",
+            "provider_tool_secret",
+            "outbound_action",
+            "direct_publish",
+            "provider_owned_ai_response_as_canonical_artifact",
+            "decision_truth",
+            "product_truth",
+            "release_truth",
+            "publication_truth",
+        ),
+        normalized_signal_schema=(
+            "account_plan",
+            "input_packet_sha256",
+            "scenario_ref_sha256",
+            "session_ref_sha256",
+            "minutes_before",
+            "minutes_after",
+            "minutes_spent",
+            "synthetic_data_asserted",
+            "recording_deleted",
+            "transcript_deleted",
+            "cleanup_verified",
+            "human_review_status",
+        ),
+        required_checks=(
+            LaneCheck("inventory_recorded", "Tough Tongue Tier 4 is recorded.", "LTD inventory row."),
+            LaneCheck("tough_tongue_public_contract", "Current public API, privacy, retention, and ownership declarations are captured.", "Sanitized public evidence receipt."),
+            LaneCheck("tough_tongue_account_review", "The authenticated account and AppSumo Tier 4 entitlement are verified read-only.", "Sanitized account-review receipt."),
+            LaneCheck("tough_tongue_api_entitlement", "A personal access token and account balance endpoint are available to this tier.", "Authenticated developer-settings receipt without token material."),
+            LaneCheck("tough_tongue_operator_boundary", "Only synthetic, operator-reviewed rehearsal can be promoted.", "Provider registry and lane boundary."),
+            LaneCheck("tough_tongue_synthetic_lifecycle", "A fictional session is created, analyzed, deleted, and absence-verified.", "Content-free lifecycle receipt."),
+        ),
+    ),
+    ProviderLane(
         lane_key="subscribr_chummer_script_factory",
         title="Subscribr Chummer Script Factory",
         providers=("Subscribr",),
@@ -1224,6 +1296,102 @@ def _check_passed(
     if key == "aiwritebook_export_roundtrip":
         ok = _valid_aiwritebook_export_roundtrip_receipt(root)
         return ok, "approved_canary_export_passed" if ok else "aiwritebook_export_roundtrip_pending"
+    if key == "tough_tongue_public_contract":
+        payload = _json_receipt(root, "config/provider_evidence/TOUGH_TONGUE_PUBLIC_CAPABILITY.source.json")
+        api = payload.get("public_api") if isinstance(payload.get("public_api"), dict) else {}
+        privacy = payload.get("privacy_policy") if isinstance(payload.get("privacy_policy"), dict) else {}
+        terms = payload.get("terms") if isinstance(payload.get("terms"), dict) else {}
+        ok = (
+            payload.get("contract") == "ea.tough_tongue.public_capability"
+            and payload.get("status") == "pass"
+            and payload.get("proof_scope") == "public_provider_declarations_only"
+            and api.get("base_url") == "https://api.toughtongueai.com/api/public"
+            and api.get("auth") == "bearer_personal_access_token"
+            and set(api.get("resource_families") or ()) >= {"scenarios", "sessions", "meeting_bots", "phone_calls", "analytics", "balance"}
+            and privacy.get("session_deletion_declared") is True
+            and privacy.get("deleted_account_retention_days") == 30
+            and privacy.get("anonymous_analytics_retention_months") == 12
+            and terms.get("user_retains_recording_and_transcript_rights") is True
+            and terms.get("provider_owns_ai_responses") is True
+            and payload.get("account_entitlement_verified") is False
+            and payload.get("secret_material_in_receipt") is False
+        )
+        return ok, "public_provider_contract_captured" if ok else "tough_tongue_public_contract_missing_or_invalid"
+    if key in {"tough_tongue_account_review", "tough_tongue_api_entitlement"}:
+        payload = _json_receipt(
+            root,
+            "ea/_completion/tough_tongue/TOUGH_TONGUE_ACCOUNT_REVIEW.generated.json",
+            "_completion/tough_tongue/TOUGH_TONGUE_ACCOUNT_REVIEW.generated.json",
+            "config/provider_evidence/TOUGH_TONGUE_ACCOUNT_REVIEW.source.json",
+        )
+        account = payload.get("account") if isinstance(payload.get("account"), dict) else {}
+        developer = payload.get("developer_access") if isinstance(payload.get("developer_access"), dict) else {}
+        base_ok = (
+            payload.get("contract") == "ea.tough_tongue.account_review"
+            and payload.get("status") == "pass"
+            and account.get("plan") == "AppSumo Tier 4"
+            and account.get("identity_matches_requested_account") is True
+            and payload.get("read_only_review") is True
+            and payload.get("credits_or_minutes_spent") == 0
+            and payload.get("secret_material_in_receipt") is False
+        )
+        if key == "tough_tongue_account_review":
+            return base_ok, "sanitized_tier4_account_review_present" if base_ok else "tough_tongue_account_review_missing_or_invalid"
+        api_ok = (
+            base_ok
+            and developer.get("personal_access_token_creation_available") is True
+            and developer.get("balance_endpoint_available") is True
+            and developer.get("token_created") is False
+        )
+        return api_ok, "tier4_api_entitlement_visible_without_token_creation" if api_ok else "tough_tongue_api_entitlement_missing_or_invalid"
+    if key == "tough_tongue_operator_boundary":
+        binding_path = root / "ea" / "app" / "services" / "provider_registry.py"
+        binding_text = binding_path.read_text(encoding="utf-8") if binding_path.is_file() else ""
+        required_forbidden = {
+            "real_person_voice_or_video",
+            "manfred_voice_or_likeness",
+            "raw_gmail",
+            "raw_calendar",
+            "customer_contact",
+            "customer_recording",
+            "meeting_destination",
+            "phone_destination",
+            "outbound_action",
+            "direct_publish",
+            "product_truth",
+            "release_truth",
+            "publication_truth",
+        }
+        binding_marker = 'provider_key="tough_tongue"'
+        binding_start = binding_text.find(binding_marker)
+        binding_window = binding_text[binding_start : binding_start + 2600] if binding_start >= 0 else ""
+        ok = (
+            required_forbidden <= set(lane.forbidden_inputs)
+            and "synthetic_conversation_script" in lane.allowed_inputs
+            and "human_review_status" in lane.normalized_signal_schema
+            and binding_start >= 0
+            and "executable=False" in binding_window
+            and binding_window.count("executable=False") >= 5
+        )
+        return ok, "synthetic_operator_only_non_executable_boundary" if ok else "tough_tongue_operator_boundary_incomplete"
+    if key == "tough_tongue_synthetic_lifecycle":
+        payload = _json_receipt(
+            root,
+            "ea/_completion/tough_tongue/TOUGH_TONGUE_SYNTHETIC_LIFECYCLE.generated.json",
+            "_completion/tough_tongue/TOUGH_TONGUE_SYNTHETIC_LIFECYCLE.generated.json",
+        )
+        cleanup = payload.get("cleanup") if isinstance(payload.get("cleanup"), dict) else {}
+        ok = (
+            payload.get("contract") == "ea.tough_tongue.synthetic_lifecycle"
+            and payload.get("status") == "pass"
+            and payload.get("data_classification") == "synthetic_no_personal_or_campaign_data"
+            and payload.get("external_actions_performed") == []
+            and cleanup.get("session_delete_requested") is True
+            and cleanup.get("recording_inaccessible_after_delete") is True
+            and cleanup.get("transcript_inaccessible_after_delete") is True
+            and payload.get("secret_material_in_receipt") is False
+        )
+        return ok, "fictional_session_lifecycle_and_cleanup_passed" if ok else "tough_tongue_synthetic_lifecycle_pending"
     if key == "hedy_provider_capability":
         ok = _passing_json_receipt(
             root,
@@ -1925,6 +2093,49 @@ def _hard_contract_failures(lane: ProviderLane) -> list[str]:
             failures.append("aiwritebook_approval_schema_incomplete")
         if "EA_AIWRITEBOOK_CHRONICLE_STUDIO_ENABLED" not in lane.off_switch_env:
             failures.append("aiwritebook_off_switch_missing")
+    if lane.lane_key == "tough_tongue_synthetic_rehearsal":
+        if lane.verified_state == "verified_runtime_lane":
+            failures.append("tough_tongue_operator_lane_must_not_be_runtime")
+        required_forbidden = {
+            "real_person_voice_or_video",
+            "manfred_voice_or_likeness",
+            "raw_gmail",
+            "raw_calendar",
+            "customer_contact",
+            "customer_recording",
+            "meeting_destination",
+            "phone_destination",
+            "provider_tool_secret",
+            "outbound_action",
+            "direct_publish",
+            "product_truth",
+            "release_truth",
+            "publication_truth",
+        }
+        if not required_forbidden <= set(lane.forbidden_inputs):
+            failures.append("tough_tongue_privacy_or_outbound_boundary_incomplete")
+        required_switches = {
+            "EA_TOUGH_TONGUE_REHEARSAL_ENABLED",
+            "EA_TOUGH_TONGUE_API_ENABLED",
+            "EA_TOUGH_TONGUE_OUTBOUND_ENABLED",
+            "EA_TOUGH_TONGUE_MEETING_BOTS_ENABLED",
+            "EA_TOUGH_TONGUE_PHONE_CALLS_ENABLED",
+            "EA_TOUGH_TONGUE_EXTERNAL_INTEGRATIONS_ENABLED",
+        }
+        if not required_switches <= set(lane.off_switch_env):
+            failures.append("tough_tongue_fail_closed_switch_missing")
+        required_schema = {
+            "input_packet_sha256",
+            "scenario_ref_sha256",
+            "session_ref_sha256",
+            "synthetic_data_asserted",
+            "recording_deleted",
+            "transcript_deleted",
+            "cleanup_verified",
+            "human_review_status",
+        }
+        if not required_schema <= set(lane.normalized_signal_schema):
+            failures.append("tough_tongue_receipt_schema_incomplete")
     if lane.lane_key == "emailit_transactional_delivery":
         required_forbidden = {
             "raw_gmail",
