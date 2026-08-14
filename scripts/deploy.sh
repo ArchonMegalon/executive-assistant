@@ -679,6 +679,14 @@ for override in "${EXTRA_COMPOSE_OVERRIDES[@]}"; do
   fi
 done
 
+vocallab_worker_overlay_enabled=0
+for override in "${EXTRA_COMPOSE_OVERRIDES[@]}"; do
+  if [[ "$(basename "${override}")" == "docker-compose.vocallab-worker.yml" ]]; then
+    vocallab_worker_overlay_enabled=1
+    break
+  fi
+done
+
 if [[ "${memory_only}" != "1" ]]; then
   should_enable_cloudflared="${enable_cloudflared}"
   cloudflared_override="docker-compose.cloudflared.yml"
@@ -862,6 +870,34 @@ recreate_services_without_build() {
   done
 }
 
+run_one_shot_initializer() {
+  local service="$1"
+  compose pull "${service}"
+  if ! compose up \
+    --no-build \
+    --no-deps \
+    --force-recreate \
+    --abort-on-container-exit \
+    --exit-code-from "${service}" \
+    "${service}"; then
+    echo "One-shot runtime initializer failed during deploy: ${service}" >&2
+    return 1
+  fi
+
+  local cid
+  local exit_code
+  cid="$(compose ps -a -q "${service}" || true)"
+  [[ -n "${cid}" ]] || {
+    echo "One-shot runtime initializer did not create a container: ${service}" >&2
+    return 1
+  }
+  exit_code="$(docker inspect -f '{{.State.ExitCode}}' "${cid}" 2>/dev/null || true)"
+  if [[ "${exit_code}" != "0" ]]; then
+    echo "One-shot runtime initializer did not exit successfully: ${service}" >&2
+    return 1
+  fi
+}
+
 service_container_ready() {
   local service="$1"
   local cid
@@ -930,6 +966,10 @@ else
     RUNTIME_RECREATE_ONLY_SERVICES+=(ea-docker-socket-proxy)
     TOPOLOGY_SERVICES+=(ea-fastestvpn-proxy-ch ea-docker-socket-proxy)
     FAILURE_LOG_SERVICES+=(ea-fastestvpn-proxy-ch ea-docker-socket-proxy)
+  fi
+  if [[ "${vocallab_worker_overlay_enabled}" == "1" ]]; then
+    FAILURE_LOG_SERVICES+=(ea-vocallab-secret-init)
+    run_one_shot_initializer ea-vocallab-secret-init
   fi
   build_and_recreate_services "${RUNTIME_BUILD_SERVICES[@]}"
   recover_docker_build_pressure

@@ -726,6 +726,23 @@ def test_deploy_projects_only_exact_nonsecret_config_and_runtime_paths() -> None
     )
 
 
+def test_deploy_runs_vocallab_secret_initializer_before_workers() -> None:
+    deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
+    assert "vocallab_worker_overlay_enabled=0" in deploy
+    assert (
+        'if [[ "$(basename "${override}")" == '
+        '"docker-compose.vocallab-worker.yml" ]]; then' in deploy
+    )
+    assert "vocallab_worker_overlay_enabled=1" in deploy
+    assert "run_one_shot_initializer()" in deploy
+    initializer = "run_one_shot_initializer ea-vocallab-secret-init"
+    rollout = 'build_and_recreate_services "${RUNTIME_BUILD_SERVICES[@]}"'
+    assert initializer in deploy
+    assert deploy.index(initializer) < deploy.index(rollout)
+    assert '--exit-code-from "${service}"' in deploy
+    assert "FAILURE_LOG_SERVICES+=(ea-vocallab-secret-init)" in deploy
+
+
 def test_socket_proxy_renders_config_into_writable_ephemeral_run() -> None:
     for overlay_name in (
         "docker-compose.host-tools.yml",
