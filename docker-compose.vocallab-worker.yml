@@ -1,0 +1,91 @@
+services:
+  ea-vocallab-secret-init:
+    image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
+    user: "0:0"
+    restart: "no"
+    read_only: true
+    network_mode: none
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        set -eu
+        input=/input/api_key
+        output=/output/api_key
+        temporary=/output/.api_key.tmp
+        [ -f "$${input}" ] && [ ! -L "$${input}" ]
+        input_size="$$(wc -c < "$${input}")"
+        [ "$${input_size}" -ge 16 ] && [ "$${input_size}" -le 4096 ]
+        line_count="$$(awk 'END { print NR + 0 }' "$${input}")"
+        [ "$${line_count}" -eq 1 ]
+        value="$$(tr -d '\r\n' < "$${input}")"
+        [ "$${#value}" -ge 16 ]
+        umask 077
+        printf '%s' "$${value}" > "$${temporary}"
+        chown 10001:10001 "$${temporary}"
+        chmod 0600 "$${temporary}"
+        mv -f "$${temporary}" "$${output}"
+        chown 10001:10001 /output "$${output}"
+        chmod 0700 /output
+        chmod 0600 "$${output}"
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 32
+    mem_limit: 32m
+    mem_reservation: 8m
+    volumes:
+      - type: bind
+        source: ${EA_AUDIOBOOK_VOCALLAB_API_KEY_HOST_FILE:?existing VocalLab API key host file is required}
+        target: /input/api_key
+        read_only: true
+        bind:
+          create_host_path: false
+      - ea_vocallab_runtime_secret:/output
+
+  ea-worker:
+    environment:
+      - VOCALLAB_API_KEY=
+      - VOCALLAB_API_KEY_FILE=/run/secrets/ea-vocallab/api_key
+      - EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED=1
+      - EA_AUDIOBOOK_VOCALLAB_ENABLED=1
+      - EA_AUDIOBOOK_VOCALLAB_AUTO_RENDER=0
+      - EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_ROTATION_REQUIRED=0
+      - EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_PRODUCTION_ELIGIBLE=1
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_TOPUP_POINTS=0
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES=0
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES=0
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL=0
+      - EA_AUDIOBOOK_TTS_PROVIDER_ORDER=vocallab,unmixr,piper_local
+    volumes:
+      - ea_vocallab_runtime_secret:/run/secrets/ea-vocallab:ro
+    depends_on:
+      ea-vocallab-secret-init:
+        condition: service_completed_successfully
+
+  ea-scheduler:
+    environment:
+      - VOCALLAB_API_KEY=
+      - VOCALLAB_API_KEY_FILE=/run/secrets/ea-vocallab/api_key
+      - EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED=1
+      - EA_AUDIOBOOK_VOCALLAB_ENABLED=1
+      - EA_AUDIOBOOK_VOCALLAB_AUTO_RENDER=0
+      - EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_ROTATION_REQUIRED=0
+      - EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_PRODUCTION_ELIGIBLE=1
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_TOPUP_POINTS=0
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES=0
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES=0
+      - EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL=0
+      - EA_AUDIOBOOK_TTS_PROVIDER_ORDER=vocallab,unmixr,piper_local
+    volumes:
+      - ea_vocallab_runtime_secret:/run/secrets/ea-vocallab:ro
+    depends_on:
+      ea-vocallab-secret-init:
+        condition: service_completed_successfully
+
+volumes:
+  ea_vocallab_runtime_secret:

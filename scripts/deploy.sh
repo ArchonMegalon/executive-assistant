@@ -269,6 +269,36 @@ ensure_runtime_readable_file_projection() {
   chmod a+r,go-w "${resolved_path}"
 }
 
+ensure_runtime_readable_config_projection() {
+  local relative_path="$1"
+  case "${relative_path}" in
+    config/*) ;;
+    *)
+      echo "Refusing runtime-readable config projection outside config/: ${relative_path}" >&2
+      return 1
+      ;;
+  esac
+
+  local resolved_path="${APP_ROOT}/${relative_path}"
+  if [[ ! -f "${resolved_path}" || -L "${resolved_path}" ]]; then
+    echo "Required runtime-readable config projection is missing or unsafe: ${resolved_path}" >&2
+    return 1
+  fi
+
+  # The release worktree may be created with umask 0077. Grant the runtime UID
+  # traverse-only access to config/ and read access to this exact nonsecret file;
+  # do not broaden access to sibling credentials in the same directory.
+  local config_dir="${APP_ROOT}/config"
+  if command -v setfacl >/dev/null 2>&1 \
+    && setfacl -m u:10001:--x "${config_dir}" >/dev/null 2>&1 \
+    && setfacl -m u:10001:r "${resolved_path}" >/dev/null 2>&1; then
+    chmod go-w "${config_dir}" "${resolved_path}"
+    return 0
+  fi
+  chmod a+x,go-w "${config_dir}"
+  chmod a+r,go-w "${resolved_path}"
+}
+
 ensure_runtime_writable_dir_projection() {
   local env_name="$1"
   local default_path="$2"
@@ -405,8 +435,13 @@ ensure_runtime_readable_file_projection \
   "EA_RESPONSES_NO_RETENTION_CLIENT_TOKEN_HOST_FILE" \
   "./.ea-runtime-secrets/no_retention_client_token" \
   "runtime_group_1000"
+ensure_runtime_readable_config_projection "config/onemin_api_keys.example.json"
+ensure_runtime_readable_config_projection "config/tenants.yml"
+ensure_runtime_readable_config_projection "config/onemin_slot_owners.json"
+ensure_runtime_readable_config_projection "config/places.yml"
 "${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_whatsapp_callback_secret_runtime_projection.py" \
   --generate-missing >/dev/null
+ensure_runtime_writable_dir_projection "EA_RUNTIME_HOST_ROOT" "./.runtime"
 ensure_runtime_writable_dir_projection "EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT" "./data/pocket-ai-audio"
 pocket_audio_archive_host_root="$(normalize_origin_like "$(effective_value EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT)")"
 if [[ -z "${pocket_audio_archive_host_root}" ]]; then
