@@ -40,6 +40,8 @@ GOOGLE_SCOPE_IDENTITY = (
 )
 GOOGLE_SCOPE_SEND = "https://www.googleapis.com/auth/gmail.send"
 GOOGLE_SCOPE_METADATA = "https://www.googleapis.com/auth/gmail.metadata"
+GOOGLE_SCOPE_GMAIL_READONLY = "https://www.googleapis.com/auth/gmail.readonly"
+GOOGLE_SCOPE_GMAIL_COMPOSE = "https://www.googleapis.com/auth/gmail.compose"
 GOOGLE_SCOPE_GMAIL_MODIFY = "https://www.googleapis.com/auth/gmail.modify"
 GOOGLE_SCOPE_CALENDAR = "https://www.googleapis.com/auth/calendar"
 GOOGLE_SCOPE_CALENDAR_READONLY = "https://www.googleapis.com/auth/calendar.readonly"
@@ -55,6 +57,21 @@ GOOGLE_SCOPE_SEND_ONLY = GOOGLE_SCOPE_IDENTITY + (
 GOOGLE_SCOPE_VERIFY = GOOGLE_SCOPE_IDENTITY + (
     GOOGLE_SCOPE_SEND,
     GOOGLE_SCOPE_METADATA,
+)
+
+GOOGLE_SCOPE_INBOX_READONLY = GOOGLE_SCOPE_IDENTITY + (
+    GOOGLE_SCOPE_GMAIL_READONLY,
+)
+
+GOOGLE_SCOPE_DRAFT_ASSIST = GOOGLE_SCOPE_IDENTITY + (
+    GOOGLE_SCOPE_GMAIL_READONLY,
+    GOOGLE_SCOPE_GMAIL_COMPOSE,
+)
+
+GOOGLE_SCOPE_WORKSPACE_ASSIST = GOOGLE_SCOPE_DRAFT_ASSIST + (
+    GOOGLE_SCOPE_CALENDAR_READONLY,
+    GOOGLE_SCOPE_CONTACTS_READONLY,
+    GOOGLE_SCOPE_DRIVE_METADATA_READONLY,
 )
 
 GOOGLE_SCOPE_KEEP_ONLY = GOOGLE_SCOPE_IDENTITY + (
@@ -92,6 +109,9 @@ SCOPE_BUNDLES: dict[str, tuple[str, ...]] = {
     "identity": GOOGLE_SCOPE_IDENTITY,
     "send": GOOGLE_SCOPE_SEND_ONLY,
     "verify": GOOGLE_SCOPE_VERIFY,
+    "inbox_readonly": GOOGLE_SCOPE_INBOX_READONLY,
+    "draft_assist": GOOGLE_SCOPE_DRAFT_ASSIST,
+    "workspace_assist": GOOGLE_SCOPE_WORKSPACE_ASSIST,
     "keep": GOOGLE_SCOPE_KEEP_ONLY,
     "core": GOOGLE_SCOPE_CORE,
     "photos": GOOGLE_SCOPE_PHOTOS,
@@ -141,6 +161,49 @@ SCOPE_BUNDLE_METADATA: dict[str, dict[str, object]] = {
             "No calendar context",
             "No contacts context",
             "No inbox modification",
+        ),
+    },
+    "inbox_readonly": {
+        "label": "Gmail inbox — read only",
+        "summary": "Search and read Gmail inbox messages without granting EA any mail or workspace write permission.",
+        "capabilities": (
+            "Search inbox messages",
+            "Read message headers, bodies, and approved attachment content",
+        ),
+        "limitations": (
+            "Cannot send mail or create drafts",
+            "Cannot archive, delete, label, mark read, or otherwise modify messages",
+            "No calendar, contacts, Drive, Photos, or account-settings access",
+        ),
+    },
+    "draft_assist": {
+        "label": "Gmail read + draft assist",
+        "summary": "Search and read Gmail, then create unsent drafts for operator review without enabling EA's send path.",
+        "capabilities": (
+            "Search and read Gmail messages",
+            "Create unsent Gmail drafts for operator review",
+        ),
+        "limitations": (
+            "EA cannot send mail unless gmail.send is granted separately",
+            "Google's compose scope technically permits sending at the provider level even though EA blocks that path",
+            "Cannot archive, label, mark read, or otherwise modify non-draft messages",
+            "No calendar, contacts, Drive, Photos, or account-settings access",
+        ),
+    },
+    "workspace_assist": {
+        "label": "Google Workspace read + draft assist",
+        "summary": "Read Gmail and supporting Workspace context, then create unsent Gmail drafts for operator review.",
+        "capabilities": (
+            "Search and read Gmail messages and approved attachment content",
+            "Create unsent Gmail drafts for operator review",
+            "Read calendar, contacts, and Drive file metadata for assistant context",
+        ),
+        "limitations": (
+            "EA cannot send mail unless gmail.send is granted separately",
+            "Google's compose scope technically permits sending at the provider level even though EA blocks that path",
+            "Cannot archive, label, mark read, or otherwise modify non-draft messages",
+            "Cannot create or change calendar events, contacts, or Drive files",
+            "No Google Photos or account-settings access",
         ),
     },
     "keep": {
@@ -270,6 +333,7 @@ def google_bundle_supports_workspace_sync(
     effective_scopes = tuple(scopes or SCOPE_BUNDLES[normalize_scope_bundle(bundle)])
     supported_signal_scopes = {
         GOOGLE_SCOPE_METADATA,
+        GOOGLE_SCOPE_GMAIL_READONLY,
         GOOGLE_SCOPE_GMAIL_MODIFY,
         GOOGLE_SCOPE_CALENDAR,
         GOOGLE_SCOPE_CALENDAR_READONLY,
@@ -854,6 +918,12 @@ def complete_google_oauth_callback(
     granted_scopes_source = "google_token_response" if returned_scope_text else "requested_scopes_fallback"
     if set(granted_scopes).issubset(set(GOOGLE_SCOPE_IDENTITY)):
         consent_stage = "identity"
+    elif scope_bundle == "workspace_assist" and GOOGLE_SCOPE_GMAIL_COMPOSE in granted_scopes:
+        consent_stage = "workspace_assist"
+    elif GOOGLE_SCOPE_GMAIL_COMPOSE in granted_scopes:
+        consent_stage = "draft_assist"
+    elif GOOGLE_SCOPE_GMAIL_READONLY in granted_scopes:
+        consent_stage = "inbox_readonly"
     elif GOOGLE_SCOPE_METADATA in granted_scopes:
         consent_stage = "verify"
     else:
@@ -1405,16 +1475,23 @@ def list_recent_workspace_signals(
         prior_signal_count = len(signals)
         binding_healthy = False
         fetch_attempted = False
-        if normalized_email_limit > 0 and (
-            GOOGLE_SCOPE_METADATA in granted_scope_set or GOOGLE_SCOPE_GMAIL_MODIFY in granted_scope_set
-        ):
+        gmail_read_scopes = {
+            GOOGLE_SCOPE_METADATA,
+            GOOGLE_SCOPE_GMAIL_READONLY,
+            GOOGLE_SCOPE_GMAIL_MODIFY,
+        }
+        if normalized_email_limit > 0 and granted_scope_set.intersection(gmail_read_scopes):
             fetch_attempted = True
             try:
                 signals.extend(
                     _list_recent_gmail_signals(
                         access_token=access_token,
                         max_results=normalized_email_limit,
-                        include_message_body=GOOGLE_SCOPE_GMAIL_MODIFY in granted_scope_set,
+                        include_message_body=bool(
+                            granted_scope_set.intersection(
+                                {GOOGLE_SCOPE_GMAIL_READONLY, GOOGLE_SCOPE_GMAIL_MODIFY}
+                            )
+                        ),
                         account_email=account_email,
                         gmail_query=gmail_query,
                         seen_source_refs=seen_source_refs,
@@ -2993,7 +3070,7 @@ def _load_google_draft_context(
         for scope in (metadata.get("granted_scopes") or [])
         if str(scope or "").strip()
     }
-    if GOOGLE_SCOPE_GMAIL_MODIFY not in granted_scopes:
+    if not granted_scopes.intersection({GOOGLE_SCOPE_GMAIL_COMPOSE, GOOGLE_SCOPE_GMAIL_MODIFY}):
         raise RuntimeError("google_gmail_draft_scope_missing")
     fast_fail_reason = _google_binding_fast_fail_reauth_reason(metadata)
     if fast_fail_reason:

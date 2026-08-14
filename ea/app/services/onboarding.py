@@ -22,6 +22,7 @@ except ImportError:
             effective_scopes = tuple(str(item or "").strip() for item in list(bundle_details.get("scopes") or []) if str(item or "").strip())
         supported_signal_scopes = {
             "https://www.googleapis.com/auth/gmail.metadata",
+            "https://www.googleapis.com/auth/gmail.readonly",
             "https://www.googleapis.com/auth/gmail.modify",
             "https://www.googleapis.com/auth/calendar",
             "https://www.googleapis.com/auth/calendar.readonly",
@@ -48,6 +49,9 @@ GOOGLE_ONBOARDING_BUNDLE_ALIASES = {
     "identity": "identity",
     "send": "send",
     "verify": "verify",
+    "inbox_readonly": "inbox_readonly",
+    "draft_assist": "draft_assist",
+    "workspace_assist": "workspace_assist",
     "all": "all",
     "everything": "everything",
     "core": "core",
@@ -231,7 +235,6 @@ class OnboardingService(AssistantOnboardingService):
         raw_incoming_preferences = dict(property_search_preferences_json or {})
         existing_preferences = dict(state.property_search_preferences_json or {})
         existing_raw_preferences = dict(existing_preferences.get("raw_preferences") or {}) if isinstance(existing_preferences.get("raw_preferences"), dict) else {}
-        incoming_commercial = dict(normalized_preferences.get("property_commercial") or {}) if isinstance(normalized_preferences.get("property_commercial"), dict) else {}
         existing_commercial = dict(existing_preferences.get("property_commercial") or {}) if isinstance(existing_preferences.get("property_commercial"), dict) else {}
         incoming_has_explicit_commercial = isinstance(raw_incoming_preferences.get("property_commercial"), dict) and bool(raw_incoming_preferences.get("property_commercial"))
         if not incoming_has_explicit_commercial and existing_commercial:
