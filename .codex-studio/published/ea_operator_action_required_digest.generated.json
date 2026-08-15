@@ -19,7 +19,7 @@
   "digest_sha256": "",
   "dry_run": false,
   "force": false,
-  "generated_at": "2026-08-13T06:19:33Z",
+  "generated_at": "2026-08-15T12:22:03Z",
   "generated_by": "scripts/materialize_operator_action_required_digest.py",
   "head_semantics": "source_state",
   "included_action_keys": [],
@@ -80,7 +80,7 @@
     "reason": "",
     "sent": false
   },
-  "source_git_head": "e2c68e9bf940486d5652d72bc9b82b85d9a3a9f9",
+  "source_git_head": "441c3ffad6b099751b79fb99b5ad2fc7fb6719ed",
   "source_receipt": {
     "path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
     "present": true,
@@ -93,7 +93,7 @@
     "path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
     "status": "not_requested"
   },
-  "source_state_fingerprint": "4dbaca7306688aac41fc761bd1902fb748a1f71c5c298ccb10d22ac8482d60c1",
+  "source_state_fingerprint": "8418403a8022b40bfec3dab3bb2693d2a52c880ee2e5b4800bba8f3a959d7864",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "state_updated": false,
   "status": "no_user_action_required",

@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.telegram_video_delivery_live_receipt",
-  "generated_at": "2026-08-06T16:35:31Z",
+  "generated_at": "2026-08-15T12:15:48Z",
   "generated_by": "scripts/materialize_telegram_video_delivery_live_receipt.py",
-  "source_git_head": "cd318f929bdb18372785ca59942668758daa388c",
+  "source_git_head": "441c3ffad6b099751b79fb99b5ad2fc7fb6719ed",
   "head_semantics": "source_state",
   "output_path": ".codex-studio/published/telegram_video_delivery_live.generated.json",
   "status": "pass",
@@ -14,7 +14,7 @@
       ".env",
       ".env.local"
     ],
-    "loaded_count": 473,
+    "loaded_count": 496,
     "storage_backend_present": true,
     "database_url_present": true,
     "docker_postgres_fallback": {
@@ -27,22 +27,22 @@
       "row_count": 7,
       "diagnostics": {
         "status": "pass",
-        "telegram_observation_count": 461,
+        "telegram_observation_count": 470,
         "telegram_video_related_observation_count": 108,
         "telegram_video_delivery_receipt_count": 7,
         "telegram_video_sent_text_ack_count": 1,
         "telegram_event_type_counts": [
           {
             "event_type": "telegram.reply_sent",
-            "count": 98
+            "count": 99
           },
           {
             "event_type": "telegram.message",
-            "count": 92
+            "count": 93
           },
           {
             "event_type": "telegram.callback_query",
-            "count": 65
+            "count": 67
           },
           {
             "event_type": "telegram.reply_async_processing",
@@ -58,11 +58,11 @@
           },
           {
             "event_type": "office_signal_telegram_message",
-            "count": 22
+            "count": 23
           },
           {
             "event_type": "telegram.proactive_ooda_task_staged",
-            "count": 22
+            "count": 23
           },
           {
             "event_type": "telegram.processing_ack_sent",
@@ -82,7 +82,7 @@
           },
           {
             "event_type": "telegram.reply_suppressed",
-            "count": 3
+            "count": 6
           },
           {
             "event_type": "telegram.audiobook_epub_recovered",
@@ -155,7 +155,7 @@
           {
             "channel": "telegram",
             "status": "sent",
-            "count": 10
+            "count": 11
           },
           {
             "channel": "email",

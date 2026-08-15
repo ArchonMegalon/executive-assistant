@@ -1,23 +1,21 @@
 {
   "contract_name": "ea.release_authority_status.v1",
-  "generated_at": "2026-08-06T16:41:31Z",
-  "state": "watch",
-  "summary": "Release authority is present but still has gaps to resolve.",
-  "authority_posture": "local_only_deploy_id",
-  "next_action": "Set an explicit deployment ID from the real deploy system and rematerialize the release manifest.",
-  "authority_basis": "main@origin/main · cd318f929bdb · EA_CORE · docker-compose.yml, docker-compose.prod.yml",
-  "manifest_path": "/docker/EA/.codex-studio/published/release_manifest.generated.json",
+  "generated_at": "2026-08-15T12:24:30Z",
+  "state": "clear",
+  "summary": "Release authority is recorded for the current runtime.",
+  "authority_posture": "authoritative_runtime",
+  "next_action": "No action required.",
+  "authority_basis": "main@origin/main · 441c3ffad6b0 · EA_CORE · docker-compose.whatsapp-web-session.yml",
+  "manifest_path": ".codex-studio/published/release_manifest.generated.json",
   "deploy_context_path": "/docker/EA/.codex-studio/published/deploy_context.generated.json",
   "project_modes_path": "/docker/EA/.codex-design/product/PROJECT_MODES.generated.json",
-  "issues": [
-    "deployment_id_local_fallback"
-  ],
+  "issues": [],
   "repository": "EA",
   "branch": "main",
   "tracking_branch": "origin/main",
-  "commit_sha": "cd318f929bdb18372785ca59942668758daa388c",
+  "commit_sha": "441c3ffad6b099751b79fb99b5ad2fc7fb6719ed",
   "source_remote_ref": "refs/remotes/origin/main",
-  "source_remote_ref_commit_sha": "cd318f929bdb18372785ca59942668758daa388c",
+  "source_remote_ref_commit_sha": "441c3ffad6b099751b79fb99b5ad2fc7fb6719ed",
   "source_remote_ref_evidence": "local_remote_tracking_ref",
   "source_commit_reachable_from_remote_ref": true,
   "dirty_worktree": true,
@@ -26,35 +24,39 @@
   "source_dirty_files": [],
   "source_dirty_omitted_count": 0,
   "source_dirty_status_sha256": "",
-  "deployment_id": "local-20260806T164131100045Z-cd318f929bdb",
-  "deployment_id_source": "local_fallback",
+  "deployment_id": "deploy-20260815T120548Z-441c3ffad6b0",
+  "deployment_id_source": "explicit",
   "public_origin": "https://myexternalbrain.com",
   "public_origin_source": "EA_PUBLIC_APP_BASE_URL",
-  "deploy_context_generated_at": "2026-08-06T16:41:31.100045Z",
+  "deploy_context_generated_at": "2026-08-15T12:24:30.365117Z",
   "deploy_context_branch": "main",
   "deploy_context_tracking_branch": "origin/main",
-  "deploy_context_commit_sha": "cd318f929bdb18372785ca59942668758daa388c",
+  "deploy_context_commit_sha": "441c3ffad6b099751b79fb99b5ad2fc7fb6719ed",
   "git_remote_origin": "https://github.com/ArchonMegalon/executive-assistant.git",
-  "release_label": "local-20260806T164131100045Z-cd318f929bdb",
+  "release_label": "deploy-20260815T120548Z-441c3ffad6b0",
   "project_mode": "EA_CORE",
   "enabled_project_modes": [
     "EA_CORE"
   ],
   "compose_files": [
     "docker-compose.yml",
-    "docker-compose.prod.yml"
+    "docker-compose.prod.yml",
+    "docker-compose.whatsapp-web-session.yml",
+    "docker-compose.cloudflared.yml"
   ],
-  "compose_overrides": [],
-  "artifact_count": 53,
+  "compose_overrides": [
+    "docker-compose.whatsapp-web-session.yml"
+  ],
+  "artifact_count": 59,
   "artifact_set_preview": [
     ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
     ".codex-studio/published/EA_CHUMMER_LIVED_SYSTEM_OBSERVATION.generated.json",
     ".codex-studio/published/HERTA_WHATSAPP_PACING_LIVE_PROOF.generated.json",
+    ".codex-studio/published/LTD_CAPACITY_STATUS.generated.json",
+    ".codex-studio/published/LTD_PROOF_DEBT.generated.json",
+    ".codex-studio/published/LTD_TEABLE_OPERATIONS.generated.json",
     ".codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json",
-    ".codex-studio/published/NEXT90_M118_EA_ORGANIZER_PACKETS.generated.json",
-    ".codex-studio/published/NEXT90_M129_EA_PARTICIPATION_FOLLOWTHROUGH_PACKETS.generated.json",
-    ".codex-studio/published/NEXT90_M135_EA_CLOSURE_COVERAGE.generated.json",
-    ".codex-studio/published/QUEUE.generated.yaml"
+    ".codex-studio/published/NEXT90_M118_EA_ORGANIZER_PACKETS.generated.json"
   ],
   "declared_project_modes": [
     "EA_CORE",
@@ -65,49 +67,49 @@
   ],
   "deploy_context_gate": {
     "contract_name": "ea.deploy_context_gate.v1",
-    "status": "fail",
-    "issues": [
-      "deployment_id_local_fallback"
-    ],
-    "deployment_id": "local-20260806T164131100045Z-cd318f929bdb",
-    "deployment_id_source": "local_fallback",
+    "status": "pass",
+    "issues": [],
+    "deployment_id": "deploy-20260815T120548Z-441c3ffad6b0",
+    "deployment_id_source": "deploy_script_generated",
     "public_origin": "https://myexternalbrain.com",
     "public_origin_source": "EA_PUBLIC_APP_BASE_URL",
     "repository": "EA",
     "branch": "main",
     "tracking_branch": "origin/main",
-    "commit_sha": "cd318f929bdb18372785ca59942668758daa388c",
-    "release_label": "local-20260806T164131100045Z-cd318f929bdb",
+    "commit_sha": "441c3ffad6b099751b79fb99b5ad2fc7fb6719ed",
+    "release_label": "deploy-20260815T120548Z-441c3ffad6b0",
     "project_mode": "EA_CORE",
     "enabled_project_modes": [
       "EA_CORE"
     ],
     "compose_files": [
       "docker-compose.yml",
-      "docker-compose.prod.yml"
+      "docker-compose.prod.yml",
+      "docker-compose.whatsapp-web-session.yml",
+      "docker-compose.cloudflared.yml"
     ],
-    "compose_overrides": []
+    "compose_overrides": [
+      "docker-compose.whatsapp-web-session.yml"
+    ]
   },
   "gate": {
     "contract_name": "ea.release_authority_gate.v1",
-    "status": "fail",
-    "authority_posture": "local_only_deploy_id",
-    "issues": [
-      "deployment_id_local_fallback"
-    ],
-    "manifest_path": "/docker/EA/.codex-studio/published/release_manifest.generated.json",
+    "status": "pass",
+    "authority_posture": "authoritative_runtime",
+    "issues": [],
+    "manifest_path": ".codex-studio/published/release_manifest.generated.json",
     "deploy_context_path": "/docker/EA/.codex-studio/published/deploy_context.generated.json",
     "project_modes_path": "/docker/EA/.codex-design/product/PROJECT_MODES.generated.json",
     "repository": "EA",
     "branch": "main",
     "tracking_branch": "origin/main",
-    "commit_sha": "cd318f929bdb18372785ca59942668758daa388c",
+    "commit_sha": "441c3ffad6b099751b79fb99b5ad2fc7fb6719ed",
     "source_remote_ref": "refs/remotes/origin/main",
-    "source_remote_ref_commit_sha": "cd318f929bdb18372785ca59942668758daa388c",
+    "source_remote_ref_commit_sha": "441c3ffad6b099751b79fb99b5ad2fc7fb6719ed",
     "source_remote_ref_evidence": "local_remote_tracking_ref",
     "source_commit_reachable_from_remote_ref": true,
-    "deployment_id": "local-20260806T164131100045Z-cd318f929bdb",
-    "deployment_id_source": "local_fallback",
+    "deployment_id": "deploy-20260815T120548Z-441c3ffad6b0",
+    "deployment_id_source": "explicit",
     "public_origin": "https://myexternalbrain.com",
     "public_origin_source": "EA_PUBLIC_APP_BASE_URL",
     "project_mode": "EA_CORE",
@@ -116,18 +118,22 @@
     ],
     "compose_files": [
       "docker-compose.yml",
-      "docker-compose.prod.yml"
+      "docker-compose.prod.yml",
+      "docker-compose.whatsapp-web-session.yml",
+      "docker-compose.cloudflared.yml"
     ],
-    "compose_overrides": [],
+    "compose_overrides": [
+      "docker-compose.whatsapp-web-session.yml"
+    ],
     "dirty_worktree": true,
     "source_worktree_dirty": false,
     "source_dirty_count": 0,
     "source_dirty_files": [],
     "source_dirty_omitted_count": 0,
     "source_dirty_status_sha256": "",
-    "deploy_context_generated_at": "2026-08-06T16:41:31.100045Z",
+    "deploy_context_generated_at": "2026-08-15T12:24:30.365117Z",
     "deploy_context_branch": "main",
     "deploy_context_tracking_branch": "origin/main",
-    "deploy_context_commit_sha": "cd318f929bdb18372785ca59942668758daa388c"
+    "deploy_context_commit_sha": "441c3ffad6b099751b79fb99b5ad2fc7fb6719ed"
   }
 }
