@@ -17,8 +17,8 @@ from app.services.outbound_email_bounds import (
 
 
 EMAILIT_API_BASE = "https://api.emailit.com/v2/emails"
-DEFAULT_SENDER_EMAIL = "property@propertyquarry.com"
-DEFAULT_SENDER_NAME = "PropertyQuarry"
+DEFAULT_SENDER_EMAIL = "no-reply@example.test"
+DEFAULT_SENDER_NAME = "Executive Assistant"
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,27 @@ class EmailDeliveryRateLimitedError(RuntimeError):
         super().__init__(f"registration_email_rate_limited:{label}:retry_after={self.retry_after_seconds}")
 
 
+_EMAILIT_FALSE_VALUES = {"0", "false", "no", "off", "disabled"}
+
+
+def _emailit_lane_switch(kind: str) -> str:
+    normalized = str(kind or "").strip().lower()
+    if normalized.startswith("ea_property_"):
+        return "PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED"
+    if normalized.startswith("chummer_hub_"):
+        return "CHUMMER_HUB_EMAILIT_DELIVERY_ENABLED"
+    return "EA_EMAILIT_OFFICE_DELIVERY_ENABLED"
+
+
+def _emailit_delivery_explicitly_disabled(*, kind: str = "ea_registration_verification") -> bool:
+    master = str(os.environ.get("EA_EMAILIT_DELIVERY_ENABLED") or "").strip().lower()
+    lane = str(os.environ.get(_emailit_lane_switch(kind)) or "").strip().lower()
+    return master in _EMAILIT_FALSE_VALUES or lane in _EMAILIT_FALSE_VALUES
+
+
 def email_delivery_enabled() -> bool:
+    if _emailit_delivery_explicitly_disabled(kind="ea_registration_verification"):
+        return False
     return bool(str(os.environ.get("EMAILIT_API_KEY") or "").strip())
 
 
@@ -56,12 +76,17 @@ def _force_fallback_sender() -> bool:
     }
 
 
-def _registration_sender_email() -> str:
+def _registration_sender_email(*, kind: str = "") -> str:
     if _force_fallback_sender():
         forced = _fallback_sender_email()
         if forced:
             return forced
-    configured = str(os.environ.get("EA_REGISTRATION_EMAIL_FROM") or "").strip()
+    lane_env = (
+        "PROPERTYQUARRY_EMAILIT_FROM"
+        if _emailit_lane_switch(kind) == "PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED"
+        else "EA_EMAILIT_OFFICE_FROM"
+    )
+    configured = str(os.environ.get(lane_env) or os.environ.get("EA_REGISTRATION_EMAIL_FROM") or "").strip()
     if configured:
         return configured
     fallback = str(os.environ.get("EA_EMAIL_DEFAULT_FROM") or "").strip()
@@ -78,10 +103,15 @@ def delivery_sender_emails() -> tuple[str, ...]:
     return tuple(sorted(value for value in values if value))
 
 
-def _registration_sender_name() -> str:
+def _registration_sender_name(*, kind: str = "") -> str:
     if _force_fallback_sender():
         return _fallback_sender_name()
-    configured = str(os.environ.get("EA_REGISTRATION_EMAIL_NAME") or "").strip()
+    lane_env = (
+        "PROPERTYQUARRY_EMAILIT_NAME"
+        if _emailit_lane_switch(kind) == "PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED"
+        else "EA_EMAILIT_OFFICE_NAME"
+    )
+    configured = str(os.environ.get(lane_env) or os.environ.get("EA_REGISTRATION_EMAIL_NAME") or "").strip()
     if configured:
         return configured
     fallback = str(os.environ.get("EA_EMAIL_DEFAULT_NAME") or "").strip()
@@ -104,18 +134,18 @@ def _fallback_sender_name() -> str:
     return fallback or _registration_sender_name()
 
 
-def _resolved_sender_email(sender_email: str = "") -> str:
+def _resolved_sender_email(sender_email: str = "", *, kind: str = "") -> str:
     configured = str(sender_email or "").strip()
     if configured:
         return configured
-    return _registration_sender_email()
+    return _registration_sender_email(kind=kind)
 
 
-def _resolved_sender_name(sender_name: str = "") -> str:
+def _resolved_sender_name(sender_name: str = "", *, kind: str = "") -> str:
     configured = str(sender_name or "").strip()
     if configured:
         return configured
-    return _registration_sender_name()
+    return _registration_sender_name(kind=kind)
 
 
 def _registration_subject() -> str:
@@ -437,11 +467,13 @@ def _send_emailit_email(
     sender_email: str = "",
     sender_name: str = "",
 ) -> RegistrationEmailReceipt:
+    if _emailit_delivery_explicitly_disabled(kind=kind):
+        raise RuntimeError("registration_email_delivery_disabled")
     api_key = str(os.environ.get("EMAILIT_API_KEY") or "").strip()
     if not api_key:
         raise RuntimeError("registration_email_api_key_missing")
-    resolved_sender_email = _resolved_sender_email(sender_email)
-    resolved_sender_name = _resolved_sender_name(sender_name)
+    resolved_sender_email = _resolved_sender_email(sender_email, kind=kind)
+    resolved_sender_name = _resolved_sender_name(sender_name, kind=kind)
     payload = {
         "from": f"{resolved_sender_name} <{resolved_sender_email}>",
         "to": str(recipient_email or "").strip(),

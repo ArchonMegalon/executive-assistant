@@ -4,58 +4,82 @@
   "surface": "browser_workflow_proof",
   "version": 3,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-27T10:53:39Z",
+  "generated_at": "2026-08-06T16:35:29Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
-  "run_id": "a085eda7d74a4e4a8700d05d3e63e832",
+  "run_id": "9105a9fda1dc455f9aff1e1d76423763",
   "trust_model": "local_unsigned_process_evidence",
   "environment_policy": {
     "name": "ea.browser_workflow_proof.hermetic",
     "version": 1
   },
-  "source_revision": "4747646399598ed083acbf1a39ea430d245f9925",
-  "source_tree": "6fcf4c7135d872b31a1387034e3de92666e9b5ed",
-  "source_worktree_dirty": true,
+  "source_revision": "cd318f929bdb18372785ca59942668758daa388c",
+  "source_tree": "93448e0af81b85c06303ee8992ee81a847e0772d",
+  "source_worktree_dirty": false,
   "source_state_samples": [
     {
       "stage": "before_tests",
-      "revision": "4747646399598ed083acbf1a39ea430d245f9925",
-      "tree": "6fcf4c7135d872b31a1387034e3de92666e9b5ed",
-      "dirty": true
+      "revision": "cd318f929bdb18372785ca59942668758daa388c",
+      "tree": "93448e0af81b85c06303ee8992ee81a847e0772d",
+      "dirty": false
     },
     {
       "stage": "after_source",
-      "revision": "4747646399598ed083acbf1a39ea430d245f9925",
-      "tree": "6fcf4c7135d872b31a1387034e3de92666e9b5ed",
-      "dirty": true
+      "revision": "cd318f929bdb18372785ca59942668758daa388c",
+      "tree": "93448e0af81b85c06303ee8992ee81a847e0772d",
+      "dirty": false
     },
     {
       "stage": "after_browser",
-      "revision": "4747646399598ed083acbf1a39ea430d245f9925",
-      "tree": "6fcf4c7135d872b31a1387034e3de92666e9b5ed",
-      "dirty": true
+      "revision": "cd318f929bdb18372785ca59942668758daa388c",
+      "tree": "93448e0af81b85c06303ee8992ee81a847e0772d",
+      "dirty": false
     },
     {
       "stage": "before_publish",
-      "revision": "4747646399598ed083acbf1a39ea430d245f9925",
-      "tree": "6fcf4c7135d872b31a1387034e3de92666e9b5ed",
-      "dirty": true
+      "revision": "cd318f929bdb18372785ca59942668758daa388c",
+      "tree": "93448e0af81b85c06303ee8992ee81a847e0772d",
+      "dirty": false
     }
   ],
   "snapshot": {
     "archive_format": "git_archive_tar",
-    "read_only": false,
-    "source_revision": "4747646399598ed083acbf1a39ea430d245f9925",
-    "source_tree": "6fcf4c7135d872b31a1387034e3de92666e9b5ed",
+    "read_only": true,
+    "source_revision": "cd318f929bdb18372785ca59942668758daa388c",
+    "source_tree": "93448e0af81b85c06303ee8992ee81a847e0772d",
     "seal_algorithm": "sha256-content-posix-stat-v1",
     "read_only_enforcement": "owner_mode_bits_plus_content_stat_seal_and_inotify_watch",
-    "seal_samples": [],
+    "seal_samples": [
+      {
+        "stage": "before_source",
+        "sha256": "f7339791b427c052a3e9bbf8bf51bd7b33739facbdeab189e11e8c4111820a8b"
+      },
+      {
+        "stage": "after_source",
+        "sha256": "f7339791b427c052a3e9bbf8bf51bd7b33739facbdeab189e11e8c4111820a8b"
+      },
+      {
+        "stage": "after_browser",
+        "sha256": "f7339791b427c052a3e9bbf8bf51bd7b33739facbdeab189e11e8c4111820a8b"
+      }
+    ],
     "mutation_watch": {
       "algorithm": "linux-inotify-v1",
-      "samples": []
+      "samples": [
+        {
+          "stage": "after_source",
+          "event_count": 0,
+          "overflow": false
+        },
+        {
+          "stage": "after_browser",
+          "event_count": 0,
+          "overflow": false
+        }
+      ]
     }
   },
-  "status": "blocked",
-  "operator_summary": "EA browser workflow proof is current but blocked by its local process evidence.",
+  "status": "pass",
+  "operator_summary": "EA browser workflow proof is green for one clean committed, mode-read-only, content/stat-sealed, mutation-watched snapshot.",
   "seed_source": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
   "release_claim_summary": "EA can only claim flagship-grade release truth when release authority, browser workflow proof, and release asset verification agree with this gate seed.",
   "expected_browser_signals": [
@@ -66,7 +90,11 @@
     "/app/settings keeps memo timing, approvals, and workspace rules visible without leading with operator noise"
   ],
   "source_backed_journey_proof": {
-    "status": "blocked",
+    "status": "pass",
+    "run_id": "9105a9fda1dc455f9aff1e1d76423763",
+    "trust_model": "local_unsigned_process_evidence",
+    "source_revision": "cd318f929bdb18372785ca59942668758daa388c",
+    "source_tree": "93448e0af81b85c06303ee8992ee81a847e0772d",
     "test_file": "tests/test_product_browser_journeys.py",
     "cases": [
       "test_workspace_pages_render_seeded_product_objects",
@@ -74,34 +102,316 @@
       "test_browser_action_routes_match_rendered_forms",
       "test_browser_handoff_and_people_memory_actions_work"
     ],
-    "blocking_reasons": [
-      "original source was not clean"
+    "selection_mode": "exact_node_ids",
+    "node_ids": [
+      "tests/test_product_browser_journeys.py::test_workspace_pages_render_seeded_product_objects",
+      "tests/test_product_browser_journeys.py::test_browser_journey_updates_after_approval_and_commitment_closure",
+      "tests/test_product_browser_journeys.py::test_browser_action_routes_match_rendered_forms",
+      "tests/test_product_browser_journeys.py::test_browser_handoff_and_people_memory_actions_work"
     ],
-    "limitations": [
-      "original source was not clean"
-    ]
+    "runner_root_kind": "committed_mode_read_only_mutation_watched_snapshot",
+    "snapshot_read_only": true,
+    "environment_policy": {
+      "name": "ea.browser_workflow_proof.hermetic",
+      "version": 1,
+      "allowed_keys": [
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "NO_PROXY",
+        "PATH",
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD",
+        "PYTHONDONTWRITEBYTECODE",
+        "PYTHONHASHSEED",
+        "PYTHONIOENCODING",
+        "PYTHONNOUSERSITE",
+        "PYTHONPATH",
+        "PYTHONPYCACHEPREFIX",
+        "PYTHONSAFEPATH",
+        "PYTHONUTF8",
+        "TEMP",
+        "TMP",
+        "TMPDIR",
+        "TZ",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_RUNTIME_DIR",
+        "XDG_STATE_HOME"
+      ],
+      "normalized_values": {
+        "PATH": "/usr/bin:/bin",
+        "HOME": "{private_home}",
+        "TMPDIR": "{private_tmp}",
+        "TMP": "{private_tmp}",
+        "TEMP": "{private_tmp}",
+        "XDG_CACHE_HOME": "{private_xdg_cache}",
+        "XDG_CONFIG_HOME": "{private_xdg_config}",
+        "XDG_DATA_HOME": "{private_xdg_data}",
+        "XDG_STATE_HOME": "{private_xdg_state}",
+        "XDG_RUNTIME_DIR": "{private_xdg_runtime}",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "TZ": "UTC",
+        "PYTHONPATH": "{snapshot_root}/ea:{snapshot_root}:{dependency_root}",
+        "PYTHONNOUSERSITE": "1",
+        "PYTHONSAFEPATH": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONPYCACHEPREFIX": "{private_pycache}",
+        "PYTHONHASHSEED": "0",
+        "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8",
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+        "NO_PROXY": "127.0.0.1,localhost,::1"
+      },
+      "explicit_plugins": []
+    },
+    "argv_template": [
+      "{python_executable}",
+      "-m",
+      "pytest",
+      "-q",
+      "-rXx",
+      "--color=no",
+      "-o",
+      "addopts=",
+      "-o",
+      "xfail_strict=true",
+      "-p",
+      "no:cacheprovider",
+      "--confcutdir",
+      "{snapshot_root}",
+      "--basetemp",
+      "{private_basetemp}",
+      "--junitxml={private_junit_xml}",
+      "tests/test_product_browser_journeys.py::test_workspace_pages_render_seeded_product_objects",
+      "tests/test_product_browser_journeys.py::test_browser_journey_updates_after_approval_and_commitment_closure",
+      "tests/test_product_browser_journeys.py::test_browser_action_routes_match_rendered_forms",
+      "tests/test_product_browser_journeys.py::test_browser_handoff_and_people_memory_actions_work"
+    ],
+    "python_identity": {
+      "executable": "/__redacted__/python-executable",
+      "sha256": "1643dacd9feaedc58f3cc581e4d22577dfe25c09b10282936186ccf0f2e61118",
+      "version": "3.12.3",
+      "dependency_root": "/__redacted__/python-dependency-root",
+      "dependency_versions": {
+        "playwright": "1.60.0",
+        "pytest": "9.0.2",
+        "uvicorn": "0.49.0"
+      }
+    },
+    "browser_identity": null,
+    "exit_code": 0,
+    "duration_seconds": 11.264,
+    "output_excerpt": [
+      "....                                                                     [100%]",
+      "4 passed in 9.47s"
+    ],
+    "terminal_summary": "4 passed in 9.47s",
+    "report_format": "junit_xml_embedded",
+    "junit_xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?><testsuites name=\"pytest tests\"><testsuite name=\"pytest\" errors=\"0\" failures=\"0\" skipped=\"0\" tests=\"4\" time=\"9.470\" timestamp=\"2026-08-06T16:34:59.318856+00:00\" hostname=\"ubuntu\"><testcase classname=\"tests.test_product_browser_journeys\" name=\"test_workspace_pages_render_seeded_product_objects\" time=\"3.383\" /><testcase classname=\"tests.test_product_browser_journeys\" name=\"test_browser_journey_updates_after_approval_and_commitment_closure\" time=\"0.938\" /><testcase classname=\"tests.test_product_browser_journeys\" name=\"test_browser_action_routes_match_rendered_forms\" time=\"1.312\" /><testcase classname=\"tests.test_product_browser_journeys\" name=\"test_browser_handoff_and_people_memory_actions_work\" time=\"0.774\" /></testsuite></testsuites>",
+    "junit_xml_sha256": "6a354156938b15d1ce6ffa4f1ac5545701707103095ac56255c2e99c52a07af0",
+    "limitations": [],
+    "blocking_reasons": [],
+    "executed_count": 4,
+    "passed_count": 4,
+    "failed_count": 0,
+    "error_count": 0,
+    "skipped_count": 0,
+    "xfail_count": 0,
+    "xpass_count": 0,
+    "executed_cases": [
+      "test_workspace_pages_render_seeded_product_objects",
+      "test_browser_journey_updates_after_approval_and_commitment_closure",
+      "test_browser_action_routes_match_rendered_forms",
+      "test_browser_handoff_and_people_memory_actions_work"
+    ],
+    "passed_cases": [
+      "test_workspace_pages_render_seeded_product_objects",
+      "test_browser_journey_updates_after_approval_and_commitment_closure",
+      "test_browser_action_routes_match_rendered_forms",
+      "test_browser_handoff_and_people_memory_actions_work"
+    ],
+    "junit_declared_tests_count": 4,
+    "junit_declared_failure_count": 0,
+    "junit_declared_error_count": 0,
+    "junit_declared_skipped_count": 0,
+    "junit_totals_consistent": true,
+    "terminal_passed_count": 4,
+    "terminal_xfail_count": 0,
+    "terminal_xpass_count": 0
   },
   "real_browser_e2e_proof": {
-    "status": "blocked",
+    "status": "pass",
+    "run_id": "9105a9fda1dc455f9aff1e1d76423763",
+    "trust_model": "local_unsigned_process_evidence",
+    "source_revision": "cd318f929bdb18372785ca59942668758daa388c",
+    "source_tree": "93448e0af81b85c06303ee8992ee81a847e0772d",
     "test_file": "tests/e2e/test_product_workflows.py",
     "cases": [
       "test_activation_and_memo_flow_in_real_browser",
       "test_draft_and_commitment_workflows_in_real_browser"
     ],
-    "blocking_reasons": [
-      "original source was not clean"
+    "selection_mode": "exact_node_ids",
+    "node_ids": [
+      "tests/e2e/test_product_workflows.py::test_activation_and_memo_flow_in_real_browser",
+      "tests/e2e/test_product_workflows.py::test_draft_and_commitment_workflows_in_real_browser"
     ],
-    "limitations": [
-      "original source was not clean"
-    ]
+    "runner_root_kind": "committed_mode_read_only_mutation_watched_snapshot",
+    "snapshot_read_only": true,
+    "environment_policy": {
+      "name": "ea.browser_workflow_proof.hermetic",
+      "version": 1,
+      "allowed_keys": [
+        "EA_ALLOW_LOOPBACK_NO_AUTH",
+        "EA_API_TOKEN",
+        "EA_DEFAULT_PRINCIPAL_ID",
+        "EA_ENABLE_PUBLIC_RESULTS",
+        "EA_ENABLE_PUBLIC_SIDE_SURFACES",
+        "EA_ENABLE_PUBLIC_TOURS",
+        "EA_STORAGE_BACKEND",
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "NO_PROXY",
+        "PATH",
+        "PLAYWRIGHT_BROWSERS_PATH",
+        "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD",
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD",
+        "PYTHONDONTWRITEBYTECODE",
+        "PYTHONHASHSEED",
+        "PYTHONIOENCODING",
+        "PYTHONNOUSERSITE",
+        "PYTHONPATH",
+        "PYTHONPYCACHEPREFIX",
+        "PYTHONSAFEPATH",
+        "PYTHONUTF8",
+        "TEMP",
+        "TMP",
+        "TMPDIR",
+        "TZ",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_RUNTIME_DIR",
+        "XDG_STATE_HOME"
+      ],
+      "normalized_values": {
+        "PATH": "/usr/bin:/bin",
+        "HOME": "{private_home}",
+        "TMPDIR": "{private_tmp}",
+        "TMP": "{private_tmp}",
+        "TEMP": "{private_tmp}",
+        "XDG_CACHE_HOME": "{private_xdg_cache}",
+        "XDG_CONFIG_HOME": "{private_xdg_config}",
+        "XDG_DATA_HOME": "{private_xdg_data}",
+        "XDG_STATE_HOME": "{private_xdg_state}",
+        "XDG_RUNTIME_DIR": "{private_xdg_runtime}",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "TZ": "UTC",
+        "PYTHONPATH": "{snapshot_root}/ea:{snapshot_root}:{dependency_root}",
+        "PYTHONNOUSERSITE": "1",
+        "PYTHONSAFEPATH": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONPYCACHEPREFIX": "{private_pycache}",
+        "PYTHONHASHSEED": "0",
+        "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8",
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+        "NO_PROXY": "127.0.0.1,localhost,::1",
+        "PLAYWRIGHT_BROWSERS_PATH": "{browser_cache}",
+        "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD": "1",
+        "EA_STORAGE_BACKEND": "memory",
+        "EA_API_TOKEN": "",
+        "EA_DEFAULT_PRINCIPAL_ID": "principal-default",
+        "EA_ALLOW_LOOPBACK_NO_AUTH": "1",
+        "EA_ENABLE_PUBLIC_SIDE_SURFACES": "0",
+        "EA_ENABLE_PUBLIC_RESULTS": "0",
+        "EA_ENABLE_PUBLIC_TOURS": "0"
+      },
+      "explicit_plugins": []
+    },
+    "argv_template": [
+      "{python_executable}",
+      "-m",
+      "pytest",
+      "-q",
+      "-rXx",
+      "--color=no",
+      "-o",
+      "addopts=",
+      "-o",
+      "xfail_strict=true",
+      "-p",
+      "no:cacheprovider",
+      "--confcutdir",
+      "{snapshot_root}",
+      "--basetemp",
+      "{private_basetemp}",
+      "--junitxml={private_junit_xml}",
+      "tests/e2e/test_product_workflows.py::test_activation_and_memo_flow_in_real_browser",
+      "tests/e2e/test_product_workflows.py::test_draft_and_commitment_workflows_in_real_browser"
+    ],
+    "python_identity": {
+      "executable": "/__redacted__/python-executable",
+      "sha256": "1643dacd9feaedc58f3cc581e4d22577dfe25c09b10282936186ccf0f2e61118",
+      "version": "3.12.3",
+      "dependency_root": "/__redacted__/python-dependency-root",
+      "dependency_versions": {
+        "playwright": "1.60.0",
+        "pytest": "9.0.2",
+        "uvicorn": "0.49.0"
+      }
+    },
+    "browser_identity": {
+      "executable": "/__redacted__/browser-executable",
+      "sha256": "adc1c21ceed5c2a67184766376fe816ac03e556cc0ca3f782e8212235fe05c6f"
+    },
+    "exit_code": 0,
+    "duration_seconds": 17.109,
+    "output_excerpt": [
+      "..                                                                       [100%]",
+      "=============================== warnings summary ===============================",
+      "tests/e2e/test_product_workflows.py::test_activation_and_memo_flow_in_real_browser",
+      "  /docker/EA/.venv/lib/python3.12/site-packages/websockets/legacy/__init__.py:6: DeprecationWarning: websockets.legacy is deprecated; see https://websockets.readthedocs.io/en/stable/howto/upgrade.html for upgrade instructions",
+      "    warnings.warn(  # deprecated in 14.0 - 2024-11-09",
+      "tests/e2e/test_product_workflows.py::test_activation_and_memo_flow_in_real_browser",
+      "  {dependency_root}/uvicorn/protocols/websockets/websockets_impl.py:17: DeprecationWarning: websockets.server.WebSocketServerProtocol is deprecated",
+      "    from websockets.server import WebSocketServerProtocol",
+      "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+      "2 passed, 2 warnings in 15.20s"
+    ],
+    "terminal_summary": "2 passed, 2 warnings in 15.20s",
+    "report_format": "junit_xml_embedded",
+    "junit_xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?><testsuites name=\"pytest tests\"><testsuite name=\"pytest\" errors=\"0\" failures=\"0\" skipped=\"0\" tests=\"2\" time=\"15.205\" timestamp=\"2026-08-06T16:35:12.911566+00:00\" hostname=\"ubuntu\"><testcase classname=\"tests.e2e.test_product_workflows\" name=\"test_activation_and_memo_flow_in_real_browser\" time=\"5.429\" /><testcase classname=\"tests.e2e.test_product_workflows\" name=\"test_draft_and_commitment_workflows_in_real_browser\" time=\"7.895\" /></testsuite></testsuites>",
+    "junit_xml_sha256": "73e066214f590896c768555c93f14c5dc7aa1478e41fd1fc2b7b30a06b5e3a88",
+    "limitations": [],
+    "blocking_reasons": [],
+    "executed_count": 2,
+    "passed_count": 2,
+    "failed_count": 0,
+    "error_count": 0,
+    "skipped_count": 0,
+    "xfail_count": 0,
+    "xpass_count": 0,
+    "executed_cases": [
+      "test_activation_and_memo_flow_in_real_browser",
+      "test_draft_and_commitment_workflows_in_real_browser"
+    ],
+    "passed_cases": [
+      "test_activation_and_memo_flow_in_real_browser",
+      "test_draft_and_commitment_workflows_in_real_browser"
+    ],
+    "junit_declared_tests_count": 2,
+    "junit_declared_failure_count": 0,
+    "junit_declared_error_count": 0,
+    "junit_declared_skipped_count": 0,
+    "junit_totals_consistent": true,
+    "terminal_passed_count": 2,
+    "terminal_xfail_count": 0,
+    "terminal_xpass_count": 0
   },
-  "blocking_reasons": [
-    "source-backed browser journey proof is not passing",
-    "real browser E2E proof is not passing",
-    "original source revision, tree, or cleanliness changed during proof",
-    "committed snapshot changed during proof execution"
-  ],
-  "current_limitations": [
-    "original source was not clean"
-  ]
+  "blocking_reasons": [],
+  "current_limitations": []
 }

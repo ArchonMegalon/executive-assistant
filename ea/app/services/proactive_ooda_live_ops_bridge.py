@@ -9,7 +9,6 @@ import sys
 from typing import Any, Callable, Mapping
 
 from app.services.proactive_ooda_runtime_artifacts import (
-    current_packet_user_approval_surface,
     load_runtime_artifact_bundle,
     select_current_approval_outcome_for_bundle,
 )
@@ -18,11 +17,11 @@ from app.services.proactive_ooda_runtime_artifacts import (
 def proactive_ooda_live_ops_timeout_seconds() -> float:
     raw = str(os.getenv("EA_PROACTIVE_OODA_ADMIN_LIVE_TIMEOUT_SECONDS") or "").strip()
     if not raw:
-        return 30.0
+        return 3.0
     try:
         value = float(raw)
     except ValueError:
-        return 30.0
+        return 3.0
     return min(max(value, 1.0), 120.0)
 
 
@@ -537,10 +536,6 @@ def _reissue_live_proactive_approval(
 def _bundle_from_live_artifact_probe(report: Mapping[str, Any]) -> dict[str, Any]:
     stage_packet = dict(report.get("stage_packet") or {})
     safe_work_result = dict(report.get("safe_work_result") or {})
-    current_packet_requires_user_approval = current_packet_user_approval_surface(
-        stage_packet=stage_packet,
-        safe_work_result=safe_work_result,
-    )
     current_packet_live_pending_count = int(report.get("current_packet_live_pending_count") or 0)
     current_packet_callback_pending_count = int(report.get("current_packet_callback_pending_count") or 0)
     current_packet_callback_raw_pending_count = int(report.get("current_packet_callback_raw_pending_count") or 0)

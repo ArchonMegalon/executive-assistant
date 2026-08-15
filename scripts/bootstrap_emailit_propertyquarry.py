@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 
 EMAILIT_API_BASE = "https://api.emailit.com/v2"
+_TRUE_VALUES = {"1", "true", "yes", "on", "enabled"}
 DEFAULT_PROPERTYQUARRY_DOMAIN = "propertyquarry.example.test"
 
 
@@ -170,6 +171,17 @@ def _send_probe(
     )
 
 
+def _require_propertyquarry_send_enabled(env_values: dict[str, str]) -> None:
+    master = str(env_values.get("EA_EMAILIT_DELIVERY_ENABLED") or os.environ.get("EA_EMAILIT_DELIVERY_ENABLED") or "").strip().lower()
+    lane = str(
+        env_values.get("PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED")
+        or os.environ.get("PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED")
+        or ""
+    ).strip().lower()
+    if master not in _TRUE_VALUES or lane not in _TRUE_VALUES:
+        raise SystemExit("emailit_delivery_disabled:propertyquarry")
+
+
 def main() -> int:
     if any(arg in {"--help", "-h"} for arg in sys.argv[1:]):
         print("Usage: python3 scripts/bootstrap_emailit_propertyquarry.py [--env-file PATH] [--verify] [--send-test-to EMAIL]")
@@ -219,6 +231,7 @@ def main() -> int:
             )
         )
     if str(args.send_test_to or "").strip():
+        _require_propertyquarry_send_enabled(env_values)
         sender_email = _configured_sender_email(env_values, domain_name)
         sender_name = str(env_values.get("EA_REGISTRATION_EMAIL_NAME") or os.environ.get("EA_REGISTRATION_EMAIL_NAME") or "PropertyQuarry").strip()
         if _force_fallback(env_values):

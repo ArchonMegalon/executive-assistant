@@ -98,10 +98,14 @@ class _InventoryClient:
         exact_voices = [
             (
                 {
+                    "accent": "neutral",
+                    "category": "narration",
                     "id": row["id"],
-                    "name": "Approved fixture voice",
-                    "type": "preset",
+                    "language_code": "en-US",
                     "languages": ["en"],
+                    "name": "Approved fixture voice",
+                    "slug": "approved-fixture-voice",
+                    "type": "preset",
                 }
                 if set(row) == {"id"}
                 else row
@@ -147,7 +151,13 @@ class _InventoryClient:
                     },
                 ]
             },
-            "/api/v1/voices": {"voices": exact_voices},
+            "/api/v1/voices": {
+                "count": len(exact_voices),
+                "has_more": False,
+                "offset": 0,
+                "total": len(exact_voices),
+                "voices": exact_voices,
+            },
         }
 
     def request_json(
@@ -718,6 +728,12 @@ def test_rotation_authority_binds_revoked_exposed_key_to_replacement(
     authority_file.write_bytes(probe._canonical_bytes(payload))
     authority_file.chmod(0o600)
 
+    # A completed rotation must remain verifiable after the revoked bearer
+    # secret has been destroyed. The protected authority retains its digest.
+    probe._load_credential_rotation_authority(
+        authority_file,
+        replacement_credential_binding_sha256=replacement,
+    )
     probe._load_credential_rotation_authority(
         authority_file,
         exposed_credential_binding_sha256=exposed,
@@ -935,14 +951,22 @@ class _CapturingSyntheticClient:
                 ],
             },
             "/api/v1/voices": {
+                "count": 1,
+                "has_more": False,
+                "offset": 0,
+                "total": 1,
                 "voices": [
                     {
+                        "accent": "neutral",
+                        "category": "narration",
                         "id": "private-voice-id",
-                        "name": "Approved fixture voice",
-                        "type": "preset",
+                        "language_code": "en-US",
                         "languages": ["en"],
+                        "name": "Approved fixture voice",
+                        "slug": "approved-fixture-voice",
+                        "type": "preset",
                     }
-                ]
+                ],
             },
         }
 

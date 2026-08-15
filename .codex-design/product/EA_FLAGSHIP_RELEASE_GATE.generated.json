@@ -3,10 +3,10 @@
   "surface": "flagship_release_control",
   "version": 1,
   "kind": "release_receipt",
-  "generated_at": "2026-07-27T10:24:37Z",
+  "generated_at": "2026-08-06T16:41:38Z",
   "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
-  "source_git_head": "67ddbc3451ef50f3548401de660561bd51f2a390",
-  "source_tree_fingerprint": "a19ccd3522b3dcadbe3f3ea20085a8499674d7e27c777abedd264df8b1dfe77a",
+  "source_git_head": "cd318f929bdb18372785ca59942668758daa388c",
+  "source_tree_fingerprint": "f860e63bd9bd12487710bd425b7bcef5eef3656ff0be121f9ef36ab868f3e0da",
   "head_semantics": "source_state",
   "status": "blocked",
   "operator_summary": "EA flagship release truth is materialized, but the current browser-proof or release-doc state still blocks the claim.",
@@ -140,13 +140,7 @@
     "project_modes_present": true,
     "state": "blocked",
     "issues": [
-      "tracking_branch_missing",
-      "source_remote_ref_missing",
-      "source_remote_ref_commit_sha_missing",
-      "source_remote_ref_evidence_invalid",
-      "source_commit_not_reachable_from_remote_ref",
-      "deployment_id_local_fallback",
-      "dirty_worktree"
+      "deployment_id_local_fallback"
     ]
   },
   "verification_binding": {
@@ -192,15 +186,9 @@
     }
   ],
   "blocking_reasons": [
-    "release authority: tracking_branch_missing, source_remote_ref_missing, source_remote_ref_commit_sha_missing, source_remote_ref_evidence_invalid, source_commit_not_reachable_from_remote_ref, deployment_id_local_fallback, dirty_worktree",
-    "browser workflow proof: source-backed browser journey proof is not passing",
-    "browser workflow proof: real browser E2E proof is not passing",
-    "browser workflow proof: original source revision, tree, or cleanliness changed during proof",
-    "browser workflow proof: committed snapshot changed during proof execution"
+    "release authority: deployment_id_local_fallback"
   ],
-  "current_limitations": [
-    "original source was not clean"
-  ],
+  "current_limitations": [],
   "release_truth": {
     "oracle": ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md",
     "seed": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",

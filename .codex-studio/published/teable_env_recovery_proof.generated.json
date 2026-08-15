@@ -5,36 +5,36 @@
     {
       "backup_created": false,
       "hash_mismatch_count": 0,
-      "hash_verified": 434,
+      "hash_verified": 480,
       "mode": "0o600",
       "path_recorded": true,
-      "path_sha256": "ec55eacc1192ad0b5f06452bd71347ff964db992f1ec3fa968bd6a443b09e55f",
-      "restored": 434,
+      "path_sha256": "416d9ddd34077e23573480bbce9b8bcd41679d750161792e5df5ae7e352ade8b",
+      "restored": 480,
       "scope": "ea_root"
     },
     {
       "backup_created": false,
       "hash_mismatch_count": 0,
-      "hash_verified": 100,
+      "hash_verified": 105,
       "mode": "0o600",
       "path_recorded": true,
-      "path_sha256": "77b444c1f479e7db13b13f172b1c88315f47c2c2b32258bd380f9cc1a2fce4e5",
-      "restored": 100,
+      "path_sha256": "40371dddb8460388cd680d02e42aed88b3cb859d31bfbe2b3343e0a7be8a089d",
+      "restored": 105,
       "scope": "ea_root_local"
     },
     {
       "backup_created": false,
       "hash_mismatch_count": 0,
-      "hash_verified": 11,
+      "hash_verified": 16,
       "mode": "0o600",
       "path_recorded": true,
-      "path_sha256": "7ce90fe6447efc210d2fe03dd6370d4d7d590d59bcc876fb2c2b83655222f7c5",
-      "restored": 11,
+      "path_sha256": "184b79ae5f96465a4ca018b376e587c2a158877adecb517ff373c731fd15bc49",
+      "restored": 16,
       "scope": "ea_service"
     }
   ],
   "fresh_host_api_key_source": "process_env",
-  "generated_at": "2026-07-05T15:32:23Z",
+  "generated_at": "2026-08-06T15:22:43Z",
   "generated_by": "scripts/materialize_teable_env_recovery_proof.py",
   "head_semantics": "source_state",
   "host_profile": "ea-prod",
@@ -49,43 +49,53 @@
   "referenced_files": {
     "backup_count": 0,
     "hash_mismatch_count": 0,
-    "hash_verified": 6,
+    "hash_verified": 8,
     "modes": [
       {
         "mode": "0o600",
-        "path_sha256": "25e155fea2fa67ced9fc2a007ebc4e019f99c6ad1c63985c60cc05e6ac9ae31e"
+        "path_sha256": "5e91ae7c902ea1cbba5177bf92a6352933e20b7b465bea4e68098d358d57f2f7"
       },
       {
         "mode": "0o600",
-        "path_sha256": "787b8cf59f454b7d7a4006e4d82eaf8be032240c792a9989433bc0fd1cecaeef"
+        "path_sha256": "62aee63c27ac3cc87563608c595c1579e97d2afa399de8805de1afbbd2343ff5"
       },
       {
         "mode": "0o600",
-        "path_sha256": "42086dfc1e4e4e0478faa24ea4a4eda2ff371230416d4cdb29661975ce12e0cf"
+        "path_sha256": "7d1d6bbc0fac6159d151100aefb37c546976305d7fc47f149a6652df5bb875e3"
       },
       {
         "mode": "0o600",
-        "path_sha256": "173d794c1c7e3ce8613beb165b1db1b4881b620b0d4506439b08063ad7a6a3dc"
+        "path_sha256": "ef52361541a35e7d54cdbc8ca693d07c14d7348f7991865c95ced13b2ffd3441"
       },
       {
         "mode": "0o600",
-        "path_sha256": "bf68770db819ffbf30b6f36deb716d076c8064850f38260bdaebdb898757ad0a"
+        "path_sha256": "4943a5bd633135fbb20e3276c357b1471de35e51ee50e3a7206b6db2058fb507"
       },
       {
         "mode": "0o600",
-        "path_sha256": "9f247b6cb2ea62cf51823b764074ec94169dc163becd60a944dab45546460374"
+        "path_sha256": "ae5d4cbbaa50353a8ec3792ebb3d50da716aba43205ae33acf74c17d5e03e66e"
+      },
+      {
+        "mode": "0o600",
+        "path_sha256": "aa52e810724230c6db9f5871b9f5626d80f718d44e62ce3effeed6dd9f3cc144"
+      },
+      {
+        "mode": "0o600",
+        "path_sha256": "c2864bf29f4567827f268d663db9e71f15245f14ca0bb49ecfb3d2c0890b7a08"
       }
     ],
-    "path_count": 6,
+    "path_count": 8,
     "path_sha256": [
-      "25e155fea2fa67ced9fc2a007ebc4e019f99c6ad1c63985c60cc05e6ac9ae31e",
-      "787b8cf59f454b7d7a4006e4d82eaf8be032240c792a9989433bc0fd1cecaeef",
-      "42086dfc1e4e4e0478faa24ea4a4eda2ff371230416d4cdb29661975ce12e0cf",
-      "173d794c1c7e3ce8613beb165b1db1b4881b620b0d4506439b08063ad7a6a3dc",
-      "bf68770db819ffbf30b6f36deb716d076c8064850f38260bdaebdb898757ad0a",
-      "9f247b6cb2ea62cf51823b764074ec94169dc163becd60a944dab45546460374"
+      "5e91ae7c902ea1cbba5177bf92a6352933e20b7b465bea4e68098d358d57f2f7",
+      "62aee63c27ac3cc87563608c595c1579e97d2afa399de8805de1afbbd2343ff5",
+      "7d1d6bbc0fac6159d151100aefb37c546976305d7fc47f149a6652df5bb875e3",
+      "ef52361541a35e7d54cdbc8ca693d07c14d7348f7991865c95ced13b2ffd3441",
+      "4943a5bd633135fbb20e3276c357b1471de35e51ee50e3a7206b6db2058fb507",
+      "ae5d4cbbaa50353a8ec3792ebb3d50da716aba43205ae33acf74c17d5e03e66e",
+      "aa52e810724230c6db9f5871b9f5626d80f718d44e62ce3effeed6dd9f3cc144",
+      "c2864bf29f4567827f268d663db9e71f15245f14ca0bb49ecfb3d2c0890b7a08"
     ],
-    "restored": 6
+    "restored": 8
   },
   "rules": [
     "This receipt proves a fresh-host-style Teable recovery run into a throwaway private directory and keeps secret values redacted.",
@@ -93,15 +103,15 @@
     "Delete throwaway recovery outputs after verification so the mirrored receipt keeps the proof while the secret material is removed from disk."
   ],
   "secret_values_redacted": true,
-  "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
-  "source_state_fingerprint": "33c1ca7bf2b0dfe16e73b0f2e0aa131426c367cf57a99b56173f7e4f6a671ae0",
+  "source_git_head": "cd318f929bdb18372785ca59942668758daa388c",
+  "source_state_fingerprint": "d0fae85c944a087619b30ede2fa31e4b45dee0c1a537db6a4c5dc62a994c4d22",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "pass",
   "table_discovery_mode": "explicit_table_id",
   "table_id_sha256": "87a26b41641ac77a25fbd1e11c14b8fb98db0256d70ff5ebb4e9328e07831ff7",
   "table_name": "ea_environment_secrets_recovery",
   "teable_config_sources": {
-    "api_key": "targeted_env_file",
+    "api_key": "argument",
     "base_url": "targeted_env_file",
     "host_profile": "argument",
     "table_id": "targeted_env_file",
@@ -110,11 +120,11 @@
   },
   "verification": {
     "different_hash_count": 0,
-    "expected_rows": 551,
+    "expected_rows": 609,
     "extra_restorable_count": 0,
     "missing_count": 0,
     "missing_secret_value_count": 0,
-    "same_hash": 551,
+    "same_hash": 609,
     "status": "pass"
   }
 }

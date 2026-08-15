@@ -7,11 +7,11 @@
   "contract_name": "ea.operator_action_required_digest.v1",
   "counts": {
     "included_count": 0,
-    "input_count": 6,
-    "suppressed_out_of_scope_count": 2,
+    "input_count": 3,
+    "suppressed_out_of_scope_count": 1,
     "suppressed_policy_blocked_count": 1,
     "suppressed_privacy_blocked_count": 0,
-    "suppressed_queue_only_count": 3
+    "suppressed_queue_only_count": 1
   },
   "dedupe_checked": true,
   "dedupe_suppressed": false,
@@ -19,7 +19,7 @@
   "digest_sha256": "",
   "dry_run": false,
   "force": false,
-  "generated_at": "2026-07-27T10:34:24Z",
+  "generated_at": "2026-08-13T06:19:33Z",
   "generated_by": "scripts/materialize_operator_action_required_digest.py",
   "head_semantics": "source_state",
   "included_action_keys": [],
@@ -62,7 +62,7 @@
   "rules": [
     "Only operator_action_queue items that require user action may enter this digest.",
     "Telegram is an action surface, not a progress log; non-action progress remains queue-only.",
-    "The published EA digest defaults to office-loop, office-setup, and recovery action streams; media and memorial actions stay in admin/operator surfaces unless the stream filter is widened.",
+    "The published EA digest defaults to office-loop, office-setup, and recovery action streams; media-archive actions stay in admin/operator surfaces unless the stream filter is widened.",
     "Purchases, bookings, cancellations, external sends, posts, payments, and commitments still require explicit approval elsewhere.",
     "Duplicate suppression stores a digest hash in local runtime state, not raw private context or chat identifiers."
   ],
@@ -80,11 +80,11 @@
     "reason": "",
     "sent": false
   },
-  "source_git_head": "",
+  "source_git_head": "e2c68e9bf940486d5652d72bc9b82b85d9a3a9f9",
   "source_receipt": {
     "path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
     "present": true,
-    "sha256": "7f80c9fa56bfe5e10b18557e5019284356cf26b820eeacb3a92e568bb79b5726",
+    "sha256": "e60c6a9466726ce2b8cb5d00a8bc46aeb363f52c4171209c901746cb1de5ef13",
     "status": "blocked_real_world_acceptance"
   },
   "source_refresh": {
@@ -93,7 +93,7 @@
     "path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
     "status": "not_requested"
   },
-  "source_state_fingerprint": "bb0a0d649680a67222d79eeaca0c438365333ebd6af2fea407ef4234f80507d4",
+  "source_state_fingerprint": "4dbaca7306688aac41fc761bd1902fb748a1f71c5c298ccb10d22ac8482d60c1",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "state_updated": false,
   "status": "no_user_action_required",

@@ -487,7 +487,7 @@ def main() -> int:
             table_id = _create_table(base_url=base_url, api_key=api_key, base_id=base_id, table_name=table_name, fields=fields)
             created_table = True
         fields_created = _ensure_fields(base_url=base_url, api_key=api_key, table_id=table_id, fields=fields)
-        mapping = {
+        mapping: dict[str, object] = {
             "table_id": table_id,
             "key_field": "projection_id",
             "field_key_type": "name",

@@ -1,0 +1,55 @@
+schema_version: ea.ltd_capacity_scheduler.v1
+default_policy: fail_closed
+queue:
+  maximum_tasks_per_batch: 100
+  default_latency_class: background
+  require_receipt: true
+  require_human_review: true
+routing_dimensions:
+  - provider_capability
+  - credit_balance
+  - slot_health
+  - latency_class
+  - privacy_class
+  - human_review_requirement
+  - cost_pressure
+  - fallback_availability
+providers:
+  1min.AI:
+    state: active_background_candidate
+    credential_env: ONEMIN_AI_API_KEY
+    slot_manifest: config/onemin_api_keys.local.json
+    allowed_task_classes:
+      - background_summarization
+      - low_risk_draft_generation
+      - batch_public_doc_transformation
+      - low_priority_support_draft_expansion
+      - media_prompt_variants
+      - black_ledger_script_alternatives
+    forbidden_truth:
+      - release_truth
+      - rules_truth
+      - private_campaign_data
+      - entitlement_truth
+    maximum_blast_radius: public_safe
+    minimum_live_credit_balance: 1
+    fallback_order: [gemini_vortex]
+  AI Magicx:
+    state: staged_optional
+    credential_env: AI_MAGICX_API_KEY
+    allowed_task_classes: [short_interactive_overflow, alternate_phrasing]
+    forbidden_truth: [release_truth, rules_truth, product_truth]
+    maximum_blast_radius: public_safe
+    empty_credential_action: omit_from_effective_order
+    fallback_order: [gemini_vortex]
+receipts:
+  output: .codex-studio/published/LTD_CAPACITY_STATUS.generated.json
+  forbidden_fields: [api_key, secret, raw_prompt, raw_output, exit_ip]
+  required_fields:
+    - provider
+    - task_class
+    - slot_ref_sha256
+    - credit_basis
+    - route_decision
+    - review_required
+    - generated_at

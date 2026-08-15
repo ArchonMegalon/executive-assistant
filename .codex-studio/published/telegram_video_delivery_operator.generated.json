@@ -1,15 +1,15 @@
 {
   "contract_name": "ea.telegram_video_delivery_operator_receipt",
-  "generated_at": "2026-07-27T10:22:50Z",
+  "generated_at": "2026-08-06T16:35:30Z",
   "generated_by": "scripts/materialize_telegram_video_delivery_receipt.py",
-  "source_git_head": "67ddbc3451ef50f3548401de660561bd51f2a390",
+  "source_git_head": "cd318f929bdb18372785ca59942668758daa388c",
   "head_semantics": "source_state",
   "status": "bounded_pass",
   "claim": "Telegram video replies have a bounded, governed local source-video lane and durable delivery receipts; live operator Telegram delivery still requires a message-ID receipt.",
   "bounded_reason": "No live operator Telegram send/message-id proof is embedded in this generated receipt.",
   "live_operator_delivery_required_for_gold": true,
   "delivery_observation_event_type": "telegram.video_delivery_receipt",
-  "supported_local_edits": "realistic flame overlays, brief burn accents, speed changes, louder audio, and mute/remove-audio edits",
+  "supported_local_edits": "speed changes, louder audio, and mute/remove-audio edits; fire/flame edits require a verified photoreal render lane",
   "audio_policy": {
     "local_video_final_audio_probe_required": true,
     "remote_video_audio_probe_required": true,

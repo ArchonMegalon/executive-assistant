@@ -47,6 +47,29 @@ def _models() -> dict[str, object]:
     }
 
 
+def _voices(rows: list[dict[str, object]]) -> dict[str, object]:
+    return {
+        "count": len(rows),
+        "has_more": False,
+        "offset": 0,
+        "total": len(rows),
+        "voices": rows,
+    }
+
+
+def _voice(voice_id: str, name: str) -> dict[str, object]:
+    return {
+        "accent": "neutral",
+        "category": "narration",
+        "id": voice_id,
+        "language_code": "en-US",
+        "languages": ["en"],
+        "name": name,
+        "slug": name.lower().replace(" ", "-"),
+        "type": "preset",
+    }
+
+
 def test_exact_authenticated_get_contract_parses_without_exposing_points() -> None:
     ping = parse_ping(
         {
@@ -66,7 +89,7 @@ def test_exact_authenticated_get_contract_parses_without_exposing_points() -> No
     )
     models = parse_models(_models())
     assert tuple(model.key for model in models) == ("v-studio", "v-pro", "v-lite")
-    assert parse_voices({"voices": []}) == ()
+    assert parse_voices(_voices([])) == ()
     assert "24000" not in repr(ping)
     assert "24000" not in repr(account)
 
@@ -122,23 +145,62 @@ def test_models_require_exact_order_gating_and_cost_semantics() -> None:
             parse_models(payload)
 
 
-def test_voice_discovery_rejects_cross_entry_casefolded_raw_id_labels() -> None:
-    payload = {
-        "voices": [
-            {
-                "id": "Private-Voice-One",
-                "name": "Approved One",
-                "type": "professional",
-                "languages": ["en"],
-            },
-            {
-                "id": "private-voice-two",
-                "name": "Reads like PRIVATE-VOICE-ONE",
-                "type": "professional",
-                "languages": ["en"],
-            },
+def test_voice_discovery_accepts_provider_labels_that_reuse_public_catalog_ids() -> None:
+    payload = _voices(
+        [
+            _voice("Private-Voice-One", "Approved One"),
+            _voice("private-voice-two", "Reads like PRIVATE-VOICE-ONE"),
         ]
-    }
+    )
+    observations = parse_voices(payload)
+    assert len(observations) == 2
+    assert observations[0].name == "Approved One"
+    assert observations[1].name == "Catalog voice 2"
+    assert "private-voice-one" not in repr(observations).lower()
+
+
+def test_voice_discovery_rejects_unicode_control_characters_in_private_ids() -> None:
+    payload = _voices([_voice("private\u202evoice", "Approved voice")])
+
+    with pytest.raises(VocalLabSchemaError):
+        parse_voices(payload)
+
+
+def test_voice_discovery_accepts_exact_provider_clone_row_without_optional_preset_metadata() -> None:
+    payload = _voices(
+        [
+            {
+                "created_at": "2026-08-12T08:00:00.000Z",
+                "id": "private-clone-id",
+                "languages": ["de"],
+                "name": "Consented German clone",
+                "type": "clone",
+            }
+        ]
+    )
+
+    observations = parse_voices(payload)
+
+    assert len(observations) == 1
+    assert observations[0].provider_type == "clone"
+    assert observations[0].languages == ("de",)
+    assert "private-clone-id" not in repr(observations)
+
+
+def test_voice_discovery_rejects_clone_row_with_extra_private_metadata() -> None:
+    payload = _voices(
+        [
+            {
+                "created_at": "2026-08-12T08:00:00.000Z",
+                "id": "private-clone-id",
+                "languages": ["de"],
+                "name": "Consented German clone",
+                "type": "clone",
+                "owner_email": "private@example.test",
+            }
+        ]
+    )
+
     with pytest.raises(VocalLabSchemaError):
         parse_voices(payload)
 

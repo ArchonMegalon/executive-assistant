@@ -10,6 +10,12 @@ def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def test_admin_live_probe_timeout_defaults_to_short_fail_closed_budget(monkeypatch) -> None:
+    monkeypatch.delenv("EA_PROACTIVE_OODA_ADMIN_LIVE_TIMEOUT_SECONDS", raising=False)
+
+    assert proactive_ooda_live_ops_bridge.proactive_ooda_live_ops_timeout_seconds() == 3.0
+
+
 def test_ea_live_ops_script_path_supports_host_repo_layout(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo-root"
     service_file = repo_root / "ea" / "app" / "services" / "bridge.py"

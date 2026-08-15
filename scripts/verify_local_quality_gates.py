@@ -29,6 +29,11 @@ TARGETS = [
     "scripts/verify_runtime_supply_chain.py",
     "scripts/verify_codexea_fleet_shim_parity.py",
     "scripts/verify_local_quality_gates.py",
+    "scripts/materialize_ltd_capacity_status.py",
+    "scripts/materialize_ltd_proof_debt.py",
+    "scripts/query_ltd_opportunity_index.py",
+    "scripts/sync_ltd_operations_to_teable.py",
+    "scripts/verify_ltd_capacity_scheduler.py",
 ]
 BANDIT_TARGETS = [
     "ea/app/settings.py",
@@ -38,6 +43,11 @@ BANDIT_TARGETS = [
     "scripts/verify_runtime_supply_chain.py",
     "scripts/verify_codexea_fleet_shim_parity.py",
     "scripts/verify_local_quality_gates.py",
+    "scripts/materialize_ltd_capacity_status.py",
+    "scripts/materialize_ltd_proof_debt.py",
+    "scripts/query_ltd_opportunity_index.py",
+    "scripts/sync_ltd_operations_to_teable.py",
+    "scripts/verify_ltd_capacity_scheduler.py",
 ]
 
 

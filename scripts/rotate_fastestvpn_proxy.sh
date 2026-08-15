@@ -15,7 +15,7 @@ compose_cmd=(
   -f docker-compose.fastestvpn.yml
 )
 
-service_name="${FASTESTVPN_ROTATE_SERVICE_NAME:-ea-fastestvpn-proxy}"
+service_name="${FASTESTVPN_ROTATE_SERVICE_NAME:-ea-fastestvpn-proxy-ch}"
 config_file_arg=""
 
 while (( "$#" > 0 )); do

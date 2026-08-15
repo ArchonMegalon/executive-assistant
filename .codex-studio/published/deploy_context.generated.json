@@ -1,23 +1,23 @@
 {
-  "branch": "codex/audiobook-source-to-performance-20260719",
-  "commit_sha": "67ddbc3451ef50f3548401de660561bd51f2a390",
+  "branch": "main",
+  "commit_sha": "cd318f929bdb18372785ca59942668758daa388c",
   "compose_files": [
     "docker-compose.yml",
     "docker-compose.prod.yml"
   ],
   "compose_overrides": [],
   "contract_name": "ea.deploy_context.v1",
-  "deployment_id": "local-20260727T102430753577Z-67ddbc3451ef",
+  "deployment_id": "local-20260806T164131100045Z-cd318f929bdb",
   "deployment_id_source": "local_fallback",
   "enabled_project_modes": [
     "EA_CORE"
   ],
-  "generated_at": "2026-07-27T10:24:30.753577Z",
+  "generated_at": "2026-08-06T16:41:31.100045Z",
   "generated_by": "scripts/materialize_deploy_context.py",
   "project_mode": "EA_CORE",
   "public_origin": "https://myexternalbrain.com",
   "public_origin_source": "EA_PUBLIC_APP_BASE_URL",
-  "release_label": "local-20260727T102430753577Z-67ddbc3451ef",
+  "release_label": "local-20260806T164131100045Z-cd318f929bdb",
   "repository": "EA",
-  "tracking_branch": ""
+  "tracking_branch": "origin/main"
 }

@@ -12,6 +12,7 @@ def test_rafter_pixefy_ltd_verifier_uses_repo_local_or_env_paths() -> None:
     assert "/docker/" + "chummercomplete" not in text
     assert "EA_LTD_INVENTORY_COMPLETION_ROOT" in text
     assert ".codex-studio" in text
+    assert '"source_path": LTD_PATH.relative_to(ROOT).as_posix()' in text
 
 
 def test_rafter_pixefy_ltd_verifier_does_not_serialize_account_identities() -> None:
@@ -20,3 +21,12 @@ def test_rafter_pixefy_ltd_verifier_does_not_serialize_account_identities() -> N
     assert "account_identity_policy" in text
     assert "account_user" not in text
     assert "the.girscheles" + "@gmail.com" not in text
+
+
+def test_ltd_release_gate_runs_the_false_complete_guard() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert "ltd-release-gates:" in makefile
+    assert "$(MAKE) verify-ltd-rafter-pixefy" in makefile
+    assert "verify-ltd-rafter-pixefy:" in makefile
+    assert "scripts/verify_ltds_rafter_pixefy_entries.py" in makefile

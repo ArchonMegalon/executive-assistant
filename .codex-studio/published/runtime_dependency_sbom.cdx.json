@@ -87,7 +87,7 @@
       "version": "2.13.0"
     },
     {
-      "bom-ref": "pkg:cryptography@48.0.1#1-8",
+      "bom-ref": "pkg:cryptography@50.0.0#1-8",
       "name": "cryptography",
       "properties": [
         {
@@ -96,7 +96,7 @@
         }
       ],
       "type": "library",
-      "version": "48.0.1"
+      "version": "50.0.0"
     },
     {
       "bom-ref": "pkg:jinja2@3.1.6#1-9",
@@ -207,7 +207,19 @@
       "version": "5.2.1"
     },
     {
-      "bom-ref": "pkg:yt-dlp@2026.7.4#1-18",
+      "bom-ref": "pkg:wordninja@2.0.0#1-18",
+      "name": "wordninja",
+      "properties": [
+        {
+          "name": "ea.requirements_source",
+          "value": "ea/requirements.txt"
+        }
+      ],
+      "type": "library",
+      "version": "2.0.0"
+    },
+    {
+      "bom-ref": "pkg:yt-dlp@2026.7.4#1-19",
       "name": "yt-dlp",
       "properties": [
         {
@@ -219,7 +231,7 @@
       "version": "2026.7.4"
     },
     {
-      "bom-ref": "pkg:python-multipart@0.0.32#1-19",
+      "bom-ref": "pkg:python-multipart@0.0.32#1-20",
       "name": "python-multipart",
       "properties": [
         {
@@ -231,7 +243,7 @@
       "version": "0.0.32"
     },
     {
-      "bom-ref": "pkg:httpx2@2.4.0#1-20",
+      "bom-ref": "pkg:httpx2@2.4.0#1-21",
       "name": "httpx2",
       "properties": [
         {
@@ -266,7 +278,7 @@
       "ref": "pkg:PyJWT[crypto]@2.13.0#1-7"
     },
     {
-      "ref": "pkg:cryptography@48.0.1#1-8"
+      "ref": "pkg:cryptography@50.0.0#1-8"
     },
     {
       "ref": "pkg:jinja2@3.1.6#1-9"
@@ -296,19 +308,22 @@
       "ref": "pkg:redis@5.2.1#1-17"
     },
     {
-      "ref": "pkg:yt-dlp@2026.7.4#1-18"
+      "ref": "pkg:wordninja@2.0.0#1-18"
     },
     {
-      "ref": "pkg:python-multipart@0.0.32#1-19"
+      "ref": "pkg:yt-dlp@2026.7.4#1-19"
     },
     {
-      "ref": "pkg:httpx2@2.4.0#1-20"
+      "ref": "pkg:python-multipart@0.0.32#1-20"
+    },
+    {
+      "ref": "pkg:httpx2@2.4.0#1-21"
     }
   ],
   "metadata": {
-    "timestamp": "2026-07-27T10:24:23.906983Z"
+    "timestamp": "2026-08-06T16:41:20.650859Z"
   },
-  "serialNumber": "urn:uuid:cb9c205d-faa9-4f80-b5ee-f70872c67409",
+  "serialNumber": "urn:uuid:b1965667-360f-4b6e-894f-9921be0150af",
   "specVersion": "1.6",
   "version": 1
 }

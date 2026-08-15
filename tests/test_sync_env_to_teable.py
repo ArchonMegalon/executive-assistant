@@ -2755,3 +2755,47 @@ def test_gitignore_covers_teable_recovery_secret_backups() -> None:
     assert "config/whatsapp_audiobook_*.*.bak" in gitignore
     assert "config/*credential*.json.*.bak" in gitignore
     assert "config/*secret*.json.*.bak" in gitignore
+
+
+def test_sync_rows_updates_every_duplicate_projection(monkeypatch) -> None:
+    module = _module()
+    calls: list[dict[str, object]] = []
+    next_value = "current-secret"
+    next_hash = module.hashlib.sha256(next_value.encode("utf-8")).hexdigest()
+
+    monkeypatch.setattr(
+        module,
+        "_existing_record_snapshots",
+        lambda **_kwargs: {
+            "test-host:ea_root:EXAMPLE_API_KEY": {
+                "record_id": "rec-stale",
+                "record_ids": ["rec-stale", "rec-current"],
+                "snapshots": [
+                    {"record_id": "rec-stale", "value_sha256": "", "stored_secret_hash": ""},
+                    {
+                        "record_id": "rec-current",
+                        "value_sha256": next_hash,
+                        "stored_secret_hash": next_hash,
+                    },
+                ],
+            }
+        },
+    )
+    monkeypatch.setattr(module, "_teable_request", lambda **kwargs: calls.append(kwargs) or {})
+
+    result = module.sync_rows(
+        base_url="https://teable.example",
+        api_key="test-key",
+        table_id="table-id",
+        rows=[
+            {
+                "projection_id": "test-host:ea_root:EXAMPLE_API_KEY",
+                "env_value_secret": next_value,
+                "value_sha256": next_hash,
+            }
+        ],
+    )
+
+    assert result == {"created": 0, "updated": 2, "skipped": 0, "total": 1}
+    assert [call["url"].rsplit("/", 1)[-1] for call in calls] == ["rec-stale", "rec-current"]
+    assert all(call["body"]["record"]["fields"]["env_value_secret"] == next_value for call in calls)

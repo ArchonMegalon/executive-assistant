@@ -30,7 +30,6 @@ import zipfile
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
-from html import escape as html_escape
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
@@ -38,7 +37,6 @@ from typing import TYPE_CHECKING, Any, Sequence
 from uuid import uuid4
 
 import requests
-import yaml
 
 try:
     from PIL import Image
@@ -196,7 +194,10 @@ from app.services.outbound_email_bounds import bounded_outbound_email
 try:
     from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
 except Exception:  # pragma: no cover - compat path when FlipLink publication deps are unavailable
-    _enum_value = lambda value: SimpleNamespace(value=value)
+    def _enum_value(value: str) -> SimpleNamespace:
+        return SimpleNamespace(value=value)
+
+
     FlipLinkFormat = SimpleNamespace(SMART_DOCUMENT=_enum_value("smart_document"))
     PacketPrivacyMode = SimpleNamespace(OWNER_PRIVATE=_enum_value("owner_private"))
     PropertyPacketKind = SimpleNamespace(OWNER_REVIEW=_enum_value("owner_review"))
@@ -4483,7 +4484,7 @@ def _property_schoolatlas_snapshot(lat: float, lon: float) -> dict[str, object]:
     selected_type = str(selected_properties.get("KARTO_TYP") or "").strip()
     selected_distance_m = round(float(selected.get("distance_m") or 0.0), 1)
     quality_summary = (
-        f"Nearby SchoolAtlas schools: "
+        "Nearby SchoolAtlas schools: "
         + "; ".join(
             f"{row['name']} ({row['type'] or 'school'}, {int(float(row['distance_m']))} m, {int(row['student_total'] or 0)} students)"
             for row in nearby_schools
@@ -4597,45 +4598,45 @@ out center tags;
             continue
         distance_m = _property_research_distance_m(lat, lon, float(point_lat), float(point_lon))
         if tags.get("shop") in {"supermarket", "convenience", "greengrocer"}:
-            metric_key, name_key = "nearest_supermarket_m", "nearest_supermarket_name"
+            metric_key = "nearest_supermarket_m"
         elif tags.get("amenity") == "pharmacy":
-            metric_key, name_key = "nearest_pharmacy_m", "nearest_pharmacy_name"
+            metric_key = "nearest_pharmacy_m"
         elif tags.get("amenity") == "library":
-            metric_key, name_key = "nearest_library_m", "nearest_library_name"
+            metric_key = "nearest_library_m"
         elif tags.get("leisure") == "playground":
-            metric_key, name_key = "nearest_playground_m", "nearest_playground_name"
+            metric_key = "nearest_playground_m"
         elif tags.get("tourism") == "zoo":
-            metric_key, name_key = "nearest_zoo_m", "nearest_zoo_name"
+            metric_key = "nearest_zoo_m"
         elif tags.get("shop") in {"doityourself", "hardware"}:
-            metric_key, name_key = "nearest_hardware_store_m", "nearest_hardware_store_name"
+            metric_key = "nearest_hardware_store_m"
         elif tags.get("amenity") == "marketplace":
-            metric_key, name_key = "nearest_market_m", "nearest_market_name"
+            metric_key = "nearest_market_m"
         elif tags.get("shop") == "mall":
-            metric_key, name_key = "nearest_shopping_center_m", "nearest_shopping_center_name"
+            metric_key = "nearest_shopping_center_m"
         elif tags.get("highway") == "pedestrian":
-            metric_key, name_key = "nearest_shopping_street_m", "nearest_shopping_street_name"
+            metric_key = "nearest_shopping_street_m"
         elif tags.get("amenity") == "theatre":
-            metric_key, name_key = "nearest_theatre_m", "nearest_theatre_name"
+            metric_key = "nearest_theatre_m"
         elif tags.get("leisure") == "swimming_pool":
-            metric_key, name_key = "nearest_public_pool_m", "nearest_public_pool_name"
+            metric_key = "nearest_public_pool_m"
         elif tags.get("amenity") in {"doctors", "clinic", "hospital"}:
-            metric_key, name_key = "nearest_medical_care_m", "nearest_medical_care_name"
+            metric_key = "nearest_medical_care_m"
         elif str(tags.get("brand") or "").strip().lower() == "starbucks" or "starbucks" in str(tags.get("name") or "").strip().lower():
-            metric_key, name_key = "nearest_starbucks_m", "nearest_starbucks_name"
+            metric_key = "nearest_starbucks_m"
         elif tags.get("leisure") == "fitness_centre" or tags.get("amenity") == "gym" or tags.get("sport") == "fitness":
-            metric_key, name_key = "nearest_fitness_center_m", "nearest_fitness_center_name"
+            metric_key = "nearest_fitness_center_m"
         elif tags.get("amenity") == "cinema":
-            metric_key, name_key = "nearest_cinema_m", "nearest_cinema_name"
+            metric_key = "nearest_cinema_m"
         elif tags.get("sport") in {"climbing", "bouldering"} or "boulder" in str(tags.get("name") or "").strip().lower():
-            metric_key, name_key = "nearest_bouldering_m", "nearest_bouldering_name"
+            metric_key = "nearest_bouldering_m"
         elif tags.get("leisure") == "dog_park" or tags.get("amenity") == "dog_park":
-            metric_key, name_key = "nearest_dog_park_m", "nearest_dog_park_name"
+            metric_key = "nearest_dog_park_m"
         elif tags.get("amenity") == "cafe":
-            metric_key, name_key = "nearest_good_cafe_m", "nearest_good_cafe_name"
+            metric_key = "nearest_good_cafe_m"
         elif tags.get("railway") == "tram_stop" or tags.get("highway") == "bus_stop":
-            metric_key, name_key = "nearest_tram_bus_m", "nearest_tram_bus_name"
+            metric_key = "nearest_tram_bus_m"
         elif tags.get("railway") == "subway_entrance":
-            metric_key, name_key = "nearest_subway_m", "nearest_subway_name"
+            metric_key = "nearest_subway_m"
         else:
             continue
         current = closest.get(metric_key)
@@ -7055,8 +7056,6 @@ def _property_alert_upstream_personalization(
     nearest_public_pool = _float_or_none(facts.get("nearest_public_pool_m"))
     nearest_theatre = _float_or_none(facts.get("nearest_theatre_m"))
     nearest_medical_care = _float_or_none(facts.get("nearest_medical_care_m"))
-    nearest_starbucks = _float_or_none(facts.get("nearest_starbucks_m"))
-    nearest_fitness_center = _float_or_none(facts.get("nearest_fitness_center_m"))
     lease_term_years = _float_or_none(facts.get("lease_term_years_max"))
     source_platform = _normalize_property_search_platform(facts.get("source_platform") or facts.get("platform") or "")
     apply_flatbee_reputation_penalty = bool(facts.get("apply_flatbee_reputation_penalty", True))
@@ -7075,7 +7074,6 @@ def _property_alert_upstream_personalization(
 
     for row in nodes:
         key = str(row.get("key") or "").strip().lower()
-        category = str(row.get("category") or "").strip().lower()
         value = row.get("value_json")
         if key == "preferred_districts":
             preferred = {_normalized_token(item) for item in _list_value(value)}
@@ -7912,8 +7910,6 @@ def _property_feedback_suggestion_groups(
     nearest_public_pool = _float_or_none(facts.get("nearest_public_pool_m"))
     nearest_theatre = _float_or_none(facts.get("nearest_theatre_m"))
     nearest_medical_care = _float_or_none(facts.get("nearest_medical_care_m"))
-    nearest_starbucks = _float_or_none(facts.get("nearest_starbucks_m"))
-    nearest_fitness_center = _float_or_none(facts.get("nearest_fitness_center_m"))
     nearest_cycleway = _float_or_none(facts.get("nearest_cycleway_m"))
     nearest_running = _float_or_none(facts.get("nearest_running_m"))
     lease_years = _float_or_none(facts.get("lease_term_years_max"))
@@ -13280,12 +13276,16 @@ def _public_guide_freshness_projection() -> dict[str, object]:
     export_manifest_path = _design_manifest_path("PUBLIC_GUIDE_EXPORT_MANIFEST.yaml")
     export_payload = _load_yaml_dict(export_manifest_path) or {}
     sources = dict(export_payload.get("sources") or {}) if isinstance(export_payload.get("sources"), dict) else {}
+    design_root = _design_product_root()
     mirrored_count = 0
     missing_sources: list[str] = []
     for key, raw_value in sources.items():
         normalized = str(raw_value or "").strip()
         fallback = normalized.removeprefix("products/chummer/") or normalized
-        source_path = _design_source_path(str(key), fallback)
+        # The manifest is already loaded above. Calling _design_source_path here
+        # reparses the same YAML once per source and makes every admin page pay an
+        # avoidable O(n) parse penalty.
+        source_path = design_root / fallback
         if source_path.exists():
             mirrored_count += 1
         else:
@@ -35851,7 +35851,6 @@ class ProductService:
         health_score = max(health_score - min(int(queue_health.get("delivery_errors") or 0) * 3, 15), 0)
         memo_opened_count = int(analytics_counts.get("memo_opened") or 0)
         approval_requested_count = int(analytics_counts.get("approval_requested") or 0)
-        draft_approved_count = int(analytics_counts.get("draft_approved") or 0)
         draft_sent_count = int(analytics_counts.get("draft_sent") or 0)
         draft_send_followup_created_count = int(analytics_counts.get("draft_send_followup_created") or 0)
         draft_send_followup_resolved_count = int(analytics_counts.get("draft_send_followup_resolved") or 0)

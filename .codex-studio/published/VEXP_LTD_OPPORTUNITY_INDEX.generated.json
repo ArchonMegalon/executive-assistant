@@ -1,0 +1,151 @@
+{
+  "contract": "ea.vexp_ltd_opportunity_index.v1",
+  "status": "projection_ready",
+  "generated_at": "2026-08-13T05:48:30Z",
+  "source_commit_sha": "e2c68e9bf940486d5652d72bc9b82b85d9a3a9f9",
+  "truth_posture": "candidate opportunities only; owner review required; no canon mutation",
+  "query_count": 20,
+  "successful_query_count": 20,
+  "opportunities": [
+    {
+      "query": "Find Black Ledger docs with no bounded media provider mapping",
+      "status": "candidate_requires_owner_review",
+      "evidence_sha256": "996df493063f4a6ad6fe30166a9d6f570c15e329e74e64895e9d2a63f7192ddd",
+      "evidence_bytes": 250,
+      "summary": ""
+    },
+    {
+      "query": "Find release receipt producers with no Teable projection",
+      "status": "candidate_requires_owner_review",
+      "evidence_sha256": "7feec55ba6d582267f82ce35341d9577fd6be29b8bdbf5f9c2d830ff60330d55",
+      "evidence_bytes": 3586,
+      "summary": ""
+    },
+    {
+      "query": "Find support surfaces suitable for bounded Emailit transport",
+      "status": "candidate_requires_owner_review",
+      "evidence_sha256": "deaa39dcae052dd97625fed70a0177efe0614691eb71910668ae18af44827f4c",
+      "evidence_bytes": 3255,
+      "summary": ""
+    },
+    {
+      "query": "Find Foundry handoffs lacking approved FlipLink or MarkupGo artifacts",
+      "status": "candidate_requires_owner_review",
+      "evidence_sha256": "9575d042572ca5b2cad486a5ce693cfb4d04bb1735eb206cbdc5ef1b846037e2",
+      "evidence_bytes": 1606,
+      "summary": ""
+    },
+    {
+      "query": "Find campaign-memory surfaces suitable for approved Unmixr audio",
+      "status": "candidate_requires_owner_review",
+      "evidence_sha256": "349a3128c39b741f6f221ce7b9dcf8fe1e561887fcadf523e3db6e7a7393c4ff",
+      "evidence_bytes": 2806,
+      "summary": ""
+    },
+    {
+      "query": "Find documented provider lanes absent from LTDs or governance LANES",
+      "status": "candidate_requires_owner_review",
+      "evidence_sha256": "375e9b99caa6a5ee7eca50cbbe8e281465e60c58d63cfc060d09aebe245f1e1b",
+      "evidence_bytes": 1472,
+      "summary": ""
+    },
+    {
+      "query": "Find generated receipts whose source revision differs from current HEAD",
+      "status": "candidate_requires_owner_review",
+      "evidence_sha256": "52ce91e911df6ca4a9ed5751ca7ae04b2e673e1923ad9a0765a97d24076fa182",
+      "evidence_bytes": 14721,
+      "summary": ""
+    },
+    {
+      "query": "Find Tier 1 or Tier 2 LTDs lacking a fresh next-proof receipt",
+      "status": "candidate_requires_owner_review",
+      "evidence_sha256": "280dc16afa58254eef5a3fdd5ba3bb8ce4fc1a64e4898ef94008f06398177b48",
+      "evidence_bytes": 2754,
+      "summary": ""
+    },
+    {
+      "query": "Find runtime selectors naming providers with empty credentials",
+      "status": "candidate_requires_owner_review",
+      "evidence_sha256": "1a0676e9d291355a1fbf6c9c7ef0e6764416e1c0e05529a6d649c4897641fc30",
+      "evidence_bytes": 3328,
+      "summary": ""
+    },
+    {
+      "query": "Find routes lacking provider privacy approval and rollback proof",
+      "status": "candidate_requires_owner_review",
+      "evidence_sha256": "fe07ea2f086877512f5c69ff963beeef990ca8b686760e4ad20dfa1f6e6b9256",
+      "evidence_bytes": 2773,
+      "summary": ""
+    },
+    {
+      "query": "Find public docs missing ClickRank freshness or crawl proof",
+      "status": "candidate_requires_owner_review",
+      "evidence_sha256": "23d07849870c10ef6a7046fa1892f61c6086060c4aa40a5b98806828fad9ce9f",
+      "evidence_bytes": 10973,
+      "summary": ""
+    },
+    {
+      "query": "Find Teable projections without write-audit or freshness receipts",
+      "status": "candidate_requires_owner_review",
+      "evidence_sha256": "f43102e5f603dcfb2f134935e5780b8133b879eb48fb68ee551f57fada282dc4",
+      "evidence_bytes": 551,
+      "summary": ""
+    },
+    {
+      "query": "Find provider promotions without a false-complete gate",
+      "status": "candidate_requires_owner_review",
+      "evidence_sha256": "93691c554852b15875d966c2ec3ccdc7fe71af6b8607d398c77648db3dcadacd",
+      "evidence_bytes": 250,
+      "summary": ""
+    },
+    {
+      "query": "Find public artifacts that lack input and output hashes",
+      "status": "candidate_requires_owner_review",
+      "evidence_sha256": "171de75c6ab04bb835a5ffaaf7ef8b9bd638f875b1a176495c42773095988c53",
+      "evidence_bytes": 1825,
+      "summary": ""
+    },
+    {
+      "query": "Find direct-send paths without named product ownership switches",
+      "status": "candidate_requires_owner_review",
+      "evidence_sha256": "0dafbdd82787e9c06f062926897b3810de9d519e1d41315b812924abfb150e6b",
+      "evidence_bytes": 1049,
+      "summary": ""
+    },
+    {
+      "query": "Find 1min background tasks without slot and credit receipts",
+      "status": "candidate_requires_owner_review",
+      "evidence_sha256": "afb402612aa54ede186c24bc678574f99815dcd04d631b39980e8617c2d0a04b",
+      "evidence_bytes": 12756,
+      "summary": ""
+    },
+    {
+      "query": "Find media candidates that can publish without human approval",
+      "status": "candidate_requires_owner_review",
+      "evidence_sha256": "a426c1974489d4dd3d9ad1a76ab8bbfddea4c6626a945c5b7dc7b73f941042dd",
+      "evidence_bytes": 2371,
+      "summary": ""
+    },
+    {
+      "query": "Find provider-facing operator labels that could expose private IDs",
+      "status": "candidate_requires_owner_review",
+      "evidence_sha256": "f0ae4da5cafb498244e276db0cbbb36743e1cc2f82078d14425b80a12d45b71d",
+      "evidence_bytes": 4261,
+      "summary": ""
+    },
+    {
+      "query": "Find parked LTDs referenced as live or production-ready",
+      "status": "candidate_requires_owner_review",
+      "evidence_sha256": "ff299414e3c1d39e1f8996d119894c02ba0d0fd71bad1948c5b8cddd60da37cd",
+      "evidence_bytes": 3552,
+      "summary": ""
+    },
+    {
+      "query": "Find external providers that appear to own product rules or release truth",
+      "status": "candidate_requires_owner_review",
+      "evidence_sha256": "5b0ff0b1c2e98c723e87949bb5d24d25d984958103af95299641cffe8b37e5e2",
+      "evidence_bytes": 1991,
+      "summary": ""
+    }
+  ]
+}

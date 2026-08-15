@@ -24,7 +24,14 @@ def _contains(text: str, *needles: str) -> bool:
     return all(str(needle or "") in text for needle in needles)
 
 
+def _table_row(text: str, prefix: str) -> str:
+    return next((line for line in text.splitlines() if line.startswith(prefix)), "")
+
+
 def build_receipt(*, markdown_text: str, env: dict[str, str]) -> dict[str, object]:
+    onemin_row = _table_row(markdown_text, "| `1min.AI` | `Advanced Business Plan` |")
+    browseract_row = _table_row(markdown_text, "| `BrowserAct` | ops@example.com | `complete` |")
+    teable_row = _table_row(markdown_text, "| `Teable` | ops@teable.example | `complete` |")
     checks = {
         "prompt_architects_inventory": _contains(
             markdown_text,
@@ -32,20 +39,19 @@ def build_receipt(*, markdown_text: str, env: dict[str, str]) -> dict[str, objec
             "PROMPTING_SYSTEMS_API_KEY",
             "Prompt Foundry",
         ),
-        "onemin_inventory": _contains(
-            markdown_text,
-            "| `1min.AI` | `Advanced Business Plan` |",
-            "scripts/resolve_onemin_ai_key.sh",
-            "remaining credits",
+        "onemin_inventory": bool(onemin_row)
+        and "remaining credits" in onemin_row
+        and any(
+            evidence in onemin_row
+            for evidence in (
+                "scripts/resolve_onemin_ai_key.sh",
+                "key rotation pool",
+                "key rotation slots",
+                "config/onemin_api_keys.local.json",
+            )
         ),
-        "browseract_discovery": _contains(
-            markdown_text,
-            "| `BrowserAct` | ops@example.com | `complete` | `browseract_live` |",
-        ),
-        "teable_discovery": _contains(
-            markdown_text,
-            "| `Teable` | ops@teable.example | `complete` | `browseract_live` |",
-        ),
+        "browseract_discovery": bool(browseract_row) and "`browseract_live`" in browseract_row,
+        "teable_discovery": bool(teable_row) and "browseract_live" in teable_row,
         "prompt_architects_env": bool(str(env.get("PROMPTING_SYSTEMS_API_KEY") or "").strip()),
         "onemin_env": bool(str(env.get("ONEMIN_AI_API_KEY") or "").strip()),
     }

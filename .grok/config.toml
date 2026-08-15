@@ -1,0 +1,18 @@
+# EA Grok MCP. Project scope beats ~/.grok/config.toml and Claude/Cursor
+# compat, so this session must not inherit a stale VS Code extension path
+# or another repo's daemon.
+#
+# Do not point this server at vexp-codex-mcp or http://127.0.0.1:7821.
+
+[mcp_servers.vexp]
+command = "/home/tibor/.local/bin/vexp"
+args = ["mcp", "--workspace", "/docker/EA", "--proxy"]
+cwd = "/docker/EA"
+enabled = true
+startup_timeout_sec = 60
+tool_timeout_sec = 180
+
+[mcp_servers.vexp.env]
+VEXP_SKIP_UPDATE_CHECK = "1"
+VEXP_NO_AUTOSTART = "1"
+VEXP_WORKSPACE = "/docker/EA"

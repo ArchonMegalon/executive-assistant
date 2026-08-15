@@ -38,7 +38,7 @@ _EA_PYTHON_ROOT = _SCRIPT_REPO_ROOT / "ea"
 if str(_EA_PYTHON_ROOT) not in sys.path:
     sys.path.insert(0, str(_EA_PYTHON_ROOT))
 
-from app.services.audiobook_tts.providers.vocallab_schema import (
+from app.services.audiobook_tts.providers.vocallab_schema import (  # noqa: E402
     VOCALLAB_GENERATION_PENDING,
     VOCALLAB_GENERATION_SUCCESS,
     VOCALLAB_MODEL_KEYS,
@@ -63,7 +63,7 @@ ROOT = _SCRIPT_REPO_ROOT
 OFFICIAL_BASE_URL = "https://api.vocallab.ai"
 PROBE_CONTRACT = "ea.audiobook_vocallab_provider_probe.v1"
 PROBE_VERSION = 1
-API_CONTRACT_VERSION = "2026-07-22"
+API_CONTRACT_VERSION = "2026-08-12"
 DEFAULT_OUTPUT = ROOT / ".runtime/vocallab-provider-probe.generated.json"
 DEFAULT_KEY_FILE = ROOT / "config/vocallab_api_key"
 DEFAULT_VERIFICATION_HMAC_KEY_FILE = (
@@ -648,8 +648,8 @@ def _load_api_key(key_file: Path | None, *, env_file: Path) -> str:
 def _load_credential_rotation_authority(
     path: Path,
     *,
-    exposed_credential_binding_sha256: str,
     replacement_credential_binding_sha256: str,
+    exposed_credential_binding_sha256: str | None = None,
 ) -> None:
     try:
         raw = _read_strict_owner_bytes(
@@ -692,11 +692,15 @@ def _load_credential_rotation_authority(
         or payload.get("status") != "pass"
         or not isinstance(exposed, str)
         or not digest_pattern.fullmatch(exposed)
-        or not isinstance(exposed_credential_binding_sha256, str)
-        or not digest_pattern.fullmatch(exposed_credential_binding_sha256)
-        or not hmac.compare_digest(
-            exposed,
-            exposed_credential_binding_sha256,
+        or (
+            exposed_credential_binding_sha256 is not None
+            and (
+                not digest_pattern.fullmatch(exposed_credential_binding_sha256)
+                or not hmac.compare_digest(
+                    exposed,
+                    exposed_credential_binding_sha256,
+                )
+            )
         )
         or not isinstance(replacement, str)
         or not digest_pattern.fullmatch(replacement)
@@ -1351,15 +1355,11 @@ def main() -> int:
         if args.credential_rotation_authority_file is not None:
             if args.key_file is None:
                 raise VocalLabProbeError("credential_rotation_authority_invalid")
-            exposed_private_env = _read_private_env_values(args.env_file)
-            exposed_key = exposed_private_env.get("VOCALLAB_API_KEY", "").strip()
-            if not KEY_RE.fullmatch(exposed_key):
-                raise VocalLabProbeError("credential_rotation_authority_invalid")
+            # The protected rotation authority retains the content-free binding
+            # for the revoked credential. Requiring the revoked bearer secret
+            # itself would make safe secret destruction impossible.
             _load_credential_rotation_authority(
                 args.credential_rotation_authority_file,
-                exposed_credential_binding_sha256=hashlib.sha256(
-                    exposed_key.encode("utf-8")
-                ).hexdigest(),
                 replacement_credential_binding_sha256=(
                     client.credential_binding_sha256
                 ),

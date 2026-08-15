@@ -1,12 +1,12 @@
 {
   "contract_name": "ea.telegram_video_delivery_live_receipt",
-  "generated_at": "2026-07-27T10:22:51Z",
+  "generated_at": "2026-08-06T16:35:31Z",
   "generated_by": "scripts/materialize_telegram_video_delivery_live_receipt.py",
-  "source_git_head": "67ddbc3451ef50f3548401de660561bd51f2a390",
+  "source_git_head": "cd318f929bdb18372785ca59942668758daa388c",
   "head_semantics": "source_state",
   "output_path": ".codex-studio/published/telegram_video_delivery_live.generated.json",
-  "status": "blocked",
-  "gold_claim_allowed": false,
+  "status": "pass",
+  "gold_claim_allowed": true,
   "claim": "Telegram video delivery has live operator proof only when a real Telegram delivery observation records status=sent, sent message IDs, and a privacy-redacted source-video context.",
   "observation_source": "docker_postgres:ea-db",
   "runtime_env": {
@@ -14,7 +14,7 @@
       ".env",
       ".env.local"
     ],
-    "loaded_count": 443,
+    "loaded_count": 473,
     "storage_backend_present": true,
     "database_url_present": true,
     "docker_postgres_fallback": {
@@ -24,21 +24,21 @@
       ],
       "selected_container": "ea-db",
       "status": "pass",
-      "row_count": 0,
+      "row_count": 7,
       "diagnostics": {
         "status": "pass",
-        "telegram_observation_count": 442,
-        "telegram_video_related_observation_count": 92,
-        "telegram_video_delivery_receipt_count": 0,
+        "telegram_observation_count": 461,
+        "telegram_video_related_observation_count": 108,
+        "telegram_video_delivery_receipt_count": 7,
         "telegram_video_sent_text_ack_count": 1,
         "telegram_event_type_counts": [
           {
             "event_type": "telegram.reply_sent",
-            "count": 96
+            "count": 98
           },
           {
             "event_type": "telegram.message",
-            "count": 88
+            "count": 92
           },
           {
             "event_type": "telegram.callback_query",
@@ -46,15 +46,15 @@
           },
           {
             "event_type": "telegram.reply_async_processing",
-            "count": 39
+            "count": 41
           },
           {
             "event_type": "telegram.reply_async_started",
-            "count": 36
+            "count": 38
           },
           {
             "event_type": "telegram.reply_async_sent",
-            "count": 26
+            "count": 28
           },
           {
             "event_type": "office_signal_telegram_message",
@@ -77,6 +77,10 @@
             "count": 10
           },
           {
+            "event_type": "telegram.video_delivery_receipt",
+            "count": 7
+          },
+          {
             "event_type": "telegram.reply_suppressed",
             "count": 3
           },
@@ -88,15 +92,15 @@
         "telegram_video_related_event_type_counts": [
           {
             "event_type": "telegram.message",
-            "count": 23
+            "count": 26
           },
           {
             "event_type": "telegram.reply_async_started",
-            "count": 18
+            "count": 20
           },
           {
             "event_type": "telegram.reply_async_processing",
-            "count": 17
+            "count": 19
           },
           {
             "event_type": "telegram.processing_ack_sent",
@@ -104,7 +108,11 @@
           },
           {
             "event_type": "telegram.reply_async_sent",
-            "count": 12
+            "count": 14
+          },
+          {
+            "event_type": "telegram.video_delivery_receipt",
+            "count": 7
           },
           {
             "event_type": "telegram.reply_async_failed",
@@ -136,13 +144,8 @@
           },
           {
             "channel": "telegram",
-            "status": "sent",
-            "count": 77
-          },
-          {
-            "channel": "telegram",
             "status": "retry",
-            "count": 53
+            "count": 56
           },
           {
             "channel": "email",
@@ -150,13 +153,13 @@
             "count": 19
           },
           {
-            "channel": "email",
-            "status": "dead_lettered",
-            "count": 1
+            "channel": "telegram",
+            "status": "sent",
+            "count": 10
           },
           {
-            "channel": "slack",
-            "status": "sent",
+            "channel": "email",
+            "status": "dead_lettered",
             "count": 1
           },
           {
@@ -165,8 +168,8 @@
             "count": 1
           }
         ],
-        "telegram_delivery_outbox_video_count": 1,
-        "interpretation": "telegram_video_sent_text_ack_without_delivery_receipt",
+        "telegram_delivery_outbox_video_count": 0,
+        "interpretation": "video_delivery_receipts_present_but_no_valid_sent_receipt",
         "privacy": {
           "raw_payloads_included": false,
           "raw_message_text_included": false,
@@ -197,14 +200,113 @@
     "raw_source_video_url_stored": false,
     "source_video_context_requires_redacted_path": true
   },
-  "candidate_count": 0,
-  "selected_observation": null,
-  "failed_candidate_count": 0,
-  "failed_candidates": [],
-  "failed_codes": [
-    "live_observation_missing",
-    "video_sent_text_ack_without_delivery_receipt"
+  "candidate_count": 7,
+  "selected_observation": {
+    "observation_id": "e26e27c0-8235-4c67-a067-9f164afb7d55",
+    "principal_id_sha256": "f42b7a9069c383bbfa5b0a4b3c29d4ebbc393a6d037f7e5be00a358d4f16e417",
+    "channel": "telegram",
+    "event_type": "telegram.video_delivery_receipt",
+    "created_at": "2026-07-30 14:01:14.069554+02",
+    "source_id_sha256": "fb418a1c60f94c6c17b5e22f3fb76685638974becbf49306f484ac44f6dabfc9",
+    "source_message_id_sha256": "4046c1be5d83b63076d28274613233da739259dd920aba9461a7628c38e83b9e",
+    "dedupe_key_sha256": "235b58a0f56b059c053a81aca0719c73c271ca137949eb6222519a85a7cd6006",
+    "chat_id_present": true,
+    "chat_id_sha256": "ce600202466351c6f33d3ee3a6e66551972cacab1864f045dbe6c9060096f5e2",
+    "provider": "local_source_video_fx",
+    "delivery_kind": "video",
+    "telegram_method": "sendVideo",
+    "status": "sent",
+    "sent_message_ids": [
+      "4887"
+    ],
+    "sent_message_count": 1,
+    "source_video": {
+      "has_source_video": true,
+      "source_host": "api.telegram.org",
+      "source_path_redacted": "/file/bot<redacted>/videos/file_57.mp4",
+      "source_url_raw_stored": false,
+      "source_url_sha256": "4c2adf5e1674719189b6b6ad499a7f26a421f43e6b3eddd0324f4d717eccfd40",
+      "source_video_duration_seconds": 42,
+      "source_video_reference_board_present": true,
+      "source_video_reference_frame_count": 4
+    }
+  },
+  "failed_candidate_count": 6,
+  "failed_candidates": [
+    {
+      "observation_id": "f5f46730-795d-4ea7-bcf8-21d5d909d4f4",
+      "created_at": "2026-07-30 15:14:12.856846+02",
+      "event_type": "telegram.video_delivery_receipt",
+      "status": "sent",
+      "provider": "local_photoreal_fire_composite_v2",
+      "failed_codes": [
+        "source_video_missing",
+        "source_url_hash_missing",
+        "source_host_not_trusted",
+        "source_path_redacted_missing"
+      ]
+    },
+    {
+      "observation_id": "fd850a79-ce45-436a-b535-9bab99fcb556",
+      "created_at": "2026-07-30 15:13:36.519562+02",
+      "event_type": "telegram.video_delivery_receipt",
+      "status": "failed",
+      "provider": "local_photoreal_fire_composite_v2",
+      "failed_codes": [
+        "delivery_not_sent",
+        "message_ids_missing",
+        "source_video_missing",
+        "source_url_hash_missing",
+        "source_host_not_trusted",
+        "source_path_redacted_missing"
+      ]
+    },
+    {
+      "observation_id": "63f3dd99-2bd3-42f8-9b24-af1a394d976d",
+      "created_at": "2026-07-30 13:44:28.738632+02",
+      "event_type": "telegram.video_delivery_receipt",
+      "status": "failed",
+      "provider": "browseract.mootion_movie",
+      "failed_codes": [
+        "delivery_not_sent",
+        "message_ids_missing"
+      ]
+    },
+    {
+      "observation_id": "90ecf397-e2e4-4dc3-b726-7166f6263dfc",
+      "created_at": "2026-07-30 13:44:28.614168+02",
+      "event_type": "telegram.video_delivery_receipt",
+      "status": "failed",
+      "provider": "browseract.mootion_movie",
+      "failed_codes": [
+        "delivery_not_sent",
+        "message_ids_missing"
+      ]
+    },
+    {
+      "observation_id": "a2701618-9288-4fd7-889e-175ca7f6fcd4",
+      "created_at": "2026-07-30 13:44:28.416247+02",
+      "event_type": "telegram.video_delivery_receipt",
+      "status": "failed",
+      "provider": "local_source_video_fx",
+      "failed_codes": [
+        "delivery_not_sent",
+        "message_ids_missing"
+      ]
+    },
+    {
+      "observation_id": "e6f8d20d-83b5-4059-a378-16318a17314e",
+      "created_at": "2026-07-30 13:44:28.286171+02",
+      "event_type": "telegram.video_delivery_receipt",
+      "status": "failed",
+      "provider": "local_source_video_fx",
+      "failed_codes": [
+        "delivery_not_sent",
+        "message_ids_missing"
+      ]
+    }
   ],
-  "next_action": "fix_runtime_to_record_sendVideo_delivery_receipt_before_claiming_video_sent",
-  "blocking_reason": "live_observation_missing, video_sent_text_ack_without_delivery_receipt"
+  "failed_codes": [],
+  "next_action": "",
+  "blocking_reason": ""
 }

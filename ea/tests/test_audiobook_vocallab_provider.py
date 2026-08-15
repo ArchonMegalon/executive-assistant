@@ -291,7 +291,16 @@ def test_get_only_capability_never_installs_or_claims_authority(tmp_path: Path) 
                     ],
                 },
             ),
-            FakeResponse(200, {"voices": []}),
+            FakeResponse(
+                200,
+                {
+                    "count": 0,
+                    "has_more": False,
+                    "offset": 0,
+                    "total": 0,
+                    "voices": [],
+                },
+            ),
         ]
     )
     request, _catalog, _store, ledger, _private = authorized_case(tmp_path)

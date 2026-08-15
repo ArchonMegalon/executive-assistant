@@ -120,6 +120,13 @@ def test_runtime_builds_bind_the_exact_deploy_source_revision() -> None:
     ) in deploy
     assert deploy.index(resolve_revision) < deploy.index(bind_revision)
     assert deploy.index(bind_revision) < deploy.index(compose_build)
+    dockerfile = (ROOT / "ea" / "Dockerfile").read_text(encoding="utf-8")
+    assert dockerfile.index("RUN apt-get update") < dockerfile.index(
+        'ARG EA_SOURCE_REVISION=""'
+    )
+    assert dockerfile.index('ARG EA_SOURCE_REVISION=""') < dockerfile.index(
+        "ENV EA_SOURCE_REVISION=${EA_SOURCE_REVISION}"
+    )
 
 
 def test_runtime_build_context_excludes_local_state_and_secrets() -> None:
@@ -166,6 +173,9 @@ def test_runtime_build_context_excludes_local_state_and_secrets() -> None:
         "!Makefile",
         "!LTDs.md",
         "!docker-compose*.yml",
+        "!docker/",
+        "!docker/fastestvpn-proxy/",
+        "!docker/fastestvpn-proxy/**",
         "!ea/",
         "!ea/Dockerfile",
         "!ea/Dockerfile.operator",
@@ -181,6 +191,9 @@ def test_runtime_build_context_excludes_local_state_and_secrets() -> None:
         "!deploy/",
         "!deploy/runtime-image-verification-inputs.txt",
     } <= ignored
+    assert "*.ovpn" in ignored
+    assert "!vpn/" not in ignored
+    assert "!vpn/**" not in ignored
 
 
 def test_base_compose_omits_host_docker_control_for_core_services() -> None:
@@ -388,6 +401,8 @@ def test_proactive_ooda_deploy_keeps_runtime_outputs_group_writable() -> None:
     )
 
     assert "1000" in [str(item) for item in list(proactive.get("group_add") or [])]
+    assert "mkdir -p /data/provider-ledger/proactive_ooda_approval_callbacks" in command
+    assert "chmod 0770 /data/provider-ledger/proactive_ooda_approval_callbacks" in command
     assert "repair_shared_output_permissions()" in command
     assert (
         '-user "$${runtime_uid}" -exec chmod g+rw {} + 2>/dev/null || true'
@@ -407,6 +422,16 @@ def test_proactive_ooda_deploy_keeps_runtime_outputs_group_writable() -> None:
     assert "--stage-packet-dir /data/provider-ledger/proactive_ooda_stage_packets" in deploy
     assert "--safe-work-result-dir /data/provider-ledger/proactive_ooda_safe_work_results" in deploy
     assert "a+rwX" not in deploy
+
+
+def test_telegram_teable_sync_can_read_restricted_release_worktree() -> None:
+    compose = _load_yaml(ROOT / "docker-compose.yml")
+    service = dict(
+        (compose.get("services") or {}).get("ea-telegram-teable-sync") or {}
+    )
+
+    assert "1000" in [str(item) for item in list(service.get("group_add") or [])]
+    assert "./:/app:ro" in [str(item) for item in list(service.get("volumes") or [])]
 
 
 def test_deploy_verifies_the_effective_pocket_archive_host_root() -> None:
@@ -625,6 +650,23 @@ def test_overlay_compose_pins_third_party_runtime_images_by_digest() -> None:
     assert "no-new-privileges:true" in list(
         cloudflared_service.get("security_opt") or []
     )
+
+
+def test_socket_proxy_renders_config_into_writable_ephemeral_run() -> None:
+    for overlay_name in (
+        "docker-compose.host-tools.yml",
+        "docker-compose.fastestvpn.yml",
+    ):
+        compose = _load_yaml(ROOT / overlay_name)
+        service = (compose.get("services") or {}).get("ea-docker-socket-proxy") or {}
+        command = "\n".join(str(item) for item in list(service.get("command") or []))
+
+        assert service.get("read_only") is True, overlay_name
+        assert service.get("entrypoint") == ["/bin/sh", "-ec"], overlay_name
+        assert "/run" in [str(item) for item in list(service.get("tmpfs") or [])]
+        assert "/run/haproxy.cfg" in command, overlay_name
+        assert "/usr/local/etc/haproxy/haproxy.cfg.template" in command, overlay_name
+        assert "> /usr/local/etc/haproxy/haproxy.cfg" not in command, overlay_name
 
 
 def test_ea_runtime_preserves_tour_publication_volume_and_isolates_tunnel_network() -> (
@@ -871,36 +913,63 @@ def test_fastestvpn_override_mounts_only_runtime_compose_inputs() -> None:
     assert set(str(item) for item in list(proxy.get("cap_drop") or [])) == {"ALL"}
     assert "no-new-privileges:true" in list(proxy.get("security_opt") or [])
     assert set(str(item) for item in list(proxy.get("tmpfs") or [])) == {"/run"}
-    expected_mounts = {
-        "./docker-compose.yml:/app/docker-compose.yml:ro",
-        "./docker-compose.fastestvpn.yml:/app/docker-compose.fastestvpn.yml:ro",
-        "./vpn/fastestvpn:/app/vpn/fastestvpn:ro",
+    expected_mounts = {"./vpn/fastestvpn:/app/vpn/fastestvpn:ro"}
+    service = services.get("ea-api") or {}
+    volumes = {str(item) for item in list(service.get("volumes") or [])}
+    environment = {str(item) for item in list(service.get("environment") or [])}
+    assert volumes == expected_mounts
+    assert "DOCKER_HOST=tcp://ea-docker-socket-proxy:2375" in environment
+    assert "no-new-privileges:true" in list(
+        (base_services.get("ea-api") or {}).get("security_opt") or []
+    )
+    assert "ea-worker" not in services
+    assert "ea-scheduler" not in services
+
+
+def test_fastestvpn_override_prefers_bounded_switzerland_lane_for_onemin() -> None:
+    compose = _load_yaml(ROOT / "docker-compose.fastestvpn.yml")
+    services = compose.get("services") or {}
+    swiss = services.get("ea-fastestvpn-proxy-ch") or {}
+    swiss_environment = {str(item) for item in list(swiss.get("environment") or [])}
+
+    assert "FASTESTVPN_CONFIG_GLOB=${FASTESTVPN_CH_CONFIG_GLOB:-switzerland*.ovpn}" in swiss_environment
+    assert "127.0.0.1:${FASTESTVPN_CH_PROXY_HOST_PORT:-9315}:${FASTESTVPN_PROXY_PORT:-3128}" in {
+        str(item) for item in list(swiss.get("ports") or [])
     }
-    for service_name in ("ea-api", "ea-worker", "ea-scheduler"):
-        service = services.get(service_name) or {}
-        volumes = {str(item) for item in list(service.get("volumes") or [])}
-        environment = {str(item) for item in list(service.get("environment") or [])}
-        assert volumes == expected_mounts, service_name
-        assert "DOCKER_HOST=tcp://ea-docker-socket-proxy:2375" in environment, (
-            service_name
-        )
-        assert service.get("read_only") is True, service_name
-        assert service.get("mem_limit") == "2g", service_name
-        assert service.get("mem_reservation") == "512m", service_name
-        assert service.get("pids_limit") == 512, service_name
-        assert set(str(item) for item in list(service.get("cap_drop") or [])) == {
-            "ALL"
-        }, service_name
-        # The override inherits this list from the base service. Repeating it
-        # here makes Compose append a duplicate and reject the merged config.
-        assert "security_opt" not in service, service_name
-        assert "no-new-privileges:true" in list(
-            (base_services.get(service_name) or {}).get("security_opt") or []
-        ), service_name
-        assert set(str(item) for item in list(service.get("tmpfs") or [])) == {
-            "/tmp",
-            "/run",
-        }, service_name
+    assert "./vpn/fastestvpn:/vpn/fastestvpn:ro" in {str(item) for item in list(swiss.get("volumes") or [])}
+
+    api = services.get("ea-api") or {}
+    environment = {str(item) for item in list(api.get("environment") or [])}
+    assert (
+        "ONEMIN_DIRECT_API_PROXY_SERVER=http://ea-fastestvpn-proxy-ch:${FASTESTVPN_PROXY_PORT:-3128}"
+        in environment
+    )
+    assert (
+        "ONEMIN_DIRECT_API_PROXY_POOL=http://ea-fastestvpn-proxy-ch:${FASTESTVPN_PROXY_PORT:-3128}"
+        in environment
+    )
+    assert "ea-fastestvpn-proxy-ch" not in (api.get("depends_on") or {})
+    assert "ea-fastestvpn-proxy" not in services
+    assert "ea-fastestvpn-proxy-ie" not in services
+    assert "ea-fastestvpn-proxy-nl" not in services
+    assert "ea-worker" not in services
+    assert "ea-scheduler" not in services
+
+    dockerfile = (ROOT / "docker" / "fastestvpn-proxy" / "Dockerfile").read_text(encoding="utf-8")
+    assert dockerfile.startswith(
+        "FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc\n"
+    )
+
+
+def test_emailit_compose_defaults_fail_closed_and_split_product_ownership() -> None:
+    compose = _load_yaml(ROOT / "docker-compose.yml")
+    api = ((compose.get("services") or {}).get("ea-api") or {})
+    environment = {str(item) for item in list(api.get("environment") or [])}
+
+    assert "EA_EMAILIT_DELIVERY_ENABLED=${EA_EMAILIT_DELIVERY_ENABLED:-0}" in environment
+    assert "EA_EMAILIT_OFFICE_DELIVERY_ENABLED=${EA_EMAILIT_OFFICE_DELIVERY_ENABLED:-0}" in environment
+    assert not any(item.startswith("PROPERTYQUARRY_") for item in environment)
+    assert "CHUMMER_HUB_EMAILIT_DELIVERY_ENABLED=${CHUMMER_HUB_EMAILIT_DELIVERY_ENABLED:-0}" in environment
 
 
 def _retired_memorial_override_restores_memorial_runtime_contract() -> None:
@@ -2703,6 +2772,16 @@ def _retired_deploy_script_materializes_release_manifest_after_health() -> None:
         'ensure_runtime_readable_file_projection "ONEMIN_DIRECT_API_KEYS_JSON_FILE"'
         in deploy
     )
+    assert (
+        'ensure_runtime_readable_file_projection \\\n'
+        '  "EA_RESPONSES_NO_RETENTION_CLIENT_TOKEN_HOST_FILE" \\\n'
+        '  "./.ea-runtime-secrets/no_retention_client_token" \\\n'
+        '  "runtime_group_1000"'
+        in deploy
+    )
+    assert 'chgrp 1000 "${resolved_path}"' in deploy
+    assert 'chmod 0640 "${resolved_path}"' in deploy
+    assert 'if [[ "${strict_mode}" != "640" ]]; then' in deploy
     assert "ensure_runtime_writable_dir_projection() {" in deploy
     assert (
         'ensure_runtime_writable_dir_projection "EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT" "./data/pocket-ai-audio"'
@@ -2837,6 +2916,10 @@ def test_deploy_script_extends_runtime_topology_for_whatsapp_overlay() -> None:
         in deploy
     )
     assert "recreate_services_without_build() {" in deploy
+    assert "wait_for_service_ready() {" in deploy
+    assert 'EA_DEPLOY_SERVICE_READY_TIMEOUT_SECONDS:-150' in deploy
+    assert 'wait_for_service_ready "${service}"' in deploy
+    assert "EA_DEPLOY_SERVICE_READY_TIMEOUT_SECONDS must be an integer from 1 to 600." in deploy
     assert 'compose up -d --no-build --no-deps --force-recreate "${service}"' in deploy
     assert (
         'echo "Service failed to become ready during no-build deploy: ${service}" >&2'

@@ -1,5 +1,13 @@
 # Manfred Memorial Flagship Release Gate
 
+> **Superseded historical packet — not current release authority.** This file
+> records the retired EA-hosted Memorial candidate from 2026-07-13. EA Core no
+> longer owns or serves Memorial product routes. Current product, voice,
+> deployment, store, and promotion truth is owned by the standalone
+> `/docker/Memorial` repository and its exact-revision receipts. EA may expose
+> only provider/runtime telemetry and the governed integration closeout; it
+> must not project this historical packet as current Memorial readiness.
+
 Date: 2026-07-13 (Europe/Vienna)
 
 State: `blocked_not_launch_ready`

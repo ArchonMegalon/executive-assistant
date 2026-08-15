@@ -6524,6 +6524,40 @@ def test_browser_shell_routes_and_nav_links_resolve() -> None:
             assert resolved.status_code in {200, 303, 307}, (path, href)
 
 
+def test_public_guide_fallback_loads_export_manifest_once(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.product import service as product_service
+
+    export_manifest = tmp_path / "PUBLIC_GUIDE_EXPORT_MANIFEST.yaml"
+    export_manifest.write_text(
+        "sources:\n  product_entry: products/chummer/README.md\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "README.md").write_text("# Mirrored product entry\n", encoding="utf-8")
+    monkeypatch.setattr(product_service, "_design_product_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        product_service,
+        "_default_public_guide_manifest_path",
+        lambda: tmp_path / "missing-downstream-manifest.json",
+    )
+    original_loader = product_service._load_yaml_dict
+    loaded_paths: list[Path] = []
+
+    def _counted_loader(path: Path) -> dict[str, object] | None:
+        loaded_paths.append(path)
+        return original_loader(path)
+
+    monkeypatch.setattr(product_service, "_load_yaml_dict", _counted_loader)
+
+    payload = product_service._public_guide_freshness_projection()
+
+    assert payload["origin"] == "design_mirror_fallback"
+    assert "1/1 mapped public-guide sources are mirrored" in str(payload["detail"])
+    assert loaded_paths == [export_manifest]
+
+
 def test_provider_bindings_reject_cross_principal_query_scope() -> None:
     owner = _client(principal_id="exec-1", operator=True)
     response = owner.get("/v1/providers/bindings?principal_id=exec-2")

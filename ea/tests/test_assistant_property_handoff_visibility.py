@@ -877,6 +877,24 @@ def test_admin_view_runtime_bundle_prefers_live_bundle_resolution(monkeypatch) -
     assert bundle["stage_packet"]["packet_ref"] == "stage_packet:live"
 
 
+def test_admin_view_runtime_bundle_uses_host_snapshot_for_memory_backend(monkeypatch) -> None:
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.setattr(
+        admin_view_models,
+        "resolve_proactive_ooda_capture_bundle",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("live runtime probed")),
+    )
+    monkeypatch.setattr(
+        admin_view_models,
+        "load_runtime_artifact_bundle",
+        lambda **_kwargs: {"stage_packet": {"packet_ref": "stage_packet:host"}},
+    )
+
+    bundle = admin_view_models._load_current_proactive_ooda_runtime_bundle()
+
+    assert bundle["stage_packet"]["packet_ref"] == "stage_packet:host"
+
+
 def test_admin_goals_payload_hides_proactive_rows_when_receipts_indicate_property_scope(monkeypatch) -> None:
     container = SimpleNamespace(
         readiness=SimpleNamespace(check=lambda: (True, "Ready")),

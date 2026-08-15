@@ -160,13 +160,17 @@ def test_property_workspace_payload_keeps_propertyquarry_brand_renderable() -> N
 
 
 def test_ea_property_route_returns_boundary_before_sign_in_redirect() -> None:
-    client = TestClient(create_app())
-
-    response = client.get(
-        "/app/properties",
-        headers={"host": "myexternalbrain.com", "accept": "text/html"},
-        follow_redirects=False,
-    )
+    with patch.dict(
+        os.environ,
+        {"EA_RUNTIME_MODE": "test", "EA_STORAGE_BACKEND": "memory", "DATABASE_URL": ""},
+        clear=False,
+    ):
+        client = TestClient(create_app())
+        response = client.get(
+            "/app/properties",
+            headers={"host": "myexternalbrain.com", "accept": "text/html"},
+            follow_redirects=False,
+        )
 
     assert response.status_code == 404
     assert response.json() == {
@@ -179,12 +183,16 @@ def test_ea_property_route_returns_boundary_before_sign_in_redirect() -> None:
 
 
 def test_ea_security_page_uses_ea_trust_copy_only() -> None:
-    client = TestClient(create_app())
-
-    response = client.get(
-        "/security",
-        headers={"host": "myexternalbrain.com", "accept": "text/html"},
-    )
+    with patch.dict(
+        os.environ,
+        {"EA_RUNTIME_MODE": "test", "EA_STORAGE_BACKEND": "memory", "DATABASE_URL": ""},
+        clear=False,
+    ):
+        client = TestClient(create_app())
+        response = client.get(
+            "/security",
+            headers={"host": "myexternalbrain.com", "accept": "text/html"},
+        )
 
     assert response.status_code == 200
     assert "Visible review boundaries" in response.text
@@ -195,12 +203,16 @@ def test_ea_security_page_uses_ea_trust_copy_only() -> None:
 
 
 def test_ea_today_page_omits_property_console_assets() -> None:
-    client = TestClient(create_app())
-
-    response = client.get(
-        "/app/today",
-        headers={"host": "myexternalbrain.com", "accept": "text/html"},
-    )
+    with patch.dict(
+        os.environ,
+        {"EA_RUNTIME_MODE": "test", "EA_STORAGE_BACKEND": "memory", "DATABASE_URL": ""},
+        clear=False,
+    ):
+        client = TestClient(create_app())
+        response = client.get(
+            "/app/today",
+            headers={"host": "myexternalbrain.com", "accept": "text/html"},
+        )
 
     assert response.status_code == 200
     assert "data-console-form-variant=\"property_search\"" not in response.text

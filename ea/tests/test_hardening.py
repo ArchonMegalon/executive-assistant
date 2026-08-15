@@ -204,6 +204,8 @@ class HardeningTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as state_dir:
             env = {
                 "EMAILIT_API_KEY": "emailit-fixture",
+                "EA_EMAILIT_DELIVERY_ENABLED": "1",
+                "EA_EMAILIT_OFFICE_DELIVERY_ENABLED": "1",
                 "EA_EMAILIT_MAX_429_RETRY_ATTEMPTS": "1",
                 "EA_EMAILIT_MAX_429_SLEEP_SECONDS": "30",
                 "EA_OUTBOUND_EMAIL_GUARD_STATE_PATH": str(Path(state_dir) / "outbound_email_guard.json"),
@@ -251,6 +253,8 @@ class HardeningTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as state_dir:
             env = {
                 "EMAILIT_API_KEY": "emailit-fixture",
+                "EA_EMAILIT_DELIVERY_ENABLED": "1",
+                "EA_EMAILIT_OFFICE_DELIVERY_ENABLED": "1",
                 "EA_EMAILIT_MAX_429_RETRY_ATTEMPTS": "1",
                 "EA_EMAILIT_MAX_429_SLEEP_SECONDS": "30",
                 "EA_OUTBOUND_EMAIL_GUARD_STATE_PATH": str(Path(state_dir) / "outbound_email_guard.json"),

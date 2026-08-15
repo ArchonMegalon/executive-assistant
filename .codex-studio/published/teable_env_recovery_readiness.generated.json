@@ -37,12 +37,12 @@
   "command_surface_ready": true,
   "contract_name": "ea.teable_env_recovery_readiness.v1",
   "fresh_host_drill_receipt_mirrored": false,
-  "generated_at": "2026-07-27T10:53:42Z",
+  "generated_at": "2026-08-06T16:35:32Z",
   "generated_by": "scripts/materialize_teable_env_recovery_readiness.py",
   "head_semantics": "source_state",
   "issues": [],
   "next_action": "run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
-  "output_path": "/tmp/ea-release-verify.8GJuzq/.codex-studio/published/teable_env_recovery_readiness.generated.json",
+  "output_path": "/docker/EA/.codex-studio/published/teable_env_recovery_readiness.generated.json",
   "required_next_receipts": [
     "fresh_host_teable_recovery_drill_receipt"
   ],
@@ -57,8 +57,8 @@
     "readme": "README.md",
     "sync_script": "scripts/sync_env_to_teable.py"
   },
-  "source_git_head": "4747646399598ed083acbf1a39ea430d245f9925",
-  "source_state_fingerprint": "42bf3387b617cf7510bf015e0ac52ffd33c9d314a3c5dc19518cccf0dd842da3",
+  "source_git_head": "cd318f929bdb18372785ca59942668758daa388c",
+  "source_state_fingerprint": "d0fae85c944a087619b30ede2fa31e4b45dee0c1a537db6a4c5dc62a994c4d22",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_audit",
   "summary": "Teable recovery command surface is mirrored and documented locally; a seeded fresh-host drill receipt is still required before any pass claim.",

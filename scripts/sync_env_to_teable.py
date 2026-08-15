@@ -174,6 +174,7 @@ def _provider_guess(name: str) -> str:
         "VOCALLAB",
         "BROWSERACT",
         "TEABLE",
+        "TOUGH_TONGUE",
         "EMAILIT",
         "PAYPAL",
         "PAYFUNNELS",
@@ -647,8 +648,8 @@ def discover_table_id(*, base_url: str, api_key: str, table_name: str) -> str:
 
 def _existing_record_snapshots(
     *, base_url: str, api_key: str, table_id: str, key_field: str = "projection_id"
-) -> dict[str, dict[str, str]]:
-    found: dict[str, dict[str, str]] = {}
+) -> dict[str, dict[str, Any]]:
+    found: dict[str, dict[str, Any]] = {}
     skip = 0
     take = 1000
     while True:
@@ -665,12 +666,18 @@ def _existing_record_snapshots(
             record_id = str(record.get("id") or "").strip()
             if key_value and record_id:
                 stored_secret_hash = _stored_secret_hash_from_fields(fields)
-                found[key_value] = {
+                current = {
                     "record_id": record_id,
                     "value_sha256": str(fields.get("value_sha256") or "").strip(),
                     "stored_secret_hash": stored_secret_hash,
                     "value_length": str(fields.get("value_length") or "").strip(),
                 }
+                group = found.setdefault(key_value, {"record_ids": [], "snapshots": []})
+                group["record_ids"].append(record_id)
+                group["snapshots"].append(current)
+                # Preserve the legacy single-record projection for callers that
+                # only need one representative snapshot.
+                group.update(current)
         if len(records) < take:
             break
         skip += take
@@ -708,24 +715,34 @@ def sync_rows(
             raise SystemExit("projection_id_missing")
         snapshot = existing.get(projection_id) or {}
         record_id = str(snapshot.get("record_id") or "").strip()
-        if record_id:
+        record_ids = [str(item).strip() for item in snapshot.get("record_ids") or [] if str(item).strip()]
+        if not record_ids and record_id:
+            record_ids = [record_id]
+        if record_ids:
             normalized_row = dict(row)
             if preserve_blank_secret_values and not str(normalized_row.get("env_value_secret") or ""):
                 skipped += 1
                 continue
-            current_hash = str(snapshot.get("value_sha256") or "").strip()
-            current_stored_hash = str(snapshot.get("stored_secret_hash") or "").strip()
             next_hash = str(normalized_row.get("value_sha256") or "").strip()
-            if current_hash and current_hash == next_hash and (not next_hash or current_stored_hash == next_hash):
+            snapshots = [dict(item) for item in snapshot.get("snapshots") or [] if isinstance(item, dict)]
+            if not snapshots:
+                snapshots = [snapshot]
+            all_current = all(
+                str(item.get("value_sha256") or "").strip() == next_hash
+                and (not next_hash or str(item.get("stored_secret_hash") or "").strip() == next_hash)
+                for item in snapshots
+            )
+            if all_current:
                 skipped += 1
                 continue
-            _teable_request(
-                method="PATCH",
-                url=f"{base_url.rstrip('/')}/api/table/{urllib.parse.quote(table_id)}/record/{urllib.parse.quote(record_id)}",
-                api_key=api_key,
-                body={"fieldKeyType": "name", "typecast": True, "record": {"fields": normalized_row}},
-            )
-            updated += 1
+            for existing_record_id in record_ids:
+                _teable_request(
+                    method="PATCH",
+                    url=f"{base_url.rstrip('/')}/api/table/{urllib.parse.quote(table_id)}/record/{urllib.parse.quote(existing_record_id)}",
+                    api_key=api_key,
+                    body={"fieldKeyType": "name", "typecast": True, "record": {"fields": normalized_row}},
+                )
+                updated += 1
             continue
         pending_creates.append({"fields": row})
     for start in range(0, len(pending_creates), 50):

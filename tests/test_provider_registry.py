@@ -122,6 +122,131 @@ def test_aiwritebook_requires_both_valid_referenced_secrets(monkeypatch: pytest.
     assert state.state == "catalog_only"
 
 
+def test_emailit_is_configured_but_not_a_free_form_direct_send_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "emailit-test-key")
+
+    registry = ProviderRegistryService()
+    state = registry.binding_state("Emailit")
+
+    assert state is not None
+    assert state.provider_key == "emailit"
+    assert state.auth_mode == "api_key"
+    assert state.secret_configured is True
+    assert state.enabled is True
+    assert state.executable is False
+    assert state.state == "configured"
+    assert set(state.capabilities) == {
+        "transactional_email_delivery",
+        "delivery_receipt",
+    }
+    with pytest.raises(ToolExecutionError, match="provider_capability_unavailable:transactional_email_delivery"):
+        registry.route_tool_by_capability(
+            capability_key="transactional_email_delivery",
+            provider_hints=("Emailit",),
+            allowed_tools=("connector.dispatch",),
+        )
+
+    manual_route = registry.route_tool_by_capability(
+        capability_key="transactional_email_delivery",
+        provider_hints=("Emailit",),
+        allowed_tools=("connector.dispatch",),
+        require_executable=False,
+    )
+    assert manual_route.provider_key == "emailit"
+    assert manual_route.executable is False
+
+
+def test_tough_tongue_is_configured_but_non_executable_until_governed_runtime_promotion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TOUGH_TONGUE_API_KEY", "tough-tongue-test-key")
+
+    registry = ProviderRegistryService()
+    state = registry.binding_state("Tough Tongue AI")
+
+    assert state is not None
+    assert state.provider_key == "tough_tongue"
+    assert state.auth_mode == "api_key"
+    assert state.secret_configured is True
+    assert state.enabled is True
+    assert state.executable is False
+    assert state.state == "configured"
+    assert set(state.capabilities) == {
+        "account_balance",
+        "scenario_inventory",
+        "practice_session",
+    }
+    with pytest.raises(ToolExecutionError, match="provider_capability_unavailable:practice_session"):
+        registry.route_tool_by_capability(
+            capability_key="practice_session",
+            provider_hints=("toughtongueai.com",),
+            allowed_tools=("provider.tough_tongue.practice_session",),
+        )
+
+
+def test_fastestvpn_is_observable_but_never_a_general_execution_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FASTESTVPN_USERNAME", "vpn-user")
+    monkeypatch.setenv("FASTESTVPN_PASSWORD", "vpn-pass")
+
+    registry = ProviderRegistryService()
+    state = registry.binding_state("FastestVPN PRO")
+
+    assert state is not None
+    assert state.provider_key == "fastestvpn"
+    assert state.secret_configured is True
+    assert state.enabled is True
+    assert state.executable is False
+    assert state.state == "configured"
+    assert set(state.capabilities) == {
+        "governed_provider_transport",
+        "proxy_country_verification",
+    }
+    with pytest.raises(ToolExecutionError, match="provider_capability_unavailable:governed_provider_transport"):
+        registry.route_tool_by_capability(
+            capability_key="governed_provider_transport",
+            provider_hints=("FastestVPN PRO",),
+            allowed_tools=("connector.dispatch",),
+        )
+
+
+def test_vocallab_is_visible_but_never_routes_clone_or_render_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VOCALLAB_API_KEY", "vocallab-test-key")
+
+    registry = ProviderRegistryService()
+    state = registry.binding_state("VoiceLab.ai")
+
+    assert state is not None
+    assert state.provider_key == "vocallab"
+    assert state.display_name == "VocalLab AI"
+    assert state.auth_mode == "api_key"
+    assert state.secret_configured is True
+    assert state.enabled is True
+    assert state.executable is False
+    assert state.state == "configured"
+    assert set(state.capabilities) == {"voice_inventory", "voice_render"}
+    with pytest.raises(ToolExecutionError, match="provider_capability_unavailable:voice_render"):
+        registry.route_tool_by_capability(
+            capability_key="voice_render",
+            provider_hints=("VocalLab.ai",),
+            allowed_tools=("provider.vocallab.voice_render",),
+        )
+
+    manual_route = registry.route_tool_by_capability(
+        capability_key="voice_inventory",
+        provider_hints=("VoiceLab",),
+        allowed_tools=("provider.vocallab.voice_inventory",),
+        require_executable=False,
+    )
+    assert manual_route.provider_key == "vocallab"
+    assert manual_route.executable is False
+
+
 def test_provider_registry_slot_pool_summary_keeps_live_ready_slots_separate_from_state_ready_slots() -> None:
     summary = ProviderRegistryService._slot_pool_summary(
         {

@@ -183,6 +183,7 @@ def test_runtime_dependency_audit_fails_closed_when_tool_execution_fails(
             stderr="pip-audit unavailable",
         )
 
+    monkeypatch.setattr(materializer, "_pip_audit_python", lambda: sys.executable)
     monkeypatch.setattr(materializer.subprocess, "run", fake_run)
 
     with pytest.raises(RuntimeError, match="pip_audit_json_missing"):

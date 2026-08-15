@@ -24,8 +24,9 @@ from app.services.assistant_property_lane import (
 from app.services.ltd_provider_governance import build_ltd_provider_governance_receipt
 from app.services.proactive_ooda_live_ops_bridge import resolve_proactive_ooda_capture_bundle
 from app.services.proactive_ooda_runtime_artifacts import (
-    default_proactive_ooda_runtime_root,
     current_packet_user_approval_surface,
+    default_proactive_ooda_runtime_root,
+    load_runtime_artifact_bundle,
 )
 from app.services.proactive_ooda_flat_search_policy import material_mentions_flat_property_search
 from app.services.provider_contract_status import build_provider_contract_status
@@ -297,15 +298,18 @@ def _signal_evidence_capture_actionable(signal_receipt: dict[str, object]) -> bo
 
 
 def _load_current_proactive_ooda_runtime_bundle() -> dict[str, object]:
+    loader_kwargs = {
+        "root": default_proactive_ooda_runtime_root(),
+        "state_path": str(os.getenv("EA_PROACTIVE_OODA_STATE_PATH") or "state/proactive_ooda_notified.json").strip()
+        or "state/proactive_ooda_notified.json",
+        "receipt_path": str(os.getenv("EA_PROACTIVE_OODA_RECEIPT_PATH") or "").strip(),
+        "stage_packet_dir": str(os.getenv("EA_PROACTIVE_OODA_STAGE_PACKET_DIR") or "").strip(),
+        "safe_work_result_dir": str(os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR") or "").strip(),
+    }
     try:
-        resolution = resolve_proactive_ooda_capture_bundle(
-            root=default_proactive_ooda_runtime_root(),
-            state_path=str(os.getenv("EA_PROACTIVE_OODA_STATE_PATH") or "state/proactive_ooda_notified.json").strip()
-            or "state/proactive_ooda_notified.json",
-            receipt_path=str(os.getenv("EA_PROACTIVE_OODA_RECEIPT_PATH") or "").strip(),
-            stage_packet_dir=str(os.getenv("EA_PROACTIVE_OODA_STAGE_PACKET_DIR") or "").strip(),
-            safe_work_result_dir=str(os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR") or "").strip(),
-        )
+        if str(os.getenv("EA_STORAGE_BACKEND") or "").strip().lower() == "memory":
+            return dict(load_runtime_artifact_bundle(**loader_kwargs))
+        resolution = resolve_proactive_ooda_capture_bundle(**loader_kwargs)
         return dict(resolution.get("bundle") or {})
     except Exception:
         return {}
@@ -1492,10 +1496,9 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     proactive_gold_action_state = _humanize(
         str(proactive_ooda_gold_receipt.get("status") or "watch")
     ).title()
-    # The live proactive probe shells into the runtime compose stack and is
-    # relevant only to the goal-evidence surface. Running it while building
-    # every admin section made otherwise local office/operator pages inherit a
-    # 30-second external probe budget.
+    # Memory-backed/test admin rendering reads the bounded host snapshot. A
+    # persistent runtime may prefer the live bundle, with the bridge's short
+    # fail-closed timeout before host fallback.
     proactive_runtime_bundle = _load_current_proactive_ooda_runtime_bundle() if section == "goals" else {}
     proactive_goal_action_visible = _proactive_goal_action_surface_visible(
         proactive_runtime_bundle,

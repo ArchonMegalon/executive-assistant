@@ -41,7 +41,7 @@ def _build_payload(service: str, tier: str, status: str) -> dict:
         "workspace_integration_tier": "Tier 2",
         "verification_status": "fleet_verified",
         "missing_tokens": [],
-        "source_path": str(LTD_PATH),
+        "source_path": LTD_PATH.relative_to(ROOT).as_posix(),
     }
 
 
