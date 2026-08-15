@@ -103,3 +103,9 @@ config/vocallab_voice_catalog.local.json
 !scripts/**
 !deploy/
 !deploy/runtime-image-verification-inputs.txt
+
+# Runtime state lives beneath the repository root on production hosts. Keep
+# this final, anchored exclusion after all allowlist exceptions so COPY . never
+# asks the Docker context sender to traverse protected audiobook backups.
+/data/
+/data/**

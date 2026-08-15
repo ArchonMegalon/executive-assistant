@@ -228,7 +228,7 @@
     "docs/preference_profiles/README.md": "bf0d1009ce0f927f73cb2d0b720f6903c73cb3b87c591dff3156270277ff9c1b",
     "docs/runbooks/WORKLLM_ACCOUNT_REVIEW_OODA.md": "ef4b8dec4925996d068a47c7cdd4cf40ee2dc339fedf920652ccf515e4e9dfde",
     "docs/runbooks/WORKLLM_MANUAL_CANARY.md": "b190361e6b27840a14d164fa021acff5ec1eb0bb6116db27c66c357336c1eec3",
-    "ea/Dockerfile": "58430f637a03b5a08b381aeb906e61f761a34aec0d1b23307ffc36c3b8d36970",
+    "ea/Dockerfile": "2a6d7f4befd5991f1532e7d4f2251bfd53859633810aec8d9cef9f532a43e5fc",
     "ea/Dockerfile.operator": "7117716bd3f575bd3858e59db44777c0d5ba76bb52864ac3245851e36a9a9c19",
     "ea/Dockerfile.property": "c20041a369456c54382f2c53c6963cb86b5d93540e5e211e6219b7012d73d27a",
     "ea/app/__init__.py": "b960faa1d8cc0c38513ea6d1999c20db42d700d13464355e40f06de0ac5173df",
@@ -1541,6 +1541,7 @@
     "tests/test_runner.py": "2d75ded90de7d2b1266d407f678a1999e9b690299a567ed66377f20560a577ec",
     "tests/test_runtime_api.py": "7be3e2843288aa2abae65731b833412a1fbae5305bfef7e93d18a0fb96facc6f",
     "tests/test_runtime_dependency_evidence.py": "98985e699e56b350db06f33e4c8032537b57acc75d39e141358ce22c4a5da2f7",
+    "tests/test_runtime_image_build_context.py": "423401056fa59323d7a2702151b95fcc4581886969bb885119f31d17bc81868f",
     "tests/test_runtime_image_contracts.py": "288d74aa73262849ce3aa6749d19c213ef3d7e76c3e5318b3f1c79f0f3f87f3e",
     "tests/test_runtime_profile.py": "09fae4003169ce2c016ec57889a9ab2657ea7c3abf52c119839d8f1fb7cf45c8",
     "tests/test_runtime_source_permissions.py": "e0eecd4b51487b717ca8b5a930ffadaf4c5eebc412d2d229e1242915860fde28",
@@ -1638,13 +1639,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "5387a060eba66a537f6a6ff99116aed1b6ecc508",
-  "indexed_at_timestamp": "2026-08-15T11:54:30.144111103+00:00",
+  "indexed_at_commit": "9376a1c98d3be99bd24794edabef360e29ec79c1",
+  "indexed_at_timestamp": "2026-08-15T11:58:44.991214366+00:00",
   "schema_version": 3,
   "stats": {
     "total_edges": 35610,
-    "total_files": 1637,
-    "total_nodes": 24089
+    "total_files": 1638,
+    "total_nodes": 24096
   },
   "vexp_version": "2.5.1"
 }

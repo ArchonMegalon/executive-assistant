@@ -46,7 +46,16 @@ WORKDIR /app
 RUN mkdir -p /app/scripts
 COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py
 
-COPY . /tmp/src
+# Keep the image build independent of protected runtime state stored beside the
+# repository. COPY only source and release-verification inputs; COPY . makes
+# the Docker context sender traverse ignored host data before the build starts.
+COPY ea /tmp/src/ea
+COPY scripts /tmp/src/scripts
+COPY deploy/runtime-image-verification-inputs.txt /tmp/src/deploy/runtime-image-verification-inputs.txt
+COPY Makefile LTDs.md /tmp/src/
+COPY docker-compose.yml docker-compose.host-tools.yml docker-compose.fastestvpn.yml docker-compose.cloudflared.yml /tmp/src/
+COPY .codex-design /tmp/src/.codex-design
+COPY .codex-studio /tmp/src/.codex-studio
 
 RUN set -eu; \
     if [ -f /tmp/src/ea/requirements.txt ] && [ -d /tmp/src/ea/app ]; then \
