@@ -1019,7 +1019,7 @@
     "scripts/db_retention.sh": "2adf6fb18c9a7dbc7adb2bfb01540186e2c4676adcd3c3cc478e68110137834a",
     "scripts/db_size.sh": "e837d6409b5854c873828a97f93a2257a2a20ca312b1cb6c9b8670b21ce408e5",
     "scripts/db_status.sh": "63f643d2b232f81ab3eca748df989f42589eeb766ad8a56c670203e254af9d25",
-    "scripts/deploy.sh": "5949ce3478baf4524d93d9e18459e7ec06ff62127969af2414ffba5e7e83c779",
+    "scripts/deploy.sh": "570ff5efbde0bc12b6c6d7f22924104af9f4f1f805bcef15fb9f15b7f270c826",
     "scripts/deploy_ea_audiobook_runtime.py": "1f5cce71b8450d5ca0efdf97afd55d758a940ea2fab2514301f5c1ca080cdb1b",
     "scripts/deploy_proactive_ooda_runtime.sh": "1090c0450bbbc0c04024ea098df63980f1981a062c48a7a3620c3887f4410b0e",
     "scripts/diff_openapi.sh": "3e9259551ce0a3ed922cc1f3078c78bec125f0e5112db768cbb9e36aeef51f97",
@@ -1336,6 +1336,7 @@
     "tests/test_compose_portable_storage_defaults.py": "09327953617d13291f307cc7ceca88a068e325cb987b5a3b2b918e19eb5a0abe",
     "tests/test_continuous_improvement_goal_posture.py": "a725077c25558af3031b51b74d2668c09fc0b907d6bbdd8a5ccd74ab63979b68",
     "tests/test_crezlo_email_runtime_defaults.py": "ac6a6c2caeedbd418290d40c9275c15e3a3fc14747997a2c11b05957f9e744d2",
+    "tests/test_deploy_runtime_permissions.py": "8089cea9f5647009245bd2a4553b2d092cecd058e0d95fe48de18dc75461ecf5",
     "tests/test_deployment_contracts.py": "443b78f370a11e00ca10e2398cfe8125e13f8cc0066cf8cc3a4dc44c57a3f47d",
     "tests/test_design_mirror_bundle_contracts.py": "54ebbfb48b84edc0a5bb80ca1b90f2baf2df62dd30d169a8803951f3f882a6a9",
     "tests/test_di_container.py": "d0725ef67f804e324eb8d7f8ac0ff9f9d9974423f77dcf428e9159ef028e885f",
@@ -1637,13 +1638,13 @@
     "whatsapp-web-session/README.md": "c32dcefe592b9be60b99d6a0ec97defab55550a012196cf5fd9ce6912d5d0dfe",
     "whatsapp-web-session/server.js": "93246427843b7a4ae369d87da39ef564535f0eaf8fbf0c3d7e5a40cb63ad89f4"
   },
-  "indexed_at_commit": "965cf4576edc4cfbc62bd2fbe34b9a66e92aacb5",
-  "indexed_at_timestamp": "2026-08-15T05:02:16.302542235+00:00",
+  "indexed_at_commit": "5387a060eba66a537f6a6ff99116aed1b6ecc508",
+  "indexed_at_timestamp": "2026-08-15T11:54:30.144111103+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 35554,
-    "total_files": 1636,
-    "total_nodes": 24088
+    "total_edges": 35610,
+    "total_files": 1637,
+    "total_nodes": 24089
   },
   "vexp_version": "2.5.1"
 }

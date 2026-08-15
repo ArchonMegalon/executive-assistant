@@ -317,6 +317,24 @@ ensure_runtime_writable_dir_projection() {
   fi
   mkdir -p "${resolved_path}"
 
+  # A previous release may already have projected this directory to the
+  # container runtime UID. It is ready as-is when that owner can write and
+  # traverse it. Avoid mutations that an unprivileged host operator cannot
+  # perform on a directory that is nevertheless correct for the container.
+  local existing_owner_uid
+  local existing_mode
+  local owner_digit
+  local owner_permissions=0
+  existing_owner_uid="$(stat -c '%u' "${resolved_path}" 2>/dev/null || true)"
+  existing_mode="$(stat -c '%a' "${resolved_path}" 2>/dev/null || true)"
+  owner_digit="${existing_mode: -3:1}"
+  if [[ "${owner_digit}" =~ ^[0-7]$ ]]; then
+    owner_permissions=$((10#${owner_digit}))
+  fi
+  if [[ "${existing_owner_uid}" == "10001" ]] && (( (owner_permissions & 3) == 3 )); then
+    return 0
+  fi
+
   # Bind-mounted writable runtime dirs must be writable by the non-root EA
   # runtime UID. Prefer narrow ACL/chown. On ACL-less unprivileged hosts, use a
   # sticky writable directory so Docker does not create an unwritable root-owned
