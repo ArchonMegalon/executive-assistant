@@ -10,6 +10,15 @@ from fastapi.testclient import TestClient
 from tests.product_test_helpers import start_workspace
 
 
+@pytest.fixture(autouse=True)
+def _explicit_emailit_test_lanes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Legacy send tests opt in explicitly; production defaults remain off."""
+
+    monkeypatch.setenv("EA_EMAILIT_DELIVERY_ENABLED", "1")
+    monkeypatch.setenv("EA_EMAILIT_OFFICE_DELIVERY_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED", "1")
+
+
 def _client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
     monkeypatch.delenv("EA_LEDGER_BACKEND", raising=False)
@@ -54,15 +63,16 @@ def test_emailit_runtime_kill_switch_is_fail_closed(monkeypatch: pytest.MonkeyPa
         )
 
 
-def test_emailit_runtime_kill_switch_defaults_to_enabled_for_configured_key(
+def test_emailit_runtime_kill_switch_defaults_to_disabled_for_configured_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
     monkeypatch.delenv("EA_EMAILIT_DELIVERY_ENABLED", raising=False)
+    monkeypatch.delenv("EA_EMAILIT_OFFICE_DELIVERY_ENABLED", raising=False)
 
     from app.services import registration_email as service
 
-    assert service.email_delivery_enabled() is True
+    assert service.email_delivery_enabled() is False
 
 
 def test_emailit_product_switches_isolate_office_and_property_delivery(

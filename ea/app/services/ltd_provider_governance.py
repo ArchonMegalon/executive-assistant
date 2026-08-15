@@ -287,7 +287,7 @@ LANES: tuple[ProviderLane, ...] = (
         ),
         source_of_truth=(
             "EA owns audiobook source, rights, cast, budget, quality, recipient, and publication truth; "
-            "The separate Manfred product exclusively owns authority, samples, profiles, hearing, deletion, rollback, and release truth; "
+            "a separate product runtime exclusively owns Manfred authority, samples, profiles, hearing, deletion, rollback, and release truth; "
             "VocalLab is catalog visibility only in this lane."
         ),
         allowed_inputs=(
@@ -304,7 +304,7 @@ LANES: tuple[ProviderLane, ...] = (
             "automatic_voice_clone",
             "automatic_point_topup",
             "cross_provider_fallback",
-            "manfred_product_authority",
+            "external_person_voice_authority",
             "publication_truth",
             "release_truth",
         ),
@@ -333,8 +333,8 @@ LANES: tuple[ProviderLane, ...] = (
                 "All VocalLab spend/runtime switches remain off.",
             ),
             LaneCheck(
-                "vocallab_manfred_product_authority_boundary",
-                "The separate Manfred product retains exclusive authority and release truth.",
+                "vocallab_external_voice_authority_boundary",
+                "The external product runtime retains exclusive Manfred authority and release truth.",
                 "Lane boundary and forbidden inputs.",
             ),
         ),
@@ -437,58 +437,6 @@ LANES: tuple[ProviderLane, ...] = (
             LaneCheck("fastestvpn_secret_boundary", "VPN profiles, credentials, and exit IPs stay private.", "Build and receipt privacy contract."),
             LaneCheck("fastestvpn_rate_limit_boundary", "Provider cooldown remains authoritative.", "Live-ops receipt and lane boundary."),
             LaneCheck("fastestvpn_off_switch", "The lane retains an explicit deployment off-switch.", "EA_ENABLE_FASTESTVPN contract."),
-        ),
-    ),
-    ProviderLane(
-        lane_key="onemin_bounded_capacity_scheduler",
-        title="1min.AI Bounded Capacity Scheduler",
-        providers=("1min.AI",),
-        integration_lane="background_capacity_scheduler",
-        verified_state="verified_runtime_lane",
-        missing_state="blocked_pending_proof",
-        off_switch_env=("EA_RESPONSES_ONEMIN_BACKGROUND_REFRESH_ENABLED",),
-        source_of_truth=(
-            "EA owns task eligibility, model selection, account selection, quota, credit, evidence, approval, product, and release truth; "
-            "1min.AI supplies bounded inference capacity only."
-        ),
-        allowed_inputs=(
-            "public_safe_background_task",
-            "sanitized_repository_task",
-            "approved_operator_prompt",
-            "synthetic_health_probe",
-        ),
-        forbidden_inputs=(
-            "raw_gmail",
-            "raw_calendar",
-            "people_memory",
-            "unredacted_attachment",
-            "secret_value",
-            "unbounded_parallel_dispatch",
-            "quota_bypass",
-            "provider_rate_limit_evasion",
-            "automatic_publication",
-            "approval_truth",
-            "product_truth",
-            "release_truth",
-        ),
-        normalized_signal_schema=(
-            "task_class",
-            "provider",
-            "credential_present",
-            "maximum_blast_radius",
-            "quota_state",
-            "dispatch_state",
-            "receipt_sha256",
-            "owner_review_required",
-        ),
-        required_checks=(
-            LaneCheck("inventory_recorded", "1min.AI is recorded.", "LTD inventory row."),
-            LaneCheck("onemin_credential_pool", "A private 1min credential pool is present.", "Secret-safe credential presence only."),
-            LaneCheck("onemin_scheduler_contract", "The bounded scheduler and blast-radius contracts exist.", "Local operating-mesh contracts."),
-            LaneCheck("onemin_quota_controls", "Request and credit ceilings are enforced.", "Responses runtime quota contract."),
-            LaneCheck("onemin_secret_safe_receipt", "Capacity receipts expose no credential material.", "LTD capacity projection contract."),
-            LaneCheck("onemin_background_off_switch", "Background capacity has a fail-closed off-switch.", "EA_RESPONSES_ONEMIN_BACKGROUND_REFRESH_ENABLED contract."),
-            LaneCheck("onemin_review_boundary", "Dispatch cannot own approval or release truth.", "Lane boundary contract."),
         ),
     ),
     ProviderLane(
@@ -686,6 +634,82 @@ LANES: tuple[ProviderLane, ...] = (
         ),
     ),
     ProviderLane(
+        lane_key="tough_tongue_synthetic_rehearsal",
+        title="Tough Tongue Synthetic Conversation Rehearsal",
+        providers=("Tough Tongue AI",),
+        integration_lane="operator_only_synthetic_conversation_rehearsal",
+        verified_state="verified_draft_operator_lane",
+        missing_state="blocked_pending_proof",
+        off_switch_env=(
+            "EA_TOUGH_TONGUE_ENABLED",
+            "EA_TOUGH_TONGUE_AUTO_CREATE_SESSIONS",
+            "EA_TOUGH_TONGUE_ALLOW_OUTBOUND_CALLS",
+            "EA_TOUGH_TONGUE_ALLOW_MEETING_BOTS",
+            "EA_TOUGH_TONGUE_ALLOW_PURCHASES",
+            "EA_TOUGH_TONGUE_ALLOW_PUBLICATION",
+        ),
+        source_of_truth=(
+            "EA owns approved rehearsal packets, privacy classification, review, cleanup, decisions, and product truth; "
+            "Tough Tongue may return candidate coaching analysis for synthetic conversations only."
+        ),
+        allowed_inputs=(
+            "synthetic_conversation_script",
+            "synthetic_objection_set",
+            "approved_public_product_copy",
+            "public_release_faq",
+            "operator_authored_rubric",
+        ),
+        forbidden_inputs=(
+            "real_person_voice_or_video",
+            "manfred_voice_or_likeness",
+            "raw_gmail",
+            "raw_calendar",
+            "customer_contact",
+            "customer_recording",
+            "private_campaign_data",
+            "people_memory",
+            "workspace_secret",
+            "sourcebook_pdf",
+            "copied_rulebook_prose",
+            "meeting_destination",
+            "phone_destination",
+            "provider_tool_secret",
+            "outbound_action",
+            "automatic_session_creation",
+            "outbound_call_without_approval",
+            "meeting_bot_without_approval",
+            "purchase_without_approval",
+            "direct_publish",
+            "provider_owned_ai_response_as_canonical_artifact",
+            "decision_truth",
+            "product_truth",
+            "release_truth",
+            "publication_truth",
+        ),
+        normalized_signal_schema=(
+            "account_plan",
+            "input_packet_sha256",
+            "scenario_ref_sha256",
+            "session_ref_sha256",
+            "minutes_before",
+            "minutes_after",
+            "minutes_spent",
+            "synthetic_data_asserted",
+            "recording_deleted",
+            "transcript_deleted",
+            "cleanup_verified",
+            "human_review_status",
+        ),
+        required_checks=(
+            LaneCheck("inventory_recorded", "Tough Tongue Tier 4 is recorded.", "LTD inventory row."),
+            LaneCheck("tough_tongue_public_contract", "Current public API, privacy, retention, and ownership declarations are captured.", "Sanitized public evidence receipt."),
+            LaneCheck("tough_tongue_account_review", "The authenticated account identity and AppSumo Tier 4 purchase claim are recorded read-only.", "Sanitized account-review receipt."),
+            LaneCheck("tough_tongue_api_entitlement", "A dedicated personal access token authenticates against the GET-only balance endpoint.", "Secret-free authenticated balance receipt."),
+            LaneCheck("tough_tongue_operator_boundary", "Only synthetic, operator-reviewed rehearsal can be promoted.", "Provider registry and lane boundary."),
+            LaneCheck("tough_tongue_synthetic_lifecycle", "A fictional session is created, analyzed, deleted, and absence-verified.", "Content-free lifecycle receipt."),
+        ),
+    ),
+    ProviderLane(
         lane_key="subscribr_chummer_script_factory",
         title="Subscribr Chummer Script Factory",
         providers=("Subscribr",),
@@ -803,70 +827,6 @@ LANES: tuple[ProviderLane, ...] = (
             LaneCheck("sendr_privacy_boundary", "Raw office data is excluded.", "Privacy tests."),
             LaneCheck("sendr_human_review", "Send and follow-up require human approval.", "Approval receipt."),
             LaneCheck("sendr_reply_ingest", "Replies become EA review candidates, not automatic actions.", "Reply receipt."),
-        ),
-    ),
-    ProviderLane(
-        lane_key="tough_tongue_governed_practice",
-        title="Tough Tongue AI Governed Practice Lane",
-        providers=("Tough Tongue AI",),
-        integration_lane="governed_conversation_practice",
-        verified_state="verified_draft_operator_lane",
-        missing_state="blocked_pending_proof",
-        off_switch_env=(
-            "EA_TOUGH_TONGUE_ENABLED",
-            "EA_TOUGH_TONGUE_AUTO_CREATE_SESSIONS",
-            "EA_TOUGH_TONGUE_ALLOW_OUTBOUND_CALLS",
-            "EA_TOUGH_TONGUE_ALLOW_MEETING_BOTS",
-            "EA_TOUGH_TONGUE_ALLOW_PURCHASES",
-            "EA_TOUGH_TONGUE_ALLOW_PUBLICATION",
-        ),
-        source_of_truth=(
-            "EA owns approved practice packets, participant consent, minute budgets, review, and action truth. "
-            "Tough Tongue AI supplies bounded practice sessions and analysis candidates only; human approval owns external action truth."
-        ),
-        allowed_inputs=(
-            "operator_approved_practice_packet",
-            "synthetic_roleplay_prompt",
-            "consented_training_scenario",
-            "public_product_context",
-        ),
-        forbidden_inputs=(
-            "raw_gmail",
-            "raw_calendar",
-            "people_memory",
-            "private_commitment",
-            "private_decision",
-            "secret",
-            "unconsented_recording",
-            "automatic_session_creation",
-            "outbound_call_without_approval",
-            "meeting_bot_without_approval",
-            "purchase_without_approval",
-            "direct_publish",
-            "product_truth",
-            "decision_truth",
-            "commitment_truth",
-            "publication_truth",
-        ),
-        normalized_signal_schema=(
-            "practice_packet_id",
-            "scenario_id",
-            "session_id",
-            "consent_status",
-            "minute_budget",
-            "available_minutes_before",
-            "available_minutes_after",
-            "analysis_candidate_hash",
-            "human_review_status",
-        ),
-        required_checks=(
-            LaneCheck("inventory_recorded", "Tough Tongue AI Tier 4 is recorded.", "LTD inventory row."),
-            LaneCheck("tough_tongue_provider_verification", "Account and tier are verified.", "Sanitized provider receipt."),
-            LaneCheck("tough_tongue_api_key_private", "The API token remains outside git.", "Private env proof."),
-            LaneCheck("tough_tongue_read_only_probe", "The live probe is GET-only and secret-safe.", "Adapter tests."),
-            LaneCheck("tough_tongue_action_boundaries", "Calls, bots, purchases, publication, and automatic sessions fail closed.", "Boundary tests."),
-            LaneCheck("tough_tongue_minute_budget", "Minute reserve and per-session ceiling are explicit.", "Budget contract."),
-            LaneCheck("human_review", "Every result remains a review candidate.", "Human-review boundary."),
         ),
     ),
     ProviderLane(
@@ -1340,6 +1300,117 @@ def _check_passed(
     if key == "aiwritebook_export_roundtrip":
         ok = _valid_aiwritebook_export_roundtrip_receipt(root)
         return ok, "approved_canary_export_passed" if ok else "aiwritebook_export_roundtrip_pending"
+    if key == "tough_tongue_public_contract":
+        payload = _json_receipt(root, "config/provider_evidence/TOUGH_TONGUE_PUBLIC_CAPABILITY.source.json")
+        api = payload.get("public_api") if isinstance(payload.get("public_api"), dict) else {}
+        privacy = payload.get("privacy_policy") if isinstance(payload.get("privacy_policy"), dict) else {}
+        terms = payload.get("terms") if isinstance(payload.get("terms"), dict) else {}
+        ok = (
+            payload.get("contract") == "ea.tough_tongue.public_capability"
+            and payload.get("status") == "pass"
+            and payload.get("proof_scope") == "public_provider_declarations_only"
+            and api.get("base_url") == "https://api.toughtongueai.com/api/public"
+            and api.get("auth") == "bearer_personal_access_token"
+            and set(api.get("resource_families") or ()) >= {"scenarios", "sessions", "meeting_bots", "phone_calls", "analytics", "balance"}
+            and privacy.get("session_deletion_declared") is True
+            and privacy.get("deleted_account_retention_days") == 30
+            and privacy.get("anonymous_analytics_retention_months") == 12
+            and terms.get("user_retains_recording_and_transcript_rights") is True
+            and terms.get("provider_owns_ai_responses") is True
+            and payload.get("account_entitlement_verified") is False
+            and payload.get("secret_material_in_receipt") is False
+        )
+        return ok, "public_provider_contract_captured" if ok else "tough_tongue_public_contract_missing_or_invalid"
+    if key in {"tough_tongue_account_review", "tough_tongue_api_entitlement"}:
+        payload = _json_receipt(
+            root,
+            "ea/_completion/tough_tongue/TOUGH_TONGUE_ACCOUNT_REVIEW.generated.json",
+            "_completion/tough_tongue/TOUGH_TONGUE_ACCOUNT_REVIEW.generated.json",
+            "config/provider_evidence/TOUGH_TONGUE_ACCOUNT_REVIEW.source.json",
+        )
+        account = payload.get("account") if isinstance(payload.get("account"), dict) else {}
+        developer = payload.get("developer_access") if isinstance(payload.get("developer_access"), dict) else {}
+        base_ok = (
+            payload.get("contract") == "ea.tough_tongue.account_review"
+            and payload.get("status") == "pass"
+            and account.get("plan") == "AppSumo Tier 4"
+            and account.get("identity_matches_requested_account") is True
+            and payload.get("read_only_review") is True
+            and payload.get("credits_or_minutes_spent") == 0
+            and payload.get("secret_material_in_receipt") is False
+        )
+        if key == "tough_tongue_account_review":
+            return base_ok, "sanitized_tier4_account_review_present" if base_ok else "tough_tongue_account_review_missing_or_invalid"
+        adapter_path = root / "ea" / "app" / "services" / "tough_tongue.py"
+        adapter_text = adapter_path.read_text(encoding="utf-8") if adapter_path.is_file() else ""
+        token_created = developer.get("token_created")
+        token_posture_ok = token_created is False or (
+            token_created is True
+            and developer.get("token_authenticated") is True
+            and developer.get("authentication_probe") == "GET /api/public/balance"
+        )
+        api_ok = (
+            base_ok
+            and developer.get("personal_access_token_creation_available") is True
+            and developer.get("balance_endpoint_available") is True
+            and token_posture_ok
+            and 'method="GET"' in adapter_text
+            and 'self._get_json("balance"' in adapter_text
+            and 'method="POST"' not in adapter_text
+        )
+        return api_ok, "dedicated_token_authenticated_by_read_only_balance" if api_ok else "tough_tongue_api_entitlement_missing_or_invalid"
+    if key == "tough_tongue_operator_boundary":
+        binding_path = root / "ea" / "app" / "services" / "provider_registry.py"
+        binding_text = binding_path.read_text(encoding="utf-8") if binding_path.is_file() else ""
+        required_forbidden = {
+            "real_person_voice_or_video",
+            "manfred_voice_or_likeness",
+            "raw_gmail",
+            "raw_calendar",
+            "customer_contact",
+            "customer_recording",
+            "meeting_destination",
+            "phone_destination",
+            "outbound_action",
+            "automatic_session_creation",
+            "outbound_call_without_approval",
+            "meeting_bot_without_approval",
+            "purchase_without_approval",
+            "direct_publish",
+            "product_truth",
+            "release_truth",
+            "publication_truth",
+        }
+        binding_marker = 'provider_key="tough_tongue"'
+        binding_start = binding_text.find(binding_marker)
+        binding_window = binding_text[binding_start : binding_start + 2600] if binding_start >= 0 else ""
+        ok = (
+            required_forbidden <= set(lane.forbidden_inputs)
+            and "synthetic_conversation_script" in lane.allowed_inputs
+            and "human_review_status" in lane.normalized_signal_schema
+            and binding_start >= 0
+            and "executable=False" in binding_window
+            and binding_window.count("executable=False") >= 5
+        )
+        return ok, "synthetic_operator_only_non_executable_boundary" if ok else "tough_tongue_operator_boundary_incomplete"
+    if key == "tough_tongue_synthetic_lifecycle":
+        payload = _json_receipt(
+            root,
+            "ea/_completion/tough_tongue/TOUGH_TONGUE_SYNTHETIC_LIFECYCLE.generated.json",
+            "_completion/tough_tongue/TOUGH_TONGUE_SYNTHETIC_LIFECYCLE.generated.json",
+        )
+        cleanup = payload.get("cleanup") if isinstance(payload.get("cleanup"), dict) else {}
+        ok = (
+            payload.get("contract") == "ea.tough_tongue.synthetic_lifecycle"
+            and payload.get("status") == "pass"
+            and payload.get("data_classification") == "synthetic_no_personal_or_campaign_data"
+            and payload.get("external_actions_performed") == []
+            and cleanup.get("session_delete_requested") is True
+            and cleanup.get("recording_inaccessible_after_delete") is True
+            and cleanup.get("transcript_inaccessible_after_delete") is True
+            and payload.get("secret_material_in_receipt") is False
+        )
+        return ok, "fictional_session_lifecycle_and_cleanup_passed" if ok else "tough_tongue_synthetic_lifecycle_pending"
     if key == "hedy_provider_capability":
         ok = _passing_json_receipt(
             root,
@@ -1562,22 +1633,22 @@ def _check_passed(
             if str(env.get(name) or "").strip().lower() in enabled_values
         ]
         return (not enabled), "vocallab_spend_controls_off" if not enabled else "vocallab_spend_control_enabled"
-    if key == "vocallab_manfred_product_authority_boundary":
+    if key == "vocallab_external_voice_authority_boundary":
         required_forbidden = {
             "raw_voice_sample",
             "real_person_voice_upload",
             "unconsented_likeness",
-            "manfred_product_authority",
+            "external_person_voice_authority",
             "publication_truth",
             "release_truth",
         }
         boundary = lane.source_of_truth.lower()
         ok = (
             required_forbidden <= set(lane.forbidden_inputs)
-            and "separate manfred product exclusively owns authority" in boundary
+            and "separate product runtime exclusively owns manfred authority" in boundary
             and "release truth" in boundary
         )
-        return ok, "vocallab_manfred_product_authority_retained" if ok else "vocallab_manfred_product_authority_boundary_missing"
+        return ok, "vocallab_external_voice_authority_retained" if ok else "vocallab_external_voice_authority_boundary_missing"
     if key == "emailit_provider_verification":
         row = discovery.get(_normalize("Emailit"), {})
         ok = (
@@ -1680,76 +1751,6 @@ def _check_passed(
         deploy_text = deploy_path.read_text(encoding="utf-8") if deploy_path.is_file() else ""
         ok = "EA_ENABLE_FASTESTVPN" in lane.off_switch_env and "EA_ENABLE_FASTESTVPN" in deploy_text
         return ok, "fastestvpn_deployment_off_switch" if ok else "fastestvpn_off_switch_missing"
-    if key in {
-        "onemin_credential_pool",
-        "onemin_scheduler_contract",
-        "onemin_quota_controls",
-        "onemin_secret_safe_receipt",
-        "onemin_background_off_switch",
-        "onemin_review_boundary",
-    }:
-        scheduler_path = root / "config" / "ltd_capacity_scheduler.yaml"
-        blast_radius_path = root / "config" / "ltd_blast_radius.yaml"
-        responses_path = root / "ea" / "app" / "services" / "responses_upstream.py"
-        capacity_path = root / "scripts" / "materialize_ltd_capacity_status.py"
-        scheduler_text = scheduler_path.read_text(encoding="utf-8") if scheduler_path.is_file() else ""
-        blast_radius_text = blast_radius_path.read_text(encoding="utf-8") if blast_radius_path.is_file() else ""
-        responses_text = responses_path.read_text(encoding="utf-8") if responses_path.is_file() else ""
-        capacity_text = capacity_path.read_text(encoding="utf-8") if capacity_path.is_file() else ""
-        if key == "onemin_credential_pool":
-            manifest = root / "config" / "onemin_api_keys.local.json"
-            ok = _env_present(env, "ONEMIN_AI_API_KEY") or manifest.is_file()
-            return ok, "onemin_private_credential_pool_present" if ok else "onemin_credential_pool_missing"
-        if key == "onemin_scheduler_contract":
-            ok = (
-                "1min.AI:" in scheduler_text
-                and "default_policy: fail_closed" in scheduler_text
-                and "public_safe" in blast_radius_text
-                and "private_sensitive" in blast_radius_text
-            )
-            return ok, "onemin_bounded_scheduler_contract" if ok else "onemin_scheduler_contract_missing"
-        if key == "onemin_quota_controls":
-            required = (
-                "EA_RESPONSES_ONEMIN_MAX_REQUESTS_PER_HOUR",
-                "EA_RESPONSES_ONEMIN_MAX_CREDITS_PER_HOUR",
-                "EA_RESPONSES_ONEMIN_MAX_CREDITS_PER_DAY",
-                "EA_RESPONSES_ONEMIN_RATE_LIMIT_COOLDOWN_SECONDS",
-            )
-            ok = all(marker in responses_text for marker in required)
-            return ok, "onemin_request_credit_ceiling_contract" if ok else "onemin_quota_controls_missing"
-        if key == "onemin_secret_safe_receipt":
-            ok = (
-                '"secret_material_exposed": False' in capacity_text
-                and '"credential_present"' in capacity_text
-                and "credential_value" not in capacity_text
-            )
-            return ok, "onemin_secret_safe_capacity_receipt" if ok else "onemin_secret_safe_receipt_missing"
-        if key == "onemin_background_off_switch":
-            enabled_values = {"1", "true", "yes", "on", "enabled"}
-            value = str(env.get("EA_RESPONSES_ONEMIN_BACKGROUND_REFRESH_ENABLED") or "1").strip().lower()
-            declared = (
-                "EA_RESPONSES_ONEMIN_BACKGROUND_REFRESH_ENABLED" in lane.off_switch_env
-                and "EA_RESPONSES_ONEMIN_BACKGROUND_REFRESH_ENABLED" in responses_text
-            )
-            ok = declared and value in enabled_values
-            return ok, "onemin_background_off_switch_available" if ok else "onemin_background_off_switch_engaged_or_missing"
-        required_forbidden = {
-            "raw_gmail",
-            "raw_calendar",
-            "people_memory",
-            "secret_value",
-            "unbounded_parallel_dispatch",
-            "quota_bypass",
-            "approval_truth",
-            "product_truth",
-            "release_truth",
-        }
-        ok = (
-            required_forbidden <= set(lane.forbidden_inputs)
-            and "ea owns task eligibility" in lane.source_of_truth.lower()
-            and "release truth" in lane.source_of_truth.lower()
-        )
-        return ok, "onemin_ea_review_truth_boundary" if ok else "onemin_review_boundary_missing"
     if key in {"commercial_use", "watermark_export", "watermark_duration_export", "credit_budget", "safety_scan", "human_review", "likeness_policy", "quality_score"}:
         if key == "human_review" and lane.lane_key == "markupgo_fliplink_premium_delivery":
             if _provider_contract_check(
@@ -1936,57 +1937,6 @@ def _check_passed(
             and "auto_reply" in lane.forbidden_inputs
         )
         return ok, "sendr_reply_ingest_boundary_defined" if ok else "sendr_reply_ingest_boundary_missing"
-    if key == "tough_tongue_provider_verification":
-        ok = _passing_json_receipt(
-            root,
-            "ea/_completion/tough_tongue/TOUGH_TONGUE_PROVIDER_VERIFICATION.generated.json",
-            "_completion/tough_tongue/TOUGH_TONGUE_PROVIDER_VERIFICATION.generated.json",
-        )
-        return ok, "tough_tongue_provider_verification_passed" if ok else "tough_tongue_provider_verification_missing"
-    if key == "tough_tongue_api_key_private":
-        ok = _env_present(env, "TOUGH_TONGUE_API_KEY")
-        return ok, "TOUGH_TONGUE_API_KEY_present_outside_git" if ok else "TOUGH_TONGUE_API_KEY_missing"
-    if key in {
-        "tough_tongue_read_only_probe",
-        "tough_tongue_action_boundaries",
-        "tough_tongue_minute_budget",
-    }:
-        source_path = root / "ea" / "app" / "services" / "tough_tongue.py"
-        source_text = source_path.read_text(encoding="utf-8") if source_path.is_file() else ""
-        if key == "tough_tongue_read_only_probe":
-            ok = (
-                'method="GET"' in source_text
-                and 'self._get_json("balance"' in source_text
-                and "method=\"POST\"" not in source_text
-                and '"raw_credentials_exposed": False' in source_text
-            )
-            return ok, "tough_tongue_get_only_probe_contract" if ok else "tough_tongue_read_only_probe_missing"
-        if key == "tough_tongue_action_boundaries":
-            required_switches = {
-                "EA_TOUGH_TONGUE_ENABLED",
-                "EA_TOUGH_TONGUE_AUTO_CREATE_SESSIONS",
-                "EA_TOUGH_TONGUE_ALLOW_OUTBOUND_CALLS",
-                "EA_TOUGH_TONGUE_ALLOW_MEETING_BOTS",
-                "EA_TOUGH_TONGUE_ALLOW_PURCHASES",
-                "EA_TOUGH_TONGUE_ALLOW_PUBLICATION",
-            }
-            required_forbidden = {
-                "automatic_session_creation",
-                "outbound_call_without_approval",
-                "meeting_bot_without_approval",
-                "purchase_without_approval",
-                "direct_publish",
-            }
-            ok = required_switches <= set(lane.off_switch_env) and required_forbidden <= set(lane.forbidden_inputs)
-            return ok, "tough_tongue_external_action_boundaries_defined" if ok else "tough_tongue_action_boundaries_missing"
-        ok = (
-            "EA_TOUGH_TONGUE_MIN_REMAINING_MINUTES" in source_text
-            and "EA_TOUGH_TONGUE_MAX_SESSION_MINUTES" in source_text
-            and "minute_budget" in lane.normalized_signal_schema
-            and "available_minutes_before" in lane.normalized_signal_schema
-            and "available_minutes_after" in lane.normalized_signal_schema
-        )
-        return ok, "tough_tongue_minute_budget_contract" if ok else "tough_tongue_minute_budget_missing"
     if key == "provider_roles_defined":
         ok = all(part in lane.source_of_truth.lower() for part in ("teable", "blipai", "syllabbles"))
         return ok, "roles_defined" if ok else "roles_missing"
@@ -2056,6 +2006,8 @@ def build_ltd_provider_lane_receipt(
         "passed_checks": [row["check_key"] for row in check_rows if row["passed"]],
         "missing_checks": missing,
         "hard_contract_failures": hard_failures,
+        "status_scope": "lane_contract_integrity_only",
+        "readiness_asserted": not missing and not hard_failures,
         "status": "pass" if not hard_failures else "fail",
     }
 
@@ -2160,6 +2112,53 @@ def _hard_contract_failures(lane: ProviderLane) -> list[str]:
             failures.append("aiwritebook_approval_schema_incomplete")
         if "EA_AIWRITEBOOK_CHRONICLE_STUDIO_ENABLED" not in lane.off_switch_env:
             failures.append("aiwritebook_off_switch_missing")
+    if lane.lane_key == "tough_tongue_synthetic_rehearsal":
+        if lane.verified_state == "verified_runtime_lane":
+            failures.append("tough_tongue_operator_lane_must_not_be_runtime")
+        required_forbidden = {
+            "real_person_voice_or_video",
+            "manfred_voice_or_likeness",
+            "raw_gmail",
+            "raw_calendar",
+            "customer_contact",
+            "customer_recording",
+            "meeting_destination",
+            "phone_destination",
+            "provider_tool_secret",
+            "outbound_action",
+            "automatic_session_creation",
+            "outbound_call_without_approval",
+            "meeting_bot_without_approval",
+            "purchase_without_approval",
+            "direct_publish",
+            "product_truth",
+            "release_truth",
+            "publication_truth",
+        }
+        if not required_forbidden <= set(lane.forbidden_inputs):
+            failures.append("tough_tongue_privacy_or_outbound_boundary_incomplete")
+        required_switches = {
+            "EA_TOUGH_TONGUE_ENABLED",
+            "EA_TOUGH_TONGUE_AUTO_CREATE_SESSIONS",
+            "EA_TOUGH_TONGUE_ALLOW_OUTBOUND_CALLS",
+            "EA_TOUGH_TONGUE_ALLOW_MEETING_BOTS",
+            "EA_TOUGH_TONGUE_ALLOW_PURCHASES",
+            "EA_TOUGH_TONGUE_ALLOW_PUBLICATION",
+        }
+        if not required_switches <= set(lane.off_switch_env):
+            failures.append("tough_tongue_fail_closed_switch_missing")
+        required_schema = {
+            "input_packet_sha256",
+            "scenario_ref_sha256",
+            "session_ref_sha256",
+            "synthetic_data_asserted",
+            "recording_deleted",
+            "transcript_deleted",
+            "cleanup_verified",
+            "human_review_status",
+        }
+        if not required_schema <= set(lane.normalized_signal_schema):
+            failures.append("tough_tongue_receipt_schema_incomplete")
     if lane.lane_key == "emailit_transactional_delivery":
         required_forbidden = {
             "raw_gmail",
@@ -2198,7 +2197,7 @@ def _hard_contract_failures(lane: ProviderLane) -> list[str]:
             "automatic_voice_render",
             "automatic_voice_clone",
             "automatic_point_topup",
-            "manfred_product_authority",
+            "external_person_voice_authority",
             "publication_truth",
             "release_truth",
         }
@@ -2229,36 +2228,6 @@ def _hard_contract_failures(lane: ProviderLane) -> list[str]:
             failures.append("fastestvpn_transport_boundary_incomplete")
         if "EA_ENABLE_FASTESTVPN" not in lane.off_switch_env:
             failures.append("fastestvpn_off_switch_missing")
-    if lane.lane_key == "onemin_bounded_capacity_scheduler":
-        required_forbidden = {
-            "raw_gmail",
-            "raw_calendar",
-            "people_memory",
-            "unredacted_attachment",
-            "secret_value",
-            "unbounded_parallel_dispatch",
-            "quota_bypass",
-            "provider_rate_limit_evasion",
-            "automatic_publication",
-            "approval_truth",
-            "product_truth",
-            "release_truth",
-        }
-        if not required_forbidden <= set(lane.forbidden_inputs):
-            failures.append("onemin_capacity_boundary_incomplete")
-        if "EA_RESPONSES_ONEMIN_BACKGROUND_REFRESH_ENABLED" not in lane.off_switch_env:
-            failures.append("onemin_background_off_switch_missing")
-        required_schema = {
-            "task_class",
-            "credential_present",
-            "maximum_blast_radius",
-            "quota_state",
-            "dispatch_state",
-            "receipt_sha256",
-            "owner_review_required",
-        }
-        if not required_schema <= set(lane.normalized_signal_schema):
-            failures.append("onemin_capacity_signal_schema_incomplete")
     if lane.lane_key == "release_quality_gates":
         if "release_truth" not in lane.forbidden_inputs:
             failures.append("release_quality_truth_boundary_missing")
@@ -2297,6 +2266,8 @@ def build_ltd_provider_governance_receipt(
         for lane in LANES
     ]
     failures = [receipt["lane_key"] for receipt in receipts if receipt["status"] != "pass"]
+    ready_receipts = [receipt for receipt in receipts if receipt["readiness_asserted"]]
+    blocked_receipts = [receipt for receipt in receipts if not receipt["readiness_asserted"]]
     contract_summary = _provider_contract_summary(resolved_root)
     contract_backed_checks = [
         {
@@ -2321,8 +2292,13 @@ def build_ltd_provider_governance_receipt(
         "generated_at": generated_at or datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "contract_name": "ea.verify_ltd_provider_lanes",
         "status": "pass" if not failures else "fail",
+        "status_scope": "governance_contract_integrity_only",
+        "readiness_status": "ready" if not blocked_receipts else "blocked_pending_proof",
         "lane_count": len(receipts),
         "verified_or_blocked_count": sum(1 for receipt in receipts if receipt["status"] == "pass"),
+        "ready_lane_count": len(ready_receipts),
+        "blocked_lane_count": len(blocked_receipts),
+        "runtime_enabled_lane_count": sum(1 for receipt in receipts if receipt["runtime_enabled"]),
         "failures": failures,
         "provider_contracts": provider_contracts,
         "contract_backed_checks": contract_backed_checks,

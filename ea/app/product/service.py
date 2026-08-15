@@ -21413,14 +21413,14 @@ class ProductService:
             telegram_chat_ref = str(
                 dict(telegram_binding.auth_metadata_json or {}).get("default_chat_ref") or telegram_binding.external_account_ref or ""
             ).strip()
-        if not email_delivery_enabled():
+        if not email_delivery_enabled(kind="ea_property_tour_delivery"):
             gmail_binding_candidates = self._google_delivery_binding_candidates(
                 principal_id=principal_id,
                 account_email=google_account_email,
             )
             if gmail_binding_candidates:
                 gmail_binding_id, gmail_sender_email, gmail_sender_principal_id = gmail_binding_candidates[0]
-        delivery_mode = "emailit" if email_delivery_enabled() else (
+        delivery_mode = "emailit" if email_delivery_enabled(kind="ea_property_tour_delivery") else (
             "gmail" if gmail_binding_candidates and _assistant_gmail_fallback_enabled() else ""
         )
         subject, body_text = _property_tour_delivery_message(
@@ -29871,7 +29871,7 @@ class ProductService:
         tour_result: dict[str, object] | None = None,
     ) -> dict[str, object]:
         recipient_email = _principal_email_hint(principal_id)
-        if not recipient_email or not email_delivery_enabled():
+        if not recipient_email or not email_delivery_enabled(kind="ea_property_match_delivery"):
             return {"status": "suppressed", "reason": "email_delivery_not_configured"}
         gmail_binding_candidates = self._google_delivery_binding_candidates(
             principal_id=principal_id,

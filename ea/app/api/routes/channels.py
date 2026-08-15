@@ -5520,6 +5520,7 @@ _TELEGRAM_PROPERTY_COMPARISON_KEYS = (
     "comparison_pair_refs",
 )
 _TELEGRAM_PROPERTY_INTENTS = {"property_compare", "property_review"}
+_TELEGRAM_PROPERTY_PROFILE_THEMES = {"profile:property"}
 
 
 def _telegram_strip_property_object_map(active_object_map: dict[str, str] | None) -> dict[str, str]:
@@ -5552,6 +5553,16 @@ def _telegram_strip_property_intent_state(intent_state: dict[str, str] | None) -
     }
     if str(sanitized.get("active_intent") or "").strip().lower() in _TELEGRAM_PROPERTY_INTENTS:
         sanitized.pop("active_intent", None)
+    active_profile_themes = [
+        item.strip()
+        for item in str(sanitized.get("active_profile_themes") or "").split(",")
+        if item.strip()
+        and item.strip().lower() not in _TELEGRAM_PROPERTY_PROFILE_THEMES
+    ]
+    if active_profile_themes:
+        sanitized["active_profile_themes"] = ", ".join(active_profile_themes)
+    else:
+        sanitized.pop("active_profile_themes", None)
     return sanitized
 
 

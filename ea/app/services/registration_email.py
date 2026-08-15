@@ -43,7 +43,7 @@ class EmailDeliveryRateLimitedError(RuntimeError):
         super().__init__(f"registration_email_rate_limited:{label}:retry_after={self.retry_after_seconds}")
 
 
-_EMAILIT_FALSE_VALUES = {"0", "false", "no", "off", "disabled"}
+_EMAILIT_TRUE_VALUES = {"1", "true", "yes", "on", "enabled"}
 
 
 def _emailit_lane_switch(kind: str) -> str:
@@ -55,16 +55,16 @@ def _emailit_lane_switch(kind: str) -> str:
     return "EA_EMAILIT_OFFICE_DELIVERY_ENABLED"
 
 
-def _emailit_delivery_explicitly_disabled(*, kind: str = "ea_registration_verification") -> bool:
+def _emailit_delivery_explicitly_enabled(*, kind: str = "ea_registration_verification") -> bool:
     master = str(os.environ.get("EA_EMAILIT_DELIVERY_ENABLED") or "").strip().lower()
     lane = str(os.environ.get(_emailit_lane_switch(kind)) or "").strip().lower()
-    return master in _EMAILIT_FALSE_VALUES or lane in _EMAILIT_FALSE_VALUES
+    return master in _EMAILIT_TRUE_VALUES and lane in _EMAILIT_TRUE_VALUES
 
 
-def email_delivery_enabled() -> bool:
-    if _emailit_delivery_explicitly_disabled(kind="ea_registration_verification"):
-        return False
-    return bool(str(os.environ.get("EMAILIT_API_KEY") or "").strip())
+def email_delivery_enabled(*, kind: str = "ea_registration_verification") -> bool:
+    return bool(str(os.environ.get("EMAILIT_API_KEY") or "").strip()) and _emailit_delivery_explicitly_enabled(
+        kind=kind
+    )
 
 
 def _force_fallback_sender() -> bool:
@@ -467,11 +467,11 @@ def _send_emailit_email(
     sender_email: str = "",
     sender_name: str = "",
 ) -> RegistrationEmailReceipt:
-    if _emailit_delivery_explicitly_disabled(kind=kind):
-        raise RuntimeError("registration_email_delivery_disabled")
     api_key = str(os.environ.get("EMAILIT_API_KEY") or "").strip()
     if not api_key:
         raise RuntimeError("registration_email_api_key_missing")
+    if not _emailit_delivery_explicitly_enabled(kind=kind):
+        raise RuntimeError("registration_email_delivery_disabled")
     resolved_sender_email = _resolved_sender_email(sender_email, kind=kind)
     resolved_sender_name = _resolved_sender_name(sender_name, kind=kind)
     payload = {

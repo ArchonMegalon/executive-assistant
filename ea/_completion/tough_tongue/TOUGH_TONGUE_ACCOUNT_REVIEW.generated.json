@@ -1,0 +1,28 @@
+{
+  "contract": "ea.tough_tongue.account_review",
+  "status": "pass",
+  "observed_at": "2026-08-15T04:45:42Z",
+  "read_only_review": true,
+  "credits_or_minutes_spent": 0,
+  "secret_material_in_receipt": false,
+  "account": {
+    "plan": "AppSumo Tier 4",
+    "plan_source": "operator_purchase_confirmation",
+    "plan_returned_by_balance_api": false,
+    "identity_matches_requested_account": true,
+    "login_email_sha256": "f951ae0f08520264d0cec1cbfa1d8f301f3a6eb873e48b58e17fd066d28278c1",
+    "forwarding_email_sha256": "4a1702ea0e8d9ec511b03dfa5a2009cbd37515e558ef516d66f055196ff6d07f"
+  },
+  "developer_access": {
+    "personal_access_token_creation_available": true,
+    "balance_endpoint_available": true,
+    "token_created": true,
+    "token_authenticated": true,
+    "authentication_probe": "GET /api/public/balance"
+  },
+  "balance": {
+    "remaining": 123.03,
+    "unit": "available_minutes"
+  },
+  "external_actions_performed": []
+}

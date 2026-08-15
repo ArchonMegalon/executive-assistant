@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
 import hashlib
 import math
 import re
@@ -36,6 +35,21 @@ _GENERATION_STATUSES = (
     | VOCALLAB_GENERATION_FAILED
 )
 _PRIVATE_ID_RE = re.compile(r"^[^\s\x00-\x1f\x7f]{1,256}$")
+_CATALOG_VOICE_KEYS = frozenset(
+    {
+        "accent",
+        "category",
+        "id",
+        "language_code",
+        "languages",
+        "name",
+        "slug",
+        "type",
+    }
+)
+_CLONE_VOICE_KEYS = frozenset(
+    {"created_at", "id", "languages", "name", "type"}
+)
 _MODEL_SEMANTICS = (
     ("v-studio", True, True, 1.0),
     ("v-pro", False, False, 1.0),
@@ -227,20 +241,21 @@ def parse_voices(payload: object) -> tuple[VoiceObservation, ...]:
         seen: set[str] = set()
         for row in rows:
             item = _mapping(row)
-            provider_type = item.get("type")
-            preset_keys = {
-                "accent", "category", "id", "language_code", "languages",
-                "name", "slug", "type",
-            }
-            clone_keys = {"created_at", "id", "languages", "name", "type"}
-            if (
-                (provider_type == "clone" and set(item) != clone_keys)
-                or (provider_type != "clone" and set(item) != preset_keys)
-            ):
-                raise VocalLabSchemaError()
             voice_id = item.get("id")
             name = item.get("name")
+            provider_type = item.get("type")
             languages = item.get("languages")
+            if provider_type == "clone":
+                if set(item) != _CLONE_VOICE_KEYS:
+                    raise VocalLabSchemaError()
+                metadata = (item.get("created_at"),)
+            else:
+                if set(item) != _CATALOG_VOICE_KEYS:
+                    raise VocalLabSchemaError()
+                metadata = tuple(
+                    item.get(key)
+                    for key in ("accent", "category", "language_code", "slug")
+                )
             if (
                 not _valid_private_id(voice_id)
                 or voice_id in seen
@@ -258,33 +273,15 @@ def parse_voices(payload: object) -> tuple[VoiceObservation, ...]:
                     for language in languages
                 )
                 or len(set(languages)) != len(languages)
-            ):
-                raise VocalLabSchemaError()
-            if provider_type == "clone":
-                created_at = item.get("created_at")
-                if not isinstance(created_at, str) or len(created_at) > 64:
-                    raise VocalLabSchemaError()
-                try:
-                    parsed_created_at = datetime.fromisoformat(
-                        created_at.replace("Z", "+00:00")
-                    )
-                except ValueError:
-                    raise VocalLabSchemaError() from None
-                if parsed_created_at.tzinfo is None or not created_at.endswith("Z"):
-                    raise VocalLabSchemaError()
-            else:
-                metadata = tuple(
-                    item.get(key)
-                    for key in ("accent", "category", "language_code", "slug")
-                )
-                if any(
+                or any(
                     not isinstance(field, str)
                     or not field.strip()
                     or field != field.strip()
                     or len(field) > 200
                     for field in metadata
-                ):
-                    raise VocalLabSchemaError()
+                )
+            ):
+                raise VocalLabSchemaError()
             seen.add(voice_id)
             observations.append(
                 VoiceObservation(

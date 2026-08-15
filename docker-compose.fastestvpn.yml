@@ -49,7 +49,7 @@ services:
     container_name: ea-fastestvpn-proxy-ch
     restart: unless-stopped
     env_file:
-      - .env
+      - .ea-runtime-secrets/ea_runtime.env
     environment:
       - FASTESTVPN_CONFIG_DIR=/vpn/fastestvpn
       - FASTESTVPN_CONFIG_GLOB=${FASTESTVPN_CH_CONFIG_GLOB:-switzerland*.ovpn}

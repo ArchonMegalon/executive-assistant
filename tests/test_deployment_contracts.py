@@ -401,8 +401,6 @@ def test_proactive_ooda_deploy_keeps_runtime_outputs_group_writable() -> None:
     )
 
     assert "1000" in [str(item) for item in list(proactive.get("group_add") or [])]
-    assert "mkdir -p /data/provider-ledger/proactive_ooda_approval_callbacks" in command
-    assert "chmod 0770 /data/provider-ledger/proactive_ooda_approval_callbacks" in command
     assert "repair_shared_output_permissions()" in command
     assert (
         '-user "$${runtime_uid}" -exec chmod g+rw {} + 2>/dev/null || true'
@@ -650,6 +648,99 @@ def test_overlay_compose_pins_third_party_runtime_images_by_digest() -> None:
     assert "no-new-privileges:true" in list(
         cloudflared_service.get("security_opt") or []
     )
+
+
+def test_vocallab_worker_overlay_is_secret_scoped_and_spend_safe() -> None:
+    compose = _load_yaml(ROOT / "docker-compose.vocallab-worker.yml")
+    services = compose.get("services") or {}
+    assert set(services) == {
+        "ea-vocallab-secret-init",
+        "ea-worker",
+        "ea-scheduler",
+    }
+
+    init = services["ea-vocallab-secret-init"]
+    assert init.get("image") == (
+        "alpine:3.22@sha256:"
+        "14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce"
+    )
+    assert init.get("network_mode") == "none"
+    assert init.get("read_only") is True
+    assert init.get("user") == "0:0"
+    assert set(init.get("cap_drop") or []) == {"ALL"}
+    assert set(init.get("cap_add") or []) == {"CHOWN", "DAC_OVERRIDE", "FOWNER"}
+    assert "no-new-privileges:true" in list(init.get("security_opt") or [])
+    init_volumes = list(init.get("volumes") or [])
+    assert init_volumes[0]["source"].startswith(
+        "${EA_AUDIOBOOK_VOCALLAB_API_KEY_HOST_FILE:?"
+    )
+    assert init_volumes[0]["read_only"] is True
+    assert init_volumes[0]["bind"]["create_host_path"] is False
+    assert init_volumes[1] == "ea_vocallab_runtime_secret:/output"
+
+    expected_environment = {
+        "VOCALLAB_API_KEY=",
+        "VOCALLAB_API_KEY_FILE=/run/secrets/ea-vocallab/api_key",
+        "EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED=1",
+        "EA_AUDIOBOOK_VOCALLAB_ENABLED=1",
+        "EA_AUDIOBOOK_VOCALLAB_AUTO_RENDER=0",
+        "EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_ROTATION_REQUIRED=0",
+        "EA_AUDIOBOOK_VOCALLAB_CREDENTIAL_PRODUCTION_ELIGIBLE=1",
+        "EA_AUDIOBOOK_VOCALLAB_ALLOW_TOPUP_POINTS=0",
+        "EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES=0",
+        "EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES=0",
+        "EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL=0",
+        "EA_AUDIOBOOK_TTS_PROVIDER_ORDER=vocallab,unmixr,piper_local",
+    }
+    for service_name in ("ea-worker", "ea-scheduler"):
+        service = services[service_name]
+        assert set(service.get("environment") or []) == expected_environment
+        assert service.get("volumes") == [
+            "ea_vocallab_runtime_secret:/run/secrets/ea-vocallab:ro"
+        ]
+        assert service["depends_on"]["ea-vocallab-secret-init"]["condition"] == (
+            "service_completed_successfully"
+        )
+
+    assert "ea-api" not in services
+    assert set(compose.get("volumes") or {}) == {"ea_vocallab_runtime_secret"}
+
+
+def test_deploy_projects_only_exact_nonsecret_config_and_runtime_paths() -> None:
+    deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
+    assert 'case "${relative_path}" in' in deploy
+    assert "config/*) ;;" in deploy
+    assert '[[ ! -f "${resolved_path}" || -L "${resolved_path}" ]]' in deploy
+    for relative_path in (
+        "config/onemin_api_keys.example.json",
+        "config/tenants.yml",
+        "config/onemin_slot_owners.json",
+        "config/places.yml",
+    ):
+        assert (
+            f'ensure_runtime_readable_config_projection "{relative_path}"' in deploy
+        )
+    assert (
+        'ensure_runtime_writable_dir_projection "EA_RUNTIME_HOST_ROOT" "./.runtime"'
+        in deploy
+    )
+
+
+def test_deploy_runs_vocallab_secret_initializer_before_workers() -> None:
+    deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
+    assert "vocallab_worker_overlay_enabled=0" in deploy
+    assert (
+        'if [[ "$(basename "${override}")" == '
+        '"docker-compose.vocallab-worker.yml" ]]; then' in deploy
+    )
+    assert "vocallab_worker_overlay_enabled=1" in deploy
+    assert "run_one_shot_initializer()" in deploy
+    initializer = "run_one_shot_initializer ea-vocallab-secret-init"
+    rollout = 'build_and_recreate_services "${RUNTIME_BUILD_SERVICES[@]}"'
+    assert initializer in deploy
+    assert deploy.index(initializer) < deploy.index(rollout)
+    assert '--exit-code-from "${service}"' in deploy
+    assert "FAILURE_LOG_SERVICES+=(ea-vocallab-secret-init)" in deploy
 
 
 def test_socket_proxy_renders_config_into_writable_ephemeral_run() -> None:
@@ -931,7 +1022,10 @@ def test_fastestvpn_override_prefers_bounded_switzerland_lane_for_onemin() -> No
     services = compose.get("services") or {}
     swiss = services.get("ea-fastestvpn-proxy-ch") or {}
     swiss_environment = {str(item) for item in list(swiss.get("environment") or [])}
+    swiss_env_files = [str(item) for item in list(swiss.get("env_file") or [])]
 
+    assert swiss_env_files == [".ea-runtime-secrets/ea_runtime.env"]
+    assert ".env" not in swiss_env_files
     assert "FASTESTVPN_CONFIG_GLOB=${FASTESTVPN_CH_CONFIG_GLOB:-switzerland*.ovpn}" in swiss_environment
     assert "127.0.0.1:${FASTESTVPN_CH_PROXY_HOST_PORT:-9315}:${FASTESTVPN_PROXY_PORT:-3128}" in {
         str(item) for item in list(swiss.get("ports") or [])
@@ -966,10 +1060,20 @@ def test_emailit_compose_defaults_fail_closed_and_split_product_ownership() -> N
     api = ((compose.get("services") or {}).get("ea-api") or {})
     environment = {str(item) for item in list(api.get("environment") or [])}
 
+    property_compose = _load_yaml(ROOT / "docker-compose.property.yml")
+    property_api = ((property_compose.get("services") or {}).get("propertyquarry-api") or {})
+    property_environment = dict(property_api.get("environment") or {})
+
     assert "EA_EMAILIT_DELIVERY_ENABLED=${EA_EMAILIT_DELIVERY_ENABLED:-0}" in environment
     assert "EA_EMAILIT_OFFICE_DELIVERY_ENABLED=${EA_EMAILIT_OFFICE_DELIVERY_ENABLED:-0}" in environment
-    assert not any(item.startswith("PROPERTYQUARRY_") for item in environment)
-    assert "CHUMMER_HUB_EMAILIT_DELIVERY_ENABLED=${CHUMMER_HUB_EMAILIT_DELIVERY_ENABLED:-0}" in environment
+    assert not any(item.startswith("PROPERTYQUARRY_EMAILIT_") for item in environment)
+    assert not any(item.startswith("CHUMMER_HUB_EMAILIT_") for item in environment)
+    assert property_environment["EA_EMAILIT_DELIVERY_ENABLED"] == (
+        "${EA_EMAILIT_DELIVERY_ENABLED:-0}"
+    )
+    assert property_environment["PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED"] == (
+        "${PROPERTYQUARRY_EMAILIT_DELIVERY_ENABLED:-0}"
+    )
 
 
 def _retired_memorial_override_restores_memorial_runtime_contract() -> None:

@@ -420,6 +420,8 @@ def product_browser_server() -> Iterator[dict[str, object]]:
     os.environ["EA_ENABLE_PUBLIC_RESULTS"] = "0"
     os.environ["EA_ENABLE_PUBLIC_TOURS"] = "0"
     os.environ["EMAILIT_API_KEY"] = "browser-test-emailit-key"
+    os.environ["EA_EMAILIT_DELIVERY_ENABLED"] = "1"
+    os.environ["EA_EMAILIT_OFFICE_DELIVERY_ENABLED"] = "1"
 
     app = create_app()
     client = TestClient(app)

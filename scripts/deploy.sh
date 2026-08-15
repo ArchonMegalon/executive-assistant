@@ -269,6 +269,36 @@ ensure_runtime_readable_file_projection() {
   chmod a+r,go-w "${resolved_path}"
 }
 
+ensure_runtime_readable_config_projection() {
+  local relative_path="$1"
+  case "${relative_path}" in
+    config/*) ;;
+    *)
+      echo "Refusing runtime-readable config projection outside config/: ${relative_path}" >&2
+      return 1
+      ;;
+  esac
+
+  local resolved_path="${APP_ROOT}/${relative_path}"
+  if [[ ! -f "${resolved_path}" || -L "${resolved_path}" ]]; then
+    echo "Required runtime-readable config projection is missing or unsafe: ${resolved_path}" >&2
+    return 1
+  fi
+
+  # The release worktree may be created with umask 0077. Grant the runtime UID
+  # traverse-only access to config/ and read access to this exact nonsecret file;
+  # do not broaden access to sibling credentials in the same directory.
+  local config_dir="${APP_ROOT}/config"
+  if command -v setfacl >/dev/null 2>&1 \
+    && setfacl -m u:10001:--x "${config_dir}" >/dev/null 2>&1 \
+    && setfacl -m u:10001:r "${resolved_path}" >/dev/null 2>&1; then
+    chmod go-w "${config_dir}" "${resolved_path}"
+    return 0
+  fi
+  chmod a+x,go-w "${config_dir}"
+  chmod a+r,go-w "${resolved_path}"
+}
+
 ensure_runtime_writable_dir_projection() {
   local env_name="$1"
   local default_path="$2"
@@ -405,8 +435,13 @@ ensure_runtime_readable_file_projection \
   "EA_RESPONSES_NO_RETENTION_CLIENT_TOKEN_HOST_FILE" \
   "./.ea-runtime-secrets/no_retention_client_token" \
   "runtime_group_1000"
+ensure_runtime_readable_config_projection "config/onemin_api_keys.example.json"
+ensure_runtime_readable_config_projection "config/tenants.yml"
+ensure_runtime_readable_config_projection "config/onemin_slot_owners.json"
+ensure_runtime_readable_config_projection "config/places.yml"
 "${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_whatsapp_callback_secret_runtime_projection.py" \
   --generate-missing >/dev/null
+ensure_runtime_writable_dir_projection "EA_RUNTIME_HOST_ROOT" "./.runtime"
 ensure_runtime_writable_dir_projection "EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT" "./data/pocket-ai-audio"
 pocket_audio_archive_host_root="$(normalize_origin_like "$(effective_value EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT)")"
 if [[ -z "${pocket_audio_archive_host_root}" ]]; then
@@ -644,6 +679,14 @@ for override in "${EXTRA_COMPOSE_OVERRIDES[@]}"; do
   fi
 done
 
+vocallab_worker_overlay_enabled=0
+for override in "${EXTRA_COMPOSE_OVERRIDES[@]}"; do
+  if [[ "$(basename "${override}")" == "docker-compose.vocallab-worker.yml" ]]; then
+    vocallab_worker_overlay_enabled=1
+    break
+  fi
+done
+
 if [[ "${memory_only}" != "1" ]]; then
   should_enable_cloudflared="${enable_cloudflared}"
   cloudflared_override="docker-compose.cloudflared.yml"
@@ -827,6 +870,34 @@ recreate_services_without_build() {
   done
 }
 
+run_one_shot_initializer() {
+  local service="$1"
+  compose pull "${service}"
+  if ! compose up \
+    --no-build \
+    --no-deps \
+    --force-recreate \
+    --abort-on-container-exit \
+    --exit-code-from "${service}" \
+    "${service}"; then
+    echo "One-shot runtime initializer failed during deploy: ${service}" >&2
+    return 1
+  fi
+
+  local cid
+  local exit_code
+  cid="$(compose ps -a -q "${service}" || true)"
+  [[ -n "${cid}" ]] || {
+    echo "One-shot runtime initializer did not create a container: ${service}" >&2
+    return 1
+  }
+  exit_code="$(docker inspect -f '{{.State.ExitCode}}' "${cid}" 2>/dev/null || true)"
+  if [[ "${exit_code}" != "0" ]]; then
+    echo "One-shot runtime initializer did not exit successfully: ${service}" >&2
+    return 1
+  fi
+}
+
 service_container_ready() {
   local service="$1"
   local cid
@@ -895,6 +966,10 @@ else
     RUNTIME_RECREATE_ONLY_SERVICES+=(ea-docker-socket-proxy)
     TOPOLOGY_SERVICES+=(ea-fastestvpn-proxy-ch ea-docker-socket-proxy)
     FAILURE_LOG_SERVICES+=(ea-fastestvpn-proxy-ch ea-docker-socket-proxy)
+  fi
+  if [[ "${vocallab_worker_overlay_enabled}" == "1" ]]; then
+    FAILURE_LOG_SERVICES+=(ea-vocallab-secret-init)
+    run_one_shot_initializer ea-vocallab-secret-init
   fi
   build_and_recreate_services "${RUNTIME_BUILD_SERVICES[@]}"
   recover_docker_build_pressure

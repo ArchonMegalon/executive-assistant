@@ -14,13 +14,10 @@ OODA sections as history.
 
 ### Completed release state
 
-- EA audit remediation is now independently published and deployed from exact clean source:
-  `codex/ea-audit-release-exact-20260813` at
-  `5dd8d0fe902fe9656c1fc22904ba2e5844d7683a`, deployment
-  `deploy-20260813T101405Z-5dd8d0fe902f`. Public release authority and runtime supply chain both
-  report `pass/clear`; all inspected EA services are healthy with zero restarts and exact source
-  attestation. This closes the former runtime-unavailable/mismatched portion of the EA handoff,
-  but does not pretend the branch has been reviewed and merged to `origin/main`.
+- The EA audit closeout is reconciled onto current `origin/main` on
+  `codex/ea-audit-release-final-20260813`. It preserves the newer product-owned Emailit split and
+  provider-neutral Manfred authority boundary while carrying forward the exact-source release,
+  socket-proxy, supply-chain, and deploy hardening.
 
 - `/docker/Memorial` is clean, pushed to `origin/main`, and deployed at exact revision
   `661eb568834f9657ee25f288379ad059ca13c042`.
@@ -78,15 +75,11 @@ OODA sections as history.
 
 Only two of 16 formal gates remain red:
 
-1. `ea_core_closeout`: the standalone boundary and a clean, remote-backed, authoritative EA
-   runtime now pass on branch `codex/ea-audit-release-exact-20260813` at `5dd8d0fe...`. The formal
-   Memorial contract still requires that reviewed source on `origin/main`; the shared dirty
-   `/docker/EA` main worktree was deliberately preserved. Review and merge the published EA branch,
-   deploy that exact main revision, then regenerate `ea-core-closeout.json` for Memorial revision
-   `661eb568...`. A fresh dry-run now passes runtime revision, public smoke, all five retired-route
-   404s, and both repository-boundary checks; only `ea_branch_not_main`, `ea_origin_main_mismatch`,
-   and `ea_worktree_dirty` remain. The exact deploy worktree's dirty entries are six expected
-   generated release artifacts. Do not weaken the clean-main contract or manufacture a merge.
+1. `ea_core_closeout`: runtime revision, public smoke, five retired-route 404s, and both repository
+   boundary checks pass against the exact EA release lane. The remaining formal boundary is a
+   reviewed merge of `codex/ea-audit-release-final-20260813` to `origin/main`, followed by an exact
+   main deploy and receipt refresh. Do not reset the shared dirty `/docker/EA` worktree, weaken the
+   clean-main contract, or manufacture a merge.
 2. `operator_release_dossier`: no human-reviewed canonical dossier and Ed25519 signature exists.
    Do not manufacture legal, accessibility, monitored-support, owner-authority, store, Gmail/IMAP,
    alert-drill, or EA acceptance. A real operator must review the actual evidence and sign it.
@@ -115,26 +108,18 @@ Unmixr key were already invalidated.
 
 ### EA local-audit remediation — 2026-08-13
 
-- The findings in `EA_LOCAL_REPO_AUDIT_2026-08-13.md` have been worked through. Emailit now has
-  product-owned kill switches, Magicx disappears when unconfigured, VocalLab is catalog-only, and
-  1min has a bounded capacity lane.
-- The live CH proxy is healthy, loopback-only, and owned only by `ea-api`; worker, scheduler, and
-  WhatsApp are not proxied. Verify with `make probe-fastestvpn-transport`.
-- The final runtime-permission regression is closed: exact Compose inputs are baked into the
-  attested image instead of being replaced by host `0600` bind mounts. Public and loopback
-  supply-chain gates are `pass/clear`.
-- LTD scheduler/blast-radius/router files, 55 proof-debt rows, 2 provider-capacity rows, and the
-  20/20 vexp opportunity index exist. The two Teable operator projections are live and idempotent.
-- Rafter false-complete checking is included in `make ltd-release-gates`, which passes. The OODA
-  callback directory is durable, but no approval was invented.
-- The VocalLab GET-only inventory sees 270 voices and performs zero POSTs. Rendering and cloning
-  remain blocked on credential rotation and authority; this is not Memorial release evidence.
-- Hygiene: stale rebase metadata and 29 dead worktree registrations were removed. Ten stashes and
-  all live worktrees were preserved.
-- Remaining real work is operator/account-side: Google reauth and accepted brief, WhatsApp QR plus
-  listened audiobook, a genuine OODA packet decision, reviewed EA branch-to-main merge, Memorial
-  dossier signature, provider/license rotations, and real Play tester opt-ins. The exact EA branch
-  is a valid release authority; the shared dirty main worktree is not.
+- Emailit ownership, Magicx configuration filtering, VocalLab catalog-only governance, 1min
+  bounded capacity, and the LTD operating mesh are implemented with fail-closed receipts.
+- FastestVPN remains explicit and Swiss-only. Only `ea-api` has proxy/socket-proxy settings; worker,
+  scheduler, responses proxy, OODA, WhatsApp, and public ingress remain outside that transport.
+- Runtime supply-chain inputs are baked into the attested image instead of being replaced by host
+  `0600` Compose bind mounts. The unprivileged container can verify them without broader host-file
+  permissions.
+- The final current-main conflict suite passed 405 tests with one skip; EA Property/voice boundary
+  coverage passed 27; audiobook candidate/WorkLLM rerun passed 62.
+- Remaining work is operator/account-side: PR review/merge, Google reauth and accepted brief,
+  WhatsApp pairing/listening proof, real OODA decision, Memorial dossier signature, required vendor
+  credential rotations, and real Play tester opt-ins.
 
 ### Working-tree rule
 

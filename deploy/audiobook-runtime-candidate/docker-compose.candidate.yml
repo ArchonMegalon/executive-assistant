@@ -98,6 +98,8 @@ services:
       EA_EMAILIT_OFFICE_NAME: ""
       EA_REGISTRATION_EMAIL_FROM: !reset null
       EA_REGISTRATION_EMAIL_NAME: !reset null
+      PROPERTYQUARRY_EMAILIT_FROM: ""
+      PROPERTYQUARRY_EMAILIT_NAME: ""
       EA_TELEGRAM_SOURCE_VIDEO_EDIT_ROOT: !reset null
       EA_UI_SERVICE_WORKER_OUTPUT_ROOT: !reset null
     labels:

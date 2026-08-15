@@ -33,7 +33,6 @@ def _sample_ltd_markdown() -> str:
 | `Emailit` | `Tier 5` | `1 account / 1 key` | `Owned` |  | `Tier 1` | Governed transactional delivery | EA owns recipient, suppression, approval, delivery and closeout truth. |
 | `FastestVPN PRO` | `15 Devices` | `1 subscription/account` | `Owned` |  | `Tier 2` | Governed provider transport | EA owns account, quota, billing, product and release truth. |
 | `VocalLab.ai` | `License Tier 3` | `1 account` | `Owned` |  | `Tier 3` | Catalog-only binding | Memorial exclusively owns Manfred authority and release truth; EA spend remains disabled. |
-| `1min.AI` | `Tier 4` | `managed pool` | `Owned` |  | `Tier 2` | Bounded capacity scheduler | EA owns quota, task, approval, product, and release truth. |
 | `Teable` | `Tier 2` | `1 account` | `Owned` |  | `Tier 2` | Projection adapter | Projection only, not source of truth. |
 | `Syllabbles` | `No tier recorded` | `1 account` | `Owned` |  | `Tier 4` | Draft workbench | Dispatch draft only. |
 
@@ -58,6 +57,7 @@ def _sample_ltd_markdown() -> str:
 | `katteb.com` | `10x code-based` | `10 codes` | `Owned` |  | `Tier 4` | Credentials only | Article drafts only. |
 | `Prompt Architects` | `Tier 4` | `1 account` | `Activated` |  | `Tier 4` | PROMPTING_SYSTEMS_API_KEY | Prompt Foundry receipts verify template seed/operator assist, retention and tenant isolation boundary. |
 | `AiWriteBook` | `Tier 4` | `1 account` | `Owned` |  | `Tier 2` | Governed operator handoff | Chummer owns approved source packets and publication truth; no unattended browser automation or direct publish. |
+| `Tough Tongue AI` | `License Tier 4` | `1 account` | `Owned` |  | `Tier 4` | Governed synthetic rehearsal scaffold | Synthetic/public-safe operator rehearsal only; account and lifecycle proof pending. |
 | `VidBoard.ai` | `Tier 5` | `1 account` | `Owned` |  | `Tier 4` | Credentials | Commercial-use, watermark, duration, export, likeness and quality proof pending. |
 | `FacePop` | `Tier 5` | `1 account` | `Activated` |  | `Tier 4` | Credentials | Presenter candidate only. |
 | `Nonverbia` | `Tier 4` | `1 account` | `Activated` |  | `Tier 2` | BrowserAct credentials | Presenter candidate only. |
@@ -81,13 +81,13 @@ def _sample_ltd_markdown() -> str:
 | `Emailit` |  | `manual_seeded` | `emailit_api_live` | 2026-05-01T05:00:00Z | Tier 5 and live API proof recorded. |
 | `FastestVPN PRO` |  | `complete` | `local_runtime_ch_country_probe` | 2026-08-12T04:25:35Z | Switzerland lane verified. |
 | `VocalLab.ai` |  | `complete` | `authenticated_redacted_inventory` | 2026-08-12T09:54:26Z | Catalog proof only; no runtime promotion. |
-| `1min.AI` |  | `manual_seeded` | `cross_base_teable_recovery + local_env` | 2026-08-13T00:00:00Z | Private pool present; bounded background capacity only. |
 | `Unmixr AI` | `ltd.account@example.test` | `manual_seeded` | `user_report + local_runtime_docs` | 2026-06-03T09:58:09Z | API key and voice ID pending. |
 | `Poppy AI` | `ltd.account@example.test` | `user_reported` | `live_google_session_probe` | 2026-06-09T10:25:00Z | Session proof recorded; privacy, export and tenant isolation still pending. |
 | `Rafter` | `ltd.account@example.test` | `manual_seeded` | `fleet_verified` | 2026-05-29T20:16:00Z | Fleet proof passes. |
 | `Pixefy` | `ltd.account@example.test` | `manual_seeded` | `fleet_verified` | 2026-05-29T20:16:00Z | Fleet proof passes. |
 | `Prompt Architects` |  | `manual_seeded` | `local_env + prompt_foundry_receipts` | 2026-06-01T20:54:48Z | Prompt Foundry receipts exist. |
 | `AiWriteBook` | `gmail.com` | `complete` | `authenticated_sanitized_account_review` | 2026-08-11T07:33:00Z | AppSumo Tier 4 verified; operator-only lane, export canary pending. |
+| `Tough Tongue AI` | `gmail.com` | `manual_seeded` | `user_report_tier4 + public_api_privacy_terms_review + governed_lane_scaffold` | 2026-08-14T00:00:00Z | Authenticated account, API entitlement, and synthetic lifecycle proof pending. |
 | `Sendr` |  | `manual_seeded` | `user_report_tier4 + governed_lane_scaffold` | 2026-06-30T20:45:00Z | License Tier 4 is recorded; EA campaign packet, provider proof, suppression sync, and human approval receipts remain pending. |
 """.strip()
 
@@ -132,7 +132,6 @@ def test_all_requested_ltd_provider_lanes_are_defined() -> None:
         "vocallab_catalog_authority",
         "emailit_transactional_delivery",
         "fastestvpn_governed_provider_transport",
-        "onemin_bounded_capacity_scheduler",
         "magicfit_media_factory_candidate",
         "poppy_draft_workbench",
         "release_quality_gates",
@@ -140,9 +139,9 @@ def test_all_requested_ltd_provider_lanes_are_defined() -> None:
         "docs_draft_factory",
         "prompt_foundry",
         "aiwritebook_chronicle_studio",
+        "tough_tongue_synthetic_rehearsal",
         "subscribr_chummer_script_factory",
         "sendr_ea_growth_outreach",
-        "tough_tongue_governed_practice",
         "operator_control_plane",
         "video_provider_bakeoff",
         "commercial_ops",
@@ -203,37 +202,6 @@ def test_lane_boundaries_match_provider_risks() -> None:
         sendr.normalized_signal_schema
     )
 
-    tough_tongue = lane_by_key("tough_tongue_governed_practice")
-    assert tough_tongue is not None
-    assert tough_tongue.providers == ("Tough Tongue AI",)
-    assert tough_tongue.integration_lane == "governed_conversation_practice"
-    assert set(tough_tongue.off_switch_env) >= {
-        "EA_TOUGH_TONGUE_ENABLED",
-        "EA_TOUGH_TONGUE_AUTO_CREATE_SESSIONS",
-        "EA_TOUGH_TONGUE_ALLOW_OUTBOUND_CALLS",
-        "EA_TOUGH_TONGUE_ALLOW_MEETING_BOTS",
-        "EA_TOUGH_TONGUE_ALLOW_PURCHASES",
-        "EA_TOUGH_TONGUE_ALLOW_PUBLICATION",
-    }
-    assert {
-        "raw_gmail",
-        "raw_calendar",
-        "people_memory",
-        "unconsented_recording",
-        "automatic_session_creation",
-        "outbound_call_without_approval",
-        "meeting_bot_without_approval",
-        "purchase_without_approval",
-        "direct_publish",
-        "product_truth",
-    } <= set(tough_tongue.forbidden_inputs)
-    assert {
-        "minute_budget",
-        "available_minutes_before",
-        "available_minutes_after",
-        "human_review_status",
-    } <= set(tough_tongue.normalized_signal_schema)
-
     aiwritebook = lane_by_key("aiwritebook_chronicle_studio")
     assert aiwritebook is not None
     assert "approved_consent_spoiler_redaction_reviewed_chummer_source_packet" in aiwritebook.allowed_inputs
@@ -252,6 +220,48 @@ def test_lane_boundaries_match_provider_risks() -> None:
         "publication_approval_status",
         "external_send_approval_status",
     } <= set(aiwritebook.normalized_signal_schema)
+
+    tough_tongue = lane_by_key("tough_tongue_synthetic_rehearsal")
+    assert tough_tongue is not None
+    assert tough_tongue.providers == ("Tough Tongue AI",)
+    assert tough_tongue.verified_state == "verified_draft_operator_lane"
+    assert {
+        "EA_TOUGH_TONGUE_ENABLED",
+        "EA_TOUGH_TONGUE_AUTO_CREATE_SESSIONS",
+        "EA_TOUGH_TONGUE_ALLOW_OUTBOUND_CALLS",
+        "EA_TOUGH_TONGUE_ALLOW_MEETING_BOTS",
+        "EA_TOUGH_TONGUE_ALLOW_PURCHASES",
+        "EA_TOUGH_TONGUE_ALLOW_PUBLICATION",
+    } <= set(tough_tongue.off_switch_env)
+    assert {
+        "real_person_voice_or_video",
+        "manfred_voice_or_likeness",
+        "raw_gmail",
+        "raw_calendar",
+        "customer_contact",
+        "customer_recording",
+        "meeting_destination",
+        "phone_destination",
+        "outbound_action",
+        "automatic_session_creation",
+        "outbound_call_without_approval",
+        "meeting_bot_without_approval",
+        "purchase_without_approval",
+        "direct_publish",
+        "product_truth",
+        "release_truth",
+        "publication_truth",
+    } <= set(tough_tongue.forbidden_inputs)
+    assert {
+        "input_packet_sha256",
+        "scenario_ref_sha256",
+        "session_ref_sha256",
+        "synthetic_data_asserted",
+        "recording_deleted",
+        "transcript_deleted",
+        "cleanup_verified",
+        "human_review_status",
+    } <= set(tough_tongue.normalized_signal_schema)
 
     emailit = lane_by_key("emailit_transactional_delivery")
     assert emailit is not None
@@ -278,20 +288,12 @@ def test_lane_boundaries_match_provider_risks() -> None:
         fastestvpn.forbidden_inputs
     )
 
-    onemin = lane_by_key("onemin_bounded_capacity_scheduler")
-    assert onemin is not None
-    assert onemin.providers == ("1min.AI",)
-    assert onemin.off_switch_env == ("EA_RESPONSES_ONEMIN_BACKGROUND_REFRESH_ENABLED",)
-    assert {"raw_gmail", "people_memory", "unbounded_parallel_dispatch", "quota_bypass", "release_truth"} <= set(
-        onemin.forbidden_inputs
-    )
-
     vocallab = lane_by_key("vocallab_catalog_authority")
     assert vocallab is not None
     assert vocallab.providers == ("VocalLab.ai",)
     assert vocallab.integration_lane == "voice_catalog_only"
     assert vocallab.verified_state == "verified_catalog_only"
-    assert {"real_person_voice_upload", "automatic_voice_render", "manfred_product_authority", "release_truth"} <= set(
+    assert {"real_person_voice_upload", "automatic_voice_render", "external_person_voice_authority", "release_truth"} <= set(
         vocallab.forbidden_inputs
     )
 
@@ -379,10 +381,15 @@ def test_receipts_pass_hard_contracts_even_when_proofs_are_missing(tmp_path: Pat
     )
 
     assert receipt["status"] == "pass"
+    assert receipt["status_scope"] == "governance_contract_integrity_only"
+    assert receipt["readiness_status"] == "blocked_pending_proof"
+    assert receipt["ready_lane_count"] + receipt["blocked_lane_count"] == receipt["lane_count"]
     assert receipt["lane_count"] == len(LANES)
     lanes = {str(row["lane_key"]): row for row in receipt["lanes"]}
     assert lanes["fliplink_document_portal"]["not_source_of_truth"] is True
     assert lanes["fliplink_document_portal"]["lane_state"] == "blocked_pending_proof"
+    assert lanes["fliplink_document_portal"]["status_scope"] == "lane_contract_integrity_only"
+    assert lanes["fliplink_document_portal"]["readiness_asserted"] is False
     assert "first_publication_receipt" in lanes["fliplink_document_portal"]["missing_checks"]
     assert lanes["release_quality_gates"]["lane_state"] in {"verified_runtime_lane", "blocked_pending_proof"}
     assert lanes["public_signal_ingest"]["normalized_signal_schema"]
@@ -957,52 +964,6 @@ ProviderBinding(
     assert spend_enabled["missing_checks"] == ["vocallab_spend_controls_off"]
 
 
-def test_onemin_capacity_lane_requires_bounded_mesh_and_honors_background_off_switch(tmp_path: Path) -> None:
-    ltd_path = _write_ltd(tmp_path)
-    for relative_path in (
-        "config/ltd_capacity_scheduler.yaml",
-        "config/ltd_blast_radius.yaml",
-        "ea/app/services/responses_upstream.py",
-        "scripts/materialize_ltd_capacity_status.py",
-    ):
-        target = tmp_path / relative_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text((ROOT / relative_path).read_text(encoding="utf-8"), encoding="utf-8")
-    lane = lane_by_key("onemin_bounded_capacity_scheduler")
-    assert lane is not None
-    markdown_text = ltd_path.read_text(encoding="utf-8")
-    inventory_rows = load_ltd_inventory_rows(ltd_path)
-
-    ready = build_ltd_provider_lane_receipt(
-        lane,
-        markdown_text=markdown_text,
-        inventory_rows=inventory_rows,
-        env={"ONEMIN_AI_API_KEY": "private-test-key"},
-        root=tmp_path,
-        generated_at="2026-08-13T12:00:00Z",
-    )
-    disabled = build_ltd_provider_lane_receipt(
-        lane,
-        markdown_text=markdown_text,
-        inventory_rows=inventory_rows,
-        env={
-            "ONEMIN_AI_API_KEY": "private-test-key",
-            "EA_RESPONSES_ONEMIN_BACKGROUND_REFRESH_ENABLED": "0",
-        },
-        root=tmp_path,
-        generated_at="2026-08-13T12:00:00Z",
-    )
-
-    assert ready["status"] == "pass"
-    assert ready["lane_state"] == "verified_runtime_lane"
-    assert ready["runtime_enabled"] is True
-    assert ready["missing_checks"] == []
-    assert disabled["status"] == "pass"
-    assert disabled["lane_state"] == "blocked_pending_proof"
-    assert disabled["runtime_enabled"] is False
-    assert disabled["missing_checks"] == ["onemin_background_off_switch"]
-
-
 def test_lane_receipt_never_leaks_env_secret_values(tmp_path: Path) -> None:
     ltd_path = _write_ltd(tmp_path)
     markdown_text = ltd_path.read_text(encoding="utf-8")
@@ -1474,3 +1435,27 @@ def test_materialize_poppy_draft_packet_rejects_private_or_truth_inputs(tmp_path
     assert "poppy_source_packet_rejected" in result.stderr
     assert "forbidden_flag_set:contains_private_campaign_data" in result.stderr
     assert "input_kind_not_allowed:private_campaign_data" in result.stderr
+
+
+def test_tough_tongue_account_and_api_pass_but_synthetic_lifecycle_stays_blocked() -> None:
+    receipt = build_ltd_provider_governance_receipt(
+        markdown_path=ROOT / "LTDs.md",
+        env={},
+        root=ROOT,
+        generated_at="2026-08-14T00:00:00Z",
+    )
+    lane = next(row for row in receipt["lanes"] if row["lane_key"] == "tough_tongue_synthetic_rehearsal")
+
+    assert lane["status"] == "pass"
+    assert lane["lane_state"] == "blocked_pending_proof"
+    assert lane["runtime_enabled"] is False
+    assert lane["readiness_asserted"] is False
+    assert lane["hard_contract_failures"] == []
+    assert set(lane["passed_checks"]) == {
+        "inventory_recorded",
+        "tough_tongue_public_contract",
+        "tough_tongue_account_review",
+        "tough_tongue_api_entitlement",
+        "tough_tongue_operator_boundary",
+    }
+    assert lane["missing_checks"] == ["tough_tongue_synthetic_lifecycle"]

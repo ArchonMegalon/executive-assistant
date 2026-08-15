@@ -80,7 +80,6 @@ services:
       - EA_EMAILIT_MAX_429_RETRY_ATTEMPTS=${EA_EMAILIT_MAX_429_RETRY_ATTEMPTS:-0}
       - EA_EMAILIT_DELIVERY_ENABLED=${EA_EMAILIT_DELIVERY_ENABLED:-0}
       - EA_EMAILIT_OFFICE_DELIVERY_ENABLED=${EA_EMAILIT_OFFICE_DELIVERY_ENABLED:-0}
-      - CHUMMER_HUB_EMAILIT_DELIVERY_ENABLED=${CHUMMER_HUB_EMAILIT_DELIVERY_ENABLED:-0}
       # Secure return links are the primary browser sign-in path. Compose reads
       # these values from the local, untracked .env and passes them explicitly;
       # env_file entries above contain runtime service secrets but do not
@@ -744,10 +743,6 @@ services:
       - /bin/sh
       - -ec
       - |
-        # The approval surface is durable on ea_provider_ledger. Creating only
-        # its empty directory is infrastructure setup, never an approval.
-        mkdir -p /data/provider-ledger/proactive_ooda_approval_callbacks
-        chmod 0770 /data/provider-ledger/proactive_ooda_approval_callbacks
         repair_shared_output_permissions() {
           runtime_uid="$$(id -u)"
           for output_dir in /app/.codex-studio/published /app/.runtime; do

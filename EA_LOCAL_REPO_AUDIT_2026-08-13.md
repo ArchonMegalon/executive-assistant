@@ -10,6 +10,39 @@ This file records a read-only audit of the local Executive Assistant worktree. I
 
 The audit did not reset, clean, rebase, commit, or merge. It did not run the full test suite. vexp MCP was down in the auditing session, so context came from git, process, Docker, and file inspection.
 
+## Remediation closeout
+
+The implementation pass following this snapshot was performed in an isolated clean worktree; the live `/docker/EA` checkout and its OODA-generated files were not reset, cleaned, or used as a commit boundary.
+
+Closed in source:
+
+- Emailit now requires both a global switch and a named EA-office, PropertyQuarry, or Chummer Hub switch. Missing switches mean disabled, every direct sender is gated, and neutral sender defaults replace the PropertyQuarry-wide default.
+- FastestVPN is reduced to one optional Switzerland transport for the operator-triggered 1min refresh path. It no longer hard-gates API startup or proxies worker, scheduler, WhatsApp, browser UI, or public ingress.
+- Empty AI Magicx credentials are removed from effective provider orders even if a stale environment list still names the provider.
+- VocalLab is a 21st, catalog-only governance lane and a non-executable registry binding. The normal audiobook order excludes it. Inventory now says the current EA runtime key is absent, so catalog refresh, spend, rendering, cloning, and production eligibility remain blocked rather than inferred from historical proof.
+- The widened VocalLab inventory parser handles the observed paginated schema while replacing any operator-facing label that contains a private provider identifier.
+- The capacity scheduler, blast-radius policy, capability router, proof-debt projection, 20-query vexp opportunity pack, and Teable provider/proof-debt projection now exist with fail-closed tests. Teable input rejects forbidden secret fields even when a source falsely marks itself safe.
+- LTD governance receipts now report contract integrity separately from readiness, including ready, blocked, and runtime-enabled lane counts. A green contract aggregate no longer reads as a claim that every paid lane is live.
+- The audiobook candidate overlay explicitly disables Emailit and binds the current Unmixr selector controls, restoring exact-keyset validation after the runtime configuration expanded.
+- WorkLLM goal tests no longer depend on an untracked generated receipt; their evidence input is explicit and hermetic.
+- The handoff now names the current Memorial boundary instead of the retired July revision.
+
+Still external or operational, not closable by a repository patch:
+
+- Google Workspace reconnect and acceptance of a real morning brief require the account-side OAuth interaction.
+- A real WhatsApp audiobook delivery/listening receipt requires the operator-selected voice and recipient interaction.
+- Historical generated deploy/release receipts remain excluded from this commit; they must be rematerialized from the deployed exact revision rather than copied from the live OODA tree.
+- Stashes, prunable worktrees, and the live checkout's generated churn were preserved because deleting or rewriting them would destroy unrelated operator state.
+
+Validation for this closeout is recorded in the merge/CI history. Focused gates cover Emailit, FastestVPN, VocalLab, provider routing, the LTD mesh, Teable projection, audiobook candidate isolation, WorkLLM evidence injection, and the BrowserAct humanizer repair. No provider spend, email send, public publish, or release promotion is authorized by those tests.
+
+The clean follow-up branch also completed the entire repository suite after
+closing the remaining lane-gating, sign-in-copy, Magicx ordering, and WorkLLM
+reachability baseline drift: **6,102 passed, 27 skipped, 2 dependency
+deprecation warnings in 2,733.17 seconds**. The warnings come from the installed
+`websockets` compatibility layer used by the real-browser workflow test; they
+are not EA test failures.
+
 ## Review checklist
 
 | Check | Result |
@@ -399,94 +432,52 @@ Highest-leverage follow-ups after that:
 This appendix records the work performed against the snapshot above. It does not rewrite the
 original observations and is not release authority.
 
-### Closed locally and in the live runtime
+### Closed in source and verified runtime
 
-- VocalLab now has an explicit catalog-only governance lane. Generic routing remains
-  non-executable and all render, clone, top-up, and automatic fallback switches remain off. The
-  live GET-only inventory probe passed ping, account, models, and 270 voice rows with zero POSTs;
-  the receipt remains intentionally blocked on credential rotation/production eligibility and
-  explicit spend authorization.
-- The live VocalLab clone row shape is parsed exactly without accepting arbitrary extra fields.
-  Private IDs are never rendered as operator labels; an ID found in any label is replaced with a
-  neutral catalog label.
-- Empty Magicx credentials are removed from the effective provider order. Configured Magicx
-  remains available, but an empty slot cannot appear ready.
-- Emailit is split into EA-office, PropertyQuarry, and Chummer Hub ownership/sender switches.
-  Every sender and outbox path now fails closed; Chummer Hub remains off until it has its own
-  product approval.
-- The FastestVPN overlay is Switzerland-only, no longer hard-gates normal API startup, binds
-  `127.0.0.1:9315`, and is injected only into `ea-api`. Worker, scheduler, and WhatsApp have no
-  proxy env. `probe-fastestvpn-transport` verifies this secret-safe live topology and currently
-  reports `ready`.
-- 1min now has a first-class bounded-capacity governance lane with private credential presence,
-  quota/cooldown ceilings, blast-radius rules, review-only receipts, and a background off-switch.
-- The LTD operating mesh is materialized: scheduler, blast-radius map, named capability router,
-  55-row proof-debt projection, secret-safe capacity status, and a 20/20 vexp opportunity index.
-- Teable now has live idempotent `ltd_provider_status` and `ltd_proof_debt` projections. The
-  latest no-op reconciliation reports 2 and 55 current rows respectively, exposes no secret
-  material, and does not supersede source receipts.
-- The Rafter/Pixefy false-complete verifier is now part of `ltd-release-gates`.
-- The OODA approval callback directory is created durably on the provider-ledger volume. No
-  approval or packet was fabricated.
-- The stale `REBASE_HEAD` and 29 dead worktree metadata entries were removed. All 10 real stashes,
-  including the unsafe Manfred clone recovery stash, remain preserved.
+- VocalLab has an explicit catalog-only, non-executable governance lane; render, clone, top-up,
+  and automatic fallback remain fail-closed. Its authority wording is product-neutral and keeps
+  the separate Manfred product as the sole owner of voice authority and release truth.
+- Empty Magicx credentials disappear from effective provider order. Emailit is split into
+  product-owned switches and base EA Compose no longer inherits PropertyQuarry mail controls.
+- FastestVPN is Switzerland-only and owned only by the API's bounded 1min route. The socket proxy
+  has a read-only root filesystem, dropped capabilities, no-new-privileges, and memory/PID caps.
+  Exact Compose verification inputs are baked into the attested image; only reviewed VPN material
+  remains host-mounted.
+- The 1min bounded-capacity lane, LTD scheduler/blast-radius/router, 55-row proof-debt projection,
+  Teable operation projections, and vexp opportunity index are materialized. Rafter/Pixefy
+  false-complete checks are in the LTD release gate.
+- Release candidate `codex/ea-audit-release-final-20260813` is based directly on the current
+  `origin/main`. It reconciles the audit hardening with the newer Property/Chummer ownership and
+  provider-neutral authority changes instead of overwriting them.
 
 ### Verification
 
-- `make ltd-release-gates`: pass, including critical entries, flagship subset, Rafter/Pixefy,
-  22 provider lanes, and the operating mesh.
-- Root affected-contract suite: 777 passed. EA VocalLab/router suite: 76 passed.
-- Base, Cloudflare, production/WhatsApp, and FastestVPN Compose renders: pass.
-- Live `ea-api`, worker, scheduler, OODA, and CH proxy were recreated only where required and
-  returned healthy; the public API health endpoint passed.
+- Focused current-main conflict suite: 405 passed, 1 skipped.
+- EA Property boundary and VocalLab schema suite: 27 passed.
+- Audiobook candidate and WorkLLM regression rerun: 62 passed.
+- The preceding exact-source deployment passed the complete root and EA suites, local quality
+  gates, LTD release gates, runtime smoke, CodexEA easy/core probes, and public release-authority
+  and supply-chain gates. The final current-main candidate is reverified before deployment.
 - `git diff --check`: pass.
 
-### Exact-source release closure
+### Canonical-main closeout
 
-- The reviewed remediation slice is published on
-  `codex/ea-audit-release-exact-20260813` at exact commit
-  `5dd8d0fe902fe9656c1fc22904ba2e5844d7683a`; local HEAD and the remote-tracking
-  ref are identical. The shared dirty `main` worktree was not reset, cleaned, or
-  used as release authority.
-- Deployment `deploy-20260813T101405Z-5dd8d0fe902f` is running at
-  `https://myexternalbrain.com`. All seven inspected EA services are healthy,
-  have zero restarts, and attest the exact commit above.
-- Release authority is `authoritative_runtime` and passes both locally and from
-  the public health endpoint. Runtime supply-chain verification is also
-  `pass/clear` with no issues.
-- The FastestVPN overlay now uses the exact Compose inputs baked into the
-  attested runtime image. It no longer overlays host-mode `0600` Compose files
-  into the unprivileged API container. The live in-container supply-chain
-  verifier passes without broadening source permissions.
-- Only `ea-api` has the bounded 1min proxy and Docker-socket-proxy settings.
-  Responses proxy, worker, scheduler, and OODA have neither setting.
-- Final focused regression coverage for the mount and supply-chain contract is
-  65 passed. The full root and EA suites, local quality contract, LTD release
-  gates, runtime smoke, CodexEA easy/core probes, and pocket archive gate passed
-  earlier on the same product slice; the final change touched only the
-  FastestVPN mount contract and its regression test.
-- Review/merge handoff:
-  `https://github.com/ArchonMegalon/executive-assistant/pull/new/codex/ea-audit-release-exact-20260813`.
-- A fresh Memorial `ea_core_closeout` dry-run against this exact runtime reduced the old seven
-  failures to three repository-state checks only: `ea_branch_not_main`,
-  `ea_origin_main_mismatch`, and `ea_worktree_dirty`. Runtime revision, public smoke, retired-route
-  404s, repository independence, and both product-boundary checks now pass. The remaining dirty
-  files are the six expected deployment-generated release artifacts, not source changes.
+- Pull request `#12` passed the independent GitGuardian check and was merged without a force
+  update on 2026-08-13. Canonical `origin/main` now points at merge commit
+  `d70f3def7f532345c118774fde9beca36f28f5f8` and contains the exact reviewed release-candidate
+  history through `d340213cfb6269f4f1b373a2138ccba1e423feda`.
+- The failed local branch-deletion attempt after the merge changed no source or remote state; Git
+  correctly retained the local branch because its clean verification worktree is still attached.
+- Memorial's branch and origin-main repository-state checks may now be rerun against the canonical
+  merge. Runtime and provider evidence remain independently scoped and are not inferred from the
+  merge itself.
 
 ### Still honest blockers
 
-- The exact branch/runtime is authoritative, but `main` still contains shared
-  user/concurrent work and has not been replaced or broadly committed. Memorial's formal
-  `ea_core_closeout` contract explicitly requires the reviewed EA release to be merged to
-  `origin/main`; opening/reviewing/merging the published branch remains a human repository action.
-- Google Workspace still needs a real account-side reauthorization and one accepted morning brief.
-- WhatsApp Web currently requires QR pairing, followed by a real rights-safe audiobook delivery
-  and listening decision. The existing 2026-08-06 receipt is stale and cannot authorize release.
-- OODA has a durable callback surface but no current packet reference or real operator approval.
-  Regenerate a genuine stage packet, then approve or reject it as the operator.
-- VocalLab rendering/cloning stays blocked in EA until a dedicated rotated credential and the
-  Memorial authority/deletion/hearing receipts are present. The GET-only inventory is not Manfred
-  release authority.
-- Host storage is at 98% with 18 GB free after the deploy's safe dangling-image cleanup. Docker
-  reports additional unused-image capacity, but it belongs to the shared host and was not deleted
-  without cross-project ownership review.
+- Google Workspace needs real account-side reauthorization and one accepted morning brief.
+- WhatsApp Web needs QR pairing plus a real rights-safe audiobook delivery and listening decision.
+- OODA needs a genuine current packet and an actual operator approve/reject decision.
+- VocalLab execution in EA remains blocked pending dedicated rotated credentials and explicit
+  authority/deletion/hearing/spend receipts. Catalog inventory is not Manfred release authority.
+- Host storage is at 98% with 18 GB free. Additional Docker image reclamation requires shared-host
+  ownership review; unrelated project images were not deleted.

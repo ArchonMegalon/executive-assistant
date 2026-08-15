@@ -6223,7 +6223,9 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     _assert_no_product_drift(sign_in.text)
     assert "Welcome back to your workspace." in sign_in.text
     assert "Continue with the Google identity already approved for this workspace." in sign_in.text
-    assert "Email me a secure link" in sign_in.text
+    assert "Continue with Google" in sign_in.text
+    assert "Secure email remains available as a fallback." not in sign_in.text
+    assert "Email me a secure link" not in sign_in.text
 
     legacy_setup = owner.get("/setup", follow_redirects=False)
     assert legacy_setup.status_code == 307

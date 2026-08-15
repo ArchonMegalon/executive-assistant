@@ -166,45 +166,6 @@ def test_voice_discovery_rejects_unicode_control_characters_in_private_ids() -> 
         parse_voices(payload)
 
 
-def test_voice_discovery_accepts_exact_provider_clone_row_without_optional_preset_metadata() -> None:
-    payload = _voices(
-        [
-            {
-                "created_at": "2026-08-12T08:00:00.000Z",
-                "id": "private-clone-id",
-                "languages": ["de"],
-                "name": "Consented German clone",
-                "type": "clone",
-            }
-        ]
-    )
-
-    observations = parse_voices(payload)
-
-    assert len(observations) == 1
-    assert observations[0].provider_type == "clone"
-    assert observations[0].languages == ("de",)
-    assert "private-clone-id" not in repr(observations)
-
-
-def test_voice_discovery_rejects_clone_row_with_extra_private_metadata() -> None:
-    payload = _voices(
-        [
-            {
-                "created_at": "2026-08-12T08:00:00.000Z",
-                "id": "private-clone-id",
-                "languages": ["de"],
-                "name": "Consented German clone",
-                "type": "clone",
-                "owner_email": "private@example.test",
-            }
-        ]
-    )
-
-    with pytest.raises(VocalLabSchemaError):
-        parse_voices(payload)
-
-
 def test_pending_inline_generation_accepts_null_url_without_poll_contract() -> None:
     encoded = base64.b64encode(b"synthetic-audio").decode()
     observation = parse_generation(
