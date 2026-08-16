@@ -33,6 +33,7 @@ def _now_iso() -> str:
 @dataclass(frozen=True)
 class ToughTongueConfig:
     api_key: str
+    organization_id: str
     base_url: str
     login_email: str
     forwarding_email: str
@@ -58,6 +59,7 @@ class ToughTongueConfig:
 
         return cls(
             api_key=str(os.environ.get("TOUGH_TONGUE_API_KEY") or "").strip(),
+            organization_id=str(os.environ.get("TOUGH_TONGUE_ORGANIZATION_ID") or "").strip(),
             base_url=str(os.environ.get("TOUGH_TONGUE_BASE_URL") or DEFAULT_BASE_URL).strip().rstrip("/"),
             login_email=str(os.environ.get("TOUGH_TONGUE_LOGIN_EMAIL") or "").strip(),
             forwarding_email=str(os.environ.get("TOUGH_TONGUE_FORWARDING_EMAIL") or "").strip(),
@@ -79,6 +81,7 @@ class ToughTongueConfig:
         return bool(
             self.enabled
             and self.api_key
+            and self.organization_id
             and self.account_verified
             and self.provider_verified
         )
@@ -86,6 +89,8 @@ class ToughTongueConfig:
     def posture(self) -> dict[str, object]:
         return {
             "configured": bool(self.api_key),
+            "organization_configured": bool(self.organization_id),
+            "organization_id_sha256": _sha256(self.organization_id),
             "enabled": self.enabled,
             "account_verified": self.account_verified,
             "provider_verified": self.provider_verified,
@@ -125,14 +130,17 @@ class ToughTongueClient:
         if not self.config.api_key:
             raise RuntimeError("tough_tongue_api_key_missing")
         url = f"{self.config.base_url}/{path.lstrip('/')}"
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {self.config.api_key}",
+            "User-Agent": "EA-ToughTongue-ReadOnly-Probe/1.0",
+        }
+        if self.config.organization_id:
+            headers["X-TT-ORG"] = self.config.organization_id
         request = urllib.request.Request(
             url,
             method="GET",
-            headers={
-                "Accept": "application/json",
-                "Authorization": f"Bearer {self.config.api_key}",
-                "User-Agent": "EA-ToughTongue-ReadOnly-Probe/1.0",
-            },
+            headers=headers,
         )
         with self._opener(request, timeout=max(float(timeout_seconds), 1.0)) as response:
             raw = response.read(MAX_RESPONSE_BYTES + 1)

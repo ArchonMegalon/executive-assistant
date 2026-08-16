@@ -28,6 +28,7 @@ class _Response:
 def _config(**overrides: object) -> ToughTongueConfig:
     values: dict[str, object] = {
         "api_key": "private-test-token",
+        "organization_id": "private-org-ref",
         "base_url": "https://api.toughtongueai.com/api/public",
         "login_email": "login@example.test",
         "forwarding_email": "forward@example.test",
@@ -54,6 +55,7 @@ def test_tough_tongue_probe_is_get_only_and_redacts_credentials() -> None:
         observed["method"] = request.get_method()  # type: ignore[attr-defined]
         observed["url"] = request.full_url  # type: ignore[attr-defined]
         observed["authorization"] = request.get_header("Authorization")  # type: ignore[attr-defined]
+        observed["organization"] = request.get_header("X-tt-org")  # type: ignore[attr-defined]
         observed["timeout"] = timeout
         return _Response({"available_minutes": 4109.7, "last_updated": "2026-08-14T13:00:00Z"})
 
@@ -66,11 +68,14 @@ def test_tough_tongue_probe_is_get_only_and_redacts_credentials() -> None:
     assert observed["method"] == "GET"
     assert observed["url"] == "https://api.toughtongueai.com/api/public/balance"
     assert observed["authorization"] == "Bearer private-test-token"
+    assert observed["organization"] == "private-org-ref"
     rendered = json.dumps(report, sort_keys=True)
     assert "private-test-token" not in rendered
     assert "login@example.test" not in rendered
     assert "forward@example.test" not in rendered
     assert report["raw"]["raw_credentials_exposed"] is False  # type: ignore[index]
+    assert report["raw"]["organization_configured"] is True  # type: ignore[index]
+    assert "private-org-ref" not in rendered
 
 
 def test_tough_tongue_probe_fails_closed_without_api_key() -> None:
@@ -111,6 +116,12 @@ def test_tough_tongue_probe_reports_auth_failure_without_response_body() -> None
 
 def test_tough_tongue_execution_requires_every_verification_gate() -> None:
     assert _config(enabled=True, account_verified=True, provider_verified=True).execution_ready is True
+    assert _config(
+        enabled=True,
+        account_verified=True,
+        provider_verified=True,
+        organization_id="",
+    ).execution_ready is False
     assert _config(enabled=True, account_verified=False, provider_verified=True).execution_ready is False
     assert _config(enabled=False, account_verified=True, provider_verified=True).execution_ready is False
 
