@@ -59,7 +59,6 @@ services:
       - EA_AUDIOBOOK_VOCALLAB_ALLOW_TOPUP_POINTS=0
       - EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES=0
       - EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES=0
-      - EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL=0
       - EA_AUDIOBOOK_TTS_PROVIDER_ORDER=vocallab,unmixr,piper_local
     volumes:
       - ea_vocallab_runtime_secret:/run/secrets/ea-vocallab:ro
@@ -79,7 +78,6 @@ services:
       - EA_AUDIOBOOK_VOCALLAB_ALLOW_TOPUP_POINTS=0
       - EA_AUDIOBOOK_VOCALLAB_ALLOW_COMMUNITY_VOICES=0
       - EA_AUDIOBOOK_VOCALLAB_ALLOW_CLONES=0
-      - EA_AUDIOBOOK_VOCALLAB_ALLOW_MEMORIAL=0
       - EA_AUDIOBOOK_TTS_PROVIDER_ORDER=vocallab,unmixr,piper_local
     volumes:
       - ea_vocallab_runtime_secret:/run/secrets/ea-vocallab:ro
