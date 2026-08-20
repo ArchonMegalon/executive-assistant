@@ -162,6 +162,24 @@ def test_tough_tongue_is_visible_with_api_key_but_never_routes_external_actions(
     assert manual_route.executable is False
 
 
+def test_tough_tongue_is_visible_with_governed_team_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TOUGH_TONGUE_API_KEY", raising=False)
+    monkeypatch.setenv(
+        "CHUMMER_BUILD_GHOST_TOUGH_TONGUE_API_KEYS",
+        "tough-tongue-team-one;tough-tongue-team-two",
+    )
+
+    state = ProviderRegistryService().binding_state("tough_tongue")
+
+    assert state is not None
+    assert state.secret_configured is True
+    assert state.enabled is True
+    assert state.auth_mode == "api_key"
+    assert "CHUMMER_BUILD_GHOST_TOUGH_TONGUE_API_KEYS" in state.secret_env_names
+
+
 def test_emailit_is_configured_but_not_a_free_form_direct_send_tool(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

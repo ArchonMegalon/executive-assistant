@@ -1444,7 +1444,11 @@ class ProviderRegistryService:
             "onemin": _onemin_secret_env_names(),
             "prompting_systems": ("PROMPTING_SYSTEMS_API_KEY",),
             "teable": ("TEABLE_API_KEY",),
-            "tough_tongue": ("TOUGH_TONGUE_API_KEY",),
+            "tough_tongue": (
+                "CHUMMER_BUILD_GHOST_TOUGH_TONGUE_API_KEYS",
+                "TOUGH_TONGUE_API_KEYS",
+                "TOUGH_TONGUE_API_KEY",
+            ),
             "unmixr": ("UNMIXR_API_KEY", "UNMIXR_VOICE_ID"),
             "vocallab": ("VOCALLAB_API_KEY",),
             "workllm": (

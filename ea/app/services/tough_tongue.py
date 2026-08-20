@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 import hashlib
 import json
@@ -9,9 +9,33 @@ from typing import Any, Callable, Mapping
 import urllib.error
 import urllib.request
 
+from app.services.provider_accounts import (
+    ProviderAccountRegistry,
+    ProviderAccountSlot,
+    sanitized_provider_account_slot,
+)
+
 
 DEFAULT_BASE_URL = "https://api.toughtongueai.com/api/public"
 MAX_RESPONSE_BYTES = 256 * 1024
+TOUGH_TONGUE_CREDENTIAL_ENV_NAMES = (
+    "CHUMMER_BUILD_GHOST_TOUGH_TONGUE_API_KEYS",
+    "TOUGH_TONGUE_API_KEYS",
+    "TOUGH_TONGUE_API_KEY",
+)
+TOUGH_TONGUE_ACCOUNT_REF_ENV_NAMES = (
+    "CHUMMER_BUILD_GHOST_TOUGH_TONGUE_ACCOUNT_REFS",
+    "TOUGH_TONGUE_ACCOUNT_REFS",
+)
+TOUGH_TONGUE_ORGANIZATION_ENV_NAMES = (
+    "TOUGH_TONGUE_ORGANIZATION_IDS",
+    "TOUGH_TONGUE_ORGANIZATION_ID",
+)
+TOUGH_TONGUE_PLAN_ENV_NAMES = (
+    "TOUGH_TONGUE_ACCOUNT_TIERS",
+    "TOUGH_TONGUE_ACCOUNT_TIER",
+)
+AGGREGATE_BASES = {"independent_accounts_sum", "shared_team_pool", "unknown_no_sum"}
 
 
 def _env_truthy(name: str, *, default: bool = False) -> bool:
@@ -48,6 +72,8 @@ class ToughTongueConfig:
     allow_publication: bool
     min_remaining_minutes: float
     max_session_minutes: float
+    account_slots: tuple[ProviderAccountSlot, ...] = ()
+    aggregate_basis: str = "unknown_no_sum"
 
     @classmethod
     def from_env(cls) -> "ToughTongueConfig":
@@ -57,13 +83,28 @@ class ToughTongueConfig:
             except (TypeError, ValueError):
                 return default
 
+        registry = ProviderAccountRegistry.from_env(
+            provider_key="tough_tongue",
+            credential_env_names=TOUGH_TONGUE_CREDENTIAL_ENV_NAMES,
+            account_ref_env_names=TOUGH_TONGUE_ACCOUNT_REF_ENV_NAMES,
+            organization_ref_env_names=TOUGH_TONGUE_ORGANIZATION_ENV_NAMES,
+            plan_env_names=TOUGH_TONGUE_PLAN_ENV_NAMES,
+        )
+        slots = registry.configured_slots
+        first_slot = slots[0] if slots else None
+        configured_basis = str(os.environ.get("EA_TOUGH_TONGUE_AGGREGATE_BASIS") or "").strip()
+        aggregate_basis = configured_basis if configured_basis in AGGREGATE_BASES else "unknown_no_sum"
         return cls(
-            api_key=str(os.environ.get("TOUGH_TONGUE_API_KEY") or "").strip(),
-            organization_id=str(os.environ.get("TOUGH_TONGUE_ORGANIZATION_ID") or "").strip(),
+            api_key=first_slot.credential if first_slot is not None else "",
+            organization_id=first_slot.organization_ref if first_slot is not None else "",
             base_url=str(os.environ.get("TOUGH_TONGUE_BASE_URL") or DEFAULT_BASE_URL).strip().rstrip("/"),
             login_email=str(os.environ.get("TOUGH_TONGUE_LOGIN_EMAIL") or "").strip(),
             forwarding_email=str(os.environ.get("TOUGH_TONGUE_FORWARDING_EMAIL") or "").strip(),
-            account_tier=str(os.environ.get("TOUGH_TONGUE_ACCOUNT_TIER") or "").strip(),
+            account_tier=(
+                first_slot.plan_name
+                if first_slot is not None
+                else str(os.environ.get("TOUGH_TONGUE_ACCOUNT_TIER") or "").strip()
+            ),
             enabled=_env_truthy("EA_TOUGH_TONGUE_ENABLED"),
             account_verified=_env_truthy("EA_TOUGH_TONGUE_ACCOUNT_VERIFIED"),
             provider_verified=_env_truthy("EA_TOUGH_TONGUE_PROVIDER_VERIFIED"),
@@ -74,6 +115,8 @@ class ToughTongueConfig:
             allow_publication=_env_truthy("EA_TOUGH_TONGUE_ALLOW_PUBLICATION"),
             min_remaining_minutes=_float("EA_TOUGH_TONGUE_MIN_REMAINING_MINUTES", 30.0),
             max_session_minutes=_float("EA_TOUGH_TONGUE_MAX_SESSION_MINUTES", 15.0),
+            account_slots=slots,
+            aggregate_basis=aggregate_basis,
         )
 
     @property
@@ -87,8 +130,11 @@ class ToughTongueConfig:
         )
 
     def posture(self) -> dict[str, object]:
+        registry = _registry_for_config(self)
         return {
-            "configured": bool(self.api_key),
+            "configured": bool(registry.configured_slots),
+            "configured_account_count": len(registry.configured_slots),
+            "distinct_account_count": len(registry.distinct_slots()),
             "organization_configured": bool(self.organization_id),
             "organization_id_sha256": _sha256(self.organization_id),
             "enabled": self.enabled,
@@ -106,6 +152,7 @@ class ToughTongueConfig:
             "min_remaining_minutes": self.min_remaining_minutes,
             "max_session_minutes": self.max_session_minutes,
             "raw_credentials_exposed": False,
+            "account_emails_exposed": False,
         }
 
 
@@ -173,6 +220,9 @@ def probe_tough_tongue_balance(
     effective = config or ToughTongueConfig.from_env()
     observed_at = _now_iso()
     posture = effective.posture()
+    registry = _registry_for_config(effective)
+    configured_slots = registry.configured_slots
+    distinct_slots = registry.distinct_slots()
     report: dict[str, object] = {
         "provider_key": "tough_tongue",
         "display_name": "Tough Tongue AI",
@@ -188,45 +238,217 @@ def probe_tough_tongue_balance(
         "reason": "tough_tongue_api_key_missing",
         "next_action": "create_tough_tongue_personal_access_token_after_operator_approval",
         "raw": posture,
+        "accounts": [],
+        "aggregate": {
+            "configured_count": len(configured_slots),
+            "distinct_count": len(distinct_slots),
+            "probed_count": 0,
+            "ready_count": 0,
+            "unavailable_count": 0,
+            "remaining_total": None,
+            "spendable_capacity": None,
+            "unit": "available_minutes",
+            "aggregate_basis": "unknown_no_sum",
+            "shared_pool": False,
+            "degraded": False,
+            "refresh_at_mixed": False,
+        },
     }
-    if not effective.api_key:
+    if not distinct_slots:
         return report
 
+    rows = [
+        _probe_account_slot(
+            slot,
+            effective,
+            timeout_seconds=timeout_seconds,
+            opener=opener,
+        )
+        for slot in distinct_slots
+    ]
+    aggregate = _aggregate_account_rows(rows, effective)
+    report["accounts"] = rows
+    report["aggregate"] = aggregate
+    successful_rows = [row for row in rows if bool(row["probe_ok"])]
+    if not successful_rows:
+        first = rows[0]
+        report.update(
+            {
+                "status": first["status"],
+                "reason": first["reason"],
+                "next_action": first["next_action"],
+            }
+        )
+        if "http_status" in first:
+            raw = dict(report["raw"])
+            raw["http_status"] = first["http_status"]
+            report["raw"] = raw
+        return report
+
+    spendable_capacity = float(aggregate["spendable_capacity"] or 0.0)
+    ready = spendable_capacity >= effective.min_remaining_minutes
+    degraded = bool(aggregate["degraded"])
+    refresh_values = [str(row["refresh_at"]) for row in successful_rows if str(row["refresh_at"])]
+    report.update(
+        {
+            "status": "ready" if ready else "quota_low",
+            "remaining": spendable_capacity,
+            "refresh_at": min(refresh_values) if refresh_values else "",
+            "probe_ok": True,
+            "ready": ready,
+            "reason": (
+                "tough_tongue_team_probe_degraded"
+                if ready and degraded
+                else "" if ready else "tough_tongue_minutes_below_reserve"
+            ),
+            "next_action": (
+                "reprobe_unavailable_tough_tongue_team_slots"
+                if ready and degraded
+                else "" if ready else "review_tough_tongue_minute_budget"
+            ),
+            "account_label": f"{len(distinct_slots)} governed team slot(s)",
+        }
+    )
+    return report
+
+
+def _registry_for_config(config: ToughTongueConfig) -> ProviderAccountRegistry:
+    if config.account_slots:
+        return ProviderAccountRegistry(config.account_slots)
+    slots: tuple[ProviderAccountSlot, ...] = ()
+    if config.api_key:
+        slots = (
+            ProviderAccountSlot(
+                provider_key="tough_tongue",
+                slot_label="team-slot-1",
+                credential=config.api_key,
+                organization_ref=config.organization_id,
+                plan_name=config.account_tier,
+            ),
+        )
+    return ProviderAccountRegistry(slots)
+
+
+def _probe_account_slot(
+    slot: ProviderAccountSlot,
+    config: ToughTongueConfig,
+    *,
+    timeout_seconds: float,
+    opener: Callable[..., Any],
+) -> dict[str, object]:
+    row = sanitized_provider_account_slot(slot)
+    row.update(
+        {
+            "status": "blocked",
+            "probe_ok": False,
+            "ready": False,
+            "remaining": None,
+            "unit": "available_minutes",
+            "refresh_at": "",
+            "source": "tough_tongue_public_api:GET /balance",
+            "reason": "tough_tongue_api_key_missing",
+            "next_action": "replace_or_reauthorize_tough_tongue_api_key",
+        }
+    )
+    slot_config = replace(
+        config,
+        api_key=slot.credential,
+        organization_id=slot.organization_ref,
+        account_tier=slot.plan_name,
+        login_email="",
+        forwarding_email="",
+        account_slots=(),
+    )
     try:
-        balance = ToughTongueClient(effective, opener=opener).balance(timeout_seconds=timeout_seconds)
+        balance = ToughTongueClient(slot_config, opener=opener).balance(timeout_seconds=timeout_seconds)
     except urllib.error.HTTPError as exc:
-        report["status"] = "auth_failed" if exc.code in {401, 403} else "provider_error"
-        report["reason"] = "tough_tongue_auth_failed" if exc.code in {401, 403} else "tough_tongue_http_error"
-        report["next_action"] = (
+        row["status"] = "auth_failed" if exc.code in {401, 403} else "provider_error"
+        row["reason"] = "tough_tongue_auth_failed" if exc.code in {401, 403} else "tough_tongue_http_error"
+        row["next_action"] = (
             "replace_or_reauthorize_tough_tongue_api_key"
             if exc.code in {401, 403}
             else "reprobe_tough_tongue_balance"
         )
-        raw = dict(report["raw"])
-        raw["http_status"] = int(exc.code)
-        report["raw"] = raw
-        return report
+        row["http_status"] = int(exc.code)
+        return row
     except (urllib.error.URLError, TimeoutError):
-        report["status"] = "unavailable"
-        report["reason"] = "tough_tongue_unreachable"
-        report["next_action"] = "reprobe_tough_tongue_balance"
-        return report
+        row["status"] = "unavailable"
+        row["reason"] = "tough_tongue_unreachable"
+        row["next_action"] = "reprobe_tough_tongue_balance"
+        return row
     except (RuntimeError, ValueError, json.JSONDecodeError):
-        report["status"] = "probe_failed"
-        report["reason"] = "tough_tongue_invalid_response"
-        report["next_action"] = "inspect_tough_tongue_api_contract"
-        return report
+        row["status"] = "probe_failed"
+        row["reason"] = "tough_tongue_invalid_response"
+        row["next_action"] = "inspect_tough_tongue_api_contract"
+        return row
 
-    available_minutes = float(balance["available_minutes"])
-    report.update(
+    remaining = float(balance["available_minutes"])
+    ready = remaining >= config.min_remaining_minutes
+    row.update(
         {
-            "status": "ready" if available_minutes >= effective.min_remaining_minutes else "quota_low",
-            "remaining": available_minutes,
-            "refresh_at": str(balance.get("last_updated") or "").strip(),
+            "status": "ready" if ready else "quota_low",
             "probe_ok": True,
-            "ready": available_minutes >= effective.min_remaining_minutes,
-            "reason": "" if available_minutes >= effective.min_remaining_minutes else "tough_tongue_minutes_below_reserve",
-            "next_action": "" if available_minutes >= effective.min_remaining_minutes else "review_tough_tongue_minute_budget",
+            "ready": ready,
+            "remaining": remaining,
+            "refresh_at": str(balance.get("last_updated") or "").strip(),
+            "reason": "" if ready else "tough_tongue_minutes_below_reserve",
+            "next_action": "" if ready else "review_tough_tongue_minute_budget",
         }
     )
-    return report
+    return row
+
+
+def _aggregate_account_rows(
+    rows: list[dict[str, object]],
+    config: ToughTongueConfig,
+) -> dict[str, object]:
+    successful = [row for row in rows if bool(row["probe_ok"])]
+    organization_counts: dict[str, int] = {}
+    for row in successful:
+        organization_ref = str(row["organization_ref_sha256"] or "")
+        if organization_ref:
+            organization_counts[organization_ref] = organization_counts.get(organization_ref, 0) + 1
+    repeated_organization = any(count > 1 for count in organization_counts.values())
+    if len(successful) <= 1:
+        aggregate_basis = "independent_accounts_sum"
+    elif repeated_organization or config.aggregate_basis == "shared_team_pool":
+        aggregate_basis = "shared_team_pool"
+    elif config.aggregate_basis == "independent_accounts_sum":
+        aggregate_basis = "independent_accounts_sum"
+    else:
+        aggregate_basis = "unknown_no_sum"
+
+    remaining_values = [float(row["remaining"] or 0.0) for row in successful]
+    remaining_total: float | None
+    if aggregate_basis == "independent_accounts_sum":
+        remaining_total = sum(remaining_values)
+    elif aggregate_basis == "shared_team_pool":
+        grouped: dict[str, list[float]] = {}
+        for row in successful:
+            organization_ref = str(row["organization_ref_sha256"] or "")
+            group = organization_ref or "shared-team-pool"
+            grouped.setdefault(group, []).append(float(row["remaining"] or 0.0))
+        remaining_total = sum(min(values) for values in grouped.values())
+    else:
+        remaining_total = None
+
+    spendable_capacity = (
+        remaining_total
+        if remaining_total is not None
+        else max(remaining_values, default=0.0)
+    )
+    refresh_values = {str(row["refresh_at"]) for row in successful if str(row["refresh_at"])}
+    return {
+        "configured_count": int(config.posture()["configured_account_count"]),
+        "distinct_count": len(rows),
+        "probed_count": len(rows),
+        "ready_count": sum(1 for row in successful if bool(row["ready"])),
+        "unavailable_count": sum(1 for row in rows if not bool(row["probe_ok"])),
+        "remaining_total": remaining_total,
+        "spendable_capacity": spendable_capacity,
+        "unit": "available_minutes",
+        "aggregate_basis": aggregate_basis,
+        "shared_pool": aggregate_basis == "shared_team_pool",
+        "degraded": len(successful) != len(rows),
+        "refresh_at_mixed": len(refresh_values) > 1,
+    }
