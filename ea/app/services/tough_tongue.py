@@ -35,6 +35,19 @@ TOUGH_TONGUE_PLAN_ENV_NAMES = (
     "TOUGH_TONGUE_ACCOUNT_TIERS",
     "TOUGH_TONGUE_ACCOUNT_TIER",
 )
+TOUGH_TONGUE_INDEXED_CREDENTIAL_ENV_NAMES = tuple(
+    f"TOUGH_TONGUE_TIER4_ACCOUNT_{index}_API_KEY" for index in range(1, 7)
+)
+TOUGH_TONGUE_INDEXED_ACCOUNT_REF_ENV_NAMES = tuple(
+    f"TOUGH_TONGUE_TIER4_ACCOUNT_{index}_EMAIL" for index in range(1, 7)
+)
+TOUGH_TONGUE_INDEXED_ORGANIZATION_ENV_NAMES = (
+    "",
+    *(f"TOUGH_TONGUE_TIER4_ACCOUNT_{index}_ORGANIZATION_ID" for index in range(2, 7)),
+)
+TOUGH_TONGUE_INDEXED_PLAN_ENV_NAMES = tuple(
+    f"TOUGH_TONGUE_TIER4_ACCOUNT_{index}_TIER" for index in range(1, 7)
+)
 AGGREGATE_BASES = {"independent_accounts_sum", "shared_team_pool", "unknown_no_sum"}
 
 
@@ -83,14 +96,23 @@ class ToughTongueConfig:
             except (TypeError, ValueError):
                 return default
 
-        registry = ProviderAccountRegistry.from_env(
+        pooled_registry = ProviderAccountRegistry.from_env(
             provider_key="tough_tongue",
             credential_env_names=TOUGH_TONGUE_CREDENTIAL_ENV_NAMES,
             account_ref_env_names=TOUGH_TONGUE_ACCOUNT_REF_ENV_NAMES,
             organization_ref_env_names=TOUGH_TONGUE_ORGANIZATION_ENV_NAMES,
             plan_env_names=TOUGH_TONGUE_PLAN_ENV_NAMES,
         )
-        slots = registry.configured_slots
+        indexed_registry = ProviderAccountRegistry.from_indexed_env(
+            provider_key="tough_tongue",
+            credential_env_names=TOUGH_TONGUE_INDEXED_CREDENTIAL_ENV_NAMES,
+            account_ref_env_names=TOUGH_TONGUE_INDEXED_ACCOUNT_REF_ENV_NAMES,
+            organization_ref_env_names=TOUGH_TONGUE_INDEXED_ORGANIZATION_ENV_NAMES,
+            plan_env_names=TOUGH_TONGUE_INDEXED_PLAN_ENV_NAMES,
+        )
+        slots = ProviderAccountRegistry(
+            (*indexed_registry.configured_slots, *pooled_registry.configured_slots)
+        ).distinct_slots()
         first_slot = slots[0] if slots else None
         configured_basis = str(os.environ.get("EA_TOUGH_TONGUE_AGGREGATE_BASIS") or "").strip()
         aggregate_basis = configured_basis if configured_basis in AGGREGATE_BASES else "unknown_no_sum"

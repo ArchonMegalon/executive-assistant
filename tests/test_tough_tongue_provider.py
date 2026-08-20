@@ -294,4 +294,53 @@ def test_tough_tongue_env_registry_probes_all_six_governed_team_accounts(monkeyp
     rendered = json.dumps(report, sort_keys=True)
     assert all(secret not in rendered for secret in credentials)
     assert all(account_ref not in rendered for account_ref in account_refs)
-    assert all(organization_ref not in rendered for organization_ref in organization_refs)
+    assert all(
+        organization_ref not in rendered
+        for organization_ref in organization_refs
+        if organization_ref
+    )
+
+
+def test_tough_tongue_env_registry_merges_indexed_slots_ahead_of_partial_pool(monkeypatch) -> None:
+    credentials = [f"indexed-secret-{index}" for index in range(1, 7)]
+    account_refs = [f"indexed-account-{index}@example.test" for index in range(1, 7)]
+    organization_refs = ["", *(f"indexed-org-{index}" for index in range(2, 7))]
+    monkeypatch.setenv("CHUMMER_BUILD_GHOST_TOUGH_TONGUE_API_KEYS", ";".join(credentials[:3]))
+    monkeypatch.setenv("CHUMMER_BUILD_GHOST_TOUGH_TONGUE_ACCOUNT_REFS", ";".join(account_refs[:3]))
+    monkeypatch.setenv("TOUGH_TONGUE_ORGANIZATION_ID", "legacy-selected-org")
+    monkeypatch.setenv("EA_TOUGH_TONGUE_AGGREGATE_BASIS", "independent_accounts_sum")
+    for index, (credential, account_ref, organization_ref) in enumerate(
+        zip(credentials, account_refs, organization_refs, strict=True),
+        1,
+    ):
+        monkeypatch.setenv(f"TOUGH_TONGUE_TIER4_ACCOUNT_{index}_API_KEY", credential)
+        monkeypatch.setenv(f"TOUGH_TONGUE_TIER4_ACCOUNT_{index}_EMAIL", account_ref)
+        monkeypatch.setenv(f"TOUGH_TONGUE_TIER4_ACCOUNT_{index}_TIER", "4")
+        if organization_ref:
+            monkeypatch.setenv(
+                f"TOUGH_TONGUE_TIER4_ACCOUNT_{index}_ORGANIZATION_ID",
+                organization_ref,
+            )
+
+    observed_organizations: list[str] = []
+
+    def _open(request: object, *, timeout: float) -> _Response:
+        observed_organizations.append(request.get_header("X-tt-org") or "")  # type: ignore[attr-defined]
+        return _Response({"available_minutes": 25, "last_updated": "2026-08-20T15:00:00Z"})
+
+    report = probe_tough_tongue_balance(opener=_open)
+
+    assert observed_organizations == organization_refs
+    assert report["ready"] is True
+    assert report["remaining"] == 150.0
+    assert report["aggregate"]["configured_count"] == 6  # type: ignore[index]
+    assert report["aggregate"]["distinct_count"] == 6  # type: ignore[index]
+    assert report["aggregate"]["remaining_total"] == 150.0  # type: ignore[index]
+    rendered = json.dumps(report, sort_keys=True)
+    assert all(secret not in rendered for secret in credentials)
+    assert all(account_ref not in rendered for account_ref in account_refs)
+    assert all(
+        organization_ref not in rendered
+        for organization_ref in organization_refs
+        if organization_ref
+    )
