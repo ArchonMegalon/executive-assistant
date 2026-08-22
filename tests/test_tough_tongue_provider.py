@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 from io import BytesIO
+import hashlib
 import json
 import urllib.error
 
+import pytest
+
 from app.services.tough_tongue import (
+    TOUGH_TONGUE_BINDING_CONTRACT_SCHEMA,
+    ToughTongueBindingExpectations,
     ToughTongueConfig,
+    ToughTongueReadOnlyBindingAdapter,
+    ToughTongueReadOnlyBindingContract,
+    probe_tough_tongue_bindings,
     probe_tough_tongue_balance,
+    tough_tongue_binding_contract_digest,
 )
 from app.services.provider_accounts import ProviderAccountSlot
 from scripts.sync_env_to_teable import _provider_guess
@@ -344,3 +353,355 @@ def test_tough_tongue_env_registry_merges_indexed_slots_ahead_of_partial_pool(mo
         for organization_ref in organization_refs
         if organization_ref
     )
+
+
+def _opaque_ref(value: str) -> str:
+    return f"sha256:{hashlib.sha256(value.encode('utf-8')).hexdigest()}"
+
+
+def _binding_contract_payload() -> dict[str, object]:
+    common_resource_selectors = {
+        "resource_ref": "id",
+        "account_ref": "owner.account",
+        "organization_ref": "owner.organization",
+    }
+    return {
+        "schema": TOUGH_TONGUE_BINDING_CONTRACT_SCHEMA,
+        "provider_key": "tough_tongue",
+        "base_url": "https://api.toughtongueai.com/api/public",
+        "source_type": "provider_documentation",
+        "verified_at": "2026-08-22T10:00:00Z",
+        "authority": {
+            "operator_verified": True,
+            "source_ref_sha256": _opaque_ref("provider-documentation-read-only-contract"),
+        },
+        "premium_plan_values": ["premium"],
+        "live_avatar_providers": ["anam", "liveavatar"],
+        "routes": {
+            "account": {
+                "method": "GET",
+                "path": "account",
+                "selectors": {
+                    "account_ref": "account.ref",
+                    "organization_ref": "account.organization",
+                    "plan_name": "subscription.plan",
+                    "live_avatar_entitled": "entitlements.live_avatar",
+                },
+            },
+            "agent": {
+                "method": "GET",
+                "path": "agents/{resource_ref}",
+                "selectors": common_resource_selectors,
+            },
+            "voice": {
+                "method": "GET",
+                "path": "voices/{resource_ref}",
+                "selectors": common_resource_selectors,
+            },
+            "function": {
+                "method": "GET",
+                "path": "functions/{resource_ref}",
+                "selectors": common_resource_selectors,
+            },
+            "scenario": {
+                "method": "GET",
+                "path": "scenarios/{resource_ref}",
+                "selectors": {
+                    **common_resource_selectors,
+                    "live_avatar_ref": "appearance.live_avatar_id",
+                    "live_avatar_provider": "appearance.live_avatar_provider",
+                    "voice_ref": "voice.id",
+                    "function_refs": "functions.ids",
+                },
+            },
+        },
+    }
+
+
+def _binding_contract() -> ToughTongueReadOnlyBindingContract:
+    payload = _binding_contract_payload()
+    return ToughTongueReadOnlyBindingContract.from_payload(
+        payload,
+        expected_digest=tough_tongue_binding_contract_digest(payload),
+        configured_base_url="https://api.toughtongueai.com/api/public",
+    )
+
+
+def _binding_expectations(owner_ref: str) -> ToughTongueBindingExpectations:
+    return ToughTongueBindingExpectations(
+        preferred_account_ref=_opaque_ref(owner_ref),
+        agent_ref="candidate-agent-private",
+        voice_ref="candidate-voice-private",
+        function_ref="candidate-function-private",
+        scenario_ref="candidate-scenario-private",
+        live_avatar_ref="candidate-avatar-private",
+    )
+
+
+def test_tough_tongue_binding_probe_fails_closed_before_network_without_verified_contract(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("EA_TOUGH_TONGUE_READ_ONLY_BINDING_CONTRACT_PATH", raising=False)
+    monkeypatch.delenv("EA_TOUGH_TONGUE_READ_ONLY_BINDING_CONTRACT_DIGEST", raising=False)
+    called = False
+
+    def _open(*_args: object, **_kwargs: object) -> _Response:
+        nonlocal called
+        called = True
+        return _Response({})
+
+    owner_ref = "preferred-owner@example.test"
+    report = probe_tough_tongue_bindings(
+        config=_config(
+            account_slots=(
+                _slot(
+                    1,
+                    "private-read-only-token",
+                    account_ref=owner_ref,
+                    organization_ref="preferred-organization-private",
+                    plan_name="premium",
+                ),
+            )
+        ),
+        expectations=_binding_expectations(owner_ref),
+        opener=_open,
+        observed_at="2026-08-22T10:30:00Z",
+    )
+
+    assert called is False
+    assert report["status"] == "blocked"
+    assert report["reason"] == "tough_tongue_readback_contract_not_configured"
+    assert report["requests"]["attempted_count"] == 0  # type: ignore[index]
+    assert report["requests"]["mutation_request_count"] == 0  # type: ignore[index]
+    assert report["provider_activation"]["provider_resources_mutated"] is False  # type: ignore[index]
+
+
+def test_tough_tongue_binding_adapter_exposes_no_mutation_surface() -> None:
+    for method_name in (
+        "create",
+        "update",
+        "delete",
+        "create_session",
+        "create_grant",
+        "create_agent",
+        "update_agent",
+        "create_voice",
+        "create_function",
+        "create_scenario",
+    ):
+        assert not hasattr(ToughTongueReadOnlyBindingAdapter, method_name)
+
+
+def test_tough_tongue_binding_probe_verifies_get_only_ownership_entitlements_and_bindings() -> None:
+    owner_ref = "preferred-owner@example.test"
+    organization_ref = "preferred-organization-private"
+    expectations = _binding_expectations(owner_ref)
+    observed: list[tuple[str, str]] = []
+    payloads = {
+        "account": {
+            "account": {"ref": owner_ref, "organization": organization_ref},
+            "subscription": {"plan": "Premium"},
+            "entitlements": {"live_avatar": True},
+        },
+        f"agents/{expectations.agent_ref}": {
+            "id": expectations.agent_ref,
+            "owner": {"account": owner_ref, "organization": organization_ref},
+        },
+        f"voices/{expectations.voice_ref}": {
+            "id": expectations.voice_ref,
+            "owner": {"account": owner_ref, "organization": organization_ref},
+        },
+        f"functions/{expectations.function_ref}": {
+            "id": expectations.function_ref,
+            "owner": {"account": owner_ref, "organization": organization_ref},
+        },
+        f"scenarios/{expectations.scenario_ref}": {
+            "id": expectations.scenario_ref,
+            "owner": {"account": owner_ref, "organization": organization_ref},
+            "appearance": {
+                "live_avatar_id": expectations.live_avatar_ref,
+                "live_avatar_provider": "anam",
+            },
+            "voice": {"id": expectations.voice_ref},
+            "functions": {"ids": [expectations.function_ref]},
+        },
+    }
+
+    def _open(request: object, *, timeout: float) -> _Response:
+        observed.append((request.get_method(), request.full_url))  # type: ignore[attr-defined]
+        relative = request.full_url.split("/api/public/", 1)[1]  # type: ignore[attr-defined]
+        return _Response(payloads[relative])
+
+    report = probe_tough_tongue_bindings(
+        config=_config(
+            account_slots=(
+                _slot(
+                    1,
+                    "private-read-only-token",
+                    account_ref=owner_ref,
+                    organization_ref=organization_ref,
+                    plan_name="premium",
+                ),
+            )
+        ),
+        expectations=expectations,
+        contract=_binding_contract(),
+        opener=_open,
+        observed_at="2026-08-22T10:30:00Z",
+    )
+
+    assert report["status"] == "verified"
+    assert report["probe_ok"] is True
+    assert report["ready"] is True
+    assert report["entitlements"]["premium_verified"] is True  # type: ignore[index]
+    assert report["entitlements"]["live_avatar_verified"] is True  # type: ignore[index]
+    assert report["accounts"]["preferred_ownership_verified"] is True  # type: ignore[index]
+    assert report["ownership"]["all_candidate_resources_verified"] is True  # type: ignore[index]
+    assert report["bindings"]["scenario"]["live_avatar_match"] is True  # type: ignore[index]
+    assert report["bindings"]["scenario"]["voice_match"] is True  # type: ignore[index]
+    assert report["bindings"]["scenario"]["function_match"] is True  # type: ignore[index]
+    assert len(observed) == 5
+    assert {method for method, _url in observed} == {"GET"}
+    assert report["requests"]["attempted_count"] == 5  # type: ignore[index]
+    assert report["requests"]["mutation_request_count"] == 0  # type: ignore[index]
+    assert report["receipt_digest"] == tough_tongue_binding_contract_digest(
+        {key: value for key, value in report.items() if key != "receipt_digest"}
+    )
+    rendered = json.dumps(report, sort_keys=True)
+    forbidden = [
+        "private-read-only-token",
+        owner_ref,
+        organization_ref,
+        *expectations.candidate_refs.values(),
+    ]
+    assert all(value not in rendered for value in forbidden)
+
+
+def test_tough_tongue_binding_contract_rejects_non_get_route() -> None:
+    payload = _binding_contract_payload()
+    payload["routes"]["scenario"]["method"] = "POST"  # type: ignore[index]
+
+    with pytest.raises(ValueError, match="method_not_get:scenario"):
+        ToughTongueReadOnlyBindingContract.from_payload(
+            payload,
+            expected_digest=tough_tongue_binding_contract_digest(payload),
+            configured_base_url="https://api.toughtongueai.com/api/public",
+        )
+
+
+def test_tough_tongue_binding_contract_requires_operator_verified_source() -> None:
+    payload = _binding_contract_payload()
+    payload["authority"] = {
+        "operator_verified": False,
+        "source_ref_sha256": _opaque_ref("unverified-source"),
+    }
+
+    with pytest.raises(ValueError, match="authority_unverified"):
+        ToughTongueReadOnlyBindingContract.from_payload(
+            payload,
+            expected_digest=tough_tongue_binding_contract_digest(payload),
+            configured_base_url="https://api.toughtongueai.com/api/public",
+        )
+
+
+def test_tough_tongue_binding_contract_fails_closed_on_digest_drift(tmp_path, monkeypatch) -> None:
+    payload = _binding_contract_payload()
+    path = tmp_path / "tough-tongue-read-only-contract.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setenv("EA_TOUGH_TONGUE_READ_ONLY_BINDING_CONTRACT_PATH", str(path))
+    monkeypatch.setenv(
+        "EA_TOUGH_TONGUE_READ_ONLY_BINDING_CONTRACT_DIGEST",
+        "sha256:" + ("0" * 64),
+    )
+
+    with pytest.raises(ValueError, match="digest_mismatch"):
+        ToughTongueReadOnlyBindingContract.from_env(
+            configured_base_url="https://api.toughtongueai.com/api/public"
+        )
+
+
+def test_tough_tongue_binding_probe_blocks_preferred_account_mismatch_without_network() -> None:
+    called = False
+
+    def _open(*_args: object, **_kwargs: object) -> _Response:
+        nonlocal called
+        called = True
+        return _Response({})
+
+    report = probe_tough_tongue_bindings(
+        config=_config(
+            account_slots=(
+                _slot(
+                    1,
+                    "private-read-only-token",
+                    account_ref="different-owner@example.test",
+                    organization_ref="private-organization",
+                ),
+            )
+        ),
+        expectations=_binding_expectations("expected-owner@example.test"),
+        contract=_binding_contract(),
+        opener=_open,
+    )
+
+    assert called is False
+    assert report["status"] == "blocked"
+    assert "tough_tongue_preferred_account_ref_not_found" in report["blockers"]
+    assert report["requests"]["attempted_count"] == 0  # type: ignore[index]
+
+
+def test_tough_tongue_binding_probe_fails_closed_on_scenario_binding_drift() -> None:
+    owner_ref = "preferred-owner@example.test"
+    organization_ref = "preferred-organization-private"
+    expectations = _binding_expectations(owner_ref)
+
+    def _open(request: object, *, timeout: float) -> _Response:
+        relative = request.full_url.split("/api/public/", 1)[1]  # type: ignore[attr-defined]
+        if relative == "account":
+            return _Response(
+                {
+                    "account": {"ref": owner_ref, "organization": organization_ref},
+                    "subscription": {"plan": "Premium"},
+                    "entitlements": {"live_avatar": True},
+                }
+            )
+        resource_ref = relative.rsplit("/", 1)[1]
+        payload: dict[str, object] = {
+            "id": resource_ref,
+            "owner": {"account": owner_ref, "organization": organization_ref},
+        }
+        if relative.startswith("scenarios/"):
+            payload.update(
+                {
+                    "appearance": {
+                        "live_avatar_id": "wrong-avatar-private",
+                        "live_avatar_provider": "anam",
+                    },
+                    "voice": {"id": expectations.voice_ref},
+                    "functions": {"ids": [expectations.function_ref]},
+                }
+            )
+        return _Response(payload)
+
+    report = probe_tough_tongue_bindings(
+        config=_config(
+            account_slots=(
+                _slot(
+                    1,
+                    "private-read-only-token",
+                    account_ref=owner_ref,
+                    organization_ref=organization_ref,
+                ),
+            )
+        ),
+        expectations=expectations,
+        contract=_binding_contract(),
+        opener=_open,
+    )
+
+    assert report["probe_ok"] is True
+    assert report["ready"] is False
+    assert report["status"] == "unverified"
+    assert report["reason"] == "tough_tongue_binding_evidence_mismatch"
+    assert report["bindings"]["scenario"]["live_avatar_match"] is False  # type: ignore[index]
+    assert "wrong-avatar-private" not in json.dumps(report, sort_keys=True)

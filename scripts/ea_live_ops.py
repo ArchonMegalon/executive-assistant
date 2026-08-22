@@ -72,7 +72,7 @@ from app.services.proactive_ooda_telegram_approval import expire_stale_proactive
 from app.services.provider_registry import ProviderRegistryService  # noqa: E402
 from app.services.responses_upstream import _provider_health_report  # noqa: E402
 from app.services.telegram_delivery import send_telegram_message_for_principal  # noqa: E402
-from app.services.tough_tongue import probe_tough_tongue_balance  # noqa: E402
+from app.services.tough_tongue import probe_tough_tongue_balance, probe_tough_tongue_bindings  # noqa: E402
 from app.services.tool_runtime import build_tool_runtime  # noqa: E402
 from app.settings import get_settings, settings_with_storage_backend  # noqa: E402
 from app.services.tool_execution_browseract_adapter import BrowserActToolAdapter  # noqa: E402
@@ -2917,6 +2917,37 @@ def _operator_text_for_provider(report: dict[str, object]) -> str:
         if raw.get(field_name) not in (None, ""):
             pieces.append(f"{label}={raw[field_name]}")
     return "; ".join(str(item) for item in pieces if str(item).strip())
+
+
+def _operator_text_for_tough_tongue_bindings(report: Mapping[str, object]) -> str:
+    accounts = dict(report.get("accounts") or {})
+    entitlements = dict(report.get("entitlements") or {})
+    bindings = dict(report.get("bindings") or {})
+    verified_bindings = sum(
+        1
+        for value in bindings.values()
+        if isinstance(value, Mapping)
+        and bool(value.get("readback"))
+        and bool(value.get("reference_match"))
+        and bool(value.get("account_owner_match"))
+        and bool(value.get("organization_owner_match"))
+    )
+    pieces = [
+        f"tough_tongue_bindings status={report.get('status') or 'unknown'}",
+        f"ready={str(bool(report.get('ready'))).lower()}",
+        f"accounts={int(accounts.get('distinct_count') or 0)}",
+        f"preferred_matches={int(accounts.get('preferred_match_count') or 0)}",
+        f"premium={str(bool(entitlements.get('premium_verified'))).lower()}",
+        f"live_avatar={str(bool(entitlements.get('live_avatar_verified'))).lower()}",
+        f"verified_bindings={verified_bindings}/{len(bindings)}",
+    ]
+    if report.get("reason"):
+        pieces.append(f"reason={report['reason']}")
+    if report.get("next_action"):
+        pieces.append(f"next={report['next_action']}")
+    if report.get("generated_at"):
+        pieces.append(f"observed_at={report['generated_at']}")
+    return "; ".join(pieces)
 
 
 def _pushbullet_reason_from_receipt(receipt: Mapping[str, object]) -> str:
@@ -15743,6 +15774,21 @@ def parse_args() -> argparse.Namespace:
     probe.add_argument("--format", choices=("json", "operator"), default="json")
     _add_timeout_seconds_argument(probe)
 
+    tough_tongue_bindings = subparsers.add_parser(
+        "probe-tough-tongue-bindings",
+        help=(
+            "Verify Tough Tongue preferred-account, Premium/live-avatar entitlement, "
+            "and candidate bindings through a digest-bound GET-only contract."
+        ),
+    )
+    tough_tongue_bindings.add_argument("--format", choices=("json", "operator"), default="json")
+    tough_tongue_bindings.add_argument(
+        "--receipt-path",
+        default="",
+        help="Optional mode-0600 path for the redacted digest-bound receipt.",
+    )
+    _add_timeout_seconds_argument(tough_tongue_bindings)
+
     provider_cost_pressure = subparsers.add_parser(
         "probe-provider-cost-pressure",
         help="Probe Gemini token pressure and cost-aware background provider routing.",
@@ -16176,6 +16222,18 @@ def main() -> int:
         else:
             print(_json_dumps(report))
         return 0
+    if args.command == "probe-tough-tongue-bindings":
+        report = probe_tough_tongue_bindings(
+            timeout_seconds=float(getattr(args, "timeout_seconds", None) or 20.0),
+        )
+        receipt_path = str(getattr(args, "receipt_path", "") or "").strip()
+        if receipt_path:
+            _write_private_json(Path(receipt_path), report)
+        if args.format == "operator":
+            print(_operator_text_for_tough_tongue_bindings(report))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("ready")) else 2
     if args.command == "probe-provider-cost-pressure":
         report = probe_provider_cost_pressure(
             window=str(getattr(args, "window", "") or "24h"),
