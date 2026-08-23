@@ -4210,6 +4210,99 @@ def test_probe_provider_tough_tongue_uses_read_only_balance_probe(monkeypatch) -
     assert report["raw"]["raw_credentials_exposed"] is False
 
 
+def test_parse_args_accepts_read_only_tough_tongue_binding_receipt(monkeypatch, tmp_path) -> None:
+    module = _module()
+    receipt_path = tmp_path / "tough-tongue-bindings.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "ea_live_ops.py",
+            "probe-tough-tongue-bindings",
+            "--receipt-path",
+            str(receipt_path),
+            "--timeout-seconds",
+            "9",
+        ],
+    )
+
+    args = module.parse_args()
+
+    assert args.command == "probe-tough-tongue-bindings"
+    assert args.receipt_path == str(receipt_path)
+    assert args.timeout_seconds == 9.0
+    assert args.format == "json"
+
+
+def test_main_read_only_tough_tongue_binding_probe_writes_private_redacted_receipt(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    module = _module()
+    receipt_path = tmp_path / "tough-tongue-bindings.json"
+    report = {
+        "schema": "ea.tough_tongue.read_only_binding_receipt.v1",
+        "generated_at": "2026-08-22T10:30:00Z",
+        "status": "blocked",
+        "ready": False,
+        "probe_ok": False,
+        "reason": "tough_tongue_readback_contract_not_configured",
+        "next_action": "supply_operator_verified_tough_tongue_readback_contract",
+        "accounts": {"distinct_count": 6, "preferred_match_count": 1},
+        "entitlements": {"premium_verified": False, "live_avatar_verified": False},
+        "bindings": {},
+        "raw_credentials_exposed": False,
+        "receipt_digest": "sha256:" + ("1" * 64),
+    }
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: _args(
+            command="probe-tough-tongue-bindings",
+            format="json",
+            receipt_path=str(receipt_path),
+            timeout_seconds=8.0,
+        ),
+    )
+    monkeypatch.setattr(module, "probe_tough_tongue_bindings", lambda **_kwargs: report)
+
+    exit_code = module.main()
+
+    assert exit_code == 2
+    assert json.loads(capsys.readouterr().out) == report
+    assert json.loads(receipt_path.read_text(encoding="utf-8")) == report
+    assert receipt_path.stat().st_mode & 0o777 == 0o600
+
+
+def test_tough_tongue_binding_operator_text_contains_only_redacted_counts() -> None:
+    module = _module()
+    report = {
+        "generated_at": "2026-08-22T10:30:00Z",
+        "status": "blocked",
+        "ready": False,
+        "reason": "tough_tongue_candidate_agent_ref_missing",
+        "next_action": "supply_operator_verified_tough_tongue_readback_contract",
+        "accounts": {"distinct_count": 6, "preferred_match_count": 1},
+        "entitlements": {"premium_verified": False, "live_avatar_verified": False},
+        "bindings": {
+            "agent": {
+                "readback": False,
+                "reference_match": False,
+                "account_owner_match": False,
+                "organization_owner_match": False,
+            }
+        },
+    }
+
+    text = module._operator_text_for_tough_tongue_bindings(report)
+
+    assert "accounts=6" in text
+    assert "preferred_matches=1" in text
+    assert "verified_bindings=0/1" in text
+    assert "tough_tongue_candidate_agent_ref_missing" in text
+
+
 def test_probe_provider_falls_back_to_catalog_without_bootstrapping_database(monkeypatch) -> None:
     module = _module()
     module._catalog_provider_registry.cache_clear()
