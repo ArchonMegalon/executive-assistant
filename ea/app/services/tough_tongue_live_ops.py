@@ -283,6 +283,8 @@ class ToughTongueDocumentedGetAdapter:
         if len(raw) > MAX_RESPONSE_BYTES:
             raise ValueError("tough_tongue_response_too_large")
         payload = json.loads(raw.decode("utf-8"))
+        if route == "organizations" and isinstance(payload, list):
+            payload = {"organizations": payload}
         if not isinstance(payload, Mapping):
             raise ValueError("tough_tongue_response_not_object")
         return payload
