@@ -72,7 +72,16 @@ from app.services.proactive_ooda_telegram_approval import expire_stale_proactive
 from app.services.provider_registry import ProviderRegistryService  # noqa: E402
 from app.services.responses_upstream import _provider_health_report  # noqa: E402
 from app.services.telegram_delivery import send_telegram_message_for_principal  # noqa: E402
-from app.services.tough_tongue import probe_tough_tongue_balance, probe_tough_tongue_bindings  # noqa: E402
+from app.services.tough_tongue import (  # noqa: E402
+    ToughTongueBindingExpectations,
+    ToughTongueConfig,
+    probe_tough_tongue_balance,
+)
+from app.services.tough_tongue_live_ops import (  # noqa: E402
+    ToughTongueLiveOpsContract,
+    ToughTongueProbeAuthority,
+    probe_tough_tongue_live_ops as probe_tough_tongue_bindings,
+)
 from app.services.tool_runtime import build_tool_runtime  # noqa: E402
 from app.settings import get_settings, settings_with_storage_backend  # noqa: E402
 from app.services.tool_execution_browseract_adapter import BrowserActToolAdapter  # noqa: E402
@@ -15787,6 +15796,17 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Optional mode-0600 path for the redacted digest-bound receipt.",
     )
+    tough_tongue_bindings.add_argument(
+        "--preflight-state",
+        choices=("ready", "disabled", "unavailable", "depleted", "malformed"),
+        default=_env("EA_TOUGH_TONGUE_PREFLIGHT_STATE"),
+        help="Fresh normalized local-ledger state; missing or stale state blocks before provider I/O.",
+    )
+    tough_tongue_bindings.add_argument(
+        "--preflight-observed-at",
+        default=_env("EA_TOUGH_TONGUE_PREFLIGHT_OBSERVED_AT"),
+        help="UTC timestamp of the local-ledger preflight state.",
+    )
     _add_timeout_seconds_argument(tough_tongue_bindings)
 
     provider_cost_pressure = subparsers.add_parser(
@@ -16223,7 +16243,33 @@ def main() -> int:
             print(_json_dumps(report))
         return 0
     if args.command == "probe-tough-tongue-bindings":
+        config = ToughTongueConfig.from_env()
+        expectations = ToughTongueBindingExpectations.from_env()
+        try:
+            contract = ToughTongueLiveOpsContract.from_env(
+                configured_base_url=config.base_url,
+            )
+        except ValueError:
+            contract = None
+        authority = None
+        if str(getattr(args, "preflight_state", "") or "").strip():
+            authority = ToughTongueProbeAuthority(
+                state=str(args.preflight_state).strip(),
+                observed_at=str(getattr(args, "preflight_observed_at", "") or "").strip(),
+            )
+        candidates = expectations.candidate_refs
         report = probe_tough_tongue_bindings(
+            config=config,
+            contract=contract,
+            authority=authority,
+            preferred_account_ref=expectations.preferred_account_ref,
+            candidate_refs={
+                "agent": candidates["agent"],
+                "voice": candidates["voice"],
+                "function": candidates["function"],
+                "scenario": candidates["scenario"],
+                "avatar": candidates["live_avatar"],
+            },
             timeout_seconds=float(getattr(args, "timeout_seconds", None) or 20.0),
         )
         receipt_path = str(getattr(args, "receipt_path", "") or "").strip()
