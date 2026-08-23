@@ -64,6 +64,19 @@ def _iso(value: object) -> datetime:
     return parsed.astimezone(UTC)
 
 
+def _provider_iso(value: object) -> datetime:
+    """Parse a provider timestamp, treating its documented naive ISO form as UTC."""
+
+    text = str(value or "").strip()
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("tough_tongue_timestamp_invalid") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
 def _now() -> datetime:
     return datetime.now(UTC)
 
@@ -283,8 +296,8 @@ class ToughTongueDocumentedGetAdapter:
         refresh_at = str(payload.get("last_updated") or "").strip()
         if remaining < 0 or not refresh_at:
             raise ValueError("tough_tongue_balance_schema_invalid")
-        _iso(refresh_at)
-        return remaining, refresh_at
+        normalized_refresh_at = _now_text(_provider_iso(refresh_at))
+        return remaining, normalized_refresh_at
 
     def active_plan(self, *, timeout_seconds: float) -> str:
         payload = self._get("subscriptions", timeout_seconds=timeout_seconds)

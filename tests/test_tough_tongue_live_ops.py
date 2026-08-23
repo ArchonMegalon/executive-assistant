@@ -205,6 +205,20 @@ def test_adapter_uses_optional_org_header_and_has_no_mutation_surface() -> None:
         assert not hasattr(adapter, method)
 
 
+def test_adapter_normalizes_provider_documented_naive_balance_timestamp_as_utc() -> None:
+    def opener(_request: object, *, timeout: float) -> Response:
+        return Response({"available_minutes": 100, "last_updated": "2026-08-23T11:59:00.123000"})
+
+    adapter = ToughTongueDocumentedGetAdapter(
+        config=config(account_slots=slots(organization=False)),
+        slot=slots(organization=False)[0],
+        contract=contract(),
+        opener=opener,
+    )
+
+    assert adapter.balance(timeout_seconds=2) == (100.0, "2026-08-23T11:59:00Z")
+
+
 def test_six_slot_probe_normalizes_and_redacts_but_does_not_overclaim_bindings() -> None:
     observed: list[tuple[str, str | None]] = []
 
