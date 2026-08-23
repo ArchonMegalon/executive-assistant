@@ -19,6 +19,7 @@ from app.services.tough_tongue import MAX_RESPONSE_BYTES, ToughTongueConfig
 
 CONTRACT_SCHEMA = "chummer.build_ghost.tough_tongue.read_only_binding_contract.v2"
 RECEIPT_SCHEMA = "ea.tough_tongue.live_ops_binding_receipt.v2"
+OFFICIAL_BASE_URL = "https://api.toughtongueai.com/api/public"
 EXPECTED_SLOT_COUNT = 6
 PREFLIGHT_STATES = {"ready", "disabled", "unavailable", "depleted", "malformed"}
 DOCUMENTED_GET_ROUTES = {
@@ -36,6 +37,7 @@ NORMALIZATION = {
 }
 UNSUPPORTED_DIRECT_RESOURCES = ("agent", "voice", "function", "avatar")
 _SHA256_REF = re.compile(r"^sha256:[0-9a-f]{64}$")
+_SAFE_POLICY_VALUE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 
 
 def _canonical(value: object) -> bytes:
@@ -76,6 +78,7 @@ class ToughTongueProbeAuthority:
 
     state: str
     observed_at: str
+    evidence_digest: str
 
 
 @dataclass(frozen=True)
@@ -154,6 +157,7 @@ class ToughTongueLiveOpsContract:
             payload.get("schema") != CONTRACT_SCHEMA
             or payload.get("provider_key") != "tough_tongue"
             or payload.get("source_type") != "provider_documentation"
+            or base_url != OFFICIAL_BASE_URL
             or base_url != str(configured_base_url or "").strip().rstrip("/")
             or parsed.scheme != "https"
             or not parsed.netloc
@@ -197,7 +201,11 @@ class ToughTongueLiveOpsContract:
             if not isinstance(raw, list):
                 raise ValueError("tough_tongue_contract_policy_invalid")
             values = tuple(str(item or "").strip().lower() for item in raw)
-            if not values or any(not item for item in values) or len(set(values)) != len(values):
+            if (
+                not values
+                or any(_SAFE_POLICY_VALUE.fullmatch(item) is None for item in values)
+                or len(set(values)) != len(values)
+            ):
                 raise ValueError("tough_tongue_contract_policy_invalid")
             return values
 
@@ -372,6 +380,11 @@ def probe_tough_tongue_live_ops(
         "reason": "tough_tongue_preflight_authority_missing",
         "source_types": ["local_preflight", "provider_documentation"],
         "contract_digest": contract.digest if contract else "",
+        "preflight_authority": {
+            "state": authority.state if authority else "",
+            "observed_at": authority.observed_at if authority else "",
+            "evidence_digest": authority.evidence_digest if authority else "",
+        },
         "slot_cardinality": {
             "expected": EXPECTED_SLOT_COUNT,
             "configured": len(slots),
@@ -422,7 +435,11 @@ def probe_tough_tongue_live_ops(
     }
     if contract is None:
         return blocked("tough_tongue_contract_unavailable", "unavailable")
-    if authority is None or authority.state not in PREFLIGHT_STATES:
+    if (
+        authority is None
+        or authority.state not in PREFLIGHT_STATES
+        or _SHA256_REF.fullmatch(str(authority.evidence_digest or "").strip().lower()) is None
+    ):
         return blocked("tough_tongue_preflight_authority_malformed", "malformed")
     try:
         authority_time = _iso(authority.observed_at)

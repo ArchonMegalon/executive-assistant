@@ -122,7 +122,9 @@ def candidates() -> dict[str, str]:
 
 
 def ready_authority() -> ToughTongueProbeAuthority:
-    return ToughTongueProbeAuthority("ready", "2026-08-23T11:59:00Z")
+    return ToughTongueProbeAuthority(
+        "ready", "2026-08-23T11:59:00Z", "sha256:" + "b" * 64
+    )
 
 
 def no_call(*_args: object, **_kwargs: object) -> Response:
@@ -134,8 +136,8 @@ def no_call(*_args: object, **_kwargs: object) -> Response:
     (
         ({"enabled": False}, ready_authority(), "disabled"),
         ({"provider_verified": False}, ready_authority(), "unavailable"),
-        ({}, ToughTongueProbeAuthority("depleted", "2026-08-23T11:59:00Z"), "depleted"),
-        ({}, ToughTongueProbeAuthority("ready", "2026-08-23T10:00:00Z"), "stale"),
+        ({}, ToughTongueProbeAuthority("depleted", "2026-08-23T11:59:00Z", "sha256:" + "b" * 64), "depleted"),
+        ({}, ToughTongueProbeAuthority("ready", "2026-08-23T10:00:00Z", "sha256:" + "b" * 64), "stale"),
         ({"account_slots": slots(5)}, ready_authority(), "malformed"),
     ),
 )

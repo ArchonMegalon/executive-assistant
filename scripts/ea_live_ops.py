@@ -15807,6 +15807,11 @@ def parse_args() -> argparse.Namespace:
         default=_env("EA_TOUGH_TONGUE_PREFLIGHT_OBSERVED_AT"),
         help="UTC timestamp of the local-ledger preflight state.",
     )
+    tough_tongue_bindings.add_argument(
+        "--preflight-evidence-digest",
+        default=_env("EA_TOUGH_TONGUE_PREFLIGHT_EVIDENCE_DIGEST"),
+        help="Canonical sha256 digest of the normalized local-ledger evidence.",
+    )
     _add_timeout_seconds_argument(tough_tongue_bindings)
 
     provider_cost_pressure = subparsers.add_parser(
@@ -16256,6 +16261,7 @@ def main() -> int:
             authority = ToughTongueProbeAuthority(
                 state=str(args.preflight_state).strip(),
                 observed_at=str(getattr(args, "preflight_observed_at", "") or "").strip(),
+                evidence_digest=str(getattr(args, "preflight_evidence_digest", "") or "").strip(),
             )
         candidates = expectations.candidate_refs
         report = probe_tough_tongue_bindings(
