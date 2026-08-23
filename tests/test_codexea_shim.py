@@ -44,6 +44,7 @@ def _fake_codex(tmp_path: Path) -> Path:
                 "  'EA_MCP_BASE_URL',",
                 "  'EA_PRINCIPAL_ID',",
                 "  'EA_MCP_PRINCIPAL_ID',",
+                "  'EA_CODEX_PROFILE',",
                 "  'CODEXEA_MODEL_STACK',",
                 "  'CODEXEA_ORIGINAL_CWD',",
                 "  'CODEXEA_REPO_ROOT',",
@@ -146,6 +147,7 @@ def _run_shim(
             "CODEXEA_STARTUP_STATUS": "0",
             "CODEXEA_STATE_DIR": str(tmp_path / "state"),
             "CODEXEA_MODEL_CATALOG_JSON": "0",
+            "CODEXEA_ALLOW_UNAUTHENTICATED_TEST_LAUNCH": "1",
         }
     )
     if extra_env:
@@ -234,6 +236,7 @@ def _run_shim_stdout(tmp_path: Path, *args: str, extra_env: dict[str, str] | Non
             "CODEXEA_STARTUP_STATUS": "0",
             "CODEXEA_STATE_DIR": str(tmp_path / "state"),
             "CODEXEA_MODEL_CATALOG_JSON": "0",
+            "CODEXEA_ALLOW_UNAUTHENTICATED_TEST_LAUNCH": "1",
         }
     )
     if extra_env:
@@ -323,6 +326,7 @@ def _run_shim_completed(
             "CODEXEA_STARTUP_STATUS": "0",
             "CODEXEA_STATE_DIR": str(tmp_path / "state"),
             "CODEXEA_MODEL_CATALOG_JSON": "0",
+            "CODEXEA_ALLOW_UNAUTHENTICATED_TEST_LAUNCH": "1",
         }
     )
     if extra_env:
@@ -373,7 +377,8 @@ def test_responses_lane_launches_with_ea_provider_config_and_runtime_env(tmp_pat
     rendered_args = "\n".join(str(arg) for arg in argv)
     assert 'model_provider="ea"' in rendered_args
     assert 'model_providers.ea.base_url="http://ea-runtime.test:8090/v1"' in rendered_args
-    assert '"Authorization"="Bearer file-token"' in rendered_args
+    assert 'model_providers.ea.env_key="EA_API_TOKEN"' in rendered_args
+    assert "file-token" not in rendered_args
     assert argv[-2] == "exec"
     assert "inspect launch" in str(argv[-1])
 
@@ -490,8 +495,10 @@ def test_explicit_auth_env_is_not_overwritten_by_runtime_file(tmp_path: Path) ->
     assert isinstance(env, dict)
     assert env["EA_MCP_API_TOKEN"] == "caller-token"
     assert env["EA_API_TOKEN"] == "caller-token"
-    assert "Bearer caller-token" in "\n".join(str(arg) for arg in result["argv"])
-    assert "Bearer file-token" not in "\n".join(str(arg) for arg in result["argv"])
+    rendered_args = "\n".join(str(arg) for arg in result["argv"])
+    assert 'model_providers.ea.env_key="EA_API_TOKEN"' in rendered_args
+    assert "caller-token" not in rendered_args
+    assert "file-token" not in rendered_args
 
 
 def test_runtime_env_candidate_precedence_is_stable(tmp_path: Path) -> None:
@@ -572,7 +579,8 @@ def test_runtime_env_later_nonempty_token_overrides_earlier_empty_placeholder(tm
     assert env["EA_MCP_API_TOKEN"] == "secondary-token"
     assert env["EA_API_TOKEN"] == "secondary-token"
     rendered_args = "\n".join(str(arg) for arg in result["argv"])
-    assert "Bearer secondary-token" in rendered_args
+    assert 'model_providers.ea.env_key="EA_API_TOKEN"' in rendered_args
+    assert "secondary-token" not in rendered_args
 
 
 def test_eta_does_not_fall_through_into_worker_launch(tmp_path: Path) -> None:
@@ -2098,7 +2106,8 @@ def test_worker_lane_injects_contract_and_visible_onemin_model_by_default(tmp_pa
     rendered_args = "\n".join(str(arg) for arg in argv)
     assert 'model="ChatGPT 5.5 (1min.ai)"' in rendered_args
     assert 'model_provider="ea"' in rendered_args
-    assert '"X-EA-Codex-Profile"="core"' in rendered_args
+    assert '"X-EA-Codex-Profile"="EA_CODEX_PROFILE"' in rendered_args
+    assert result["env"]["EA_CODEX_PROFILE"] == "core"
     assert "exec" in argv
     prompt = str(argv[-1])
     assert "You are running under the CodexEA worker contract." in prompt
@@ -2107,6 +2116,115 @@ def test_worker_lane_injects_contract_and_visible_onemin_model_by_default(tmp_pa
     assert "Fix the failing cleanup race" in prompt
     assert "After the first passing verification, do one brief hardening pass" in prompt
     assert "over-specialized, hardcoded, weakly observed, or only partially generalized" in prompt
+
+
+def test_worker_lane_rolls_unverified_56_sol_alias_back_to_verified_tool_model(tmp_path: Path) -> None:
+    configured_alias = "ChatGPT 5.6 Sol (1min.ai)"
+    result = _run_shim(
+        tmp_path,
+        "worker",
+        "Run the tool reliability canary",
+        extra_env={
+            "CODEXEA_ONEMIN_DISPLAY_MODEL": configured_alias,
+            "CODEXEA_IMPLEMENT_MODEL": configured_alias,
+            "CODEXEA_WORKER_MODEL": configured_alias,
+            "CODEXEA_CONTROLLER_MODEL": configured_alias,
+            "CODEXEA_ONEMIN_VERIFIED_TOOL_MODEL": "gpt-5.4",
+        },
+    )
+
+    rendered_args = "\n".join(str(arg) for arg in result["argv"])
+    receipt = result["launch_receipt"]
+    model_stack = str(result["env"]["CODEXEA_MODEL_STACK"])
+    prompt = str(result["argv"][-1])
+    assert 'model="gpt-5.4"' in rendered_args
+    assert 'model="ChatGPT 5.6 Sol (1min.ai)"' not in rendered_args
+    assert receipt["model"] == "gpt-5.4"
+    assert receipt["configured_model"] == configured_alias
+    assert receipt["model_resolution"] == "verified_onemin_tool_rollback"
+    assert model_stack == (
+        "configured:ChatGPT 5.6 Sol (1min.ai) | codex:gpt-5.4 | route:1min.ai:gpt-5.4"
+    )
+    assert '"implementation_model": "gpt-5.4"' in prompt
+
+
+def test_worker_lane_can_explicitly_enable_unverified_56_sol_canary(tmp_path: Path) -> None:
+    configured_alias = "ChatGPT 5.6 Sol (1min.ai)"
+    result = _run_shim(
+        tmp_path,
+        "worker",
+        "Run an explicitly governed experimental canary",
+        extra_env={
+            "CODEXEA_IMPLEMENT_MODEL": configured_alias,
+            "CODEXEA_WORKER_MODEL": configured_alias,
+            "CODEXEA_ALLOW_UNVERIFIED_ONEMIN_MODEL_ALIAS": "1",
+        },
+    )
+
+    receipt = result["launch_receipt"]
+    assert receipt["model"] == configured_alias
+    assert receipt["configured_model"] == configured_alias
+    assert receipt["model_resolution"] == "direct"
+
+
+def test_worker_lane_rewrites_unverified_56_sol_cli_override_to_verified_model(tmp_path: Path) -> None:
+    configured_alias = "ChatGPT 5.6 Sol (1min.ai)"
+    result = _run_shim(
+        tmp_path,
+        "worker",
+        "exec",
+        "--model",
+        configured_alias,
+        "Run the CLI override canary",
+        extra_env={"CODEXEA_ONEMIN_VERIFIED_TOOL_MODEL": "gpt-5.4"},
+    )
+
+    argv = [str(arg) for arg in result["argv"]]
+    rendered_args = "\n".join(argv)
+    receipt = result["launch_receipt"]
+    assert configured_alias not in rendered_args
+    assert argv[argv.index("--model") + 1] == "gpt-5.4"
+    assert receipt["model"] == "gpt-5.4"
+    assert receipt["configured_model"] == configured_alias
+    assert receipt["model_resolution"] == "verified_onemin_tool_rollback"
+
+
+def test_worker_lane_rewrites_unverified_56_sol_config_override_to_verified_model(tmp_path: Path) -> None:
+    configured_alias = "ChatGPT 5.6 Sol (1min.ai)"
+    result = _run_shim(
+        tmp_path,
+        "worker",
+        "exec",
+        "--config",
+        f'model="{configured_alias}"',
+        "Run the config override canary",
+        extra_env={"CODEXEA_ONEMIN_VERIFIED_TOOL_MODEL": "gpt-5.4"},
+    )
+
+    argv = [str(arg) for arg in result["argv"]]
+    rendered_args = "\n".join(argv)
+    receipt = result["launch_receipt"]
+    assert configured_alias not in rendered_args
+    assert argv[argv.index("--config") + 1] == 'model="gpt-5.4"'
+    assert receipt["model"] == "gpt-5.4"
+    assert receipt["configured_model"] == configured_alias
+    assert receipt["model_resolution"] == "verified_onemin_tool_rollback"
+
+
+def test_responses_lane_fails_closed_without_ea_token(tmp_path: Path) -> None:
+    completed = _run_shim_completed(
+        tmp_path,
+        "worker",
+        "Do not launch unauthenticated",
+        extra_env={
+            "HOME": str(tmp_path),
+            "CODEXEA_ALLOW_UNAUTHENTICATED_TEST_LAUNCH": "0",
+        },
+    )
+
+    assert completed.returncode == 4
+    assert completed.stdout == ""
+    assert "Missing EA API token; refusing unauthenticated CodexEA responses launch" in completed.stderr
 
 
 def test_worker_lane_persists_redacted_launch_receipt_before_handoff(tmp_path: Path) -> None:
@@ -2965,7 +3083,8 @@ def test_easy_lane_defaults_to_ea_fast_route_instead_of_explicit_gemini(tmp_path
     assert result["launch_receipt"]["model"] == "ea-coder-fast"
     assert 'model="ea-coder-fast"' in rendered_args
     assert 'model_provider="ea"' in rendered_args
-    assert '"X-EA-Codex-Profile"="easy"' in rendered_args
+    assert '"X-EA-Codex-Profile"="EA_CODEX_PROFILE"' in rendered_args
+    assert result["env"]["EA_CODEX_PROFILE"] == "easy"
 
 
 def test_easy_lane_mcp_escape_hatch_inherits_onemin_default_model(tmp_path: Path) -> None:
@@ -2998,7 +3117,8 @@ def test_groundwork_lane_defaults_to_provider_neutral_groundwork_alias(tmp_path:
 
     rendered_args = "\n".join(str(arg) for arg in result["argv"])
     assert 'model="ea-groundwork"' in rendered_args
-    assert '"X-EA-Codex-Profile"="groundwork"' in rendered_args
+    assert '"X-EA-Codex-Profile"="EA_CODEX_PROFILE"' in rendered_args
+    assert result["env"]["EA_CODEX_PROFILE"] == "groundwork"
 
 
 def test_review_light_lane_launch_stack_keeps_chatplayground_ahead_of_gemini(tmp_path: Path) -> None:
@@ -3117,7 +3237,8 @@ def test_worker_lane_codex_default_model_uses_safe_ea_responses_default(tmp_path
     assert 'model="codex-default"' not in rendered_args
     assert 'model="ChatGPT 5.5 (1min.ai)"' in rendered_args
     assert 'model_provider="ea"' in rendered_args
-    assert '"X-EA-Codex-Profile"="core"' in rendered_args
+    assert '"X-EA-Codex-Profile"="EA_CODEX_PROFILE"' in rendered_args
+    assert result["env"]["EA_CODEX_PROFILE"] == "core"
     assert "exec" in argv
     assert '"lane": "worker"' in str(argv[-1])
     assert "Probe the route without forcing a model override." in str(argv[-1])
@@ -3139,7 +3260,8 @@ def test_controller_lane_defaults_to_onemin_display_model(tmp_path: Path) -> Non
     assert result["launch_receipt"]["provider"] == "ea"
     assert result["launch_receipt"]["model"] == "ChatGPT 5.5 (1min.ai)"
     assert 'model="ChatGPT 5.5 (1min.ai)"' in rendered_args
-    assert '"X-EA-Codex-Profile"="audit"' in rendered_args
+    assert '"X-EA-Codex-Profile"="EA_CODEX_PROFILE"' in rendered_args
+    assert result["env"]["EA_CODEX_PROFILE"] == "audit"
 
 
 def test_worker_lane_can_still_opt_into_mcp_mode_explicitly(tmp_path: Path) -> None:
@@ -3206,7 +3328,8 @@ def test_default_lane_is_worker_and_uses_controller_designed_contract(tmp_path: 
     rendered_args = "\n".join(str(arg) for arg in result["argv"])
     assert 'model="ChatGPT 5.5 (1min.ai)"' in rendered_args
     assert 'model_provider="ea"' in rendered_args
-    assert '"X-EA-Codex-Profile"="core"' in rendered_args
+    assert '"X-EA-Codex-Profile"="EA_CODEX_PROFILE"' in rendered_args
+    assert result["env"]["EA_CODEX_PROFILE"] == "core"
     assert '"lane": "worker"' in str(result["argv"][-1])
 
 
@@ -3394,6 +3517,7 @@ def _codexea_launcher_env(home: Path, **overrides: str) -> dict[str, str]:
         if key not in {"CODEXEA_MANAGED_SHIM", "CODEXEA_FLEET_ROOT", "CODEXEA_ROUTE_HELPER"}
     }
     env["HOME"] = str(home)
+    env["CODEXEA_ALLOW_UNAUTHENTICATED_TEST_LAUNCH"] = "1"
     env.update(overrides)
     return env
 
@@ -3466,6 +3590,8 @@ def test_install_script_installs_route_helper_to_share_root(tmp_path: Path) -> N
     assert managed_shim.is_file()
     assert managed_shim.stat().st_mode & stat.S_IXUSR
     assert route_helper.is_file()
+    assert stat.S_IMODE(managed_shim.parent.stat().st_mode) == 0o700
+    assert not list(managed_shim.parent.glob(".codexea-*.??????"))
     assert str(managed_shim) in completed.stdout
     assert str(route_helper) in completed.stdout
 

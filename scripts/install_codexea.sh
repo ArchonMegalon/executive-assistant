@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="${ROOT}/scripts/codexea"
@@ -8,11 +9,13 @@ SHARE_ROOT="${HOME}/.local/share/codexea/fleet"
 SHIM_DEST="${SHARE_ROOT}/scripts/codexea"
 ROUTE_SRC="${ROOT}/scripts/codexea_route.py"
 ROUTE_DEST="${SHARE_ROOT}/scripts/codexea_route.py"
-LAUNCHER_TMP="$(mktemp)"
-trap 'rm -f "${LAUNCHER_TMP}"' EXIT
 
 mkdir -p "$(dirname "${DEST}")"
-mkdir -p "$(dirname "${SHIM_DEST}")"
+install -d -m 700 "$(dirname "${SHIM_DEST}")"
+LAUNCHER_TMP="$(mktemp "$(dirname "${DEST}")/.codexea-launcher.XXXXXX")"
+SHIM_TMP="$(mktemp "$(dirname "${SHIM_DEST}")/.codexea-shim.XXXXXX")"
+ROUTE_TMP="$(mktemp "$(dirname "${ROUTE_DEST}")/.codexea-route.XXXXXX")"
+trap 'rm -f "${LAUNCHER_TMP}" "${SHIM_TMP}" "${ROUTE_TMP}"' EXIT
 cat > "${LAUNCHER_TMP}" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -35,9 +38,12 @@ fi
 
 exec "${managed_shim}" "$@"
 EOF
-install -m 755 "${SRC}" "${SHIM_DEST}"
-install -m 755 "${ROUTE_SRC}" "${ROUTE_DEST}"
-install -m 755 "${LAUNCHER_TMP}" "${DEST}"
+install -m 755 "${SRC}" "${SHIM_TMP}"
+install -m 755 "${ROUTE_SRC}" "${ROUTE_TMP}"
+chmod 755 "${LAUNCHER_TMP}"
+mv -f "${SHIM_TMP}" "${SHIM_DEST}"
+mv -f "${ROUTE_TMP}" "${ROUTE_DEST}"
+mv -f "${LAUNCHER_TMP}" "${DEST}"
 printf 'Installed launcher -> %s\n' "${DEST}"
 printf 'Installed %s -> %s\n' "${SRC}" "${SHIM_DEST}"
 printf 'Installed %s -> %s\n' "${ROUTE_SRC}" "${ROUTE_DEST}"

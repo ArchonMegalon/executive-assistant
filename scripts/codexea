@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 ORIGINAL_EA_API_TOKEN="${EA_API_TOKEN-}"
 ORIGINAL_EA_MCP_API_TOKEN="${EA_MCP_API_TOKEN-}"
@@ -63,7 +64,7 @@ runtime_env_candidates() {
   done
 
   if [ "${#explicit_paths[@]}" -eq 0 ]; then
-    for path in "${git_root:+${git_root}/.env.local}" "${git_root:+${git_root}/.env}"; do
+    for path in "${git_root:+${git_root}/.env.local}" "${git_root:+${git_root}/.env}" /docker/EA/.env.local /docker/EA/.env; do
       [ -n "${path}" ] || continue
       case $'\n'"${seen}"$'\n' in
         *$'\n'"${path}"$'\n'*)
@@ -261,7 +262,8 @@ apply_runtime_env_defaults() {
     CODEXEA_CORE_MODEL CODEXEA_REPAIR_MODEL CODEXEA_EASY_MODEL CODEXEA_GROUNDWORK_MODEL \
     CODEXEA_REVIEW_LIGHT_MODEL CODEXEA_JURY_MODEL CODEXEA_POST_AUDIT_MODEL \
     CODEXEA_ONEMIN_TIMEOUT_SECONDS \
-    CODEXEA_ONEMIN_DISPLAY_MODEL CODEXEA_ONEMIN_METADATA_SOURCE_MODEL CODEXEA_SYNC_MODEL_METADATA \
+    CODEXEA_ONEMIN_DISPLAY_MODEL CODEXEA_ONEMIN_METADATA_SOURCE_MODEL CODEXEA_ONEMIN_VERIFIED_TOOL_MODEL \
+    CODEXEA_ALLOW_UNVERIFIED_ONEMIN_MODEL_ALIAS CODEXEA_SYNC_MODEL_METADATA \
     CODEXEA_RESUME_INJECT_MODEL CODEXEA_USE_LIVE_PROFILE_MODELS CODEXEA_ALLOW_ENV_MODEL_OVERRIDE; do
     if [ -n "${!key:-}" ]; then
       continue
@@ -309,7 +311,8 @@ apply_runtime_env_locked_model_overrides() {
     EA_RESPONSES_ONEMIN_REVIEW_MODELS \
     CODEXEA_WORKER_MODEL CODEXEA_IMPLEMENT_MODEL CODEXEA_CONTROLLER_MODEL CODEXEA_CORE_MODEL \
     CODEXEA_REPAIR_MODEL CODEXEA_EASY_MODEL CODEXEA_GROUNDWORK_MODEL CODEXEA_REVIEW_LIGHT_MODEL \
-    CODEXEA_JURY_MODEL CODEXEA_POST_AUDIT_MODEL CODEXEA_RESUME_INJECT_MODEL \
+    CODEXEA_JURY_MODEL CODEXEA_POST_AUDIT_MODEL CODEXEA_ONEMIN_VERIFIED_TOOL_MODEL \
+    CODEXEA_ALLOW_UNVERIFIED_ONEMIN_MODEL_ALIAS CODEXEA_RESUME_INJECT_MODEL \
     CODEXEA_USE_LIVE_PROFILE_MODELS CODEXEA_MODEL; do
     if runtime_env_lookup "${key}"; then
       value="${RUNTIME_ENV_LOOKUP_RESULT}"
@@ -485,7 +488,7 @@ sync_codexea_model_metadata() {
   local cache_path="${CODEXEA_MODELS_CACHE_PATH:-${HOME}/.codex/models_cache.json}"
   [ -n "${display_model}" ] || return 0
   [ "${display_model}" != "${source_model}" ] || return 0
-  [ "${display_model}" = "${CODEXEA_ONEMIN_DISPLAY_MODEL:-ChatGPT 5.5 (1min.ai)}" ] || return 0
+  [ "${display_model}" = "${CODEXEA_ONEMIN_DISPLAY_MODEL:-gpt-5.4}" ] || return 0
   codexea_should_sync_model_metadata || return 0
   command -v python3 >/dev/null 2>&1 || return 0
   [ -f "${cache_path}" ] || return 0
@@ -690,14 +693,16 @@ normalize_codexea_home() {
     return 0
   fi
   fallback_home="${CODEXEA_FALLBACK_HOME:-/tmp/codexea-home-$(id -u)}"
-  mkdir -p "${fallback_home}"
+  mkdir -p -m 0700 "${fallback_home}"
+  chmod 0700 "${fallback_home}"
   export HOME="${fallback_home}"
 }
 
 normalize_codexea_home
 : "${XDG_CACHE_HOME:=${HOME}/.cache}"
 : "${XDG_CONFIG_HOME:=${HOME}/.config}"
-mkdir -p "${XDG_CACHE_HOME}" "${XDG_CONFIG_HOME}"
+mkdir -p -m 0700 "${XDG_CACHE_HOME}" "${XDG_CONFIG_HOME}"
+chmod 0700 "${XDG_CACHE_HOME}" "${XDG_CONFIG_HOME}"
 export XDG_CACHE_HOME XDG_CONFIG_HOME
 
 REAL_CODEX="${CODEXEA_REAL_CODEX:-${CODEX_REAL_BIN:-/usr/bin/codex}}"
@@ -732,14 +737,17 @@ CODEXEA_LAUNCH_HISTORY_LIMIT="${CODEXEA_LAUNCH_HISTORY_LIMIT:-24}"
 CODEXEA_CONTRACT_ENABLED="${CODEXEA_CONTRACT_ENABLED:-1}"
 CODEXEA_CONTRACT_RUNTIME_MODE="${CODEXEA_CONTRACT_RUNTIME_MODE:-code_only}"
 CODEXEA_CONTRACT_MAX_RETRY_LOOPS="${CODEXEA_CONTRACT_MAX_RETRY_LOOPS:-2}"
-CODEXEA_ONEMIN_DISPLAY_MODEL="${CODEXEA_ONEMIN_DISPLAY_MODEL:-ChatGPT 5.5 (1min.ai)}"
+CODEXEA_ONEMIN_DISPLAY_MODEL="${CODEXEA_ONEMIN_DISPLAY_MODEL:-gpt-5.4}"
+CODEXEA_ONEMIN_VERIFIED_TOOL_MODEL="${CODEXEA_ONEMIN_VERIFIED_TOOL_MODEL:-gpt-5.4}"
+CODEXEA_ALLOW_UNVERIFIED_ONEMIN_MODEL_ALIAS="${CODEXEA_ALLOW_UNVERIFIED_ONEMIN_MODEL_ALIAS:-0}"
 CODEXEA_IMPLEMENT_MODEL="${CODEXEA_IMPLEMENT_MODEL:-${CODEXEA_ONEMIN_DISPLAY_MODEL}}"
 CODEXEA_REVIEW_MODEL="${CODEXEA_REVIEW_MODEL:-claude-opus-4.8}"
 CODEXEA_CONTROLLER_MODEL="${CODEXEA_CONTROLLER_MODEL:-${CODEXEA_ONEMIN_DISPLAY_MODEL}}"
 CODEXEA_CONTROLLER_REASONING_EFFORT="${CODEXEA_CONTROLLER_REASONING_EFFORT:-medium}"
 CODEXEA_WORKER_REASONING_EFFORT="${CODEXEA_WORKER_REASONING_EFFORT:-high}"
 CODEXEA_DEBUG_REASONING_EFFORT="${CODEXEA_DEBUG_REASONING_EFFORT:-high}"
-export CODEXEA_ONEMIN_DISPLAY_MODEL CODEXEA_IMPLEMENT_MODEL CODEXEA_REVIEW_MODEL CODEXEA_CONTROLLER_MODEL
+export CODEXEA_ONEMIN_DISPLAY_MODEL CODEXEA_ONEMIN_VERIFIED_TOOL_MODEL
+export CODEXEA_ALLOW_UNVERIFIED_ONEMIN_MODEL_ALIAS CODEXEA_IMPLEMENT_MODEL CODEXEA_REVIEW_MODEL CODEXEA_CONTROLLER_MODEL
 export CODEXEA_CONTROLLER_REASONING_EFFORT CODEXEA_WORKER_REASONING_EFFORT CODEXEA_DEBUG_REASONING_EFFORT
 EA_BASE_URL_DEFAULT="http://127.0.0.1:8090"
 EA_BASE_URL_EXPLICIT=0
@@ -785,7 +793,8 @@ resolve_codexea_route_helper() {
 ROUTE_HELPER="$(resolve_codexea_route_helper)"
 
 if [ "$#" -eq 0 ] && [ "${CODEXEA_ENABLE_WATCHDOG}" != "0" ] && [ -z "${CODEXEA_WATCHDOG_ACTIVE:-}" ] && [ -x "${WATCHDOG_BIN}" ]; then
-  mkdir -p "${CODEXEA_STATE_DIR}"
+  mkdir -p -m 0700 "${CODEXEA_STATE_DIR}"
+  chmod 0700 "${CODEXEA_STATE_DIR}"
   exec "${WATCHDOG_BIN}"
 fi
 
@@ -841,7 +850,7 @@ detect_primary_command() {
 
 is_codex_subcommand() {
   case "${1:-}" in
-    exec|review|login|logout|mcp|mcp-server|app-server|completion|sandbox|debug|apply|resume|fork|cloud|features|help|inspect)
+    exec|review|login|logout|mcp|plugin|mcp-server|app-server|remote-control|completion|update|doctor|sandbox|debug|apply|resume|archive|delete|unarchive|fork|cloud|features|exec-server|help|inspect)
       return 0
       ;;
     *)
@@ -946,7 +955,6 @@ has_explicit_runtime_override() {
   local -a args=("$@")
   local i=0
   local value=""
-  local normalized=""
 
   while [ "${i}" -lt "${#args[@]}" ]; do
     case "${args[$i]}" in
@@ -973,6 +981,83 @@ has_explicit_runtime_override() {
     i=$((i + 1))
   done
   return 1
+}
+
+codexea_explicit_model_for_args() {
+  local -a args=("$@")
+  local i=0
+  local value=""
+  local normalized=""
+
+  while [ "${i}" -lt "${#args[@]}" ]; do
+    case "${args[$i]}" in
+      -m|--model)
+        i=$((i + 1))
+        [ "${i}" -lt "${#args[@]}" ] || return 1
+        printf '%s' "${args[$i]}"
+        return 0
+        ;;
+      --model=*)
+        printf '%s' "${args[$i]#--model=}"
+        return 0
+        ;;
+      -c|--config)
+        i=$((i + 1))
+        [ "${i}" -lt "${#args[@]}" ] || return 1
+        value="${args[$i]}"
+        if [[ "${value}" =~ ^[[:space:]]*model[[:space:]]*=(.*)$ ]]; then
+          value="${BASH_REMATCH[1]}"
+          value="${value#"${value%%[![:space:]]*}"}"
+          value="${value%"${value##*[![:space:]]}"}"
+          value="${value#\"}"
+          value="${value%\"}"
+          printf '%s' "${value}"
+          return 0
+        fi
+        ;;
+    esac
+    i=$((i + 1))
+  done
+  return 1
+}
+
+codexea_rewrite_model_override_args() {
+  local effective_model="${1:-}"
+  shift || true
+  local -a args=("$@")
+  local i=0
+  local value=""
+
+  while [ "${i}" -lt "${#args[@]}" ]; do
+    case "${args[$i]}" in
+      -m|--model)
+        printf '%s\0' "${args[$i]}"
+        i=$((i + 1))
+        if [ "${i}" -lt "${#args[@]}" ]; then
+          printf '%s\0' "${effective_model}"
+        fi
+        ;;
+      --model=*)
+        printf '%s\0' "--model=${effective_model}"
+        ;;
+      -c|--config)
+        printf '%s\0' "${args[$i]}"
+        i=$((i + 1))
+        if [ "${i}" -lt "${#args[@]}" ]; then
+          value="${args[$i]}"
+          if [[ "${value}" =~ ^[[:space:]]*model[[:space:]]*= ]]; then
+            printf '%s\0' "model=\"${effective_model}\""
+          else
+            printf '%s\0' "${value}"
+          fi
+        fi
+        ;;
+      *)
+        printf '%s\0' "${args[$i]}"
+        ;;
+    esac
+    i=$((i + 1))
+  done
 }
 
 codexea_recorded_model_for_resume_args() {
@@ -1203,7 +1288,10 @@ payload = {
         "needs_review",
     ],
     "review_model": clamp_text(str(os.environ.get("CODEXEA_REVIEW_MODEL") or "claude-opus-4.8").strip(), limit=80),
-    "implementation_model": clamp_text(str(os.environ.get("CODEXEA_IMPLEMENT_MODEL") or "gpt-5.5").strip(), limit=80),
+    "implementation_model": clamp_text(
+        str(os.environ.get("CODEXEA_EFFECTIVE_MODEL") or os.environ.get("CODEXEA_IMPLEMENT_MODEL") or "gpt-5.4").strip(),
+        limit=80,
+    ),
     "controller_mode": clamp_text(str(os.environ.get("CODEXEA_CONTROLLER_MODE") or "ooda_supervisor").strip() or "ooda_supervisor", limit=80),
     "truncation": {
         "max_text_len": MAX_TEXT_LEN,
@@ -1255,6 +1343,8 @@ write_codexea_launch_receipt() {
   CODEXEA_LAUNCH_HISTORY_LIMIT="${CODEXEA_LAUNCH_HISTORY_LIMIT}" \
   CODEXEA_LAUNCH_MODE="${MODE:-}" \
   CODEXEA_LAUNCH_MODEL="${MODEL:-}" \
+  CODEXEA_LAUNCH_CONFIGURED_MODEL="${CODEXEA_CONFIGURED_MODEL_ALIAS:-${MODEL:-}}" \
+  CODEXEA_LAUNCH_MODEL_RESOLUTION="${CODEXEA_MODEL_RESOLUTION:-direct}" \
   CODEXEA_LAUNCH_REASONING="${REASONING:-}" \
   CODEXEA_LAUNCH_ARGC="${#CODEXEA_CMD[@]}" \
   CODEXEA_LAUNCH_INTERACTIVE="${INTERACTIVE_SESSION_REQUEST:-0}" \
@@ -1324,6 +1414,7 @@ def positive_int(value: str, *, default: int, minimum: int, maximum: int) -> int
 
 def private_atomic_write(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.chmod(0o700)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
     tmp.chmod(0o600)
@@ -1350,6 +1441,7 @@ def existing_history_entries(path: Path) -> list[dict[str, object]]:
 target = Path(sys.argv[1]).expanduser()
 history_target = Path(sys.argv[2]).expanduser()
 target.parent.mkdir(parents=True, exist_ok=True)
+target.parent.chmod(0o700)
 contract = json.loads(os.environ.get("CODEXEA_LAUNCH_CONTRACT_PAYLOAD") or "{}")
 mode = str(os.environ.get("CODEXEA_LAUNCH_MODE") or "").strip()
 generated_at = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -1364,6 +1456,8 @@ receipt = {
     "submode": str(os.environ.get("CODEXEA_SUBMODE") or "").strip(),
     "provider": "ea" if mode == "responses" else ("mcp" if mode == "mcp" else "unknown"),
     "model": str(os.environ.get("CODEXEA_LAUNCH_MODEL") or "").strip(),
+    "configured_model": str(os.environ.get("CODEXEA_LAUNCH_CONFIGURED_MODEL") or "").strip(),
+    "model_resolution": str(os.environ.get("CODEXEA_LAUNCH_MODEL_RESOLUTION") or "direct").strip() or "direct",
     "reasoning_effort": str(os.environ.get("CODEXEA_LAUNCH_REASONING") or "").strip(),
     "launch_context": {
         "repo_root": str(os.environ.get("CODEXEA_REPO_ROOT") or "").strip(),
@@ -1670,6 +1764,40 @@ codexea_compact_csv() {
   printf '%s' "${value}"
 }
 
+codexea_verified_onemin_tool_model() {
+  local configured="${CODEXEA_ONEMIN_VERIFIED_TOOL_MODEL:-gpt-5.4}"
+  case "${configured}" in
+    gpt-*|deepseek-chat)
+      printf '%s' "${configured}"
+      ;;
+    *)
+      printf '%s' "gpt-5.4"
+      ;;
+  esac
+}
+
+codexea_resolve_launch_model() {
+  local model="${1:-}"
+  local normalized=""
+  normalized="$(printf '%s' "${model}" | tr '[:upper:]' '[:lower:]')"
+
+  if env_truthy "${CODEXEA_ALLOW_UNVERIFIED_ONEMIN_MODEL_ALIAS:-0}"; then
+    printf '%s' "${model}"
+    return 0
+  fi
+
+  case "${normalized}" in
+    "chatgpt 5.6 sol (1min.ai)"|"chatgpt 5.6 sol (1min ai)"|"chatgpt 5.6 sol"|\
+    "gpt 5.6 sol (1min.ai)"|"gpt 5.6 sol (1min ai)"|"gpt 5.6 sol"|\
+    "gpt-5.6-sol"|"gpt-5.6 sol")
+      codexea_verified_onemin_tool_model
+      ;;
+    *)
+      printf '%s' "${model}"
+      ;;
+  esac
+}
+
 codexea_route_models_for_launch() {
   local model="${1:-}"
   local lane="${2:-}"
@@ -1692,14 +1820,19 @@ codexea_route_models_for_launch() {
   normalized="$(printf '%s' "${model}" | tr '[:upper:]' '[:lower:]')"
   gemini_models="$(codexea_compact_csv "${EA_RESPONSES_GEMINI_VORTEX_MODELS:-${EA_GEMINI_VORTEX_MODELS:-${EA_GEMINI_VORTEX_MODEL:-gemini-3.5-flash,gemini-3.1-flash-lite,gemini-3-flash}}}")"
   magicx_models="$(codexea_compact_csv "${EA_RESPONSES_MAGICX_MODELS:-inception/mercury-coder,mistralai/codestral-2508,x-ai/grok-code-fast-1}")"
-  onemin_fast_models="$(codexea_compact_csv "${EA_RESPONSES_ONEMIN_FAST_CANDIDATE_MODELS:-${EA_RESPONSES_ONEMIN_CODE_MODELS:-${EA_RESPONSES_ONEMIN_MODELS:-gpt-5.5}}}")"
-  onemin_hard_models="$(codexea_compact_csv "${EA_RESPONSES_ONEMIN_HARD_MODELS:-gpt-5.5}")"
+  onemin_fast_models="$(codexea_compact_csv "${EA_RESPONSES_ONEMIN_FAST_CANDIDATE_MODELS:-${EA_RESPONSES_ONEMIN_CODE_MODELS:-${EA_RESPONSES_ONEMIN_MODELS:-gpt-5.4}}}")"
+  onemin_hard_models="$(codexea_compact_csv "${EA_RESPONSES_ONEMIN_HARD_MODELS:-gpt-5.4}")"
   onemin_rescue_models="$(codexea_compact_csv "${EA_RESPONSES_ONEMIN_RESCUE_MODELS:-gpt-4o,gpt-4.1,deepseek-chat}")"
   onemin_review_models="$(codexea_compact_csv "${EA_RESPONSES_ONEMIN_REVIEW_MODELS:-deepseek-chat,gpt-4.1-nano,gpt-4.1}")"
 
   case "${normalized}" in
     "chatgpt 5.5 (1min.ai)"|"chatgpt 5.5 (1min ai)"|"gpt 5.5 (1min.ai)"|"gpt 5.5 (1min ai)")
       printf '1min.ai:gpt-5.5'
+      ;;
+    "chatgpt 5.6 sol (1min.ai)"|"chatgpt 5.6 sol (1min ai)"|"chatgpt 5.6 sol"|\
+    "gpt 5.6 sol (1min.ai)"|"gpt 5.6 sol (1min ai)"|"gpt 5.6 sol"|\
+    "gpt-5.6-sol"|"gpt-5.6 sol")
+      printf '1min.ai:%s' "$(codexea_verified_onemin_tool_model)"
       ;;
     gpt-*|deepseek-chat)
       printf '1min.ai:%s' "${model}"
@@ -1760,6 +1893,9 @@ codexea_model_stack_for_launch() {
   local mode="${3:-}"
   local route_models=""
   route_models="$(codexea_route_models_for_launch "${model}" "${lane}" "${mode}")"
+  if [ -n "${CODEXEA_CONFIGURED_MODEL_ALIAS:-}" ] && [ "${CODEXEA_CONFIGURED_MODEL_ALIAS}" != "${model}" ]; then
+    printf 'configured:%s | ' "${CODEXEA_CONFIGURED_MODEL_ALIAS}"
+  fi
   if [ -n "${route_models}" ]; then
     printf 'codex:%s | route:%s' "${model:-default-config}" "${route_models}"
   else
@@ -1851,6 +1987,9 @@ emit_startup_trace() {
       ;;
   esac
   model_stack="${CODEXEA_MODEL_STACK:-$(codexea_model_stack_for_launch "${trace_model}" "${EFFECTIVE_LANE}" "${MODE}")}"
+  if [ "${CODEXEA_MODEL_RESOLUTION:-direct}" != "direct" ]; then
+    trace_suffix="${trace_suffix} configured_model=\"${CODEXEA_CONFIGURED_MODEL_ALIAS}\" resolution=${CODEXEA_MODEL_RESOLUTION}"
+  fi
   printf 'Trace: lane=%s provider=%s model=%s mode=%s%s models="%s" next=%s\n' \
     "${EFFECTIVE_LANE}" \
     "${provider_label}" \
@@ -3098,7 +3237,8 @@ startup_status_cache_store() {
   esac
   [ "${ttl_raw}" -gt 0 ] || return 0
   [ -n "${body}" ] || return 0
-  mkdir -p "${CODEXEA_STATE_DIR}"
+  mkdir -p -m 0700 "${CODEXEA_STATE_DIR}"
+  chmod 0700 "${CODEXEA_STATE_DIR}"
   now="$(date +%s 2>/dev/null || true)"
   case "${now}" in
     ''|*[!0-9]*)
@@ -3126,6 +3266,31 @@ PY
   mv "${tmp_epoch}" "${CODEXEA_STARTUP_STATUS_CACHE_EPOCH}"
   mv "${tmp_source}" "${CODEXEA_STARTUP_STATUS_CACHE_SOURCE}"
 }
+
+# Administrative Codex commands do not need an EA model route. Keep them out
+# of provider construction so unrelated commands never inherit provider auth.
+NATIVE_PRIMARY_COMMAND="$(detect_primary_command "$@")"
+NATIVE_PASSTHROUGH=0
+case "${NATIVE_PRIMARY_COMMAND}" in
+  login|logout|mcp|plugin|mcp-server|app-server|remote-control|completion|update|doctor|sandbox|debug|apply|archive|delete|unarchive|cloud|features|exec-server|help)
+    NATIVE_PASSTHROUGH=1
+    ;;
+  '')
+    if args_contains --help "$@" || args_contains -h "$@" || args_contains --version "$@" || args_contains -V "$@"; then
+      NATIVE_PASSTHROUGH=1
+    fi
+    ;;
+esac
+if [ "${NATIVE_PASSTHROUGH}" -eq 1 ]; then
+  if [ ! -x "${REAL_CODEX}" ]; then
+    REAL_CODEX="$(command -v codex || true)"
+  fi
+  if [ -z "${REAL_CODEX}" ] || [ ! -x "${REAL_CODEX}" ]; then
+    echo "Missing codex launcher for EA shim" >&2
+    exit 1
+  fi
+  exec "${REAL_CODEX}" "$@"
+fi
 
 REQUESTED_LANE="${CODEXEA_DEFAULT_LANE}"
 LANE_WAS_EXPLICIT=0
@@ -3443,6 +3608,23 @@ if [ "${MODE}" = "responses" ]; then
   fi
 fi
 
+CLI_REQUESTED_MODEL="$(codexea_explicit_model_for_args "$@" 2>/dev/null || true)"
+if [ -n "${CLI_REQUESTED_MODEL}" ]; then
+  MODEL="${CLI_REQUESTED_MODEL}"
+fi
+CODEXEA_CONFIGURED_MODEL_ALIAS="${MODEL}"
+CODEXEA_MODEL_RESOLUTION="direct"
+if [ "${MODE}" = "responses" ]; then
+  MODEL="$(codexea_resolve_launch_model "${MODEL}")"
+  if [ "${MODEL}" != "${CODEXEA_CONFIGURED_MODEL_ALIAS}" ]; then
+    CODEXEA_MODEL_RESOLUTION="verified_onemin_tool_rollback"
+    mapfile -d '' RESOLVED_RUNTIME_ARGS < <(codexea_rewrite_model_override_args "${MODEL}" "$@")
+    set -- "${RESOLVED_RUNTIME_ARGS[@]}"
+  fi
+fi
+CODEXEA_EFFECTIVE_MODEL="${MODEL}"
+export CODEXEA_CONFIGURED_MODEL_ALIAS CODEXEA_MODEL_RESOLUTION CODEXEA_EFFECTIVE_MODEL
+
 CODEXEA_MODEL_STACK="$(codexea_model_stack_for_launch "${MODEL}" "${EFFECTIVE_LANE}" "${MODE}")"
 export CODEXEA_MODEL_STACK
 
@@ -3481,25 +3663,23 @@ case "${MODE}" in
     ;;
   responses)
     EA_AUTH_TOKEN="${EA_API_TOKEN:-${EA_MCP_API_TOKEN:-}}"
+    if [ -z "${EA_AUTH_TOKEN}" ] && ! env_truthy "${CODEXEA_ALLOW_UNAUTHENTICATED_TEST_LAUNCH:-0}"; then
+      echo "Missing EA API token; refusing unauthenticated CodexEA responses launch" >&2
+      exit 4
+    fi
+    # Codex resolves provider credentials from environment variables. Never
+    # interpolate bearer tokens into argv, where process inspection exposes them.
+    export EA_API_TOKEN="${EA_AUTH_TOKEN}"
     EA_CODEX_PROFILE="$(codexea_runtime_profile_for_lane "${EFFECTIVE_LANE}")"
     EA_MODEL_CATALOG_JSON="$(codexea_model_catalog_json_value || true)"
-    EA_HEADERS="{\"X-EA-Principal-ID\"=\"${EA_PRINCIPAL_ID}\",\"X-EA-Codex-Profile\"=\"${EA_CODEX_PROFILE}\""
-    if [ -n "${EA_ONEMIN_ACCOUNT_ALIAS:-}" ]; then
-      EA_HEADERS="${EA_HEADERS},\"X-EA-Onemin-Account-Alias\"=\"${EA_ONEMIN_ACCOUNT_ALIAS}\""
-    fi
-    if [ -n "${EA_ONEMIN_ACCOUNT_ENV_NAME:-}" ]; then
-      EA_HEADERS="${EA_HEADERS},\"X-EA-Onemin-Account-Env\"=\"${EA_ONEMIN_ACCOUNT_ENV_NAME}\""
-    fi
-    if [ -n "${EA_AUTH_TOKEN:-}" ]; then
-      EA_HEADERS="${EA_HEADERS},\"Authorization\"=\"Bearer ${EA_AUTH_TOKEN}\",\"x-api-token\"=\"${EA_AUTH_TOKEN}\",\"X-EA-Api-Token\"=\"${EA_AUTH_TOKEN}\""
-    fi
-    EA_HEADERS="${EA_HEADERS}}"
+    export EA_CODEX_PROFILE
     EA_DEFAULT_ARGS+=(
       -c 'model_provider="ea"'
       -c 'model_providers.ea.name="Executive Assistant"'
       -c "model_providers.ea.base_url=\"${EA_BASE_URL%/}/v1\""
       -c 'model_providers.ea.wire_api="responses"'
-      -c "model_providers.ea.http_headers=${EA_HEADERS}"
+      -c 'model_providers.ea.env_key="EA_API_TOKEN"'
+      -c 'model_providers.ea.env_http_headers={"X-EA-Principal-ID"="EA_PRINCIPAL_ID","X-EA-Codex-Profile"="EA_CODEX_PROFILE","X-EA-Onemin-Account-Alias"="EA_ONEMIN_ACCOUNT_ALIAS","X-EA-Onemin-Account-Env"="EA_ONEMIN_ACCOUNT_ENV_NAME","x-api-token"="EA_API_TOKEN","X-EA-Api-Token"="EA_API_TOKEN"}'
       -c 'model_providers.ea.stream_idle_timeout_ms=300000'
       -c 'model_providers.ea.stream_max_retries=5'
     )
