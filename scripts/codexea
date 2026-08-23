@@ -262,7 +262,7 @@ apply_runtime_env_defaults() {
     CODEXEA_CORE_MODEL CODEXEA_REPAIR_MODEL CODEXEA_EASY_MODEL CODEXEA_GROUNDWORK_MODEL \
     CODEXEA_REVIEW_LIGHT_MODEL CODEXEA_JURY_MODEL CODEXEA_POST_AUDIT_MODEL \
     CODEXEA_ONEMIN_TIMEOUT_SECONDS \
-    CODEXEA_ONEMIN_DISPLAY_MODEL CODEXEA_ONEMIN_METADATA_SOURCE_MODEL CODEXEA_SYNC_MODEL_METADATA \
+    CODEXEA_ONEMIN_DISPLAY_MODEL CODEXEA_SYNC_MODEL_METADATA \
     CODEXEA_RESUME_INJECT_MODEL CODEXEA_USE_LIVE_PROFILE_MODELS CODEXEA_ALLOW_ENV_MODEL_OVERRIDE; do
     if [ -n "${!key:-}" ]; then
       continue
@@ -465,82 +465,10 @@ codexea_should_inject_model() {
   esac
 }
 
-codexea_should_sync_model_metadata() {
-  case "${CODEXEA_SYNC_MODEL_METADATA:-1}" in
-    0|false|FALSE|no|NO|off|OFF)
-      return 1
-      ;;
-    force|FORCE)
-      return 0
-      ;;
-  esac
-  if [ -n "${CODEXEA_REAL_CODEX:-}" ] && [ "${CODEXEA_REAL_CODEX}" != "/usr/bin/codex" ]; then
-    return 1
-  fi
-  return 0
-}
-
 sync_codexea_model_metadata() {
-  local display_model="${1:-}"
-  local source_model="${CODEXEA_ONEMIN_METADATA_SOURCE_MODEL:-gpt-5.4}"
-  local cache_path="${CODEXEA_MODELS_CACHE_PATH:-${HOME}/.codex/models_cache.json}"
-  [ -n "${display_model}" ] || return 0
-  [ "${display_model}" != "${source_model}" ] || return 0
-  [ "${display_model}" = "${CODEXEA_ONEMIN_DISPLAY_MODEL:-gpt-5.4}" ] || return 0
-  codexea_should_sync_model_metadata || return 0
-  command -v python3 >/dev/null 2>&1 || return 0
-  [ -f "${cache_path}" ] || return 0
-  python3 - "${cache_path}" "${source_model}" "${display_model}" <<'PY' >/dev/null 2>&1 || true
-import json
-import os
-import tempfile
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1]).expanduser()
-source_slug = str(sys.argv[2] or "").strip()
-display_slug = str(sys.argv[3] or "").strip()
-if not source_slug or not display_slug:
-    raise SystemExit(0)
-
-try:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-except Exception:
-    raise SystemExit(0)
-models = payload.get("models") if isinstance(payload, dict) else None
-if not isinstance(models, list):
-    raise SystemExit(0)
-
-source = next((dict(item) for item in models if isinstance(item, dict) and item.get("slug") == source_slug), None)
-if source is None:
-    raise SystemExit(0)
-
-alias = dict(source)
-alias["slug"] = display_slug
-alias["display_name"] = display_slug
-alias["description"] = f"EA 1min.AI display alias for {source.get('display_name') or source_slug}."
-updated = [alias]
-updated.extend(
-    item
-    for item in models
-    if not (isinstance(item, dict) and item.get("slug") == display_slug)
-)
-payload["models"] = updated
-
-path.parent.mkdir(parents=True, exist_ok=True)
-fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
-try:
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, ensure_ascii=True, indent=2)
-        handle.write("\n")
-    os.chmod(tmp_name, 0o600)
-    os.replace(tmp_name, path)
-finally:
-    try:
-        os.unlink(tmp_name)
-    except FileNotFoundError:
-        pass
-PY
+  # The fleet now binds directly to a model with native Codex metadata. Never
+  # synthesize or overwrite cache rows from runtime-controlled aliases.
+  return 0
 }
 
 toml_quote_string() {
@@ -822,7 +750,7 @@ detect_primary_command() {
         fi
         return
         ;;
-      -c|--config|--enable|--disable|-i|--image|-m|--model|--local-provider|-p|--profile|-s|--sandbox|-a|--ask-for-approval|-C|--cd|--add-dir)
+      -c|--config|--enable|--disable|-i|--image|-m|--model|--local-provider|-p|--profile|-s|--sandbox|-a|--ask-for-approval|-C|--cd|--add-dir|--remote|--remote-auth-token-env)
         i=$((i + 2))
         ;;
       --interactive|--oss|--full-auto|--dangerously-bypass-approvals-and-sandbox|--search|--no-alt-screen|-h|--help|-V|--version)
@@ -866,7 +794,7 @@ has_explicit_profile_override() {
       --)
         return 1
         ;;
-      -c|--config|--enable|--disable|-i|--image|-m|--model|--local-provider|-s|--sandbox|-a|--ask-for-approval|-C|--cd|--add-dir)
+      -c|--config|--enable|--disable|-i|--image|-m|--model|--local-provider|-s|--sandbox|-a|--ask-for-approval|-C|--cd|--add-dir|--remote|--remote-auth-token-env)
         i=$((i + 2))
         ;;
       --oss|--full-auto|--dangerously-bypass-approvals-and-sandbox|--search|--no-alt-screen|-h|--help|-V|--version)
@@ -893,7 +821,7 @@ args_request_interactive_session() {
         saw_interactive=1
         i=$((i + 1))
         ;;
-      -c|--config|--enable|--disable|-i|--image|-m|--model|--local-provider|-p|--profile|-s|--sandbox|-a|--ask-for-approval|-C|--cd|--add-dir)
+      -c|--config|--enable|--disable|-i|--image|-m|--model|--local-provider|-p|--profile|-s|--sandbox|-a|--ask-for-approval|-C|--cd|--add-dir|--remote|--remote-auth-token-env)
         i=$((i + 2))
         ;;
       --oss|--full-auto|--dangerously-bypass-approvals-and-sandbox|--search|--no-alt-screen|-h|--help|-V|--version)
@@ -965,6 +893,9 @@ has_explicit_runtime_override() {
           break
         fi
         value="${args[$i]}"
+        if codexea_model_from_config_arg "${value}" >/dev/null 2>&1; then
+          return 0
+        fi
         normalized="${value//[[:space:]]/}"
         case "${normalized}" in
           model=*|model_provider=*|model_providers.*|chatgpt_base_url=*|openai_base_url=*)
@@ -975,6 +906,9 @@ has_explicit_runtime_override() {
       -c?*)
         value="${args[$i]#-c}"
         value="${value#=}"
+        if codexea_model_from_config_arg "${value}" >/dev/null 2>&1; then
+          return 0
+        fi
         normalized="${value//[[:space:]]/}"
         case "${normalized}" in
           model=*|model_provider=*|model_providers.*|chatgpt_base_url=*|openai_base_url=*)
@@ -984,6 +918,9 @@ has_explicit_runtime_override() {
         ;;
       --config=*)
         value="${args[$i]#--config=}"
+        if codexea_model_from_config_arg "${value}" >/dev/null 2>&1; then
+          return 0
+        fi
         normalized="${value//[[:space:]]/}"
         case "${normalized}" in
           model=*|model_provider=*|model_providers.*|chatgpt_base_url=*|openai_base_url=*)
@@ -1002,17 +939,36 @@ has_explicit_runtime_override() {
 
 codexea_model_from_config_arg() {
   local value="${1:-}"
-  if ! [[ "${value}" =~ ^[[:space:]]*model[[:space:]]*=(.*)$ ]]; then
-    return 1
-  fi
-  value="${BASH_REMATCH[1]}"
-  value="${value#"${value%%[![:space:]]*}"}"
-  value="${value%"${value##*[![:space:]]}"}"
-  if [[ "${value}" == \"*\" ]] || [[ "${value}" == \'*\' ]]; then
-    value="${value:1:${#value}-2}"
-  fi
-  [ -n "${value}" ] || return 1
-  printf '%s' "${value}"
+  command -v python3 >/dev/null 2>&1 || return 1
+  python3 - "${value}" <<'PY'
+import re
+import sys
+import tomllib
+
+raw = sys.argv[1]
+try:
+    parsed = tomllib.loads(raw)
+except (tomllib.TOMLDecodeError, ValueError):
+    parsed = None
+
+if isinstance(parsed, dict) and isinstance(parsed.get("model"), str):
+    model = parsed["model"].strip()
+    if model:
+        print(model, end="")
+        raise SystemExit(0)
+
+# Codex historically accepted an unquoted model slug even though it is not a
+# TOML string. Keep that compatibility fallback deliberately narrow; all
+# quoted keys/strings, comments, multiline strings, and escapes go through
+# the real TOML parser above.
+match = re.fullmatch(r"\s*(?:model|\"model\"|'model')\s*=\s*([A-Za-z0-9_.+()/ -]+)\s*", raw)
+if not match:
+    raise SystemExit(1)
+model = match.group(1).strip()
+if not model:
+    raise SystemExit(1)
+print(model, end="")
+PY
 }
 
 codexea_explicit_model_for_args() {
@@ -1159,6 +1115,8 @@ value_options = {
     "-C",
     "--cd",
     "--add-dir",
+    "--remote",
+    "--remote-auth-token-env",
 }
 flag_options = {
     "--interactive",
@@ -1263,7 +1221,7 @@ has_explicit_launch_cwd() {
       --)
         return 1
         ;;
-      -c|--config|--enable|--disable|-i|--image|-m|--model|--local-provider|-p|--profile|-s|--sandbox|-a|--ask-for-approval|--add-dir)
+      -c|--config|--enable|--disable|-i|--image|-m|--model|--local-provider|-p|--profile|-s|--sandbox|-a|--ask-for-approval|--add-dir|--remote|--remote-auth-token-env)
         i=$((i + 2))
         ;;
       --interactive|--oss|--full-auto|--dangerously-bypass-approvals-and-sandbox|--search|--no-alt-screen|-h|--help|-V|--version)
@@ -1786,7 +1744,7 @@ inject_bootstrap_prompt() {
         fi
         break
         ;;
-      -c|--config|--enable|--disable|-i|--image|-m|--model|--local-provider|-p|--profile|-s|--sandbox|-a|--ask-for-approval|-C|--cd|--add-dir)
+      -c|--config|--enable|--disable|-i|--image|-m|--model|--local-provider|-p|--profile|-s|--sandbox|-a|--ask-for-approval|-C|--cd|--add-dir|--remote|--remote-auth-token-env)
         i=$((i + 2))
         ;;
       --interactive|--oss|--full-auto|--dangerously-bypass-approvals-and-sandbox|--search|--no-alt-screen|-h|--help|-V|--version)
@@ -1858,6 +1816,9 @@ codexea_resolve_launch_model() {
   normalized="$(printf '%s' "${model}" | tr '[:upper:]' '[:lower:]')"
 
   case "${normalized}" in
+    codex-default|local-default|config-default|default-config)
+      codexea_verified_onemin_tool_model
+      ;;
     chatgpt*5.5*|chatgpt*5.6*|gpt*5.5*|gpt*5.6*)
       codexea_verified_onemin_tool_model
       ;;
@@ -1995,7 +1956,7 @@ wrap_prompt_invocation_with_exec() {
         printf '%s\0' "${args[@]:${i}}"
         return
         ;;
-      -c|--config|--enable|--disable|-i|--image|-m|--model|--local-provider|-p|--profile|-s|--sandbox|-a|--ask-for-approval|-C|--cd|--add-dir)
+      -c|--config|--enable|--disable|-i|--image|-m|--model|--local-provider|-p|--profile|-s|--sandbox|-a|--ask-for-approval|-C|--cd|--add-dir|--remote|--remote-auth-token-env)
         i=$((i + 2))
         ;;
       --oss|--full-auto|--dangerously-bypass-approvals-and-sandbox|--search|--no-alt-screen|-h|--help|-V|--version)
@@ -3653,13 +3614,9 @@ esac
 
 RESUME_MODEL_PRESERVE=0
 RESUME_RECORDED_MODEL=""
-SKIP_MODEL_INJECTION=0
 if args_request_resume_session "$@" && ! has_explicit_runtime_override "$@" && ! env_truthy "${CODEXEA_RESUME_INJECT_MODEL:-0}"; then
   RESUME_MODEL_PRESERVE=1
   RESUME_RECORDED_MODEL="$(codexea_recorded_model_for_resume_args "$@" 2>/dev/null || true)"
-  if [ -z "${RESUME_RECORDED_MODEL}" ]; then
-    SKIP_MODEL_INJECTION=1
-  fi
 fi
 
 if [ "${MODE}" = "responses" ]; then
@@ -3710,13 +3667,15 @@ if [ -n "${CLI_REQUESTED_MODEL}" ]; then
 fi
 CODEXEA_CONFIGURED_MODEL_ALIAS="${MODEL}"
 CODEXEA_MODEL_RESOLUTION="direct"
-if [ "${MODE}" = "responses" ]; then
-  MODEL="$(codexea_resolve_launch_model "${MODEL}")"
-  if [ "${MODEL}" != "${CODEXEA_CONFIGURED_MODEL_ALIAS}" ]; then
-    CODEXEA_MODEL_RESOLUTION="verified_onemin_tool_rollback"
-    mapfile -d '' RESOLVED_RUNTIME_ARGS < <(codexea_rewrite_model_override_args "${MODEL}" "$@")
-    set -- "${RESOLVED_RUNTIME_ARGS[@]}"
-  fi
+MODEL="$(codexea_resolve_launch_model "${MODEL}")"
+if [ "${MODEL}" != "${CODEXEA_CONFIGURED_MODEL_ALIAS}" ]; then
+  CODEXEA_MODEL_RESOLUTION="verified_onemin_tool_rollback"
+  mapfile -d '' RESOLVED_RUNTIME_ARGS < <(codexea_rewrite_model_override_args "${MODEL}" "$@")
+  set -- "${RESOLVED_RUNTIME_ARGS[@]}"
+fi
+if [ "${MODE}" = "mcp" ]; then
+  EA_MCP_MODEL="${MODEL}"
+  export EA_MCP_MODEL
 fi
 CODEXEA_EFFECTIVE_MODEL="${MODEL}"
 export CODEXEA_CONFIGURED_MODEL_ALIAS CODEXEA_MODEL_RESOLUTION CODEXEA_EFFECTIVE_MODEL
@@ -3753,7 +3712,7 @@ fi
 
 case "${MODE}" in
   mcp)
-    if [ "${SKIP_MODEL_INJECTION}" -ne 1 ] && codexea_should_inject_model "${MODEL}"; then
+    if codexea_should_inject_model "${MODEL}"; then
       EA_DEFAULT_ARGS+=(-c "model=\"${MODEL}\"")
     fi
     ;;
@@ -3782,7 +3741,7 @@ case "${MODE}" in
     if [ -n "${EA_MODEL_CATALOG_JSON}" ]; then
       EA_DEFAULT_ARGS+=(-c "model_catalog_json=${EA_MODEL_CATALOG_JSON}")
     fi
-    if [ "${SKIP_MODEL_INJECTION}" -ne 1 ] && codexea_should_inject_model "${MODEL}"; then
+    if codexea_should_inject_model "${MODEL}"; then
       EA_DEFAULT_ARGS+=(-c "model=\"${MODEL}\"")
     fi
     ;;

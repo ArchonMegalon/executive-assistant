@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import stat
@@ -46,6 +47,7 @@ def _fake_codex(tmp_path: Path) -> Path:
                 "  'EA_MCP_PRINCIPAL_ID',",
                 "  'EA_CODEX_PROFILE',",
                 "  'ONEMIN_AI_API_KEY',",
+                "  'REMOTE_CODEX_TOKEN',",
                 "  'CODEXEA_RUNTIME_EA_ENV_PATH',",
                 "  'CODEXEA_MODEL_STACK',",
                 "  'CODEXEA_ORIGINAL_CWD',",
@@ -2256,6 +2258,88 @@ def test_worker_lane_rewrites_last_repeated_and_joined_model_override(tmp_path: 
         assert receipt["model_resolution"] == "verified_onemin_tool_rollback"
 
 
+def test_worker_lane_rewrites_all_codex_accepted_toml_model_overrides(tmp_path: Path) -> None:
+    configured_alias = "gpt-5.6-sol"
+    config_values = (
+        'model="""gpt-5.6-sol"""',
+        'model="gpt-5.6-sol" # trailing comment',
+        '"model"="gpt-5.6-sol"',
+        'model="gpt-5\\u002e6-sol"',
+    )
+
+    for config_value in config_values:
+        result = _run_shim(
+            tmp_path,
+            "worker",
+            "exec",
+            "--config",
+            config_value,
+            "Run the TOML override canary",
+        )
+        argv = [str(arg) for arg in result["argv"]]
+        rendered_args = "\n".join(argv)
+        receipt = result["launch_receipt"]
+        assert configured_alias not in rendered_args
+        assert argv[argv.index("--config") + 1] == 'model="gpt-5.4"'
+        assert receipt["model"] == "gpt-5.4"
+        assert receipt["configured_model"] == configured_alias
+        assert receipt["model_resolution"] == "verified_onemin_tool_rollback"
+
+
+def test_mcp_mode_cannot_bypass_verified_tool_model_binding(tmp_path: Path) -> None:
+    configured_alias = "gpt-5.6-sol"
+    result = _run_shim(
+        tmp_path,
+        "worker",
+        "exec",
+        "--model",
+        configured_alias,
+        "Run the MCP binding canary",
+        extra_env={
+            "CODEXEA_MODE": "mcp",
+            "CODEXEA_WORKER_MODEL": configured_alias,
+        },
+    )
+
+    argv = [str(arg) for arg in result["argv"]]
+    receipt = result["launch_receipt"]
+    assert configured_alias not in "\n".join(argv)
+    assert argv[argv.index("--model") + 1] == "gpt-5.4"
+    assert receipt["mode"] == "mcp"
+    assert receipt["model"] == "gpt-5.4"
+    assert receipt["configured_model"] == configured_alias
+    assert receipt["model_resolution"] == "verified_onemin_tool_rollback"
+    assert result["env"]["EA_MCP_MODEL"] == "gpt-5.4"
+
+
+def test_mcp_config_default_and_unresolved_resume_inject_verified_tool_model(tmp_path: Path) -> None:
+    for launch_args in (
+        ("exec", "Run the MCP config-default canary"),
+        ("resume", "--last"),
+    ):
+        result = _run_shim(
+            tmp_path,
+            "worker",
+            *launch_args,
+            extra_env={
+                "CODEXEA_MODE": "mcp",
+                "CODEXEA_MODEL": "codex-default",
+                "CODEX_HOME": str(tmp_path / "empty-codex-home"),
+            },
+        )
+
+        argv = [str(arg) for arg in result["argv"]]
+        rendered_args = "\n".join(argv)
+        receipt = result["launch_receipt"]
+        assert 'model="gpt-5.4"' in rendered_args
+        assert 'model="codex-default"' not in rendered_args
+        assert receipt["mode"] == "mcp"
+        assert receipt["model"] == "gpt-5.4"
+        assert receipt["configured_model"] == "codex-default"
+        assert receipt["model_resolution"] == "verified_onemin_tool_rollback"
+        assert result["env"]["EA_MCP_MODEL"] == "gpt-5.4"
+
+
 def test_responses_lane_fails_closed_without_ea_token(tmp_path: Path) -> None:
     completed = _run_shim_completed(
         tmp_path,
@@ -2291,6 +2375,37 @@ def test_native_admin_commands_bypass_ea_route_and_scrub_provider_secrets(tmp_pa
         assert env["ONEMIN_AI_API_KEY"] == ""
         assert env["CODEXEA_RUNTIME_EA_ENV_PATH"] == ""
         assert not any("model_provider" in arg for arg in argv)
+
+
+def test_native_admin_command_after_split_remote_options_stays_native(tmp_path: Path) -> None:
+    args = (
+        "--remote",
+        "https://remote.example.invalid",
+        "--remote-auth-token-env",
+        "REMOTE_CODEX_TOKEN",
+        "agents",
+        "--help",
+    )
+    result = _run_shim(
+        tmp_path,
+        *args,
+        extra_env={
+            "EA_API_TOKEN": "native-ea-secret",
+            "EA_MCP_API_TOKEN": "native-mcp-secret",
+            "ONEMIN_AI_API_KEY": "native-onemin-secret",
+            "REMOTE_CODEX_TOKEN": "native-remote-secret",
+        },
+    )
+
+    argv = [str(arg) for arg in result["argv"]]
+    env = result["env"]
+    assert argv == list(args)
+    assert env["EA_API_TOKEN"] == ""
+    assert env["EA_MCP_API_TOKEN"] == ""
+    assert env["ONEMIN_AI_API_KEY"] == ""
+    assert env["CODEXEA_RUNTIME_EA_ENV_PATH"] == ""
+    assert env["REMOTE_CODEX_TOKEN"] == "native-remote-secret"
+    assert not any("model_provider" in arg for arg in argv)
 
 
 def test_worker_lane_persists_redacted_launch_receipt_before_handoff(tmp_path: Path) -> None:
@@ -2597,6 +2712,44 @@ def test_verified_54_model_never_inherits_stale_55_metadata(tmp_path: Path) -> N
             "CODEXEA_ONEMIN_DISPLAY_MODEL": "gpt-5.4",
             "CODEXEA_IMPLEMENT_MODEL": "gpt-5.4",
             "CODEXEA_WORKER_MODEL": "gpt-5.4",
+            "CODEXEA_ONEMIN_METADATA_SOURCE_MODEL": "gpt-5.5",
+            "CODEXEA_SYNC_MODEL_METADATA": "force",
+        },
+    )
+
+    assert json.loads(cache_path.read_text(encoding="utf-8")) == original
+
+
+def test_runtime_display_alias_never_overwrites_another_models_metadata(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    codex_home = home / ".codex"
+    codex_home.mkdir(parents=True)
+    cache_path = codex_home / "models_cache.json"
+    original = {
+        "models": [
+            {
+                "slug": "gpt-5.4",
+                "display_name": "GPT-5.4 verified",
+                "context_window": 123456,
+            },
+            {
+                "slug": "gpt-4.1",
+                "display_name": "GPT-4.1 native",
+                "context_window": 999999,
+            },
+        ]
+    }
+    cache_path.write_text(json.dumps(original), encoding="utf-8")
+
+    _run_shim(
+        tmp_path,
+        "worker",
+        "metadata target integrity smoke",
+        extra_env={
+            "HOME": str(home),
+            "CODEXEA_ONEMIN_DISPLAY_MODEL": "gpt-4.1",
+            "CODEXEA_IMPLEMENT_MODEL": "gpt-4.1",
+            "CODEXEA_WORKER_MODEL": "gpt-4.1",
             "CODEXEA_SYNC_MODEL_METADATA": "force",
         },
     )
@@ -3679,6 +3832,12 @@ def _write_echo_route_helper(path: Path, label: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
+def _release_id_for_paths(shim_path: Path, route_path: Path) -> str:
+    shim_digest = hashlib.sha256(shim_path.read_bytes()).hexdigest()
+    route_digest = hashlib.sha256(route_path.read_bytes()).hexdigest()
+    return hashlib.sha256(f"{shim_digest}\n{route_digest}\n".encode()).hexdigest()
+
+
 def test_install_script_installs_route_helper_to_share_root(tmp_path: Path) -> None:
     home, completed = _install_codexea(tmp_path)
 
@@ -3753,10 +3912,14 @@ def test_install_rollback_swaps_bounded_current_and_previous_pointers(tmp_path: 
     current = install_root / "current"
     previous = install_root / "previous"
     installed_target = os.readlink(current)
-    _write_echo_shim(_managed_shim_path(home), "installed-release")
-    candidate_id = "1" * 64
+    candidate_staging = releases_root / "candidate-staging"
+    candidate_shim = candidate_staging / "scripts" / "codexea"
+    candidate_route = candidate_staging / "scripts" / "codexea_route.py"
+    _write_echo_shim(candidate_shim, "candidate-release")
+    _write_echo_route_helper(candidate_route, "candidate-release")
+    candidate_id = _release_id_for_paths(candidate_shim, candidate_route)
+    candidate_staging.rename(releases_root / candidate_id)
     candidate_target = f"releases/{candidate_id}"
-    _write_echo_shim(releases_root / candidate_id / "scripts" / "codexea", "candidate-release")
     current.unlink()
     current.symlink_to(candidate_target)
     previous.symlink_to(installed_target)
@@ -3772,15 +3935,7 @@ def test_install_rollback_swaps_bounded_current_and_previous_pointers(tmp_path: 
 
     assert os.readlink(current) == installed_target
     assert os.readlink(previous) == candidate_target
-    launched = subprocess.run(
-        [str(_launcher_path(home)), "rollback", "complete"],
-        cwd=ROOT,
-        env=_codexea_launcher_env(home),
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    assert launched.stdout == "installed-release:rollback complete\n"
+    assert _managed_shim_path(home).read_bytes() == SHIM.read_bytes()
 
 
 def test_managed_shim_launcher_fails_closed_when_default_shim_is_missing(tmp_path: Path) -> None:
