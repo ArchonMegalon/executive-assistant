@@ -219,6 +219,26 @@ def test_adapter_normalizes_provider_documented_naive_balance_timestamp_as_utc()
     assert adapter.balance(timeout_seconds=2) == (100.0, "2026-08-23T11:59:00Z")
 
 
+def test_adapter_normalizes_documented_top_level_organization_list() -> None:
+    requests: list[object] = []
+
+    def opener(request: object, *, timeout: float) -> Response:
+        requests.append(request)
+        return Response([{"id": "org-1"}])
+
+    adapter = ToughTongueDocumentedGetAdapter(
+        config=config(account_slots=slots(organization=False)),
+        slot=slots(organization=False)[0],
+        contract=contract(),
+        opener=opener,
+    )
+
+    assert adapter.organization_member("org-1", timeout_seconds=2) is True
+    request = requests[0]
+    assert request.get_method() == "GET"  # type: ignore[attr-defined]
+    assert request.get_header("X-tt-org") is None  # type: ignore[attr-defined]
+
+
 def test_six_slot_probe_normalizes_and_redacts_but_does_not_overclaim_bindings() -> None:
     observed: list[tuple[str, str | None]] = []
 
