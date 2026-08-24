@@ -51,10 +51,39 @@ def build_tool_shim_requires_immediate_tool(
         prompt = str(latest_user_text or "").strip()
         if not prompt:
             return False
+        collapsed = " ".join(prompt.split())
+        normalized = collapsed.lower()
+        available_names = {
+            str(tool.get("name") or "").strip().lower()
+            for tool in available_tools
+            if str(tool.get("name") or "").strip()
+        }
+        explicit_instruction_seen = False
+        for tool_name in available_names:
+            escaped_name = re.escape(tool_name)
+            explicit_instruction = rf"(?:use|call)\s+exactly\s+one\s+{escaped_name}\s+tool\s+call"
+            if re.search(rf"\b{explicit_instruction}\b", normalized):
+                explicit_instruction_seen = True
+            standalone_instruction = rf"{explicit_instruction}[.!]?"
+            if re.fullmatch(standalone_instruction, normalized):
+                return True
+        if "exec_command" in available_names:
+            # This is the only multi-sentence force-tool instruction accepted.
+            # Keep the fleet health canary grammar deliberately exact so added
+            # prose cannot turn an ambiguous or contradictory request mandatory.
+            fleet_canary_instruction = (
+                r"(?i:use exactly one exec_command tool call\. in that one call, "
+                r"write the exact line )FLEET_INSTALLED_CANARY_OK"
+                r"(?i: to canary\.txt and then read canary\.txt back\.?)"
+                r"(?i:(?: do not use another tool call\.?)?)"
+            )
+            if re.fullmatch(fleet_canary_instruction, collapsed):
+                return True
+        if explicit_instruction_seen:
+            return False
         lightweight_ops, _ = looks_like_lightweight_ops_query(prompt)
         if lightweight_ops:
             return True
-        normalized = " ".join(prompt.lower().split())
         if len(normalized) > 220:
             return False
         if not (

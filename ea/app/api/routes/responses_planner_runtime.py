@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from typing import Any, Callable
 
@@ -53,7 +54,7 @@ def tool_shim_transcript_part_max_chars() -> int:
 
 
 def _tool_shim_stable_planner_model() -> str:
-    return "onemin:gpt-4.1-nano"
+    return "onemin:gpt-5.4"
 
 
 def _tool_shim_sanitize_planner_override(configured_model: str) -> str:
@@ -64,9 +65,15 @@ def _tool_shim_sanitize_planner_override(configured_model: str) -> str:
     if strict in {"1", "true", "yes", "on"}:
         return configured
     normalized = configured.lower()
+    nano_family = re.search(r"(?:^|[^a-z0-9])nano(?:$|[^a-z0-9])", normalized) is not None
+    unverified_gpt_family = re.search(r"gpt[^a-z0-9]*5[^a-z0-9]*[56](?!\d)", normalized) is not None
     if (
-        normalized.startswith("gemini")
+        nano_family
+        or unverified_gpt_family
+        or normalized.startswith("gemini")
         or normalized.startswith("gemini_vortex:")
+        or normalized.startswith("gpt-")
+        or normalized.startswith("onemin:gpt-")
         or normalized in {
             "ea-coder-fast",
             "ea-gemini-flash",

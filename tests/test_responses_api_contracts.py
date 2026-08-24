@@ -353,6 +353,250 @@ def test_tool_shim_decision_short_circuits_direct_structured_function_call_paylo
     assert decision.upstream_result.fallback_reason == "direct_structured_payload"
 
 
+def test_tool_shim_repairs_observed_single_terminal_delimiter_tool_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    malformed_envelope = (
+        json.dumps(
+            {
+                "decision": "exec_command",
+                "name": "exec_command",
+                "arguments": {
+                    "cmd": "echo 'FLEET_INSTALLED_CANARY_OK' > canary.txt && cat canary.txt",
+                    "justification": "Write and then read back canary status in canary.txt",
+                    "max_output_tokens": 50,
+                },
+            },
+            separators=(",", ":"),
+        )
+        + "}"
+    )
+    upstream_calls: list[dict[str, object]] = []
+
+    def _upstream(**kwargs: object) -> UpstreamResult:
+        upstream_calls.append(dict(kwargs))
+        return UpstreamResult(
+            text=malformed_envelope,
+            provider_key="onemin",
+            model="gpt-5.4",
+            provider_key_slot="fallback_59",
+            provider_backend="1min",
+            provider_account_name="test",
+            tokens_in=0,
+            tokens_out=0,
+            upstream_model="gpt-5.4",
+            latency_ms=0,
+        )
+
+    monkeypatch.setattr(responses, "_tool_shim_generate_upstream_text_with_timeout", _upstream)
+    tools = [
+        {
+            "name": "exec_command",
+            "description": "Run a command.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "cmd": {"type": "string"},
+                    "justification": {"type": "string"},
+                    "max_output_tokens": {"type": "number"},
+                },
+                "required": ["cmd"],
+                "additionalProperties": False,
+            },
+        }
+    ]
+
+    decision = responses._tool_shim_decision(
+        model="gpt-5.4",
+        max_output_tokens=None,
+        instructions=None,
+        tools=tools,
+        history_items=[
+            {
+                "type": "input_text",
+                "text": (
+                    "Use exactly one exec_command tool call. In that one call, write the exact line "
+                    "FLEET_INSTALLED_CANARY_OK to canary.txt and then read canary.txt back."
+                ),
+            }
+        ],
+    )
+
+    assert len(upstream_calls) == 1
+    assert upstream_calls[0]["requested_model"] == "onemin:gpt-5.4"
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": "echo 'FLEET_INSTALLED_CANARY_OK' > canary.txt && cat canary.txt",
+        "justification": "Write and then read back canary status in canary.txt",
+        "max_output_tokens": 50,
+    }
+
+
+def test_tool_shim_terminal_delimiter_repair_fails_closed() -> None:
+    from app.api.routes import responses
+
+    tools = [
+        {
+            "name": "exec_command",
+            "parameters": {
+                "type": "object",
+                "properties": {"cmd": {"type": "string"}},
+                "required": ["cmd"],
+                "additionalProperties": False,
+            },
+        }
+    ]
+    payload = {
+        "decision": "function_call",
+        "name": "exec_command",
+        "arguments": {"cmd": "pwd"},
+    }
+    encoded = json.dumps(payload, separators=(",", ":"))
+    repair = responses._strict_repaired_tool_shim_function_payload
+
+    assert repair(encoded + "}", available_tools=tools) == payload
+    assert repair(encoded, available_tools=tools) is None
+    assert repair(encoded + "}}", available_tools=tools) is None
+    assert repair("prefix " + encoded + "}", available_tools=tools) is None
+    assert repair(encoded + "} trailing", available_tools=tools) is None
+    assert repair(encoded + encoded, available_tools=tools) is None
+    assert repair(f"```json\n{encoded}}}\n```", available_tools=tools) is None
+    assert repair(json.dumps([payload]) + "}", available_tools=tools) is None
+    assert (
+        repair(
+            json.dumps({**payload, "comment": "run it"}, separators=(",", ":")) + "}",
+            available_tools=tools,
+        )
+        is None
+    )
+    assert (
+        repair(
+            json.dumps({**payload, "name": "missing_tool"}, separators=(",", ":")) + "}",
+            available_tools=tools,
+        )
+        is None
+    )
+    assert (
+        repair(
+            json.dumps({**payload, "decision": "write_stdin"}, separators=(",", ":")) + "}",
+            available_tools=tools,
+        )
+        is None
+    )
+    assert (
+        repair(
+            json.dumps({**payload, "arguments": ["pwd"]}, separators=(",", ":")) + "}",
+            available_tools=tools,
+        )
+        is None
+    )
+    assert (
+        repair(
+            '{"decision":"function_call","decision":"exec_command",'
+            '"name":"exec_command","arguments":{"cmd":"pwd"}}}',
+            available_tools=tools,
+        )
+        is None
+    )
+    assert (
+        repair(
+            '{"decision":"function_call","name":"exec_command","name":"write_stdin",'
+            '"arguments":{"cmd":"pwd"}}}',
+            available_tools=tools,
+        )
+        is None
+    )
+    assert (
+        repair(
+            '{"decision":"function_call","name":"exec_command",'
+            '"arguments":{"cmd":"pwd","cmd":"echo changed"}}}',
+            available_tools=tools,
+        )
+        is None
+    )
+    for nonfinite in ("NaN", "Infinity", "-Infinity", "1e999", "-1e999"):
+        assert (
+            repair(
+                '{"decision":"function_call","name":"exec_command",'
+                f'"arguments":{{"cmd":"pwd","nested":{{"value":{nonfinite}}}}}}}}}',
+                available_tools=tools,
+            )
+            is None
+        )
+
+
+def test_public_responses_route_repairs_terminal_delimiter_into_function_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client(principal_id="tool-envelope-repair")
+    from app.api.routes import responses
+
+    malformed_envelope = (
+        json.dumps(
+            {
+                "decision": "exec_command",
+                "name": "exec_command",
+                "arguments": {"cmd": "printf FLEET_INSTALLED_CANARY_OK"},
+            },
+            separators=(",", ":"),
+        )
+        + "}"
+    )
+    monkeypatch.setattr(
+        responses,
+        "_tool_shim_generate_upstream_text_with_timeout",
+        lambda **kwargs: UpstreamResult(
+            text=malformed_envelope,
+            provider_key="onemin",
+            model="gpt-5.4",
+            provider_key_slot="fallback_59",
+            provider_backend="1min",
+            provider_account_name="test",
+            tokens_in=0,
+            tokens_out=0,
+            upstream_model="gpt-5.4",
+            latency_ms=0,
+        ),
+    )
+
+    response = client.post(
+        "/v1/responses",
+        headers={"X-EA-Codex-Profile": "core"},
+        json={
+            "model": "gpt-5.4",
+            "input": "Use exactly one exec_command tool call to print the canary marker.",
+            "tools": [
+                {
+                    "type": "function",
+                    "name": "exec_command",
+                    "description": "Run a command.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"cmd": {"type": "string"}},
+                        "required": ["cmd"],
+                        "additionalProperties": False,
+                    },
+                }
+            ],
+            "tool_choice": "auto",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["output_text"] == ""
+    assert len(body["output"]) == 1
+    assert body["output"][0]["type"] == "function_call"
+    assert body["output"][0]["name"] == "exec_command"
+    assert json.loads(body["output"][0]["arguments"]) == {
+        "cmd": "printf FLEET_INSTALLED_CANARY_OK",
+    }
+
+
 def test_tool_shim_decision_uses_direct_local_workspace_command_for_simple_repo_probe(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3826,20 +4070,20 @@ def test_tool_shim_build_staged_repo_diff_command_groups_existing_paths() -> Non
     assert "git -C /docker/EA diff --stat -- ea/app/api/routes/responses.py" in command
 
 
-def test_tool_shim_planner_model_preserves_managed_lanes_and_only_downshifts_cheap_families(
+def test_tool_shim_planner_model_pins_managed_and_gpt_families_to_verified_target(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.api.routes import responses
 
     monkeypatch.delenv("EA_TOOL_SHIM_PLANNER_MODEL", raising=False)
 
-    assert responses._tool_shim_planner_model("ea-coder-hard") == "onemin:gpt-4.1-nano"
-    assert responses._tool_shim_planner_model("ea-coder-hard-batch") == "onemin:gpt-4.1-nano"
-    assert responses._tool_shim_planner_model("ea-coder-hard-rescue") == "onemin:gpt-4.1-nano"
-    assert responses._tool_shim_planner_model("ea-review-light") == "onemin:gpt-4.1-nano"
-    assert responses._tool_shim_planner_model("ea-coder-fast") == "onemin:gpt-4.1-nano"
-    assert responses._tool_shim_planner_model("gpt-5.4") == "onemin:gpt-4.1-nano"
-    assert responses._tool_shim_planner_model("onemin:gpt-5.5") == "onemin:gpt-4.1-nano"
+    assert responses._tool_shim_planner_model("ea-coder-hard") == "onemin:gpt-5.4"
+    assert responses._tool_shim_planner_model("ea-coder-hard-batch") == "onemin:gpt-5.4"
+    assert responses._tool_shim_planner_model("ea-coder-hard-rescue") == "onemin:gpt-5.4"
+    assert responses._tool_shim_planner_model("ea-review-light") == "onemin:gpt-5.4"
+    assert responses._tool_shim_planner_model("ea-coder-fast") == "onemin:gpt-5.4"
+    assert responses._tool_shim_planner_model("gpt-5.4") == "onemin:gpt-5.4"
+    assert responses._tool_shim_planner_model("onemin:gpt-5.5") == "onemin:gpt-5.4"
     assert responses._tool_shim_planner_model("magixai:codestral") == "magixai:codestral"
 
 
@@ -3857,7 +4101,7 @@ def test_tool_shim_planner_model_uses_fast_lane_for_staged_operator_guard_prompt
     - sed -n '1,140p' /docker/fleet/scripts/codex-shims/python3
     """
 
-    assert responses._tool_shim_planner_model("ea-coder-hard", prompt=prompt) == "onemin:gpt-4.1-nano"
+    assert responses._tool_shim_planner_model("ea-coder-hard", prompt=prompt) == "onemin:gpt-5.4"
 
 
 def test_tool_shim_planner_model_uses_fast_lane_for_worker_safe_first_prompt(
@@ -3874,7 +4118,7 @@ def test_tool_shim_planner_model_uses_fast_lane_for_worker_safe_first_prompt(
     - /var/lib/codex-fleet/chummer_design_supervisor/shard-2/runs/run/TASK_LOCAL_TELEMETRY.generated.json
     """
 
-    assert responses._tool_shim_planner_model("ea-coder-hard", prompt=prompt) == "onemin:gpt-4.1-nano"
+    assert responses._tool_shim_planner_model("ea-coder-hard", prompt=prompt) == "onemin:gpt-5.4"
 
 
 def test_tool_shim_planner_model_uses_fast_lane_for_operator_unblock_prompt_without_staged_marker(
@@ -3893,7 +4137,7 @@ def test_tool_shim_planner_model_uses_fast_lane_for_operator_unblock_prompt_with
     $ sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea
     """
 
-    assert responses._tool_shim_planner_model("ea-coder-hard", prompt=prompt) == "onemin:gpt-4.1-nano"
+    assert responses._tool_shim_planner_model("ea-coder-hard", prompt=prompt) == "onemin:gpt-5.4"
 
 
 def test_tool_shim_planner_model_uses_fast_lane_for_readiness_remedy_prompt_without_staged_marker(
@@ -3912,7 +4156,7 @@ def test_tool_shim_planner_model_uses_fast_lane_for_readiness_remedy_prompt_with
     [USER-JOURNEY-TESTER] FAIL: user journey tester trace is missing
     """
 
-    assert responses._tool_shim_planner_model("ea-coder-hard", prompt=prompt) == "onemin:gpt-4.1-nano"
+    assert responses._tool_shim_planner_model("ea-coder-hard", prompt=prompt) == "onemin:gpt-5.4"
 
 
 def test_tool_shim_messages_compact_operator_unblock_prompt_omits_system_history(
@@ -8360,6 +8604,92 @@ def test_output_runtime_helpers_cover_unwrap_latest_scalar_and_local_result() ->
         is True
     )
     assert requires_immediate_tool(latest_user_text="Explain architecture", available_tools=[{"name": "exec_command"}]) is False
+    assert (
+        requires_immediate_tool(
+            latest_user_text=(
+                "Use exactly one exec_command tool call. In that one call, write the exact line "
+                "FLEET_INSTALLED_CANARY_OK to canary.txt and then read canary.txt back. "
+                "Do not use another tool call."
+            ),
+            available_tools=[{"name": "exec_command"}],
+        )
+        is True
+    )
+    assert (
+        requires_immediate_tool(
+            latest_user_text=(
+                "Use exactly one exec_command tool call. In that one call, write the exact line "
+                "FLEET_INSTALLED_CANARY_OK to canary.txt and then read canary.txt back."
+            ),
+            available_tools=[{"name": "exec_command"}],
+        )
+        is True
+    )
+    assert (
+        requires_immediate_tool(
+            latest_user_text="Call exactly one update_plan tool call.",
+            available_tools=[{"name": "update_plan"}],
+        )
+        is True
+    )
+    assert (
+        requires_immediate_tool(
+            latest_user_text="Use exactly one missing_tool tool call.",
+            available_tools=[{"name": "exec_command"}],
+        )
+        is False
+    )
+    assert (
+        requires_immediate_tool(
+            latest_user_text="Do not use exactly one exec_command tool call.",
+            available_tools=[{"name": "exec_command"}],
+        )
+        is False
+    )
+    for prohibited_prompt in (
+        "You must not use exactly one exec_command tool call.",
+        "Do not ever use exactly one exec_command tool call.",
+        "I don't want you to use exactly one exec_command tool call.",
+        "Using tools is prohibited; use exactly one exec_command tool call.",
+        "Use exactly one exec_command tool call, but do not actually call it.",
+        "Use exactly one exec_command tool call only if you are not able to answer.",
+        "Use exactly one exec_command tool call. Do not use any tool call.",
+        "Use exactly one exec_command tool call unless you can answer directly.",
+        "Use exactly one exec_command tool call without executing it.",
+        "Use exactly one exec_command tool call, but avoid doing so.",
+        "Use exactly one exec_command tool call if needed.",
+        "Use exactly one exec_command tool call. No execution is required.",
+        "Use exactly one exec_command tool call. You shouldn't execute it.",
+        "Use exactly one exec_command tool call, but refrain from executing it.",
+        "Use exactly one exec_command tool call except when execution is unsafe.",
+        "Use exactly one exec_command tool call provided the host is ready.",
+        "Use exactly one exec_command tool call when needed.",
+        "Use exactly one exec_command tool call, then decline to execute it.",
+        "Use exactly one exec_command tool call if needed. What is the current fleet status?",
+        "Use exactly one exec_command tool call. Thanks.",
+        (
+            "Use exactly one exec_command tool call. In that one call, write the exact line "
+            "FLEET_INSTALLED_CANARY_OK to canary.txt and then read canary.txt back. Continue afterward."
+        ),
+        (
+            "Use exactly one exec_command tool call. In that one call, write the exact line "
+            "fleet_installed_canary_ok to canary.txt and then read canary.txt back."
+        ),
+    ):
+        assert (
+            requires_immediate_tool(
+                latest_user_text=prohibited_prompt,
+                available_tools=[{"name": "exec_command"}],
+            )
+            is False
+        )
+    assert (
+        requires_immediate_tool(
+            latest_user_text="Use one exec_command tool call.",
+            available_tools=[{"name": "exec_command"}],
+        )
+        is False
+    )
 
     local_upstream_result = runtime.build_tool_shim_local_upstream_result(upstream_result_cls=SimpleNamespace)
     result = local_upstream_result("ok", reason="local_probe")
@@ -8813,9 +9143,9 @@ def test_planner_runtime_helpers_cover_history_env_model_and_deadline(monkeypatc
         is_package_work_prompt=lambda prompt: "package scope:" in prompt.lower(),
     )
     monkeypatch.delenv("EA_TOOL_SHIM_PLANNER_MODEL", raising=False)
-    assert planner_model("ea-coder-hard-batch") == "onemin:gpt-4.1-nano"
-    assert planner_model("onemin:gpt-5.5") == "onemin:gpt-4.1-nano"
-    assert planner_model("custom-model", prompt="operator prompt") == "onemin:gpt-4.1-nano"
+    assert planner_model("ea-coder-hard-batch") == "onemin:gpt-5.4"
+    assert planner_model("onemin:gpt-5.5") == "onemin:gpt-5.4"
+    assert planner_model("custom-model", prompt="operator prompt") == "onemin:gpt-5.4"
 
 
 def test_tool_shim_planner_model_sanitizes_gemini_override_unless_strict(
@@ -8826,10 +9156,46 @@ def test_tool_shim_planner_model_sanitizes_gemini_override_unless_strict(
 
     monkeypatch.setenv("EA_TOOL_SHIM_PLANNER_MODEL", "ea-gemini-flash")
     monkeypatch.delenv("EA_TOOL_SHIM_PLANNER_MODEL_STRICT", raising=False)
-    assert responses._tool_shim_planner_model("gpt-5.4") == "onemin:gpt-4.1-nano"
+    assert responses._tool_shim_planner_model("gpt-5.4") == "onemin:gpt-5.4"
 
+    for configured_model in (
+        "onemin:gpt-4.1-nano",
+        "onemin:openai/gpt-4.1-nano",
+        "openai:gpt-4.1-nano",
+        "custom-nano",
+        "onemin:gpt-5.5",
+        "gpt-5.6",
+        "openai:gpt-5.6",
+        "provider/openai/gpt-5.5",
+        "onemin:openai/gpt-5.6",
+        "custom-gpt-5.5",
+        "onemin:chatgpt-5.6",
+        "ChatGPT 5.5 (1min.ai)",
+        "vendor/chatgpt_5_6",
+        "custom.chatgpt:5-5",
+        "prefixgpt/5:6",
+        "ChatGPT (5.5)",
+        "onemin:ChatGPT—5—6",
+        "vendor/chatgpt（5·5）",
+    ):
+        monkeypatch.setenv("EA_TOOL_SHIM_PLANNER_MODEL", configured_model)
+        assert responses._tool_shim_planner_model("gpt-5.4") == "onemin:gpt-5.4"
+
+    monkeypatch.setenv("EA_TOOL_SHIM_PLANNER_MODEL", "ea-gemini-flash")
     monkeypatch.setenv("EA_TOOL_SHIM_PLANNER_MODEL_STRICT", "1")
     assert responses._tool_shim_planner_model("gpt-5.4") == "ea-gemini-flash"
+
+    monkeypatch.setenv("EA_TOOL_SHIM_PLANNER_MODEL", "openai:gpt-4.1-nano")
+    assert responses._tool_shim_planner_model("gpt-5.4") == "openai:gpt-4.1-nano"
+
+    monkeypatch.setenv("EA_TOOL_SHIM_PLANNER_MODEL", "provider/openai/gpt-5.5")
+    assert responses._tool_shim_planner_model("gpt-5.4") == "provider/openai/gpt-5.5"
+
+    monkeypatch.setenv("EA_TOOL_SHIM_PLANNER_MODEL", "ChatGPT 5.5 (1min.ai)")
+    assert responses._tool_shim_planner_model("gpt-5.4") == "ChatGPT 5.5 (1min.ai)"
+
+    monkeypatch.setenv("EA_TOOL_SHIM_PLANNER_MODEL", "onemin:ChatGPT—5—6")
+    assert responses._tool_shim_planner_model("gpt-5.4") == "onemin:ChatGPT—5—6"
 
     assert runtime.tool_shim_planner_max_output_tokens(None) == 256
     assert runtime.tool_shim_planner_max_output_tokens(80) == 96

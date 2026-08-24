@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
 import queue
 import re
@@ -5861,6 +5862,69 @@ def _normalize_tool_shim_payload(
     return payload
 
 
+def _strict_repaired_tool_shim_function_payload(
+    text: str,
+    *,
+    available_tools: list[dict[str, object]],
+) -> dict[str, object] | None:
+    """Repair only the observed single redundant closing brace on a tool envelope."""
+    stripped = str(text or "").strip()
+    if not stripped.startswith("{"):
+        return None
+
+    def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate_json_key")
+            result[key] = value
+        return result
+
+    def _reject_nonfinite_constant(value: str) -> object:
+        raise ValueError(f"nonfinite_json_constant:{value}")
+
+    def _is_finite_json_value(value: object) -> bool:
+        if isinstance(value, float):
+            return math.isfinite(value)
+        if isinstance(value, list):
+            return all(_is_finite_json_value(item) for item in value)
+        if isinstance(value, dict):
+            return all(_is_finite_json_value(item) for item in value.values())
+        return True
+
+    try:
+        payload, end = json.JSONDecoder(
+            object_pairs_hook=_unique_object,
+            parse_constant=_reject_nonfinite_constant,
+        ).raw_decode(stripped)
+    except Exception:
+        return None
+    if stripped[end:].strip() != "}" or not isinstance(payload, dict):
+        return None
+    if not _is_finite_json_value(payload):
+        return None
+    if set(payload) != {"decision", "name", "arguments"}:
+        return None
+    arguments = payload.get("arguments")
+    if not isinstance(arguments, dict):
+        return None
+    available_names = {str(tool.get("name") or "").strip() for tool in available_tools}
+    decision = str(payload.get("decision") or "").strip()
+    name = str(payload.get("name") or "").strip()
+    if name not in available_names:
+        return None
+    if decision != "function_call" and decision != name:
+        return None
+    normalized = _normalize_tool_shim_payload(payload, available_tools=available_tools)
+    if str(normalized.get("decision") or "").strip() != "function_call":
+        return None
+    if str(normalized.get("name") or "").strip() != name:
+        return None
+    if not isinstance(normalized.get("arguments"), dict):
+        return None
+    return normalized
+
+
 def _tool_invocation_command_name(cmd: str) -> str | None:
     try:
         tokens = shlex.split(str(cmd or ""), posix=True)
@@ -6444,6 +6508,17 @@ def _tool_shim_decision(
         result.model,
     )
     payload = _extract_json_object(result.text)
+    if not isinstance(payload, dict):
+        payload = _strict_repaired_tool_shim_function_payload(
+            result.text,
+            available_tools=tools,
+        )
+        if isinstance(payload, dict):
+            logger.warning(
+                "tool_shim_repaired_single_terminal_delimiter upstream_provider=%s upstream_model=%s",
+                result.provider_key,
+                result.model,
+            )
     if not isinstance(payload, dict):
         retry_reason = _tool_shim_text_rejection_reason(
             text=result.text,
