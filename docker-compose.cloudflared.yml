@@ -22,3 +22,9 @@ services:
     networks:
       public_ingress:
         ipv4_address: ${EA_PUBLIC_INGRESS_CLOUDFLARED_IPV4:-172.31.254.2}
+      build_ghost_cloudflare_ingress: {}
+
+networks:
+  build_ghost_cloudflare_ingress:
+    external: true
+    name: chummer-build-ghost-cloudflare-ingress
