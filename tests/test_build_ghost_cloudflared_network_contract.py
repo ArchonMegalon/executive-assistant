@@ -7,10 +7,19 @@ from pathlib import Path
 import shutil
 import subprocess
 
+import yaml
+
+
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_PATH = ROOT / "docker-compose.cloudflared.yml"
 DEDICATED_NETWORK_KEY = "build_ghost_cloudflare_ingress"
 DEDICATED_NETWORK_NAME = "chummer-build-ghost-cloudflare-ingress"
+
+
+def _overlay_compose() -> dict[str, object]:
+    parsed = yaml.safe_load(COMPOSE_PATH.read_text(encoding="utf-8"))
+    assert isinstance(parsed, dict)
+    return parsed
 
 
 @lru_cache(maxsize=1)
@@ -77,6 +86,14 @@ def test_cloudflared_alone_joins_the_dedicated_build_ghost_ingress() -> None:
 
 
 def test_build_ghost_ingress_network_is_exact_external_authority() -> None:
+    overlay = _overlay_compose()
+    overlay_networks = overlay["networks"]
+    assert isinstance(overlay_networks, dict)
+    assert overlay_networks[DEDICATED_NETWORK_KEY] == {
+        "external": True,
+        "name": DEDICATED_NETWORK_NAME,
+    }
+
     compose = _rendered_compose()
     networks = compose["networks"]
     assert isinstance(networks, dict)
