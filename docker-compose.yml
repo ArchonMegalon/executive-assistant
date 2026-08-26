@@ -67,6 +67,9 @@ services:
       - EA_PORT=8090
       - EA_ASSISTANT_OWNER_LABEL=${EA_ASSISTANT_OWNER_LABEL:-the principal}
       - EA_API_TOKEN=${EA_API_TOKEN:-}
+      - EA_MEMORIAL_APPROVED_MEMORY_TOKEN=${EA_MEMORIAL_APPROVED_MEMORY_TOKEN:-}
+      - EA_MEMORIAL_APPROVED_MEMORY_TOKEN_FILE=/run/secrets/memorial_approved_memory_token
+      - EA_MEMORIAL_APPROVED_MEMORY_PRINCIPAL_ID=${EA_MEMORIAL_APPROVED_MEMORY_PRINCIPAL_ID:-}
       - EA_TRUST_API_TOKEN_PRINCIPAL_HEADER=${EA_TRUST_API_TOKEN_PRINCIPAL_HEADER:-0}
       - EA_ALLOW_LOOPBACK_NO_AUTH=${EA_ALLOW_LOOPBACK_NO_AUTH:-0}
       # CodexEA's authenticated /v1/responses, status and profile contract.
@@ -189,6 +192,12 @@ services:
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
+      - type: bind
+        source: ${EA_MEMORIAL_APPROVED_MEMORY_TOKEN_HOST_FILE:-./.ea-runtime-secrets/memorial_approved_memory_token}
+        target: /run/secrets/memorial_approved_memory_token
+        read_only: true
+        bind:
+          create_host_path: false
       - ${EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_RUNTIME_FILE:-./.runtime/secrets/whatsapp_audiobook_callback_secret}:/run/secrets/whatsapp_audiobook_callback_secret:ro
       - ${EA_GEMINI_VORTEX_CONFIG_HOST_DIR:-/home/tibor/.gemini}:/run/ea-gemini-cli-config:ro
       - ./.codex-design:/app/.codex-design:ro

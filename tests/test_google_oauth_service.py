@@ -400,9 +400,9 @@ def test_google_raw_export_uses_query_without_inbox_label(monkeypatch: pytest.Mo
     binding = SimpleNamespace(binding_id="memorial:manfred:google_gmail")
 
     def _fake_resolve(**kwargs):  # type: ignore[no-untyped-def]
-        assert kwargs["required_scope"] == google_service.GOOGLE_SCOPE_GMAIL_MODIFY
+        assert kwargs["required_scope"] == google_service.GOOGLE_SCOPE_GMAIL_READONLY
         assert kwargs["account_email_filter"] == "manfred.hoza@gmail.com"
-        return binding, "token-123", (google_service.GOOGLE_SCOPE_GMAIL_MODIFY,), "manfred.hoza@gmail.com"
+        return binding, "token-123", (google_service.GOOGLE_SCOPE_GMAIL_READONLY,), "manfred.hoza@gmail.com"
 
     raw = base64.urlsafe_b64encode(
         b"Message-ID: <gmail-export-1@example.test>\n"
