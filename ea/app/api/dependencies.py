@@ -8,8 +8,10 @@ import json
 import logging
 import os
 import re
+import stat
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.params import Depends as DependsMarker
@@ -473,6 +475,80 @@ class RequestContext:
     operator_authorized: bool = False
 
 
+def _memorial_approved_memory_service_context(
+    request: Request,
+) -> RequestContext | None:
+    if (
+        request.method.upper() != "GET"
+        or request.url.path != "/v1/memory/memorial-approved/manfred"
+    ):
+        return None
+    expected = _memorial_approved_memory_service_token()
+    principal_id = str(
+        os.environ.get("EA_MEMORIAL_APPROVED_MEMORY_PRINCIPAL_ID") or ""
+    ).strip()
+    provided = str(
+        request.headers.get("x-ea-memorial-token") or ""
+    ).strip()
+    provided_principal = str(
+        request.headers.get("x-ea-memorial-principal") or ""
+    ).strip()
+    if (
+        len(expected) < 32
+        or any(character.isspace() for character in expected)
+        or not re.fullmatch(r"[A-Za-z0-9._:-]{1,200}", principal_id)
+        or not provided
+        or not hmac.compare_digest(provided_principal, principal_id)
+        or not hmac.compare_digest(provided, expected)
+    ):
+        return None
+    return RequestContext(
+        principal_id=principal_id,
+        authenticated=True,
+        auth_source="memorial_approved_memory_service",
+    )
+
+
+def _memorial_approved_memory_service_token() -> str:
+    direct = str(
+        os.environ.get("EA_MEMORIAL_APPROVED_MEMORY_TOKEN") or ""
+    ).strip()
+    token_file = str(
+        os.environ.get("EA_MEMORIAL_APPROVED_MEMORY_TOKEN_FILE") or ""
+    ).strip()
+    if direct and token_file:
+        return ""
+    if not token_file:
+        return direct
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(Path(token_file), flags)
+        try:
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_mode & (stat.S_IRWXG | stat.S_IRWXO)
+                or metadata.st_size < 32
+                or metadata.st_size > 4096
+            ):
+                return ""
+            with os.fdopen(descriptor, encoding="utf-8", closefd=False) as handle:
+                value = handle.read(4097).strip()
+        finally:
+            os.close(descriptor)
+    except (OSError, UnicodeError):
+        return ""
+    return value
+
+
+def get_memorial_approved_memory_context(request: Request) -> RequestContext:
+    context = _memorial_approved_memory_service_context(request)
+    if context is None:
+        raise HTTPException(status_code=401, detail="memorial_memory_auth_required")
+    setattr(request.state, "ea_request_context", context)
+    return context
+
+
 def authenticated_principal_override_allowed(request: Request) -> bool:
     runtime_mode: object = os.environ.get("EA_RUNTIME_MODE")
     app = getattr(request, "app", None)
@@ -694,6 +770,10 @@ def get_request_context(
     cached_context = getattr(request.state, "ea_request_context", None)
     if isinstance(cached_context, RequestContext):
         return cached_context
+    memorial_service_context = _memorial_approved_memory_service_context(request)
+    if memorial_service_context is not None:
+        setattr(request.state, "ea_request_context", memorial_service_context)
+        return memorial_service_context
     if isinstance(access_identity, DependsMarker):
         access_identity = get_cloudflare_access_identity(request, container)
     profile = _runtime_profile(container)

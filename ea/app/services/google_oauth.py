@@ -1568,7 +1568,7 @@ def export_google_gmail_raw_messages(
         container=container,
         principal_id=principal_id,
         account_email_filter=account_email_filter,
-        required_scope=GOOGLE_SCOPE_GMAIL_MODIFY,
+        required_scope=GOOGLE_SCOPE_GMAIL_READONLY,
     )
     query_items: list[tuple[str, str]] = [("maxResults", str(normalized_max))]
     normalized_gmail_query = str(gmail_query or "").strip()
