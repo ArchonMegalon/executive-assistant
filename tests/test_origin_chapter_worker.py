@@ -24,7 +24,7 @@ def packet():
 class Hub:
     def __init__(self):
         self.calls = []
-        self.work = {"workId": packet()["work_id"], "executionAdmission": None,
+        self.work = {"workId": packet()["work_id"], "bookRef": "c" * 64, "executionAdmission": None,
                      "job": {"sourceDigest": "b" * 64, "source": packet()["approved_source"],
                              "provider": "first_book_ai", "state": "awaiting_authoring", "requiresReaderReview": True,
                              "affectsMechanics": False, "publicationAuthorized": False,
@@ -136,3 +136,16 @@ def test_story_language_must_match_approved_source_before_hub_dispatch(tmp_path,
     with pytest.raises(ValueError, match="story_language_mismatch"):
         worker.run_once(changed, hub, tmp_path)
     assert not hub.calls
+
+
+def test_reader_acceptance_must_bind_the_retained_draft_and_never_approve_from_worker(tmp_path, monkeypatch):
+    hub = Hub()
+    hub.work["executionAdmission"] = packet()["execution_admission"]
+    hub.work["job"].update(state="review_required", draftText="Nera waits.", providerReceiptDigest="d" * 64,
+                           readerAcceptedTextDigest="f" * 64)
+    monkeypatch.setattr(writer, "write_prepared_chapter", lambda *a, **k: pytest.fail("reader acceptance does not dispatch"))
+    with pytest.raises(ValueError, match="reader_acceptance_invalid"):
+        worker.run_once(packet(), hub, tmp_path)
+    hub.work["job"]["readerAcceptedTextDigest"] = worker.hashlib.sha256(b"Nera waits.").hexdigest()
+    assert worker.run_once(packet(), hub, tmp_path)["state"] == "review_required"
+    assert all(action == "" for action, _ in hub.calls)
