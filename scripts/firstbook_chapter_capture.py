@@ -107,10 +107,13 @@ def _open_dashboard(session: str, account_sha256: str) -> None:
     _click(session, "xpath=//button[normalize-space(.)='Back to Dashboard']")
 
 
-def _open_book(session: str, binding: dict) -> None:
-    # Navigation only. None of these controls generate or approve text.
-    _open_dashboard(session, binding["account_sha256"])
-    _click(session, "xpath=//h3[normalize-space(.)=" + _xpath(binding["book_title"]) + "]")
+def _open_overview(session: str, account_sha256: str, book_title: str) -> None:
+    """Wait for the selected book, not the preceding dashboard's DOM."""
+    _open_dashboard(session, account_sha256)
+    _click(session, "xpath=//h3[normalize-space(.)=" + _xpath(book_title) + "]")
+    title = "//h1[normalize-space(.)=" + _xpath(book_title) + "]"
+    _browser(session, "wait", "selector", "--selector",
+             "xpath=//button[normalize-space(.)='Book Overview'] | " + title, "--timeout", "15000")
     # A new paid book may open its retained outline rather than the overview.
     # Normalize by a read-only navigation control, never by Lock/Start/Write.
     route = _eval(session, "({origin:location.origin,overviewControls:Array.from(document.querySelectorAll('button')).filter(e=>e.innerText.trim()==='Book Overview').length})")
@@ -118,6 +121,12 @@ def _open_book(session: str, binding: dict) -> None:
         _click(session, "xpath=//button[normalize-space(.)='Book Overview']")
     elif route.get("overviewControls") != 0:
         raise RuntimeError("firstbook_capture_overview_ambiguous")
+    _browser(session, "wait", "selector", "--selector", "xpath=" + title, "--timeout", "15000")
+
+
+def _open_book(session: str, binding: dict) -> None:
+    # Navigation only. None of these controls generate or approve text.
+    _open_overview(session, binding["account_sha256"], binding["book_title"])
     _browser(session, "wait", "selector", "--selector", "xpath=//button[normalize-space(.)='Resume Writing']", "--timeout", "15000")
     overview = _eval(session, "({origin:location.origin,leaves:Array.from(document.querySelectorAll('body *')).filter(e=>e.childElementCount===0).map(e=>e.textContent.trim())})")
     if overview.get("leaves", []).count(binding["provider_book_id"]) != 1:

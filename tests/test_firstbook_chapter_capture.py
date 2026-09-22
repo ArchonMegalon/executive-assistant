@@ -118,6 +118,21 @@ def test_account_mismatch_stops_before_book_navigation(monkeypatch):
     assert clicks == ['button[title="Your Profile"]']
 
 
+def test_book_route_is_awaited_before_reading_transient_dashboard_dom(monkeypatch):
+    calls = []
+    monkeypatch.setattr(capture, "_open_dashboard", lambda *args: None)
+    monkeypatch.setattr(capture, "_click", lambda session, selector: calls.append(("click", selector)))
+    monkeypatch.setattr(capture, "_browser", lambda session, *args: calls.append(args))
+    def observe(*args):
+        assert calls[-1][0] == "wait"
+        assert "Book Overview" in calls[-1][3] and "Nera's Origin" in calls[-1][3]
+        return {"overviewControls": 1}
+    monkeypatch.setattr(capture, "_eval", observe)
+    capture._open_overview("owned-test", "1" * 64, "Nera's Origin")
+    assert calls[-2] == ("click", "xpath=//button[normalize-space(.)='Book Overview']")
+    assert calls[-1][0] == "wait" and calls[-1][3].startswith("xpath=//h1[")
+
+
 @pytest.mark.parametrize("overview_controls", [1, 2])
 def test_new_paid_book_normalizes_only_unambiguous_readonly_overview(monkeypatch, overview_controls):
     clicks = []

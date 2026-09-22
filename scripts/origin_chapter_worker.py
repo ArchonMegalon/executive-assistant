@@ -1,9 +1,10 @@
 """Private local adapter for Hub-admitted First Book setup and chapter work.
 
-No polling daemon, credential lookup, paid book activation, new spending
-authorization or public tool registration. A trusted operator supplies approved
-source and an owned browser session. Setup stops at the unapproved framework;
-writing still requires an exact prepared book mapping. Hub remains consent,
+No polling daemon, credential lookup, new spending authorization or public tool
+registration. A trusted operator supplies approved source and an owned browser
+session. Setup stops at the unapproved framework
+unless separate local approval allows one existing credit for a confirmed-fact
+outline. Writing still requires an exact prepared book mapping. Hub remains consent,
 job and result authority.
 """
 from __future__ import annotations
@@ -24,6 +25,7 @@ from scripts import firstbook_chapter_write as writer
 from scripts import firstbook_book_binding as books
 from scripts import firstbook_chapter_advance as advancement
 from scripts import firstbook_project_prepare as preparation
+from scripts import firstbook_outline_prepare as outline_preparation
 
 _PREFIX = "/api/internal/origin/chapters/"
 _MAX_BYTES = 512_000
@@ -136,8 +138,9 @@ def _validate_work(work: dict, packet: dict, *, preparing: bool = False) -> dict
 def prepare_once(packet: dict, hub: LocalHub, output_root: Path) -> dict:
     """Admit initial framework setup without requiring a manually created book.
 
-    This stops before outline acceptance/payment/writing. The exact source and
-    stable BookRef come from Hub, never from a generated provider framework.
+    Framework consent alone stops before payment/writing. Explicit local
+    outline activation can use one existing credit but never write a chapter.
+    Source and stable BookRef come from Hub, not the provider framework.
     """
     if (not isinstance(packet.get("work_id"), str)
         or not re.fullmatch(r"[0-9a-f]{64}\.[0-9a-f]{64}", packet["work_id"])
@@ -165,6 +168,10 @@ def prepare_once(packet: dict, hub: LocalHub, output_root: Path) -> dict:
         or fenced["state"] != "reconciliation_required"):
         raise ValueError("origin_worker_admission_response_invalid")
     result = preparation.prepare_framework(setup, output_root, allow_new_dispatch=admitted["mayStartGeneration"])
+    if setup.get("outline_activation_approved") is True and result["state"] == "framework_bound_needs_outline_review":
+        # Separate trusted local approval for spending one existing book credit.
+        # Framework admission alone never authorizes payment or chapter writing.
+        result = outline_preparation.prepare_first_chapter(setup, output_root)
     return {"state": result["state"], "work_id": packet["work_id"], "publication_authorized": False}
 
 
@@ -233,7 +240,7 @@ def main() -> int:
     modes.add_argument("--advance-accepted", action="store_true",
         help="Advance only after Hub confirms exact reader acceptance; never generate the next chapter.")
     modes.add_argument("--prepare-book-framework", action="store_true",
-        help="Populate and generate the first private framework; never pay, lock or write chapters.")
+        help="Prepare the first private framework. One-credit outline activation requires separate packet approval; never write chapters.")
     args = parser.parse_args()
     packet = _json(_read_private(args.packet_path, 64_000))
     if not isinstance(packet, dict):

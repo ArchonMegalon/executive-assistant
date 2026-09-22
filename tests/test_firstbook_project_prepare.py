@@ -199,7 +199,9 @@ def mock_overview(monkeypatch, observed):
     monkeypatch.setattr(prepare.capture, "_eval", lambda session, expression:
         {"overviewControls": 1} if "overviewControls" in expression else observed)
     def wait(session, *args):
-        assert args == ("wait", "selector", "--selector", "h1", "--timeout", "15000")
+        assert args[:3] == ("wait", "selector", "--selector")
+        assert "//h1[normalize-space(.)=" in args[3]
+        assert args[4:] == ("--timeout", "15000")
     monkeypatch.setattr(prepare.capture, "_browser", wait)
 
 
