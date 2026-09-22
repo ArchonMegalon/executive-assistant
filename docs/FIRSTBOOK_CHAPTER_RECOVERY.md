@@ -177,3 +177,33 @@ Focused local verification:
 ```sh
 python3 -m pytest -q tests/test_firstbook_chapter_advance.py tests/test_firstbook_book_binding.py tests/test_origin_chapter_worker.py tests/test_firstbook_chapter_write.py tests/test_firstbook_chapter_capture.py tests/test_booka_book_worker.py
 ```
+
+## Short scene quality and live rewrite observation
+
+New `firstbook_outline_prepare.py` plans request one 450–650-word scene across
+three sections (150–210 words per section), with no repeated opening and no
+special physiology, enhanced senses or abilities inferred from metatype. Exact
+older retained plans remain recoverable; this prompt change does not rewrite
+their provider outline, invalidate a paid activation, truncate facts or authorize
+another payment. Prompt instructions are not proof of narrative compliance.
+
+The real First Book Rewrite dialog accepts feedback up to 800 characters and a
+separate Brief selection. The provider keeps the previous draft on screen while
+displaying `Writing Subchapter N of M`. The writer now treats those progress
+labels outside the manuscript as active generation and will not navigate away.
+Do not close the owned session or capture the visible old draft as the new result.
+
+A private synthetic Ivo correction test on 2026-09-22 demonstrated the limit of
+prompt-only correction: one rewrite removed the conspicuous invented special
+perception but still produced 2,102 words despite explicit 450–650-word feedback.
+The test used an already-started book and its older outline; it does **not**
+qualify the new bounded outline end to end. Balance remained 22. No chapter was
+approved, advanced or published. The original and rewritten drafts were retained
+separately rather than replacing the immutable generation journal.
+
+The same provider also exposes a Markdown Edit/Save Changes route. A deliberate
+operator-edited, shortened derivative is editorial work, **not** evidence that
+First Book followed the length instruction. Such an edit must retain the old
+draft, remain review-required and receive a fresh exact-text reader acceptance
+before continuation. Never rebind an earlier accepted digest to the changed text.
+This manual editorial path is not an automatic worker rewrite/retry feature.

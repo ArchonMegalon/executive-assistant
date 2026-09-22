@@ -175,3 +175,48 @@ def test_author_style_is_synthetic_and_facts_are_not_invented():
     assert "not the player's personal experiences" in plan["anecdotes"]
     assert "Nera is an elf." in plan["anecdotes"]
     assert "Nera" not in plan["sample"] and "Regen" in plan["sample"]
+
+
+@pytest.mark.parametrize("locale", ["de-DE", "en-US", "es-ES"])
+def test_new_plan_bounds_whole_scene_and_does_not_infer_abilities(locale):
+    data = packet()
+    data["approved_source"]["locale"] = locale
+    plan = outline._plan(outline.setup._binding(data), 8)
+    for part in plan[0]["parts"]:
+        assert "450-650 words TOTAL" in part["description"]
+        assert "150-210 words in this section" in part["description"]
+        assert "enhanced senses, powers or skills" in part["description"]
+        assert "ordinary sensations only" in part["description"]
+
+
+def test_prior_exact_outline_recovers_without_rewriting_or_repaying(tmp_path, surface):
+    data, root, page, calls = surface
+    outline.prepare_first_chapter(data, tmp_path)
+    path = root / ("outline-" + data["book_ref"] + ".json")
+    record = outline.writer._load(path)
+    old_plan = outline._plan(record["binding"], 8, legacy=True)
+    record["plan"] = old_plan
+    outline.writer._save(path, record)
+    calls.clear()
+    assert outline.prepare_first_chapter(data, tmp_path)["state"] == "first_chapter_prepared"
+    assert calls == ["reopen_paid"]
+    assert outline.writer._load(path)["plan"] == old_plan
+
+
+def test_legacy_recovery_does_not_apply_new_prompt_size_to_retained_plan(tmp_path, surface):
+    data, root, page, calls = surface
+    data["approved_source"]["facts"][0]["text"] = "x" * 1400
+    binding = outline.setup._binding(data)
+    provider = {"provider_book_id": "existing-book", "book_title": "Nera's private book"}
+    old_plan = outline._plan(binding, 8, legacy=True)
+    with pytest.raises(ValueError, match="description"):
+        outline._plan(binding, 8)
+    outline.writer._save(root / ("setup-" + binding["book_ref"] + ".json"), {
+        "binding": binding, "plan": outline.setup._plan(binding), "state": "framework_dispatched",
+        "provider": provider})
+    path = root / ("outline-" + binding["book_ref"] + ".json")
+    outline.writer._save(path, {"binding": binding, "provider": provider, "plan": old_plan,
+        "before": [], "state": "credit_dispatched", "browser_session": "old-session", "page_epoch": 1000})
+    assert outline.prepare_first_chapter(data, tmp_path)["state"] == "first_chapter_prepared"
+    assert calls == ["reopen_paid"]
+    assert outline.writer._load(path)["plan"] == old_plan
