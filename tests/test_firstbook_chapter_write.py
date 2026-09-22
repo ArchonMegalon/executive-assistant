@@ -112,6 +112,13 @@ def test_poll_does_not_navigate_away_from_inflight_browser_generation(tmp_path, 
     assert browser == before
 
 
+def test_lost_upstream_admission_without_local_fence_cannot_start_generation(tmp_path, browser):
+    result = writer.write_prepared_chapter(packet(), tmp_path, allow_new_dispatch=False)
+    assert result["render_status"] == "reconciliation_required"
+    assert browser == []
+    assert not list(tmp_path.rglob("*.json"))
+
+
 def test_missing_admission_cannot_touch_browser_or_storage(tmp_path, browser):
     with pytest.raises(ValueError, match="not_admitted"):
         writer.write_prepared_chapter({**packet(), "generation_approved": False}, tmp_path)

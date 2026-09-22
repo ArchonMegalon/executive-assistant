@@ -106,8 +106,41 @@ requested title during framework creation. Its two-step form can also submit
 from Next when step two has already been filled. Do not automate creation with
 the historical single-form framework worker or retry setup after a lost response.
 
+## Hub job connector
+
+`python3 -m scripts.origin_chapter_worker --packet-path PRIVATE_PACKET
+--hub-origin http://127.0.0.1:5089 --token-file PRIVATE_TOKEN_FILE
+--output-root PRIVATE_DIRECTORY` connects a single admitted Hub request to the
+prepared-chapter helper. The listener must be deployed separately from Hub's
+public/tunnel listener. No production token is created or looked up by this CLI.
+
+The private packet contains `work_id`, `execution_admission`, `approved_source`
+(the exact complete Hub source projection), and `prepared` (the chapter helper's
+packet). `prepared.source_packet_sha256` is the exact Hub `sourceDigest`, and its
+locale must match the approved source. The connector sets the helper's request
+identity to the opaque owner-scoped work ID. It will not relabel a previous
+canary capture or a chapter bound to another request/source.
+
+The connector GETs the job, validates its source and safety fields, then asks Hub
+for its one-shot admission transition. Missing/lost admission responses cannot
+start provider work. When Hub returns `mayStartGeneration: false`, only an
+existing local dispatch/result may be reconciled; a missing local fence remains
+unresolved. On completion the private result file is revalidated and hashed,
+then returned through Hub's exact admission-bound completion route. A lost
+completion response is resolved by reading the same job on the next invocation.
+
+Local HTTP ignores ambient proxies, rejects redirects, uses bounded streaming
+before JSON materialization and rejects duplicate JSON keys. The service token
+is read only from a same-user private regular file and sent in Authorization,
+never inside the provider packet, logs or a command-line token argument.
+
+This connector is not a daemon, a quota authority or public EA tool. Book setup,
+book-level mapping, deployment and the actual Android-to-provider smoke remain
+separate work; private-journal/provider deletion also remains an execution
+obligation when an owning Hub job is erased. No publication authority is granted.
+
 Focused local verification:
 
 ```sh
-python3 -m pytest -q tests/test_firstbook_chapter_write.py tests/test_firstbook_chapter_capture.py tests/test_booka_book_worker.py
+python3 -m pytest -q tests/test_origin_chapter_worker.py tests/test_firstbook_chapter_write.py tests/test_firstbook_chapter_capture.py tests/test_booka_book_worker.py
 ```
