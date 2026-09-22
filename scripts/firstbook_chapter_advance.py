@@ -14,6 +14,19 @@ import re
 import stat
 
 from scripts import firstbook_chapter_write as writer
+from scripts import firstbook_chapter_review as review
+
+
+def _receipt(path: Path) -> str:
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise RuntimeError("firstbook_reader_record_not_private")
+        raw = stream.read(writer._MAX_RECORD_BYTES + 1)
+    if len(raw) > writer._MAX_RECORD_BYTES:
+        raise RuntimeError("firstbook_reader_receipt_mismatch")
+    return hashlib.sha256(raw).hexdigest()
 
 
 def advance_accepted_chapter(packet: dict, output_root: Path, text_digest: str, receipt_digest: str) -> dict:
@@ -37,15 +50,18 @@ def advance_accepted_chapter(packet: dict, output_root: Path, text_digest: str, 
         if record is None:
             raise RuntimeError("firstbook_reader_draft_not_retained")
         writer._validate_retained(binding, record)
-        if record["state"] != "chapter_review_required" or record["result"]["text_sha256"] != text_digest:
+        if record["state"] != "chapter_review_required":
             raise RuntimeError("firstbook_reader_acceptance_mismatch")
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-        with os.fdopen(fd, "rb") as stream:
-            info = os.fstat(stream.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
-                raise RuntimeError("firstbook_reader_record_not_private")
-            raw = stream.read(writer._MAX_RECORD_BYTES + 1)
-        if len(raw) > writer._MAX_RECORD_BYTES or hashlib.sha256(raw).hexdigest() != receipt_digest:
+        selected = record["result"]
+        selected_receipt = _receipt(path)
+        if selected_receipt != receipt_digest:
+            edited = review.retained(binding, output_root, text_digest)
+            if edited is not None:
+                selected, selected_path = edited
+                selected_receipt = _receipt(selected_path)
+        if selected["text_sha256"] != text_digest:
+            raise RuntimeError("firstbook_reader_acceptance_mismatch")
+        if selected_receipt != receipt_digest:
             raise RuntimeError("firstbook_reader_receipt_mismatch")
         expected = {"binding": binding, "text_digest": text_digest, "receipt_digest": receipt_digest}
         retained = writer._load(fence)
@@ -67,14 +83,16 @@ def advance_accepted_chapter(packet: dict, output_root: Path, text_digest: str, 
         if retained is not None:
             if (observed.get("origin") == writer.capture._ORIGIN.rstrip("/")
                 and observed.get("chapterNumber") == binding["chapter_number"] + 1
-                and observed.get("chapterCount") == record["result"]["chapter_count_observed"]
+                and observed.get("chapterCount") == selected["chapter_count_observed"]
                 and observed.get("hasDraft") is False and observed.get("writeCount") == 1
                 and observed.get("writeEnabled") is True and observed.get("includedInPlan") is True):
                 writer._save(fence, {"accepted": expected, "state": "next_chapter_observed"})
                 return status("next_chapter_observed")
             return status("reconciliation_required")
-        current = writer._result(binding, writer.capture._read_draft(session))
-        if current != record["result"]:
+        live = writer.capture._read_draft(session)
+        current = (writer.capture._capture(selected["binding"], live) if selected["mode"] == writer.capture.MODE
+                   else writer._result(binding, live))
+        if current != selected:
             raise RuntimeError("firstbook_reader_provider_draft_changed")
         if binding["chapter_number"] >= current["chapter_count_observed"]:
             # Final-book approval/export may use a different provider flow.
