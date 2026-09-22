@@ -95,16 +95,21 @@ def _click(session: str, selector: str) -> None:
     _browser(session, "click", "--selector", selector)
 
 
-def _open_book(session: str, binding: dict) -> None:
-    # Navigation only. None of these controls generate or approve text.
+def _open_dashboard(session: str, account_sha256: str) -> None:
+    """Read-only navigation through the visible account identity."""
     _browser(session, "navigate", _ORIGIN)
     _click(session, 'button[title="Your Profile"]')
     _browser(session, "wait", "selector", "--selector", "xpath=//*[normalize-space(.)='My Profile']", "--timeout", "15000")
     profile = _eval(session, "({origin:location.origin,text:document.body.innerText})")
     emails = re.findall(r"[^\s@]+@[^\s@]+\.[^\s@]+", profile.get("text", ""))
-    if len(emails) != 1 or _sha(emails[0].casefold()) != binding["account_sha256"]:
+    if len(emails) != 1 or _sha(emails[0].casefold()) != account_sha256:
         raise RuntimeError("firstbook_capture_account_mismatch")
     _click(session, "xpath=//button[normalize-space(.)='Back to Dashboard']")
+
+
+def _open_book(session: str, binding: dict) -> None:
+    # Navigation only. None of these controls generate or approve text.
+    _open_dashboard(session, binding["account_sha256"])
     _click(session, "xpath=//h3[normalize-space(.)=" + _xpath(binding["book_title"]) + "]")
     # A new paid book may open its retained outline rather than the overview.
     # Normalize by a read-only navigation control, never by Lock/Start/Write.
