@@ -134,13 +134,32 @@ before JSON materialization and rejects duplicate JSON keys. The service token
 is read only from a same-user private regular file and sent in Authorization,
 never inside the provider packet, logs or a command-line token argument.
 
+Before admission, the connector binds Hub's opaque `bookRef` to the exact
+provider account/project/title/locale under `firstbook-private-writes/books/`.
+That private mapping is append-only: later chapters reuse the same project;
+another runner cannot claim it, a chapter slot cannot be reused, and a changed
+source cannot silently rewrite it. Mapping writes are private and atomic, with
+one local lock covering both runner lookup and provider-project ownership. They
+do not create or pay for a book, infer chapter order, or grant reader approval.
+Use one durable private output root for all jobs of this local worker lane.
+
+Read-only provider inspection on 2026-09-22 showed that an unapproved chapter
+keeps Resume Writing on that chapter; grey later chapters cannot be entered
+through the inspected table of contents. Do not automate `Approve & Next` from
+generation completion. Hub now carries an optional `readerAcceptedTextDigest`
+after the signed app acknowledges its explicitly selected, durable reading
+edition. The connector validates this against the exact draft bytes; it cannot
+set acceptance or infer it from a completed generation. Provider-side advancement
+still needs a bound, non-replaying action. The effect/cost of changing an
+already-started outline is not yet proven.
+
 This connector is not a daemon, a quota authority or public EA tool. Book setup,
-book-level mapping, deployment and the actual Android-to-provider smoke remain
+reader-approval continuation, deployment and the actual Android-to-provider smoke remain
 separate work; private-journal/provider deletion also remains an execution
 obligation when an owning Hub job is erased. No publication authority is granted.
 
 Focused local verification:
 
 ```sh
-python3 -m pytest -q tests/test_origin_chapter_worker.py tests/test_firstbook_chapter_write.py tests/test_firstbook_chapter_capture.py tests/test_booka_book_worker.py
+python3 -m pytest -q tests/test_firstbook_book_binding.py tests/test_origin_chapter_worker.py tests/test_firstbook_chapter_write.py tests/test_firstbook_chapter_capture.py tests/test_booka_book_worker.py
 ```

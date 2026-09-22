@@ -19,6 +19,7 @@ import urllib.parse
 import urllib.request
 
 from scripts import firstbook_chapter_write as writer
+from scripts import firstbook_book_binding as books
 
 _PREFIX = "/api/internal/origin/chapters/"
 _MAX_BYTES = 512_000
@@ -106,6 +107,7 @@ class LocalHub:
 def _validate_work(work: dict, packet: dict) -> dict:
     job = work.get("job")
     if (work.get("workId") != packet["work_id"] or not isinstance(job, dict)
+        or not isinstance(work.get("bookRef"), str) or not re.fullmatch(r"[0-9a-f]{64}", work["bookRef"])
         or job.get("sourceDigest") != packet["prepared"]["source_packet_sha256"]
         or job.get("source") != packet["approved_source"]
         or job.get("provider") != "first_book_ai" or job.get("requiresReaderReview") is not True
@@ -121,6 +123,9 @@ def _validate_work(work: dict, packet: dict) -> dict:
             raise ValueError("origin_worker_completed_result_invalid")
     elif job.get("draftText") is not None or job.get("providerReceiptDigest") is not None:
         raise ValueError("origin_worker_pending_result_invalid")
+    if job.get("readerAcceptedTextDigest") is not None and (job["state"] != "review_required"
+        or job["readerAcceptedTextDigest"] != hashlib.sha256(job["draftText"].encode("utf-8")).hexdigest()):
+        raise ValueError("origin_worker_reader_acceptance_invalid")
     return job
 
 
@@ -136,7 +141,10 @@ def run_once(packet: dict, hub: LocalHub, output_root: Path) -> dict:
     writer._binding(prepared)  # Validate consent/execution assertion before HTTP.
     if prepared["narrative_locale"] != packet["approved_source"].get("locale"):
         raise ValueError("origin_worker_story_language_mismatch")
-    job = _validate_work(hub.call(packet["work_id"]), packet)
+    observed = hub.call(packet["work_id"])
+    job = _validate_work(observed, packet)
+    book_ref = observed["bookRef"]
+    books.bind_prepared(book_ref, job["source"].get("chapterId"), prepared, output_root)
     if job["state"] == "review_required":
         return {"state": "review_required", "work_id": packet["work_id"], "publication_authorized": False}
     admitted = hub.call(packet["work_id"], "/admit", {
@@ -144,7 +152,8 @@ def run_once(packet: dict, hub: LocalHub, output_root: Path) -> dict:
     if not isinstance(admitted.get("work"), dict) or type(admitted.get("mayStartGeneration")) is not bool:
         raise ValueError("origin_worker_admission_response_invalid")
     fenced = _validate_work(admitted["work"], packet)
-    if (admitted["work"].get("executionAdmission") != packet["execution_admission"]
+    if (admitted["work"].get("bookRef") != book_ref
+        or admitted["work"].get("executionAdmission") != packet["execution_admission"]
         or fenced["state"] != "reconciliation_required"):
         raise ValueError("origin_worker_admission_response_invalid")
     result = writer.write_prepared_chapter(prepared, output_root,
@@ -163,7 +172,8 @@ def run_once(packet: dict, hub: LocalHub, output_root: Path) -> dict:
         "sourceDigest": job["sourceDigest"], "executionAdmission": packet["execution_admission"],
         "draftText": result["text"], "providerReceiptDigest": receipt})
     completed_job = _validate_work(completed, packet)
-    if completed_job.get("draftText") != result["text"] or completed_job.get("providerReceiptDigest") != receipt:
+    if (completed.get("bookRef") != book_ref or completed_job.get("draftText") != result["text"]
+        or completed_job.get("providerReceiptDigest") != receipt):
         raise ValueError("origin_worker_completion_readback_mismatch")
     return {"state": "review_required", "work_id": packet["work_id"], "publication_authorized": False}
 
