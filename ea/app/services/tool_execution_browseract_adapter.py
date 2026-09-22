@@ -2432,6 +2432,20 @@ class BrowserActToolAdapter:
         requested_inputs: dict[str, object],
         result_title: str,
     ) -> dict[str, object]:
+        if service.service_key == "booka_book" and response.get("mode") == "capture_existing_chapter":
+            # Prose can itself contain URLs. Never turn those or the provider's
+            # dashboard origin into published book/download links.
+            return {
+                "service_key": service.service_key,
+                "result_title": str(response.get("result_title") or result_title or service.name),
+                "render_status": "chapter_review_required", "private_only": True,
+                "asset_url": None, "download_url": None, "public_url": None,
+                "editor_url": None, "asset_urls": [], "workflow_id": workflow_id or None,
+                "task_id": None, "requested_url": requested_url,
+                "normalized_text": "Private chapter draft captured; language, length and canon review remain required.",
+                "preview_text": "Private chapter draft — review required.",
+                "mime_type": "application/json", "structured_output_json": dict(response),
+            }
         normalized_payload = cls._browseract_normalization_payload(response)
         scalar_map = cls._browseract_scalar_map(normalized_payload)
         text_candidates = cls._browseract_text_candidates(normalized_payload)
@@ -3921,6 +3935,13 @@ class BrowserActToolAdapter:
         extra_packet: dict[str, object] | None = None,
         allow_force_local: bool = False,
     ) -> dict[str, object] | None:
+        private_capture = (
+            service_key == "booka_book"
+            and (extra_packet or {}).get("mode", requested_inputs.get("mode", request_payload.get("mode")))
+            == "capture_existing_chapter"
+        )
+        if private_capture and bool(request_payload.get("force_browseract")):
+            raise ToolExecutionError("firstbook_private_capture_requires_owned_local_session")
         if bool(request_payload.get("force_browseract")) and not allow_force_local:
             return None
         default_timeout_seconds = 900 if str(service.service_key or "").strip() == "mootion_movie" else 360
@@ -3931,21 +3952,27 @@ class BrowserActToolAdapter:
             packet.update(extra_packet)
         packet.setdefault("service_key", service.service_key)
         packet.setdefault("timeout_seconds", timeout_seconds)
-        packet.setdefault(
-            "login_email",
-            cls._ui_service_login_email(
-                request_payload,
-                binding_metadata=binding_metadata,
-                service=service,
-            ),
-        )
-        packet.setdefault(
-            "login_password",
-            cls._ui_service_login_password(
-                request_payload,
-                binding_metadata=binding_metadata,
-            ),
-        )
+        if private_capture:
+            # Existing authenticated browser only; no credential resolution or
+            # propagation to this read-only worker, even if supplied by a caller.
+            packet.pop("login_email", None)
+            packet.pop("login_password", None)
+        else:
+            packet.setdefault(
+                "login_email",
+                cls._ui_service_login_email(
+                    request_payload,
+                    binding_metadata=binding_metadata,
+                    service=service,
+                ),
+            )
+            packet.setdefault(
+                "login_password",
+                cls._ui_service_login_password(
+                    request_payload,
+                    binding_metadata=binding_metadata,
+                ),
+            )
         packet.setdefault("workflow_id", workflow_id)
         packet.setdefault("run_url", run_url)
         result = cls._run_ui_service_worker(
@@ -3953,7 +3980,9 @@ class BrowserActToolAdapter:
             packet=packet,
             timeout_seconds=timeout_seconds,
         )
-        if request_payload.get("proxy_result", True):
+        # Private draft captures must never enter the generic public-result proxy,
+        # including when a caller retained the usual proxy_result=True default.
+        if request_payload.get("proxy_result", True) and not private_capture and not result.get("private_only", False):
             hosted_url = cls._publish_ui_service_result(result)
             result["hosted_url"] = hosted_url
             result["public_url"] = hosted_url
