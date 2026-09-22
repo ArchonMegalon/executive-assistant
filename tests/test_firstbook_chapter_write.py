@@ -112,6 +112,30 @@ def test_poll_does_not_navigate_away_from_inflight_browser_generation(tmp_path, 
     assert browser == before
 
 
+@pytest.mark.parametrize("labels,busy", [
+    (['Writing Subchapter 1 of 3: "Der Augenblick"...'], True),
+    (['Writing Subchapter 3 of 3: "Vor der Entscheidung"...'], True),
+    (['Review Mode: Changes must be approved before proceeding.'], False),
+    ([], False), (None, False), ([None], False),
+])
+def test_live_subchapter_rewrite_is_not_mistaken_for_a_completed_draft(monkeypatch, labels, busy):
+    monkeypatch.setattr(capture, "_eval", lambda *args: {
+        "generating": False, "generationLabels": labels, "hasDraft": True})
+    observed = writer._inspect("owned-chapter")
+    assert observed["generating"] is busy and observed["hasDraft"] is True
+
+
+def test_live_rewrite_prevents_navigation_even_with_old_draft_visible(tmp_path, monkeypatch):
+    binding = writer._binding(packet())
+    root = writer._private_root(tmp_path)
+    writer._save(writer._record_path(root, binding), {
+        "binding": binding, "state": "write_dispatched", "result": None})
+    monkeypatch.setattr(capture, "_eval", lambda *args: {
+        "generating": False, "generationLabels": ['Writing Subchapter 2 of 3: "Moment"...'], "hasDraft": True})
+    monkeypatch.setattr(capture, "_open_book", lambda *args: pytest.fail("must not interrupt live rewriting"))
+    assert writer.write_prepared_chapter(packet(), tmp_path)["render_status"] == "provider_busy"
+
+
 def test_lost_upstream_admission_without_local_fence_cannot_start_generation(tmp_path, browser):
     result = writer.write_prepared_chapter(packet(), tmp_path, allow_new_dispatch=False)
     assert result["render_status"] == "reconciliation_required"

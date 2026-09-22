@@ -39,7 +39,7 @@ def _binding(packet: dict) -> dict:
 
 
 def _inspect(session: str) -> dict:
-    return capture._eval(session, """(() => {
+    observed = capture._eval(session, """(() => {
         const main = document.querySelector('main');
         const outline = Array.from(main?.querySelectorAll('h3') || [])
             .filter(e => e.innerText.trim().toLowerCase() === 'chapter outline');
@@ -60,8 +60,18 @@ def _inspect(session: str) -> dict:
             briefCount:brief.length,
             briefSelected:brief.length===1 && brief[0].classList.contains('border-brand'),
             generating:main?.innerText.includes('Generating chapter...') === true,
+            generationLabels:Array.from(main?.querySelectorAll('.animate-pulse') || [])
+                .filter(e=>!e.closest('.prose')).map(e=>e.innerText.trim()),
             hasDraft:document.querySelector('.prose h1')!==null};
     })()""")
+    # First Book keeps the previous draft visible while rewriting individual
+    # subchapters. That is still live frontend work: navigation interrupts it.
+    labels = observed.pop("generationLabels", [])
+    observed["generating"] = observed.get("generating") is True or (
+        isinstance(labels, list) and any(isinstance(label, str) and
+            re.fullmatch(r'Writing Subchapter [1-9][0-9]* of [1-9][0-9]*: [^\n]{1,400}', label)
+            for label in labels))
+    return observed
 
 
 def _require_prepared(binding: dict, observed: dict, *, brief: bool = False) -> None:
