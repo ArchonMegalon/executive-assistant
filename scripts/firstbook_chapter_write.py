@@ -168,7 +168,7 @@ def _validate_retained(binding: dict, record: dict) -> None:
         raise RuntimeError("firstbook_chapter_record_invalid")
 
 
-def write_prepared_chapter(packet: dict, output_root: Path) -> dict:
+def write_prepared_chapter(packet: dict, output_root: Path, *, allow_new_dispatch: bool = True) -> dict:
     """Start at most once, otherwise recover/observe. Never waits for generation."""
     binding = _binding(packet)
     session = capture._text(packet, "browser_session", 128)
@@ -189,6 +189,12 @@ def write_prepared_chapter(packet: dict, output_root: Path) -> dict:
             _validate_retained(binding, record)
             if record["state"] == "chapter_review_required":
                 return {**record["result"], "asset_path": str(path), "reused_capture": True}
+        elif not allow_new_dispatch:
+            # An upstream admission response may have been lost before this
+            # adapter persisted its fence. Do not turn recovery into generation.
+            return {"mode": MODE, "render_status": "reconciliation_required",
+                    "request_id": binding["request_id"], "asset_path": str(path),
+                    "publication_authorized": False, "retry_generation_allowed": False}
         # First Book writes through the live page. Do not navigate away from an
         # active generation to perform readback; that can interrupt its requests.
         # This hint never authorizes a result or mutation, even on another page.
