@@ -82,6 +82,31 @@ def test_setup_with_changed_source_never_dispatches(tmp_path, monkeypatch):
     assert len(hub.calls) == 1
 
 
+@pytest.mark.parametrize("approved,state,expected", [
+    (False, "framework_bound_needs_outline_review", False),
+    (True, "framework_dispatched", False),
+    (True, "framework_bound_needs_outline_review", True),
+])
+def test_outline_activation_needs_separate_local_approval_and_bound_project(tmp_path, monkeypatch, approved, state, expected):
+    hub = Hub()
+    data = setup_packet(hub)
+    data["setup"].update(outline_activation_approved=approved, maximum_book_credits=1)
+    monkeypatch.setattr(prepare, "prepare_framework", lambda *a, **k: {"state": state})
+    activations = []
+    def activate(value, root):
+        assert hub.work["executionAdmission"] == data["execution_admission"]
+        assert value["book_ref"] == hub.work["bookRef"]
+        assert value["approved_source"] == hub.work["job"]["source"]
+        assert value["maximum_book_credits"] == 1
+        activations.append(value)
+        return {"state": "activation_dispatched"}
+    monkeypatch.setattr(worker.outline_preparation, "prepare_first_chapter", activate)
+    result = worker.prepare_once(data, hub, tmp_path)
+    assert bool(activations) is expected
+    assert result["state"] == ("activation_dispatched" if expected else state)
+    assert not any(action == "/complete" for action, _ in hub.calls)
+
+
 def test_setup_lost_admission_does_not_create_provider_book(tmp_path, monkeypatch):
     hub = Hub()
     data = setup_packet(hub)

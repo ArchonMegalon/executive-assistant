@@ -155,14 +155,7 @@ def _observe_existing_framework(session: str, binding: dict, plan: dict, project
     original premise, goal and audience; never select a different project or
     generate another framework when the retained setup cannot be reconciled.
     """
-    capture._open_dashboard(session, binding["account_sha256"])
-    capture._click(session, "xpath=//h3[normalize-space(.)=" + capture._xpath(project["book_title"]) + "]")
-    route = capture._eval(session, "({origin:location.origin,overviewControls:Array.from(document.querySelectorAll('button')).filter(e=>e.innerText.trim()==='Book Overview').length})")
-    if route.get("overviewControls") == 1:
-        capture._click(session, "xpath=//button[normalize-space(.)='Book Overview']")
-    elif route.get("overviewControls") != 0:
-        raise RuntimeError("firstbook_setup_overview_ambiguous")
-    capture._browser(session, "wait", "selector", "--selector", "h1", "--timeout", "15000")
+    capture._open_overview(session, binding["account_sha256"], project["book_title"])
     overview = capture._eval(session, """(() => {
         const context = Object.fromEntries(['Premise','Goal','Audience'].map(label => {
             const spans = Array.from(document.querySelectorAll('span')).filter(e=>e.textContent.trim()===label);
