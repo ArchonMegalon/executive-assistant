@@ -196,6 +196,21 @@ def run_once(packet: dict, hub: LocalHub, output_root: Path, *, advance_accepted
     observed = hub.call(packet["work_id"])
     job = _validate_work(observed, packet)
     book_ref = observed["bookRef"]
+    first_handoff = False
+    if (not advance_accepted and reviewed_draft_digest is None
+        and job["state"] != "review_required" and binding["chapter_number"] == 1):
+        # Validate before reserving the immutable provider mapping as well as
+        # before dispatch. A stale/wrong prepared packet must not poison it.
+        first = outline_preparation.retained_first_chapter({
+            "work_id": packet["work_id"], "book_ref": book_ref,
+            "account_sha256": binding["account_sha256"],
+            "source_packet_sha256": binding["source_packet_sha256"],
+            "approved_source": job["source"], "framework_generation_approved": True,
+        }, output_root)
+        if first is not None:
+            if writer._binding({**first, "generation_approved": True}) != binding:
+                raise RuntimeError("origin_worker_first_chapter_handoff_mismatch")
+            first_handoff = True
     books.bind_prepared(book_ref, job["source"].get("chapterId"), prepared, output_root)
     if advance_accepted:
         if job.get("readerAcceptedTextDigest") is None:
@@ -226,8 +241,10 @@ def run_once(packet: dict, hub: LocalHub, output_root: Path, *, advance_accepted
             raise ValueError("origin_worker_review_cannot_generate")
         result = review.capture_reviewed_chapter(prepared, output_root, reviewed_draft_digest)
     else:
+        # Setup already consumed the Hub admission. Only its completed, exact
+        # first-chapter handoff permits a separately fenced write afterwards.
         result = writer.write_prepared_chapter(prepared, output_root,
-            allow_new_dispatch=admitted["mayStartGeneration"])
+            allow_new_dispatch=admitted["mayStartGeneration"] or first_handoff)
     if result.get("render_status") != "chapter_review_required":
         return {"state": result["render_status"], "work_id": packet["work_id"], "publication_authorized": False}
     # Receipt bytes come from the adapter's private retained result, not text or
