@@ -90,6 +90,7 @@ def test_readonly_observer_never_invokes_generation_or_approval(monkeypatch):
         {"origin": "https://app.firstbook.ai", "text": "My Profile\noperator@example.test"},
         {"origin": "https://app.firstbook.ai", "count": 1},
         {"origin": "https://app.firstbook.ai", "count": 1},
+        {"origin": "https://app.firstbook.ai", "overviewControls": 0},
         {"origin": "https://app.firstbook.ai", "leaves": ["private-book-id"]},
         {"origin": "https://app.firstbook.ai", "count": 1},
         observation(),
@@ -115,6 +116,28 @@ def test_account_mismatch_stops_before_book_navigation(monkeypatch):
     with pytest.raises(RuntimeError, match="account_mismatch"):
         capture._observe("owned-origin-test", capture._binding(packet()))
     assert clicks == ['button[title="Your Profile"]']
+
+
+@pytest.mark.parametrize("overview_controls", [1, 2])
+def test_new_paid_book_normalizes_only_unambiguous_readonly_overview(monkeypatch, overview_controls):
+    clicks = []
+    answers = iter([
+        {"text": "operator@example.test"},
+        {"overviewControls": overview_controls},
+        {"leaves": ["private-book-id"]},
+    ])
+    monkeypatch.setattr(capture, "_browser", lambda *a: "ok")
+    monkeypatch.setattr(capture, "_click", lambda session, selector: clicks.append(selector))
+    monkeypatch.setattr(capture, "_eval", lambda *a: next(answers))
+    if overview_controls == 2:
+        with pytest.raises(RuntimeError, match="overview_ambiguous"):
+            capture._open_book("owned-test", capture._binding(packet()))
+        assert len(clicks) == 3
+    else:
+        capture._open_book("owned-test", capture._binding(packet()))
+        assert clicks[-2:] == ["xpath=//button[normalize-space(.)='Book Overview']",
+                               "xpath=//button[normalize-space(.)='Resume Writing']"]
+    assert not any("Lock" in click or "Write Chapter" in click for click in clicks)
 
 
 def test_private_capture_cannot_enter_automatic_public_proxy(monkeypatch):

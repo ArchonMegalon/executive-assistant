@@ -95,7 +95,7 @@ def _click(session: str, selector: str) -> None:
     _browser(session, "click", "--selector", selector)
 
 
-def _observe(session: str, binding: dict) -> dict:
+def _open_book(session: str, binding: dict) -> None:
     # Navigation only. None of these controls generate or approve text.
     _browser(session, "navigate", _ORIGIN)
     _click(session, 'button[title="Your Profile"]')
@@ -106,12 +106,27 @@ def _observe(session: str, binding: dict) -> dict:
         raise RuntimeError("firstbook_capture_account_mismatch")
     _click(session, "xpath=//button[normalize-space(.)='Back to Dashboard']")
     _click(session, "xpath=//h3[normalize-space(.)=" + _xpath(binding["book_title"]) + "]")
+    # A new paid book may open its retained outline rather than the overview.
+    # Normalize by a read-only navigation control, never by Lock/Start/Write.
+    route = _eval(session, "({origin:location.origin,overviewControls:Array.from(document.querySelectorAll('button')).filter(e=>e.innerText.trim()==='Book Overview').length})")
+    if route.get("overviewControls") == 1:
+        _click(session, "xpath=//button[normalize-space(.)='Book Overview']")
+    elif route.get("overviewControls") != 0:
+        raise RuntimeError("firstbook_capture_overview_ambiguous")
     _browser(session, "wait", "selector", "--selector", "xpath=//button[normalize-space(.)='Resume Writing']", "--timeout", "15000")
     overview = _eval(session, "({origin:location.origin,leaves:Array.from(document.querySelectorAll('body *')).filter(e=>e.childElementCount===0).map(e=>e.textContent.trim())})")
     if overview.get("leaves", []).count(binding["provider_book_id"]) != 1:
         raise RuntimeError("firstbook_capture_book_mismatch")
     _click(session, "xpath=//button[normalize-space(.)='Resume Writing']")
+
+
+def _observe(session: str, binding: dict) -> dict:
+    _open_book(session, binding)
     _browser(session, "wait", "selector", "--selector", ".prose h1", "--timeout", "15000")
+    return _read_draft(session)
+
+
+def _read_draft(session: str) -> dict:
     return _eval(session, """(() => {
         const surfaces = Array.from(document.querySelectorAll('.prose'));
         const indicator = document.body.innerText.match(/Chapter\\s+(\\d+)\\s+of\\s+(\\d+)/);
