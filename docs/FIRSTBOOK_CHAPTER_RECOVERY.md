@@ -208,6 +208,21 @@ draft, remain review-required and receive a fresh exact-text reader acceptance
 before continuation. Never rebind an earlier accepted digest to the changed text.
 This manual editorial path is not an automatic worker rewrite/retry feature.
 
+## First chapter after framework setup
+
+Framework setup and its first chapter use the same Hub admission. Once setup
+has durably reached `first_chapter_prepared`, the worker validates both retained
+setup/outline records against the Hub work, book, source and exact prepared
+provider chapter before reserving the mapping or invoking the writer. This
+allows the separately fenced first Write even though `/admit` now returns
+`mayStartGeneration: false`. The writer still checks the live exact outline and
+fsyncs its own fence before Write. Missing, partial or uncertain activation
+does not qualify; an existing write fence never permits a second click.
+
+This is not permission for a second credit, future chapter, reader approval,
+or automatic retry of an uncertain request. It does not make the app/provider
+integration complete.
+
 ## Deliver a separately captured edited draft
 
 Before the **first** Hub completion, the trusted local connector can use

@@ -10,6 +10,7 @@ import pytest
 from scripts import origin_chapter_worker as worker
 from scripts import firstbook_chapter_write as writer
 from scripts import firstbook_project_prepare as prepare
+from scripts import firstbook_outline_prepare as outline
 
 
 def packet():
@@ -133,6 +134,104 @@ def test_pending_worker_reuses_upstream_admission_without_new_permission(tmp_pat
     assert worker.run_once(packet(), hub, tmp_path)["state"] == "reconciliation_required"
     assert worker.run_once(packet(), hub, tmp_path)["state"] == "reconciliation_required"
     assert allowed == [True, False]
+
+
+def retained_setup(tmp_path, hub, *, legacy=False):
+    data = setup_packet(hub)
+    binding = prepare._binding({**data["setup"], "work_id": data["work_id"],
+        "book_ref": hub.work["bookRef"], "approved_source": data["approved_source"]})
+    provider = {"provider_book_id": "book-1", "book_title": "Nera"}
+    root = writer._private_root(tmp_path)
+    writer._save(root / ("setup-" + binding["book_ref"] + ".json"), {
+        "binding": binding, "plan": prepare._plan(binding), "state": "framework_dispatched", "provider": provider})
+    plan = outline._plan(binding, 8, legacy=legacy)
+    path = root / ("outline-" + binding["book_ref"] + ".json")
+    writer._save(path, {"binding": binding, "provider": provider, "plan": plan,
+        "before": [], "state": "first_chapter_prepared", "browser_session": "owned-setup", "page_epoch": 1000})
+    # Framework/credit preparation already consumed the one Hub admission.
+    hub.call(data["work_id"], "/admit", {
+        "sourceDigest": hub.work["job"]["sourceDigest"], "executionAdmission": data["execution_admission"]})
+    data["prepared"] = {**outline._prepared(binding, provider, plan),
+        "generation_approved": True, "browser_session": "owned-first-chapter"}
+    return data, path
+
+
+def prepared_browser(data, monkeypatch):
+    observed = {"origin": "https://app.firstbook.ai", "chapterTitle": data["prepared"]["chapter_title"],
+        "chapterNumber": 1, "chapterCount": 8, "outlineCount": 1, "outline": data["prepared"]["expected_outline"],
+        "writeCount": 1, "writeEnabled": True, "includedInPlan": True,
+        "briefCount": 1, "briefSelected": True, "hasDraft": False, "generating": False}
+    calls = []
+    monkeypatch.setattr(writer, "_inspect", lambda *args: dict(observed))
+    monkeypatch.setattr(writer.capture, "_open_book", lambda *args: calls.append("open"))
+    monkeypatch.setattr(writer.capture, "_click", lambda session, selector: calls.append(selector))
+    monkeypatch.setattr(writer.capture, "_read_draft", lambda *args: {
+        **observed, "bookTitles": ["Nera"], "surfaceCount": 1, "reviewRequired": True,
+        "editing": False, "approveControl": 1, "text": "Nera wartet. Die nächste Wahl bleibt offen."})
+    return observed, calls
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_completed_setup_can_start_first_chapter_once_under_same_hub_admission(tmp_path, monkeypatch, legacy):
+    hub = Hub()
+    data, _ = retained_setup(tmp_path, hub, legacy=legacy)
+    observed, calls = prepared_browser(data, monkeypatch)
+    assert worker.run_once(data, hub, tmp_path)["state"] == "generation_dispatched"
+    assert worker.run_once(data, hub, tmp_path)["state"] == "reconciliation_required"
+    observed["hasDraft"] = True
+    assert worker.run_once(data, hub, tmp_path)["state"] == "review_required"
+    previous = list(calls)
+    assert worker.run_once(data, hub, tmp_path)["state"] == "review_required"
+    assert calls == previous
+    assert sum("Write Chapter" in action for action in calls) == 1
+    assert not any("Start writing my book" in action or "Approve" in action for action in calls)
+    assert hub.work["executionAdmission"] == data["execution_admission"]
+
+
+def test_first_chapter_handoff_never_replays_an_uncertain_write(tmp_path, monkeypatch):
+    hub = Hub()
+    data, _ = retained_setup(tmp_path, hub)
+    _, calls = prepared_browser(data, monkeypatch)
+    def uncertain(session, selector):
+        calls.append(selector)
+        if "Write Chapter" in selector:
+            raise RuntimeError("lost_provider_response")
+    monkeypatch.setattr(writer.capture, "_click", uncertain)
+    with pytest.raises(RuntimeError, match="lost_provider_response"):
+        worker.run_once(data, hub, tmp_path)
+    assert worker.run_once(data, hub, tmp_path)["state"] == "reconciliation_required"
+    assert sum("Write Chapter" in action for action in calls) == 1
+
+
+@pytest.mark.parametrize("change", ["missing", "credit_dispatched", "editing", "source", "provider", "work", "outline", "chapter"])
+def test_first_chapter_handoff_requires_exact_completed_preparation(tmp_path, monkeypatch, change):
+    hub = Hub()
+    data, path = retained_setup(tmp_path, hub)
+    _, calls = prepared_browser(data, monkeypatch)
+    record = writer._load(path)
+    if change == "missing":
+        path.unlink()
+    elif change in ("credit_dispatched", "editing"):
+        writer._save(path, {**record, "state": change})
+    elif change == "source":
+        record["binding"]["approved_source"]["runnerName"] = "Other runner"
+        writer._save(path, record)
+    elif change == "provider":
+        data["prepared"]["provider_book_id"] = "other-book"
+    elif change == "work":
+        record["binding"]["work_id"] = "e" * 64 + "." + "f" * 64
+        writer._save(path, record)
+    elif change == "outline":
+        data["prepared"]["expected_outline"][0]["description"] = "Invented new future."
+    else:
+        data["prepared"]["chapter_number"] = 2
+    if change in ("missing", "credit_dispatched", "editing", "chapter"):
+        assert worker.run_once(data, hub, tmp_path)["state"] == "reconciliation_required"
+    else:
+        with pytest.raises(RuntimeError, match="binding_mismatch|handoff_mismatch"):
+            worker.run_once(data, hub, tmp_path)
+        assert not (path.parent / "books" / (hub.work["bookRef"] + ".json")).exists()
+    assert not calls
 
 
 def test_retained_provider_draft_returns_to_hub_and_completed_retry_skips_browser(tmp_path, monkeypatch):

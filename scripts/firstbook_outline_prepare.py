@@ -128,6 +128,41 @@ def _prepared(binding: dict, provider: dict, plan: list[dict]) -> dict:
             "chapter_title": plan[0]["title"], "expected_outline": plan[0]["parts"]}
 
 
+def _validate_retained(binding: dict, provider: dict, record: dict) -> None:
+    if (set(record) != {"binding", "provider", "plan", "before", "state", "browser_session", "page_epoch"}
+        or record["binding"] != binding or record["provider"] != provider
+        or not isinstance(record["plan"], list) or not 1 <= len(record["plan"]) <= 100
+        # Older plans remain immutable: recognizing them cannot spend again.
+        or (record["plan"] != _plan(binding, len(record["plan"]), legacy=True)
+            and record["plan"] != _plan(binding, len(record["plan"])))
+        or record["state"] not in ("editing", "outline_lock_dispatched", "author_form_editing", "credit_dispatched", "first_chapter_prepared")):
+        raise RuntimeError("firstbook_outline_retained_binding_mismatch")
+
+
+def retained_first_chapter(packet: dict, output_root: Path) -> dict | None:
+    """Read an already completed setup, without preparing, spending or writing.
+
+    Only exact first-chapter preparation permits the next locally fenced phase
+    under the same Hub admission. A missing/uncertain activation grants nothing.
+    The writer must still check the live outline and persist its own write fence.
+    """
+    book_ref = capture._text(packet, "book_ref")
+    if not re.fullmatch(r"[0-9a-f]{64}", book_ref):
+        raise ValueError("firstbook_setup_invalid_digest")
+    root = writer._private_root(output_root)
+    record = writer._load(root / ("outline-" + book_ref + ".json"))
+    if record is None:
+        return None
+    binding = setup._binding(packet)
+    initial = writer._load(root / ("setup-" + book_ref + ".json"))
+    if (initial is None or initial.get("binding") != binding or initial.get("plan") != setup._plan(binding)
+        or initial.get("state") != "framework_dispatched" or "provider" not in initial):
+        raise RuntimeError("firstbook_outline_retained_binding_mismatch")
+    provider = setup._project(initial["provider"])
+    _validate_retained(binding, provider, record)
+    return _prepared(binding, provider, record["plan"]) if record["state"] == "first_chapter_prepared" else None
+
+
 _ANECDOTES = 'textarea[placeholder^="e.g. - The time I fired"]'
 _SAMPLE = 'textarea[placeholder="Paste sample text here..."]'
 
@@ -214,15 +249,7 @@ def prepare_first_chapter(packet: dict, output_root: Path) -> dict:
                     "publication_authorized": False, "retry_activation_allowed": False}
 
         if record is not None:
-            if (set(record) != {"binding", "provider", "plan", "before", "state", "browser_session", "page_epoch"}
-                or record["binding"] != binding or record["provider"] != provider
-                or not isinstance(record["plan"], list) or not 1 <= len(record["plan"]) <= 100
-                # Retained pre-length-policy plans are exact immutable inputs,
-                # not permission to replace their outline or spend again.
-                or (record["plan"] != _plan(binding, len(record["plan"]), legacy=True)
-                    and record["plan"] != _plan(binding, len(record["plan"])))
-                or record["state"] not in ("editing", "outline_lock_dispatched", "author_form_editing", "credit_dispatched", "first_chapter_prepared")):
-                raise RuntimeError("firstbook_outline_retained_binding_mismatch")
+            _validate_retained(binding, provider, record)
             if record["state"] in ("editing", "author_form_editing"):
                 # No paid dispatch, but partial browser edits need reconciliation.
                 return status("outline_reconciliation_required")
