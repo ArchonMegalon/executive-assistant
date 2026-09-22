@@ -1,8 +1,10 @@
-"""Private local adapter between Hub admission and a prepared First Book chapter.
+"""Private local adapter for Hub-admitted First Book setup and chapter work.
 
-No polling daemon, credential lookup, book creation, new spending authorization
-or public tool registration. A trusted operator supplies the exact prepared book
-mapping and approved source. Hub remains consent/job/result authority.
+No polling daemon, credential lookup, paid book activation, new spending
+authorization or public tool registration. A trusted operator supplies approved
+source and an owned browser session. Setup stops at the unapproved framework;
+writing still requires an exact prepared book mapping. Hub remains consent,
+job and result authority.
 """
 from __future__ import annotations
 
@@ -21,6 +23,7 @@ import urllib.request
 from scripts import firstbook_chapter_write as writer
 from scripts import firstbook_book_binding as books
 from scripts import firstbook_chapter_advance as advancement
+from scripts import firstbook_project_prepare as preparation
 
 _PREFIX = "/api/internal/origin/chapters/"
 _MAX_BYTES = 512_000
@@ -105,11 +108,11 @@ class LocalHub:
         return result
 
 
-def _validate_work(work: dict, packet: dict) -> dict:
+def _validate_work(work: dict, packet: dict, *, preparing: bool = False) -> dict:
     job = work.get("job")
     if (work.get("workId") != packet["work_id"] or not isinstance(job, dict)
         or not isinstance(work.get("bookRef"), str) or not re.fullmatch(r"[0-9a-f]{64}", work["bookRef"])
-        or job.get("sourceDigest") != packet["prepared"]["source_packet_sha256"]
+        or job.get("sourceDigest") != packet["setup" if preparing else "prepared"]["source_packet_sha256"]
         or job.get("source") != packet["approved_source"]
         or job.get("provider") != "first_book_ai" or job.get("requiresReaderReview") is not True
         or job.get("affectsMechanics") is not False or job.get("publicationAuthorized") is not False
@@ -128,6 +131,41 @@ def _validate_work(work: dict, packet: dict) -> dict:
         or job["readerAcceptedTextDigest"] != hashlib.sha256(job["draftText"].encode("utf-8")).hexdigest()):
         raise ValueError("origin_worker_reader_acceptance_invalid")
     return job
+
+
+def prepare_once(packet: dict, hub: LocalHub, output_root: Path) -> dict:
+    """Admit initial framework setup without requiring a manually created book.
+
+    This stops before outline acceptance/payment/writing. The exact source and
+    stable BookRef come from Hub, never from a generated provider framework.
+    """
+    if (not isinstance(packet.get("work_id"), str)
+        or not re.fullmatch(r"[0-9a-f]{64}\.[0-9a-f]{64}", packet["work_id"])
+        or not isinstance(packet.get("execution_admission"), str)
+        or not 1 <= len(packet["execution_admission"]) <= 256
+        or any(ord(c) < 33 for c in packet["execution_admission"])
+        or not isinstance(packet.get("approved_source"), dict)
+        or not isinstance(packet.get("setup"), dict)
+        or packet["setup"].get("framework_generation_approved") is not True):
+        raise ValueError("origin_worker_setup_packet_invalid")
+    observed = hub.call(packet["work_id"])
+    job = _validate_work(observed, packet, preparing=True)
+    if job["state"] == "review_required":
+        return {"state": "review_required", "work_id": packet["work_id"], "publication_authorized": False}
+    setup = {**packet["setup"], "work_id": packet["work_id"], "book_ref": observed["bookRef"],
+             "approved_source": job["source"]}
+    preparation._binding(setup)
+    admitted = hub.call(packet["work_id"], "/admit", {
+        "sourceDigest": job["sourceDigest"], "executionAdmission": packet["execution_admission"]})
+    if not isinstance(admitted.get("work"), dict) or type(admitted.get("mayStartGeneration")) is not bool:
+        raise ValueError("origin_worker_admission_response_invalid")
+    fenced = _validate_work(admitted["work"], packet, preparing=True)
+    if (admitted["work"].get("bookRef") != observed["bookRef"]
+        or admitted["work"].get("executionAdmission") != packet["execution_admission"]
+        or fenced["state"] != "reconciliation_required"):
+        raise ValueError("origin_worker_admission_response_invalid")
+    result = preparation.prepare_framework(setup, output_root, allow_new_dispatch=admitted["mayStartGeneration"])
+    return {"state": result["state"], "work_id": packet["work_id"], "publication_authorized": False}
 
 
 def run_once(packet: dict, hub: LocalHub, output_root: Path, *, advance_accepted: bool = False) -> dict:
@@ -191,14 +229,19 @@ def main() -> int:
     parser.add_argument("--hub-origin", required=True)
     parser.add_argument("--token-file", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
-    parser.add_argument("--advance-accepted", action="store_true",
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--advance-accepted", action="store_true",
         help="Advance only after Hub confirms exact reader acceptance; never generate the next chapter.")
+    modes.add_argument("--prepare-book-framework", action="store_true",
+        help="Populate and generate the first private framework; never pay, lock or write chapters.")
     args = parser.parse_args()
     packet = _json(_read_private(args.packet_path, 64_000))
     if not isinstance(packet, dict):
         raise ValueError("origin_worker_invalid_packet")
-    print(json.dumps(run_once(packet, LocalHub(args.hub_origin, args.token_file), args.output_root,
-        advance_accepted=args.advance_accepted)))
+    hub = LocalHub(args.hub_origin, args.token_file)
+    result = (prepare_once(packet, hub, args.output_root) if args.prepare_book_framework else
+        run_once(packet, hub, args.output_root, advance_accepted=args.advance_accepted))
+    print(json.dumps(result))
     return 0
 
 

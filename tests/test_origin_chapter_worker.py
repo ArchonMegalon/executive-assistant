@@ -9,6 +9,7 @@ import pytest
 
 from scripts import origin_chapter_worker as worker
 from scripts import firstbook_chapter_write as writer
+from scripts import firstbook_project_prepare as prepare
 
 
 def packet():
@@ -42,6 +43,58 @@ class Hub:
             self.work["job"].update(state="review_required", draftText=body["draftText"],
                                     providerReceiptDigest=body["providerReceiptDigest"])
         return copy.deepcopy(self.work)
+
+
+def setup_packet(hub):
+    source = {"workspaceId": "workspace", "chapterId": "chapter", "chapterDigest": "f" * 64,
+              "acceptedDecisionId": "choice", "locale": "de-DE", "runnerName": "Nera",
+              "facts": [{"factId": "fact", "decisionId": "choice", "text": "Nera is an elf."}]}
+    hub.work["job"]["source"] = source
+    return {"work_id": packet()["work_id"], "execution_admission": packet()["execution_admission"],
+            "approved_source": source, "setup": {"browser_session": "owned-setup", "account_sha256": "a" * 64,
+                "source_packet_sha256": "b" * 64, "framework_generation_approved": True}}
+
+
+def test_setup_receives_hub_book_identity_only_after_execution_admission(tmp_path, monkeypatch):
+    hub = Hub()
+    data = setup_packet(hub)
+    calls = []
+    def setup(value, root, *, allow_new_dispatch):
+        assert value["book_ref"] == hub.work["bookRef"]
+        assert value["approved_source"] == hub.work["job"]["source"]
+        assert hub.work["executionAdmission"] == data["execution_admission"]
+        calls.append(allow_new_dispatch)
+        return {"state": "framework_dispatched" if allow_new_dispatch else "reconciliation_required"}
+    monkeypatch.setattr(prepare, "prepare_framework", setup)
+    assert worker.prepare_once(data, hub, tmp_path)["state"] == "framework_dispatched"
+    assert worker.prepare_once(data, hub, tmp_path)["state"] == "reconciliation_required"
+    assert calls == [True, False]
+    assert not any(action == "/complete" for action, _ in hub.calls)
+
+
+def test_setup_with_changed_source_never_dispatches(tmp_path, monkeypatch):
+    hub = Hub()
+    data = setup_packet(hub)
+    data["approved_source"] = {**data["approved_source"], "runnerName": "Someone else"}
+    monkeypatch.setattr(prepare, "prepare_framework", lambda *a, **k: pytest.fail("wrong source"))
+    with pytest.raises(ValueError, match="binding_mismatch"):
+        worker.prepare_once(data, hub, tmp_path)
+    assert len(hub.calls) == 1
+
+
+def test_setup_lost_admission_does_not_create_provider_book(tmp_path, monkeypatch):
+    hub = Hub()
+    data = setup_packet(hub)
+    call = hub.call
+    def lost(*args, **kwargs):
+        value = call(*args, **kwargs)
+        if args[1:] and args[1] == "/admit":
+            raise RuntimeError("lost_admission")
+        return value
+    hub.call = lost
+    monkeypatch.setattr(prepare, "prepare_framework", lambda *a, **k: pytest.fail("unknown admission"))
+    with pytest.raises(RuntimeError, match="lost_admission"):
+        worker.prepare_once(data, hub, tmp_path)
 
 
 def test_pending_worker_reuses_upstream_admission_without_new_permission(tmp_path, monkeypatch):
