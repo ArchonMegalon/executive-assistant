@@ -149,17 +149,31 @@ through the inspected table of contents. Do not automate `Approve & Next` from
 generation completion. Hub now carries an optional `readerAcceptedTextDigest`
 after the signed app acknowledges its explicitly selected, durable reading
 edition. The connector validates this against the exact draft bytes; it cannot
-set acceptance or infer it from a completed generation. Provider-side advancement
-still needs a bound, non-replaying action. The effect/cost of changing an
-already-started outline is not yet proven.
+set acceptance or infer it from a completed generation. The effect/cost of
+changing an already-started outline is not yet proven.
+
+The connector's explicit `--advance-accepted` mode performs no generation. It
+reads Hub's exact acceptance and delegates to `firstbook_chapter_advance.py`.
+That helper requires the existing private chapter journal to match both the
+accepted text hash and Hub's receipt-file hash. It then rechecks the live
+account/project/draft and fsyncs an approval fence before clicking
+`Approve & Next` once. Retried calls observe only; a still-visible old draft is
+unresolved, never permission to click again. Observing the next unwritten
+chapter closes this local step without writing it. An unverified final-book
+finish/export flow is not entered. Keep one private output root across calls.
+
+This advancement seam is covered by simulated browser/Hub regression tests,
+not yet by a real reader-approved provider continuation. The observed synthetic
+chapter remains unapproved. Preparing the next outline and automatically
+connecting successive jobs are still separate unfinished steps.
 
 This connector is not a daemon, a quota authority or public EA tool. Book setup,
-reader-approval continuation, deployment and the actual Android-to-provider smoke remain
+next-chapter preparation/orchestration, deployment and the actual Android-to-provider smoke remain
 separate work; private-journal/provider deletion also remains an execution
 obligation when an owning Hub job is erased. No publication authority is granted.
 
 Focused local verification:
 
 ```sh
-python3 -m pytest -q tests/test_firstbook_book_binding.py tests/test_origin_chapter_worker.py tests/test_firstbook_chapter_write.py tests/test_firstbook_chapter_capture.py tests/test_booka_book_worker.py
+python3 -m pytest -q tests/test_firstbook_chapter_advance.py tests/test_firstbook_book_binding.py tests/test_origin_chapter_worker.py tests/test_firstbook_chapter_write.py tests/test_firstbook_chapter_capture.py tests/test_booka_book_worker.py
 ```

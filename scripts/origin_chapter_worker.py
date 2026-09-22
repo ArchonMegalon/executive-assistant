@@ -20,6 +20,7 @@ import urllib.request
 
 from scripts import firstbook_chapter_write as writer
 from scripts import firstbook_book_binding as books
+from scripts import firstbook_chapter_advance as advancement
 
 _PREFIX = "/api/internal/origin/chapters/"
 _MAX_BYTES = 512_000
@@ -129,7 +130,7 @@ def _validate_work(work: dict, packet: dict) -> dict:
     return job
 
 
-def run_once(packet: dict, hub: LocalHub, output_root: Path) -> dict:
+def run_once(packet: dict, hub: LocalHub, output_root: Path, *, advance_accepted: bool = False) -> dict:
     if (not isinstance(packet.get("work_id"), str)
         or not re.fullmatch(r"[0-9a-f]{64}\.[0-9a-f]{64}", packet["work_id"])
         or not isinstance(packet.get("execution_admission"), str)
@@ -145,6 +146,12 @@ def run_once(packet: dict, hub: LocalHub, output_root: Path) -> dict:
     job = _validate_work(observed, packet)
     book_ref = observed["bookRef"]
     books.bind_prepared(book_ref, job["source"].get("chapterId"), prepared, output_root)
+    if advance_accepted:
+        if job.get("readerAcceptedTextDigest") is None:
+            return {"state": "awaiting_reader_acceptance", "work_id": packet["work_id"], "publication_authorized": False}
+        advanced = advancement.advance_accepted_chapter(prepared, output_root,
+            job["readerAcceptedTextDigest"], job["providerReceiptDigest"])
+        return {"state": advanced["render_status"], "work_id": packet["work_id"], "publication_authorized": False}
     if job["state"] == "review_required":
         return {"state": "review_required", "work_id": packet["work_id"], "publication_authorized": False}
     admitted = hub.call(packet["work_id"], "/admit", {
@@ -184,11 +191,14 @@ def main() -> int:
     parser.add_argument("--hub-origin", required=True)
     parser.add_argument("--token-file", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
+    parser.add_argument("--advance-accepted", action="store_true",
+        help="Advance only after Hub confirms exact reader acceptance; never generate the next chapter.")
     args = parser.parse_args()
     packet = _json(_read_private(args.packet_path, 64_000))
     if not isinstance(packet, dict):
         raise ValueError("origin_worker_invalid_packet")
-    print(json.dumps(run_once(packet, LocalHub(args.hub_origin, args.token_file), args.output_root)))
+    print(json.dumps(run_once(packet, LocalHub(args.hub_origin, args.token_file), args.output_root,
+        advance_accepted=args.advance_accepted)))
     return 0
 
 

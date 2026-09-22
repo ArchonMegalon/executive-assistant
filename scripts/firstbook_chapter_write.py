@@ -168,6 +168,11 @@ def _validate_retained(binding: dict, record: dict) -> None:
         raise RuntimeError("firstbook_chapter_record_invalid")
 
 
+def _record_path(root: Path, binding: dict) -> Path:
+    identity = [binding[key] for key in ("account_sha256", "provider_book_id", "chapter_number")]
+    return root / (capture._sha(json.dumps(identity, separators=(",", ":"))) + ".json")
+
+
 def write_prepared_chapter(packet: dict, output_root: Path, *, allow_new_dispatch: bool = True) -> dict:
     """Start at most once, otherwise recover/observe. Never waits for generation."""
     binding = _binding(packet)
@@ -176,8 +181,7 @@ def write_prepared_chapter(packet: dict, output_root: Path, *, allow_new_dispatc
         raise ValueError("firstbook_invalid_browser_session")
     root = _private_root(output_root)
     # A different request ID cannot generate this paid project/chapter again.
-    identity = [binding[key] for key in ("account_sha256", "provider_book_id", "chapter_number")]
-    path = root / (capture._sha(json.dumps(identity, separators=(",", ":"))) + ".json")
+    path = _record_path(root, binding)
     lock_fd = os.open(root / ".writer.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     with os.fdopen(lock_fd, "w") as lock:
         try:
