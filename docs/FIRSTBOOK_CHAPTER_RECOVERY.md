@@ -207,3 +207,38 @@ First Book followed the length instruction. Such an edit must retain the old
 draft, remain review-required and receive a fresh exact-text reader acceptance
 before continuation. Never rebind an earlier accepted digest to the changed text.
 This manual editorial path is not an automatic worker rewrite/retry feature.
+
+## Deliver a separately captured edited draft
+
+Before the **first** Hub completion, the trusted local connector can use
+`--capture-reviewed-draft TEXT_SHA256`. Supply the SHA-256 of the exact reviewed
+UTF-8 rendered draft, not its Markdown source. Keep the same packet, book/source
+binding, output root, admission and digest on recovery. This mode only reads the
+existing provider draft; it cannot run a writer, rewrite, save or payment action.
+
+The original completed writer journal must already exist for that exact job and
+chapter. The Hub job must already have its original execution admission and must
+still be pending reconciliation. A missing original, new admission, active
+generation, started chapter advancement or a mismatched current text stops the
+operation. The capture is a separate immutable private file; neither the old
+writer journal nor earlier observations are overwritten. A wrong observed text
+is retained but cannot be delivered under the requested digest, and a retry does
+not silently recapture or regenerate it.
+
+The existing Hub completion receives the selected text and that capture file's
+digest. No public contract or Hub storage policy changes: an already delivered
+job still rejects replacement text. A lost completion response is resolved by
+reading that same job. Completed-job revision UX remains separate work, not a
+capability claimed by this pre-delivery mode.
+
+Android's later exact reader acceptance can refer to this selected capture.
+`--advance-accepted` validates either the original journal or the selected
+capture against the Hub text/receipt hashes, then checks the live provider draft
+before its existing one-shot approval. Choosing an edited draft does not itself
+acknowledge reader acceptance, change character facts or authorize the next
+generation. Provider names identify the observed host, not a claim that the
+provider alone wrote an operator-edited passage.
+
+Focused coverage: `tests/test_firstbook_chapter_review.py` alongside the capture,
+writer, advancement and worker suites. Real-provider capture is read-only;
+reader-approved continuation still needs the actual app/Hub route.

@@ -188,6 +188,21 @@ def _capture(binding: dict, observed: dict) -> dict:
     }
 
 
+def _validate_retained(binding: dict, retained: dict) -> None:
+    try:
+        expected = _capture(binding, {
+            "origin": _ORIGIN.rstrip("/"), "bookTitles": [binding["book_title"]],
+            "chapterTitle": binding["chapter_title"], "chapterNumber": binding["chapter_number"],
+            "chapterCount": retained["chapter_count_observed"], "surfaceCount": 1,
+            "reviewRequired": True, "editing": False, "approveControl": 1, "text": retained["text"],
+        })
+        valid = retained == expected
+    except (KeyError, ValueError, TypeError, RuntimeError):
+        valid = False
+    if not valid:
+        raise RuntimeError("firstbook_capture_retained_binding_mismatch")
+
+
 def capture_existing_chapter(packet: dict, output_root: Path) -> dict:
     binding = _binding(packet)
     session = _text(packet, "browser_session", 128)
@@ -212,17 +227,9 @@ def capture_existing_chapter(packet: dict, output_root: Path) -> dict:
                 raise RuntimeError("firstbook_capture_store_invalid")
             try:
                 retained = json.loads(path.read_text(encoding="utf-8"))
-                expected = _capture(binding, {
-                    "origin": _ORIGIN.rstrip("/"), "bookTitles": [binding["book_title"]],
-                    "chapterTitle": binding["chapter_title"], "chapterNumber": binding["chapter_number"],
-                    "chapterCount": retained["chapter_count_observed"], "surfaceCount": 1,
-                    "reviewRequired": True, "editing": False, "approveControl": 1, "text": retained["text"],
-                })
-                valid = retained == expected
             except (KeyError, ValueError, TypeError, RuntimeError):
-                valid = False
-            if not valid:
-                raise RuntimeError("firstbook_capture_retained_binding_mismatch")
+                raise RuntimeError("firstbook_capture_retained_binding_mismatch") from None
+            _validate_retained(binding, retained)
             return {**retained, "asset_path": str(path), "mime_type": "application/json", "reused_capture": True}
         captured = _capture(binding, _observe(session, binding))
         # One atomic private file is the recovery boundary. No browser call follows it.
