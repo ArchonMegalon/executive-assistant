@@ -134,6 +134,13 @@ before JSON materialization and rejects duplicate JSON keys. The service token
 is read only from a same-user private regular file and sent in Authorization,
 never inside the provider packet, logs or a command-line token argument.
 
+If the local production Hub restricts `AllowedHosts`, supply `--hub-host
+chummer.run` (or that deployment's exact allowed hostname). This changes only
+the HTTP Host header, not the literal loopback connection or worker listener.
+It does not open public worker access or disable host filtering. URLs, ports,
+header injection and malformed hostnames are rejected before loading the token.
+Without the option, the normal loopback Host header remains unchanged.
+
 Before admission, the connector binds Hub's opaque `bookRef` to the exact
 provider account/project/title/locale under `firstbook-private-writes/books/`.
 That private mapping is append-only: later chapters reuse the same project;
