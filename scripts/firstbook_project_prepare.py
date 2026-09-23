@@ -148,14 +148,15 @@ def _project(value: dict) -> dict:
     return project
 
 
-def _observe_existing_framework(session: str, binding: dict, plan: dict, project: dict) -> None:
+def _observe_existing_framework(session: str, binding: dict, plan: dict, project: dict | None) -> dict:
     """Recover an explicitly selected existing project by read-only navigation.
 
     Titles alone are not identity. Check the visible provider ID and the exact
     original premise, goal and audience; never select a different project or
     generate another framework when the retained setup cannot be reconciled.
     """
-    capture._open_overview(session, binding["account_sha256"], project["book_title"])
+    title = project["book_title"] if project is not None else plan["title"]
+    capture._open_overview(session, binding["account_sha256"], title)
     overview = capture._eval(session, """(() => {
         const context = Object.fromEntries(['Premise','Goal','Audience'].map(label => {
             const spans = Array.from(document.querySelectorAll('span')).filter(e=>e.textContent.trim()===label);
@@ -166,12 +167,16 @@ def _observe_existing_framework(session: str, binding: dict, plan: dict, project
             reviewOutlineCount:Array.from(document.querySelectorAll('button')).filter(e=>e.innerText.trim()==='Review Outline').length,
             context};
     })()""")
-    if (overview.get("titles") != [project["book_title"]]
-        or overview.get("ids") != [project["provider_book_id"]]
+    ids = overview.get("ids")
+    if (overview.get("titles") != [title]
+        or not isinstance(ids, list) or len(ids) != 1
+        or not isinstance(ids[0], str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", ids[0])
+        or (project is not None and ids != [project["provider_book_id"]])
         or overview.get("reviewOutlineCount") != 1
         or overview.get("context") != {label: {"count": 1, "value": plan[key]}
             for label, key in (("Premise", "premise"), ("Goal", "goal"), ("Audience", "audience"))}):
         raise RuntimeError("firstbook_setup_existing_project_mismatch")
+    return {"book_title": title, "provider_book_id": ids[0]}
 
 
 def prepare_framework(packet: dict, output_root: Path, *, allow_new_dispatch: bool = True) -> dict:
@@ -232,7 +237,21 @@ def prepare_framework(packet: dict, output_root: Path, *, allow_new_dispatch: bo
                 observed = _inspect(session)
                 if (observed.get("pageEpoch") == record["page_epoch"]
                     and observed.get("frameworkVisible") is True):
+                    if packet.get("framework_project_discovery_approved") is True:
+                        # Only a completed framework on the exact page which
+                        # dispatched it permits discovery. Cold/lost sessions
+                        # still require an explicitly reconciled project ID.
+                        if writer._inspect(session).get("generating") is True:
+                            return status("provider_busy")
+                        record["provider"] = _observe_existing_framework(session, binding, plan, None)
+                        writer._save(path, record)
+                        return status("framework_bound_needs_outline_review")
                     return status("framework_observed_needs_project_binding")
+                if (packet.get("framework_project_discovery_approved") is True
+                    and observed.get("pageEpoch") == record["page_epoch"]):
+                    # Observation only on the retained dispatch page. This
+                    # neither asserts active provider work nor replays submit.
+                    return status("framework_observation_pending")
             return status("reconciliation_required")
         if project is not None:
             return status("reconciliation_required")
