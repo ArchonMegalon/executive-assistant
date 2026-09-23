@@ -24,6 +24,7 @@ from scripts import origin_chapter_worker as worker
 _OBSERVABLE = frozenset({
     "framework_dispatched", "framework_observation_pending", "credit_dispatched", "provider_busy",
     "outline_save_dispatched", "generation_dispatched",
+    "advance_dispatched",
 })
 
 
@@ -54,40 +55,40 @@ def _packet(packet: dict) -> None:
         worker.writer._binding({**previous["prepared"], "request_id": previous.get("work_id")})
 
 
+def retained_preparation(packet: dict, book_ref: str, output_root: Path) -> dict | None:
+    """Read the exact completed handoff, never generate or approve anything."""
+    setup = {**packet["setup"], "work_id": packet["work_id"], "book_ref": book_ref,
+             "approved_source": packet["approved_source"]}
+    if "previous" in packet:
+        prior = {**packet["previous"]["prepared"], "request_id": packet["previous"]["work_id"]}
+        return worker.next_preparation.retained_next_chapter(setup, prior, output_root)
+    return worker.outline_preparation.retained_first_chapter(setup, output_root)
+
+
 def _step(packet: dict, hub: worker.LocalHub, output_root: Path) -> dict:
     observed = hub.call(packet["work_id"])
     job = worker._validate_work(observed, packet, preparing=True)
     if job["state"] == "review_required":
         # No browser, provider navigation or automatic reader acceptance.
         return {"state": "review_required", "work_id": packet["work_id"], "publication_authorized": False}
+    if job.get("previous") is not None and "previous" not in packet:
+        raise ValueError("origin_worker_previous_chapter_required")
     setup = {**packet["setup"], "work_id": packet["work_id"], "book_ref": observed["bookRef"],
              "approved_source": job["source"]}
     if "previous" in packet:
         previous = packet["previous"]
         old = hub.call(previous["work_id"])
-        old_job = worker._validate_work(old, previous)
-        source, old_source = job["source"], old_job["source"]
-        if (old["bookRef"] != observed["bookRef"]
-            or any(source.get(key) != old_source.get(key) for key in ("workspaceId", "locale", "runnerName"))
-            or source.get("chapterId") == old_source.get("chapterId")
-            or source.get("acceptedDecisionId") == old_source.get("acceptedDecisionId")):
-            raise ValueError("origin_worker_next_chapter_source_mismatch")
+        old_job = worker._validate_previous(observed, old, previous)
         if old_job.get("readerAcceptedTextDigest") is None:
             return {"state": "awaiting_reader_acceptance", "work_id": packet["work_id"], "publication_authorized": False}
 
-    def retained():
-        if "previous" in packet:
-            prior = {**packet["previous"]["prepared"], "request_id": packet["previous"]["work_id"]}
-            return worker.next_preparation.retained_next_chapter(setup, prior, output_root)
-        return worker.outline_preparation.retained_first_chapter(setup, output_root)
-
-    prepared = retained()
+    prepared = retained_preparation(packet, observed["bookRef"], output_root)
     if prepared is None:
         action = worker.prepare_next_once if "previous" in packet else worker.prepare_once
         result = action(packet, hub, output_root)
         if result["state"] not in ("first_chapter_prepared", "next_chapter_prepared"):
             return result
-        prepared = retained()
+        prepared = retained_preparation(packet, observed["bookRef"], output_root)
         if prepared is None:
             raise RuntimeError("origin_cycle_preparation_not_retained")
     # Never trust a supplied prepared mapping over the exact retained handoff.

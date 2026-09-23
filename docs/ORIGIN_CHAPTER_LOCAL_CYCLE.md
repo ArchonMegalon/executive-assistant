@@ -34,6 +34,11 @@ For a later chapter, supply the existing `previous` packet and
 order or provider slot count. Its exact Hub reader acceptance is checked before
 continuing; old chapters and other outline slots remain unchanged. The paid book
 is reused. The current chapter itself always stops at `review_required`.
+New Hub jobs bind `previous` (request/source/receipt/accepted-text identity) and
+`previousWorkId`. The worker must match both against the exact prior Hub result;
+it cannot substitute another accepted chapter. A predecessor may have its own
+history, but that history is not recursively copied into execution packets.
+Historical null-edge jobs remain readable; their chronology is not inferred.
 
 ```sh
 python3 -m scripts.origin_chapter_cycle \
@@ -59,10 +64,9 @@ admission is reconciliation-only, never permission to regenerate.
 
 ## Delivery status and remaining work
 
-This adds phase orchestration, **not a deployed queue service**. Automatic Hub
-pending-job intake, bounded provider-account admission and authenticated
-predecessor selection still need to be connected. No polling daemon or new
-spending policy is enabled by installing this module. The current live browser
+This adds phase orchestration, **not a deployed queue service**. The companion
+intake tick below adds bounded Hub selection and exact predecessor handoff. No
+polling daemon or new spending policy is enabled by installing either module. The current live browser
 authorization remains synthetic-only; this change does not authorize real-user
 source uploads to the provider.
 
@@ -75,3 +79,42 @@ reconciliation can be tested read-only with provider calls and POSTs forbidden.
 Android reading/adoption/export, public account routing and local signing/Play
 delivery remain separate unfinished work. No new publication claim follows from
 a successful cycle.
+
+## Book-scoped intake
+
+`scripts/origin_chapter_intake.py` performs one tick for one trusted local
+enrollment. Its owner-only JSON admission names schema
+`firstbook.local-book-execution/v1`, `approved: true`, the exact `book_ref`,
+`first_work_id`, `account_sha256`, `workspace_id`, `locale`, an exclusively owned
+`browser_session`, future Unix `expires_at` (at most seven days),
+`maximum_chapters` (1–100), and `maximum_book_credits: 1`. This is authorization
+to consume one existing book credit, not to buy credits or assert a provider
+balance. It must not be populated from client/provider-controlled fields.
+
+```sh
+python3 -m scripts.origin_chapter_intake \
+  --admission-path /private/approved-book.json \
+  --hub-origin http://127.0.0.1:15099 --hub-host chummer.run \
+  --token-file /private/worker.token --output-root /private/provider-journals
+```
+
+The initial work ID is explicit. Later work comes from the private Hub's
+book-filtered pending route and must link to the last completed execution using
+the exact Hub edge. Multiple successors stop; no sorting heuristic chooses a
+story. Fresh Hub acceptance and cumulative facts are checked before retaining
+the next dispatch. New packet/source/admission identity is fsynced before any
+provider action. A lost result resumes that exact work directly even when it no
+longer appears in pending. Account and budget cannot silently change on restart.
+A completed chapter does not imply reader acceptance and does not advance itself.
+
+Private `intake-<bookRef>.json` joins the existing execution journals in recovery
+custody. Missing custody for an already consumed Hub admission requires recovery,
+not regeneration. Enrollment changes cannot expand the retained limit; a new owned
+browser session/expiry can resume the same execution without replacing its identity.
+Keep all journals for that book together; restore is not a new credit allowance.
+
+The tick uses the existing cycle lock and never creates or logs into a browser.
+An actual local service still needs owned session startup/shutdown and existing
+credential/profile scope enforcement. No service is enabled here. Tests include
+the real phase cycle/writer/result adapter with a simulated browser, not a new
+paid generation or a production-user rollout.

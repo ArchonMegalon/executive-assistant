@@ -96,13 +96,29 @@ class LocalHub:
     def call(self, work_id: str, action: str = "", body: dict | None = None) -> dict:
         if not re.fullmatch(r"[0-9a-f]{64}\.[0-9a-f]{64}", work_id) or action not in ("", "/admit", "/complete"):
             raise ValueError("origin_worker_invalid_route")
+        result = self._request(work_id + action, body)
+        if not isinstance(result, dict):
+            raise ValueError("origin_worker_hub_response_invalid")
+        return result
+
+    def pending(self, book_ref: str, limit: int = 20) -> list[dict]:
+        if (not isinstance(book_ref, str) or not re.fullmatch(r"[0-9a-f]{64}", book_ref)
+            or type(limit) is not int or not 1 <= limit <= 20):
+            raise ValueError("origin_worker_invalid_route")
+        result = self._request(f"pending?limit={limit}&bookRef={book_ref}", None)
+        if (not isinstance(result, list) or len(result) > limit
+            or any(not isinstance(work, dict) or work.get("bookRef") != book_ref for work in result)):
+            raise ValueError("origin_worker_hub_response_invalid")
+        return result
+
+    def _request(self, route: str, body: dict | None):
         data = None if body is None else json.dumps(body, ensure_ascii=False).encode("utf-8")
         if data is not None and len(data) > 128 * 1024:
             raise ValueError("origin_worker_request_oversized")
         headers = {"Authorization": "Bearer " + self._token, "Content-Type": "application/json", "Accept": "application/json"}
         if self._host is not None:
             headers["Host"] = self._host
-        request = urllib.request.Request(self.origin + _PREFIX + work_id + action, data=data, headers=headers)
+        request = urllib.request.Request(self.origin + _PREFIX + route, data=data, headers=headers)
         try:
             with self._http.open(request, timeout=20) as response:
                 if response.status != 200:
@@ -118,10 +134,7 @@ class LocalHub:
             raise RuntimeError("origin_worker_hub_unavailable_reconcile_same_job") from None
         if len(raw) > _MAX_BYTES:
             raise RuntimeError("origin_worker_hub_response_oversized")
-        result = _json(raw)
-        if not isinstance(result, dict):
-            raise ValueError("origin_worker_hub_response_invalid")
-        return result
+        return _json(raw)
 
 
 def _validate_work(work: dict, packet: dict, *, preparing: bool = False) -> dict:
@@ -135,6 +148,22 @@ def _validate_work(work: dict, packet: dict, *, preparing: bool = False) -> dict
         or job.get("state") not in ("awaiting_authoring", "reconciliation_required", "review_required")
         or work.get("executionAdmission") not in (None, packet["execution_admission"])):
         raise ValueError("origin_worker_hub_binding_mismatch")
+    previous = job.get("previous")
+    if previous is not None or work.get("previousWorkId") is not None:
+        parent_packet = packet.get("previous")
+        if (not isinstance(previous, dict)
+            or set(previous) != {"requestId", "sourceDigest", "providerReceiptDigest", "textDigest"}
+            or not isinstance(previous.get("requestId"), str) or not previous["requestId"].strip()
+            or len(previous["requestId"]) > 256
+            or any(not isinstance(previous[key], str) or not re.fullmatch(r"[0-9a-f]{64}", previous[key])
+                for key in ("sourceDigest", "providerReceiptDigest", "textDigest"))
+            or parent_packet is not None and (not isinstance(parent_packet, dict)
+                or work.get("previousWorkId") != parent_packet.get("work_id"))
+            or not isinstance(work.get("previousWorkId"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}\.[0-9a-f]{64}", work["previousWorkId"])
+            or work["previousWorkId"][:64] != work["workId"][:64]
+            or work["previousWorkId"] == work["workId"]):
+            raise ValueError("origin_worker_predecessor_binding_mismatch")
     if job["state"] == "review_required":
         if (work.get("executionAdmission") != packet["execution_admission"]
             or not isinstance(job.get("draftText"), str) or not job["draftText"].strip()
@@ -147,6 +176,25 @@ def _validate_work(work: dict, packet: dict, *, preparing: bool = False) -> dict
         or job["readerAcceptedTextDigest"] != hashlib.sha256(job["draftText"].encode("utf-8")).hexdigest()):
         raise ValueError("origin_worker_reader_acceptance_invalid")
     return job
+
+
+def _validate_previous(work: dict, old: dict, packet: dict) -> dict:
+    old_job = _validate_work(old, packet)
+    source, old_source = work["job"]["source"], old_job["source"]
+    if (old["bookRef"] != work["bookRef"]
+        or any(source.get(key) != old_source.get(key) for key in ("workspaceId", "locale", "runnerName"))
+        or source.get("chapterId") == old_source.get("chapterId")
+        or source.get("acceptedDecisionId") == old_source.get("acceptedDecisionId")):
+        raise ValueError("origin_worker_next_chapter_source_mismatch")
+    if work["job"].get("previous") is not None:
+        expected = {"requestId": old_job.get("requestId"), "sourceDigest": old_job["sourceDigest"],
+            "providerReceiptDigest": old_job.get("providerReceiptDigest"),
+            "textDigest": old_job.get("readerAcceptedTextDigest")}
+        if (work.get("previousWorkId") != old["workId"] or work["job"]["previous"] != expected
+            or old_job.get("readerAcceptedTextDigest") is None
+            or any(fact not in source.get("facts", []) for fact in old_source.get("facts", []))):
+            raise ValueError("origin_worker_predecessor_binding_mismatch")
+    return old_job
 
 
 def prepare_once(packet: dict, hub: LocalHub, output_root: Path) -> dict:
@@ -169,6 +217,8 @@ outline activation can use one existing credit but never write a chapter.
     job = _validate_work(observed, packet, preparing=True)
     if job["state"] == "review_required":
         return {"state": "review_required", "work_id": packet["work_id"], "publication_authorized": False}
+    if job.get("previous") is not None:
+        raise ValueError("origin_worker_previous_chapter_required")
     setup = {**packet["setup"], "work_id": packet["work_id"], "book_ref": observed["bookRef"],
              "approved_source": job["source"]}
     preparation._binding(setup)
@@ -206,13 +256,8 @@ def prepare_next_once(packet: dict, hub: LocalHub, output_root: Path) -> dict:
     observed = hub.call(packet["work_id"])
     job = _validate_work(observed, packet, preparing=True)
     old = hub.call(previous["work_id"])
-    old_job = _validate_work(old, previous)
+    old_job = _validate_previous(observed, old, previous)
     source, old_source = job["source"], old_job["source"]
-    if (old["bookRef"] != observed["bookRef"]
-        or any(source.get(key) != old_source.get(key) for key in ("workspaceId", "locale", "runnerName"))
-        or source.get("chapterId") == old_source.get("chapterId")
-        or source.get("acceptedDecisionId") == old_source.get("acceptedDecisionId")):
-        raise ValueError("origin_worker_next_chapter_source_mismatch")
     setup = {**packet["setup"], "work_id": packet["work_id"], "book_ref": observed["bookRef"],
              "approved_source": source}
     next_preparation._plan(setup, prior)
@@ -261,6 +306,11 @@ def run_once(packet: dict, hub: LocalHub, output_root: Path, *, advance_accepted
         raise ValueError("origin_worker_story_language_mismatch")
     observed = hub.call(packet["work_id"])
     job = _validate_work(observed, packet)
+    if job.get("previous") is not None and job["state"] != "review_required":
+        previous = packet.get("previous")
+        if not isinstance(previous, dict) or not isinstance(previous.get("prepared"), dict):
+            raise ValueError("origin_worker_previous_chapter_required")
+        _validate_previous(observed, hub.call(previous["work_id"]), previous)
     book_ref = observed["bookRef"]
     first_handoff = False
     if (not advance_accepted and reviewed_draft_digest is None
