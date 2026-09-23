@@ -66,7 +66,7 @@ class _NoRedirects(urllib.request.HTTPRedirectHandler):
 
 
 class LocalHub:
-    def __init__(self, origin: str, token_file: Path):
+    def __init__(self, origin: str, token_file: Path, *, host: str | None = None):
         parsed = urllib.parse.urlsplit(origin)
         try:
             local = ipaddress.ip_address(parsed.hostname or "").is_loopback
@@ -76,7 +76,14 @@ class LocalHub:
         if (parsed.scheme != "http" or not local or not valid_port or parsed.username or parsed.password
             or parsed.query or parsed.fragment or parsed.path not in ("", "/")):
             raise ValueError("origin_worker_requires_explicit_loopback_listener")
+        if host is not None and (not isinstance(host, str) or len(host) > 253 or not re.fullmatch(
+            r"(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*"
+            r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", host)):
+            raise ValueError("origin_worker_invalid_host")
         self.origin = origin.rstrip("/")
+        # Production HostFiltering still applies on the private listener. Only
+        # the HTTP virtual host changes; the socket remains literal loopback.
+        self._host = host
         self._token = _read_private(token_file, 256).decode("ascii").strip()
         if len(self._token) < 32 or any(ord(char) <= 32 or ord(char) >= 127 for char in self._token):
             raise ValueError("origin_worker_invalid_service_token")
@@ -88,8 +95,10 @@ class LocalHub:
         data = None if body is None else json.dumps(body, ensure_ascii=False).encode("utf-8")
         if data is not None and len(data) > 128 * 1024:
             raise ValueError("origin_worker_request_oversized")
-        request = urllib.request.Request(self.origin + _PREFIX + work_id + action, data=data,
-            headers={"Authorization": "Bearer " + self._token, "Content-Type": "application/json", "Accept": "application/json"})
+        headers = {"Authorization": "Bearer " + self._token, "Content-Type": "application/json", "Accept": "application/json"}
+        if self._host is not None:
+            headers["Host"] = self._host
+        request = urllib.request.Request(self.origin + _PREFIX + work_id + action, data=data, headers=headers)
         try:
             with self._http.open(request, timeout=20) as response:
                 if response.status != 200:
@@ -278,6 +287,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--packet-path", type=Path, required=True)
     parser.add_argument("--hub-origin", required=True)
+    parser.add_argument("--hub-host", help="Explicit hostname allowed by local Hub HostFiltering; connection stays loopback.")
     parser.add_argument("--token-file", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
     modes = parser.add_mutually_exclusive_group()
@@ -291,7 +301,7 @@ def main() -> int:
     packet = _json(_read_private(args.packet_path, 64_000))
     if not isinstance(packet, dict):
         raise ValueError("origin_worker_invalid_packet")
-    hub = LocalHub(args.hub_origin, args.token_file)
+    hub = LocalHub(args.hub_origin, args.token_file, host=args.hub_host)
     result = (prepare_once(packet, hub, args.output_root) if args.prepare_book_framework else
         run_once(packet, hub, args.output_root, advance_accepted=args.advance_accepted,
                  reviewed_draft_digest=args.capture_reviewed_draft))

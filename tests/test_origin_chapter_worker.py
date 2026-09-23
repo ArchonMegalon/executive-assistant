@@ -285,6 +285,57 @@ def test_only_literal_local_listener_is_allowed_before_loading_token(tmp_path, o
         worker.LocalHub(origin, tmp_path / "not-read")
 
 
+@pytest.mark.parametrize("hostname", ["", "https://chummer.run", "chummer.run:5089", "chummer.run/path",
+    "chummer.run\r\nAuthorization: stolen", "user@chummer.run", "-chummer.run", "chummer..run",
+    "chummer.run ", "x" * 64 + ".run", "a." * 127 + "a"])
+def test_virtual_host_is_a_bounded_hostname_before_loading_token(tmp_path, hostname):
+    with pytest.raises(ValueError, match="invalid_host"):
+        worker.LocalHub("http://127.0.0.1:5089", tmp_path / "not-read", host=hostname)
+
+
+def test_virtual_host_does_not_allow_remote_connection(tmp_path):
+    with pytest.raises(ValueError, match="loopback_listener"):
+        worker.LocalHub("http://chummer.run:5089", tmp_path / "not-read", host="chummer.run")
+
+
+def test_private_loopback_listener_accepts_explicit_host_without_changing_connection(tmp_path):
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+
+    token = "synthetic-private-worker-token-not-production"
+    key = tmp_path / "service-token"
+    key.write_text(token)
+    key.chmod(0o600)
+    observed = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            observed.append((self.headers.get("Host"), self.headers.get("Authorization"), self.path))
+            valid = self.headers.get("Host") == "chummer.run" and self.headers.get("Authorization") == "Bearer " + token
+            body = b'{"ok":true}' if valid else b'{"error":"Invalid Hostname"}'
+            self.send_response(200 if valid else 400)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        origin = f"http://127.0.0.1:{server.server_port}"
+        try:
+            with pytest.raises(RuntimeError, match="hub_http_400"):
+                worker.LocalHub(origin, key).call(packet()["work_id"])
+            assert worker.LocalHub(origin, key, host="chummer.run").call(packet()["work_id"]) == {"ok": True}
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
+    assert len(observed) == 2
+    assert observed[-1] == ("chummer.run", "Bearer " + token, worker._PREFIX + packet()["work_id"])
+
+
 def test_response_size_duplicate_json_and_redirects_are_rejected(tmp_path):
     key = tmp_path / "service-token"
     key.write_text("synthetic-worker-token-with-no-production-power")
