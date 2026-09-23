@@ -269,6 +269,52 @@ def test_reconciliation_does_not_navigate_away_from_active_generation(tmp_path, 
     assert form.clicks == before
 
 
+def test_ready_owned_framework_can_discover_exact_provider_without_operator_copy(tmp_path, form, monkeypatch):
+    data = {**packet(), "framework_project_discovery_approved": True}
+    prepare.prepare_framework(data, tmp_path)
+    expected = {"provider_book_id": "new-provider-book", "book_title": prepare._plan(prepare._binding(data))["title"]}
+    mock_overview(monkeypatch, overview({**data, "framework_project": expected}))
+    before = len(form.clicks)
+    result = prepare.prepare_framework(data, tmp_path, allow_new_dispatch=False)
+    assert result["state"] == "framework_bound_needs_outline_review"
+    stored = writer._load(tmp_path / "firstbook-private-writes" / ("setup-" + data["book_ref"] + ".json"))
+    assert stored["provider"] == expected
+    assert not any(x in click for click in form.clicks[before:] for x in ("Generate", "Lock", "Start writing", "Approve"))
+    previous = list(form.clicks)
+    assert prepare.prepare_framework(data, tmp_path)["state"] == "framework_bound_needs_outline_review"
+    assert form.clicks == previous
+
+
+@pytest.mark.parametrize("change", ["session", "page", "unfinished", "busy"])
+def test_discovery_cannot_leave_unready_or_foreign_framework(tmp_path, form, monkeypatch, change):
+    data = {**packet(), "framework_project_discovery_approved": True}
+    prepare.prepare_framework(data, tmp_path)
+    if change == "session": data["browser_session"] = "other-owned-session"
+    elif change == "page": form.page_epoch += 1
+    elif change == "unfinished": form.submitted = False
+    else: monkeypatch.setattr(writer, "_inspect", lambda *a: {"generating": True})
+    monkeypatch.setattr(prepare, "_observe_existing_framework", lambda *a: pytest.fail("must not navigate"))
+    expected = {"busy": "provider_busy", "unfinished": "framework_observation_pending"}.get(change, "reconciliation_required")
+    assert prepare.prepare_framework(data, tmp_path)["state"] == expected
+
+
+@pytest.mark.parametrize("change", ["title", "ids", "context", "reviewOutlineCount"])
+def test_discovery_does_not_bind_ambiguous_or_wrong_source_project(tmp_path, form, monkeypatch, change):
+    data = {**packet(), "framework_project_discovery_approved": True}
+    prepare.prepare_framework(data, tmp_path)
+    expected = {"provider_book_id": "new-provider-book", "book_title": prepare._plan(prepare._binding(data))["title"]}
+    value = overview({**data, "framework_project": expected})
+    if change == "title": value["titles"] = ["other book"]
+    elif change == "ids": value["ids"] *= 2
+    elif change == "context": value["context"]["Premise"]["value"] = "other facts"
+    else: value["reviewOutlineCount"] = 0
+    mock_overview(monkeypatch, value)
+    with pytest.raises(RuntimeError, match="existing_project_mismatch"):
+        prepare.prepare_framework(data, tmp_path)
+    stored = writer._load(tmp_path / "firstbook-private-writes" / ("setup-" + data["book_ref"] + ".json"))
+    assert "provider" not in stored
+
+
 @pytest.mark.parametrize("locale,language", [("de-DE", "German"), ("en", "English"), ("es-ES", "Spanish")])
 def test_provider_plan_contains_only_reading_facts_not_private_ids(locale, language):
     data = packet()

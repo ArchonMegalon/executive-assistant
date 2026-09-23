@@ -6,6 +6,9 @@ session. Setup stops at the unapproved framework
 unless separate local approval allows one existing credit for a confirmed-fact
 outline. Writing still requires an exact prepared book mapping. Hub remains consent,
 job and result authority.
+
+The optional origin_chapter_cycle module composes these bounded phases for one
+explicitly approved packet; it does not add queue admission or spending policy.
 """
 from __future__ import annotations
 
