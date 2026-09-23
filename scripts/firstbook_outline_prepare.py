@@ -74,10 +74,10 @@ def _inspect(session: str) -> dict:
     })()""")
 
 
-def _require_page(observed: dict, count: int | None = None) -> list[dict]:
+def _require_page(observed: dict, count: int | None = None, *, lock_text: str = "Lock & Start Writing 1 Credit") -> list[dict]:
     cards = observed.get("cards")
     if (observed.get("origin") != capture._ORIGIN.rstrip("/") or observed.get("outlinePage") is not True
-        or observed.get("lockText") != "Lock & Start Writing 1 Credit" or observed.get("lockEnabled") is not True
+        or observed.get("lockText") != lock_text or observed.get("lockEnabled") is not True
         or type(observed.get("pageEpoch")) not in (int, float) or observed["pageEpoch"] <= 0
         or not isinstance(cards, list) or not 1 <= len(cards) <= 100
         or (count is not None and len(cards) != count)
@@ -86,15 +86,15 @@ def _require_page(observed: dict, count: int | None = None) -> list[dict]:
     return cards
 
 
-def _card(session: str, number: int, count: int) -> dict:
-    row = _require_page(_inspect(session), count)[number - 1]
+def _card(session: str, number: int, count: int, *, lock_text: str = "Lock & Start Writing 1 Credit") -> dict:
+    row = _require_page(_inspect(session), count, lock_text=lock_text)[number - 1]
     if row.get("expanded") is False:
         header = _HEADER.replace("NUMBER", capture._xpath(str(number)))
         capture._click(session, "xpath=" + header)
         capture._browser(session, "wait", "selector", "--selector",
                          "xpath=" + header + "//label[normalize-space(.)='Chapter Title']/following-sibling::input",
                          "--timeout", "15000")
-        row = _require_page(_inspect(session), count)[number - 1]
+        row = _require_page(_inspect(session), count, lock_text=lock_text)[number - 1]
     if row.get("expanded") is not True or len(row.get("values", [])) != 8:
         raise RuntimeError("firstbook_outline_editor_mismatch")
     if any(not isinstance(value, str) or len(value) > 8192 for value in row["values"]):

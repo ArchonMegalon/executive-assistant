@@ -225,7 +225,10 @@ def test_first_chapter_handoff_requires_exact_completed_preparation(tmp_path, mo
         data["prepared"]["expected_outline"][0]["description"] = "Invented new future."
     else:
         data["prepared"]["chapter_number"] = 2
-    if change in ("missing", "credit_dispatched", "editing", "chapter"):
+    if change == "chapter":
+        with pytest.raises(ValueError, match="previous_chapter_required"):
+            worker.run_once(data, hub, tmp_path)
+    elif change in ("missing", "credit_dispatched", "editing"):
         assert worker.run_once(data, hub, tmp_path)["state"] == "reconciliation_required"
     else:
         with pytest.raises(RuntimeError, match="binding_mismatch|handoff_mismatch"):
