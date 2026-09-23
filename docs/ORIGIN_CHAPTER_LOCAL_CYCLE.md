@@ -114,7 +114,48 @@ browser session/expiry can resume the same execution without replacing its ident
 Keep all journals for that book together; restore is not a new credit allowance.
 
 The tick uses the existing cycle lock and never creates or logs into a browser.
-An actual local service still needs owned session startup/shutdown and existing
-credential/profile scope enforcement. No service is enabled here. Tests include
+The bounded runtime below supplies owned session startup/shutdown. Credential
+and profile scope approval remain explicit; no service is enabled here. Tests include
 the real phase cycle/writer/result adapter with a simulated browser, not a new
 paid generation or a production-user rollout.
+
+## Owned browser runtime
+
+`scripts/origin_chapter_runtime.py` wraps intake for one chapter, holding the
+existing cycle lease throughout bounded observation (1–120 ticks, 2–30 second
+interval). The private configuration contains `profile_id`,
+`profile_use_approved: true`, `source_scope` (`synthetic_only` or explicitly
+authorized `consented_origin`), and the intake `admission` above **without**
+`browser_session`. Do not derive that approval from the user's chapter text.
+The controller must first verify that the chosen profile/account is authorized
+for that data class. No new profile, cookie import, login or security change is
+performed by the runtime.
+
+```sh
+python3 -m scripts.origin_chapter_runtime \
+  --configuration-path /private/approved-book-runtime.json \
+  --hub-origin http://127.0.0.1:15099 --hub-host chummer.run \
+  --token-file /private/worker.token --output-root /private/provider-journals
+```
+
+It creates a unique window only when exact pending work reaches the provider
+boundary, verifies the visible account hash, and reuses that owned window across
+the framework/outline/chapter phases. Idle or already completed Hub work does
+not open a browser. No app/provider-supplied session name can select an existing
+window. A successful result closes only the window this invocation opened, with
+an explicit close acknowledgement.
+
+An in-flight generation, ambiguous result, expired admission during work, lost
+open/close acknowledgement or failed phase retains its session record for
+reconciliation. The runtime does **not** close an active frontend merely because
+its observation budget ended. A subsequent invocation refuses to open a
+replacement or claim ownership from the retained name. Inspect the actual live
+session/process and original journals; never delete the record to authorize a
+retry. `owned-session-<bookRef>.json` is private execution custody, not a Hub job
+or provider-result authority. Backup it with the intake and provider journals.
+
+This is a bounded local entry point, not an enabled polling daemon or a general
+provider-account allocator. The current FirstBook browser is authorized for
+synthetic tests only until the operator explicitly expands that scope. A live
+read-only account/session check and an idle Hub intake do not prove a new paid
+generation, real-user rollout, Android UI path or Play delivery.
