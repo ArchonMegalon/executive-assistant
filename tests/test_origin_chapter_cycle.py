@@ -117,11 +117,11 @@ def test_polling_stops_on_terminal_unapproved_or_unknown_state(tmp_path, monkeyp
 
 def test_polling_observes_only_known_transitions_with_finite_budget(tmp_path, monkeypatch):
     data = approved(setup_packet(Hub()))
-    states = iter(["framework_dispatched", "credit_dispatched", "provider_busy", "generation_dispatched", "review_required"])
+    states = iter(["framework_dispatched", "credit_dispatched", "advance_dispatched", "provider_busy", "generation_dispatched", "review_required"])
     sleeps = []
     monkeypatch.setattr(cycle, "_step", lambda *a: {"state": next(states)})
     assert cycle.run_bounded(data, None, tmp_path, cycles=10, interval=2, sleep=sleeps.append)["state"] == "review_required"
-    assert sleeps == [2] * 4
+    assert sleeps == [2] * 5
     monkeypatch.setattr(cycle, "_step", lambda *a: {"state": "provider_busy"})
     sleeps.clear()
     assert cycle.run_bounded(data, None, tmp_path, cycles=3, sleep=sleeps.append)["state"] == "provider_busy"
@@ -212,3 +212,50 @@ def test_next_cycle_waits_for_reader_and_rejects_other_book(tmp_path, continuati
     with pytest.raises(ValueError, match="source_mismatch"):
         cycle.run_once(data, hub, tmp_path)
     assert not s["actions"] and new["executionAdmission"] is None
+
+
+def bind_hub_edge(s):
+    hub, old, new = jobs_for(s)
+    old["job"]["requestId"] = "accepted-previous-request"
+    new["job"]["requestId"] = "next-request"
+    new["previousWorkId"] = old["workId"]
+    new["job"]["previous"] = {"requestId": old["job"]["requestId"],
+        "sourceDigest": old["job"]["sourceDigest"], "providerReceiptDigest": old["job"]["providerReceiptDigest"],
+        "textDigest": old["job"]["readerAcceptedTextDigest"]}
+    return hub, old, new
+
+
+@pytest.mark.parametrize("change", ["work", "request", "source", "receipt", "text", "acceptance", "history", "missing-packet"])
+def test_hub_declared_predecessor_cannot_be_replaced_before_provider(tmp_path, continuation, monkeypatch, change):
+    s = continuation
+    data = approved(s["new"])
+    hub, old, new = bind_hub_edge(s)
+    if change == "work": new["previousWorkId"] = "1" * 64 + "." + "7" * 64
+    elif change == "request": new["job"]["previous"]["requestId"] = "another-request"
+    elif change in ("source", "receipt", "text"):
+        new["job"]["previous"][{"source": "sourceDigest", "receipt": "providerReceiptDigest", "text": "textDigest"}[change]] = "0" * 64
+    elif change == "acceptance": old["job"]["readerAcceptedTextDigest"] = None
+    elif change == "history":
+        new["job"]["source"]["facts"] = new["job"]["source"]["facts"][1:]
+        data["approved_source"] = copy.deepcopy(new["job"]["source"])
+    else: del data["previous"]
+    monkeypatch.setattr(worker, "prepare_next_once", lambda *a: pytest.fail("no advancement or input"))
+    monkeypatch.setattr(worker, "prepare_once", lambda *a: pytest.fail("no replacement book"))
+    with pytest.raises(ValueError, match="predecessor_binding_mismatch|previous_chapter_required"):
+        cycle.run_once(data, hub, tmp_path)
+    assert not s["actions"] and new["executionAdmission"] is None
+
+
+def test_exact_hub_edge_works_without_recursively_copying_all_earlier_packets(tmp_path, continuation, monkeypatch):
+    s = continuation
+    data = approved(s["new"])
+    hub, old, new = bind_hub_edge(s)
+    # The predecessor itself may have an earlier immutable Hub edge. The
+    # caller supplies only the immediately preceding prepared execution packet.
+    old["previousWorkId"] = "1" * 64 + "." + "8" * 64
+    old["job"]["previous"] = {"requestId": "earlier-request", "sourceDigest": "8" * 64,
+        "providerReceiptDigest": "9" * 64, "textDigest": "a" * 64}
+    monkeypatch.setattr(worker.advancement, "advance_accepted_chapter",
+        lambda *a: {"render_status": "next_chapter_observed"})
+    assert cycle.run_once(data, hub, tmp_path)["state"] == "outline_save_dispatched"
+    assert sum("Lock & Start Writing" in a for a in s["actions"]) == 1
