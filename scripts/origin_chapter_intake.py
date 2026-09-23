@@ -119,57 +119,68 @@ def _new_packet(work: dict, admission: dict, prior: dict | None) -> dict:
 
 def run_once(admission: dict, hub: worker.LocalHub, output_root: Path, *, now=time.time) -> dict:
     """Fetch/advance at most one job; caller owns the browser exclusively."""
-    binding = _admission(admission, now())
-    root = worker.writer._private_root(output_root)
-    path = root / ("intake-" + binding["book_ref"] + ".json")
+    _admission(admission, now())
     # Share the cycle lock, including queue selection and persistence, so two
     # local controllers cannot allocate competing slots or navigate one session.
     with cycle._lease(output_root):
-        state = _restore(path, binding)
-        jobs = state["jobs"]
-        if jobs and jobs[-1]["state"] != "review_required":
-            entry = jobs[-1]
-        else:
-            if len(jobs) >= binding["maximum_chapters"]:
-                return {"state": "chapter_limit_reached", "publication_authorized": False}
-            pending = hub.pending(binding["book_ref"])
-            if not isinstance(pending, list) or len(pending) > 20:
+        return _tick(admission, hub, output_root, now=now)
+
+
+def _tick(admission: dict, hub: worker.LocalHub, output_root: Path, *, now=time.time, before_cycle=None) -> dict:
+    """Internal entry for the owned-session runner; caller holds cycle._lease."""
+    binding = _admission(admission, now())
+    root = worker.writer._private_root(output_root)
+    path = root / ("intake-" + binding["book_ref"] + ".json")
+    state = _restore(path, binding)
+    jobs = state["jobs"]
+    if jobs and jobs[-1]["state"] != "review_required":
+        entry = jobs[-1]
+    else:
+        if len(jobs) >= binding["maximum_chapters"]:
+            return {"state": "chapter_limit_reached", "publication_authorized": False}
+        pending = hub.pending(binding["book_ref"])
+        if not isinstance(pending, list) or len(pending) > 20:
+            raise ValueError("origin_intake_pending_invalid")
+        candidates = []
+        for work in pending:
+            if not isinstance(work, dict):
                 raise ValueError("origin_intake_pending_invalid")
-            candidates = []
-            for work in pending:
-                if not isinstance(work, dict):
-                    raise ValueError("origin_intake_pending_invalid")
-                _scope(work, admission)
-                if ((not jobs and work["workId"] == binding["first_work_id"])
-                    or (jobs and work.get("previousWorkId") == jobs[-1]["packet"]["work_id"])):
-                    candidates.append(work)
-            if not candidates:
-                return {"state": "idle", "publication_authorized": False}
-            if len(candidates) != 1:
-                raise RuntimeError("origin_intake_ambiguous_successor")
-            # Queue enumeration is not a dispatch snapshot. Re-read exact work.
-            work = hub.call(candidates[0]["workId"])
-            packet = _new_packet(work, admission, jobs[-1] if jobs else None)
-            if jobs:
-                previous = packet["previous"]
-                worker._validate_previous(work, hub.call(previous["work_id"]), previous)
-            entry = {"packet": packet, "state": "working", "prepared": None}
-            jobs.append(entry)
-            worker.writer._save(path, state)  # before any provider/Hub write
-        packet = copy.deepcopy(entry["packet"])
-        packet["setup"]["browser_session"] = admission["browser_session"]
-        _scope(hub.call(packet["work_id"]), admission)
-        result = cycle._step(packet, hub, output_root)
-        if result.get("state") not in _STATES:
-            raise RuntimeError("origin_intake_cycle_state_unknown")
-        if result["state"] == "review_required":
-            prepared = cycle.retained_preparation(packet, binding["book_ref"], output_root)
-            if prepared is None:
-                raise RuntimeError("origin_intake_completed_handoff_missing")
-            entry["prepared"] = {**prepared, "generation_approved": True}
-        entry["state"] = result["state"]
-        worker.writer._save(path, state)
-        return result
+            _scope(work, admission)
+            if ((not jobs and work["workId"] == binding["first_work_id"])
+                or (jobs and work.get("previousWorkId") == jobs[-1]["packet"]["work_id"])):
+                candidates.append(work)
+        if not candidates:
+            return {"state": "idle", "publication_authorized": False}
+        if len(candidates) != 1:
+            raise RuntimeError("origin_intake_ambiguous_successor")
+        # Queue enumeration is not a dispatch snapshot. Re-read exact work.
+        work = hub.call(candidates[0]["workId"])
+        packet = _new_packet(work, admission, jobs[-1] if jobs else None)
+        if jobs:
+            previous = packet["previous"]
+            worker._validate_previous(work, hub.call(previous["work_id"]), previous)
+        entry = {"packet": packet, "state": "working", "prepared": None}
+        jobs.append(entry)
+        worker.writer._save(path, state)  # before any provider/Hub write
+    packet = copy.deepcopy(entry["packet"])
+    packet["setup"]["browser_session"] = admission["browser_session"]
+    work = hub.call(packet["work_id"])
+    _scope(work, admission)
+    worker._validate_work(work, packet, preparing=True)
+    # Opening a browser is unnecessary for a result already committed in Hub.
+    if before_cycle is not None and work["job"]["state"] != "review_required":
+        before_cycle()
+    result = cycle._step(packet, hub, output_root)
+    if result.get("state") not in _STATES:
+        raise RuntimeError("origin_intake_cycle_state_unknown")
+    if result["state"] == "review_required":
+        prepared = cycle.retained_preparation(packet, binding["book_ref"], output_root)
+        if prepared is None:
+            raise RuntimeError("origin_intake_completed_handoff_missing")
+        entry["prepared"] = {**prepared, "generation_approved": True}
+    entry["state"] = result["state"]
+    worker.writer._save(path, state)
+    return result
 
 
 def main() -> int:
