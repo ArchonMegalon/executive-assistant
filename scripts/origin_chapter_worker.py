@@ -26,6 +26,7 @@ from scripts import firstbook_book_binding as books
 from scripts import firstbook_chapter_advance as advancement
 from scripts import firstbook_project_prepare as preparation
 from scripts import firstbook_outline_prepare as outline_preparation
+from scripts import firstbook_next_chapter_prepare as next_preparation
 from scripts import firstbook_chapter_review as review
 
 _PREFIX = "/api/internal/origin/chapters/"
@@ -149,7 +150,7 @@ def prepare_once(packet: dict, hub: LocalHub, output_root: Path) -> dict:
     """Admit initial framework setup without requiring a manually created book.
 
     Framework consent alone stops before payment/writing. Explicit local
-    outline activation can use one existing credit but never write a chapter.
+outline activation can use one existing credit but never write a chapter.
     Source and stable BookRef come from Hub, not the provider framework.
     """
     if (not isinstance(packet.get("work_id"), str)
@@ -182,6 +183,59 @@ def prepare_once(packet: dict, hub: LocalHub, output_root: Path) -> dict:
         # Separate trusted local approval for spending one existing book credit.
         # Framework admission alone never authorizes payment or chapter writing.
         result = outline_preparation.prepare_first_chapter(setup, output_root)
+    return {"state": result["state"], "work_id": packet["work_id"], "publication_authorized": False}
+
+
+def prepare_next_once(packet: dict, hub: LocalHub, output_root: Path) -> dict:
+    """Prepare only the next requested stage, in the same accepted private book."""
+    if (not isinstance(packet.get("work_id"), str)
+        or not re.fullmatch(r"[0-9a-f]{64}\.[0-9a-f]{64}", packet["work_id"])
+        or not isinstance(packet.get("execution_admission"), str)
+        or not 1 <= len(packet["execution_admission"]) <= 256
+        or any(ord(c) < 33 for c in packet["execution_admission"])
+        or not isinstance(packet.get("setup"), dict) or not isinstance(packet.get("approved_source"), dict)):
+        raise ValueError("origin_worker_admitted_packet_invalid")
+    previous = packet.get("previous")
+    if not isinstance(previous, dict) or not isinstance(previous.get("prepared"), dict):
+        raise ValueError("origin_worker_previous_chapter_required")
+    prior = {**previous["prepared"], "request_id": previous["work_id"]}
+    writer._binding(prior)
+    observed = hub.call(packet["work_id"])
+    job = _validate_work(observed, packet, preparing=True)
+    old = hub.call(previous["work_id"])
+    old_job = _validate_work(old, previous)
+    source, old_source = job["source"], old_job["source"]
+    if (old["bookRef"] != observed["bookRef"]
+        or any(source.get(key) != old_source.get(key) for key in ("workspaceId", "locale", "runnerName"))
+        or source.get("chapterId") == old_source.get("chapterId")
+        or source.get("acceptedDecisionId") == old_source.get("acceptedDecisionId")):
+        raise ValueError("origin_worker_next_chapter_source_mismatch")
+    setup = {**packet["setup"], "work_id": packet["work_id"], "book_ref": observed["bookRef"],
+             "approved_source": source}
+    next_preparation._plan(setup, prior)
+    if setup.get("outline_update_approved") is not True:
+        raise ValueError("firstbook_next_outline_not_admitted")
+    if job["state"] == "review_required":
+        return {"state": "review_required", "work_id": packet["work_id"], "publication_authorized": False}
+    if old_job.get("readerAcceptedTextDigest") is None:
+        return {"state": "awaiting_reader_acceptance", "work_id": packet["work_id"], "publication_authorized": False}
+    books.bind_prepared(old["bookRef"], old_source["chapterId"], prior, output_root)
+    advanced = advancement.advance_accepted_chapter({**prior, "browser_session": setup["browser_session"]}, output_root,
+        old_job["readerAcceptedTextDigest"], old_job["providerReceiptDigest"])
+    if advanced["render_status"] != "next_chapter_observed":
+        return {"state": advanced["render_status"], "work_id": packet["work_id"], "publication_authorized": False}
+    admitted = hub.call(packet["work_id"], "/admit", {
+        "sourceDigest": job["sourceDigest"], "executionAdmission": packet["execution_admission"]})
+    if not isinstance(admitted.get("work"), dict) or type(admitted.get("mayStartGeneration")) is not bool:
+        raise ValueError("origin_worker_admission_response_invalid")
+    fenced = _validate_work(admitted["work"], packet, preparing=True)
+    if (admitted["work"].get("bookRef") != observed["bookRef"]
+        or admitted["work"].get("executionAdmission") != packet["execution_admission"]
+        or fenced["state"] != "reconciliation_required"):
+        raise ValueError("origin_worker_admission_response_invalid")
+    result = next_preparation.prepare_next_chapter(setup, prior, output_root,
+        old_job["readerAcceptedTextDigest"], old_job["providerReceiptDigest"],
+        allow_new_dispatch=admitted["mayStartGeneration"])
     return {"state": result["state"], "work_id": packet["work_id"], "publication_authorized": False}
 
 
@@ -220,6 +274,20 @@ def run_once(packet: dict, hub: LocalHub, output_root: Path, *, advance_accepted
             if writer._binding({**first, "generation_approved": True}) != binding:
                 raise RuntimeError("origin_worker_first_chapter_handoff_mismatch")
             first_handoff = True
+    next_handoff = False
+    if (not advance_accepted and reviewed_draft_digest is None
+        and job["state"] != "review_required" and binding["chapter_number"] > 1):
+        previous = packet.get("previous")
+        if not isinstance(previous, dict) or not isinstance(previous.get("prepared"), dict):
+            raise ValueError("origin_worker_previous_chapter_required")
+        next_ready = next_preparation.retained_next_chapter({
+            "work_id": packet["work_id"], "book_ref": book_ref,
+            "account_sha256": binding["account_sha256"], "source_packet_sha256": binding["source_packet_sha256"],
+            "approved_source": job["source"],
+        }, {**previous["prepared"], "request_id": previous["work_id"]}, output_root)
+        if next_ready is None or writer._binding(next_ready) != binding:
+            raise RuntimeError("origin_worker_next_chapter_handoff_mismatch")
+        next_handoff = True
     books.bind_prepared(book_ref, job["source"].get("chapterId"), prepared, output_root)
     if advance_accepted:
         if job.get("readerAcceptedTextDigest") is None:
@@ -250,10 +318,10 @@ def run_once(packet: dict, hub: LocalHub, output_root: Path, *, advance_accepted
             raise ValueError("origin_worker_review_cannot_generate")
         result = review.capture_reviewed_chapter(prepared, output_root, reviewed_draft_digest)
     else:
-        # Setup already consumed the Hub admission. Only its completed, exact
-        # first-chapter handoff permits a separately fenced write afterwards.
+        # Outline preparation already consumed the Hub admission. Only its
+        # completed, exact handoff permits a separately fenced write afterwards.
         result = writer.write_prepared_chapter(prepared, output_root,
-            allow_new_dispatch=admitted["mayStartGeneration"] or first_handoff)
+            allow_new_dispatch=admitted["mayStartGeneration"] or first_handoff or next_handoff)
     if result.get("render_status") != "chapter_review_required":
         return {"state": result["render_status"], "work_id": packet["work_id"], "publication_authorized": False}
     # Receipt bytes come from the adapter's private retained result, not text or
@@ -295,6 +363,8 @@ def main() -> int:
         help="Advance only after Hub confirms exact reader acceptance; never generate the next chapter.")
     modes.add_argument("--prepare-book-framework", action="store_true",
         help="Prepare the first private framework. One-credit outline activation requires separate packet approval; never write chapters.")
+    modes.add_argument("--prepare-next-chapter", action="store_true",
+        help="Replace only the next placeholder from a new Hub source after exact predecessor acceptance; never generate.")
     modes.add_argument("--capture-reviewed-draft", metavar="TEXT_SHA256",
         help="Before first delivery, capture this exact edited draft; never generate or replace a delivered result.")
     args = parser.parse_args()
@@ -302,7 +372,8 @@ def main() -> int:
     if not isinstance(packet, dict):
         raise ValueError("origin_worker_invalid_packet")
     hub = LocalHub(args.hub_origin, args.token_file, host=args.hub_host)
-    result = (prepare_once(packet, hub, args.output_root) if args.prepare_book_framework else
+    result = (prepare_next_once(packet, hub, args.output_root) if args.prepare_next_chapter else
+        prepare_once(packet, hub, args.output_root) if args.prepare_book_framework else
         run_once(packet, hub, args.output_root, advance_accepted=args.advance_accepted,
                  reviewed_draft_digest=args.capture_reviewed_draft))
     print(json.dumps(result))
