@@ -195,8 +195,19 @@ source after the fictional school choice, then reopened and matched exactly.
 The first input attempt exposed an accordion-target bug; no save was dispatched.
 The fix reopens the exact target after inventory. Recovery first reopened the
 unchanged server outline, then saved once without a new book credit. The separate
-writer subsequently dispatched chapter 2 once. Do not infer finished narration
-or Android UI delivery from the dispatch result; reconcile the same journal.
+writer subsequently dispatched chapter 2 once. The actual unedited provider
+draft (8,396 characters / 1,213 whitespace-delimited words) was retained and
+returned to Hub as review-required, with no reader acceptance or mechanics
+permission. Signed reads returned the new prose and verified the original
+chapter unchanged. The 450–650-word prompt was not obeyed; no automatic prose
+quality/canon approval is claimed. This is not Android UI delivery.
+
+Ten selected execution/input files, including the new approval, preparation and
+write fences, were backed up as actual bytes to private Teable custody and
+restored exactly into a new directory. This is a fresh bounded manual snapshot,
+not automatic replication. Reader requests still took 21.91s / 20.12s in this
+follow-up, beyond the shipping client's 20-second deadline; responsiveness
+remains a release-blocking integration issue.
 
 The completed private next-outline record supplies the exact `prepared` packet
 for a separate normal worker invocation, retaining `previous`. That handoff can
