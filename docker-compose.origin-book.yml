@@ -1,0 +1,47 @@
+# Standalone, local-only worker. No general EA services, daemon socket or ports.
+services:
+  origin-book:
+    image: ${ORIGIN_BOOK_IMAGE:?Set the inspected local image ID}
+    pull_policy: never
+    user: "${ORIGIN_BOOK_UID:-1000}:${ORIGIN_BOOK_GID:-1000}"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    init: true
+    hostname: chummer-origin-book
+    restart: "no"
+    # Existing private Hub is loopback-only. No listener is published by this
+    # service; BrowserAct/Chrome debugging listeners must remain loopback-only.
+    network_mode: host
+    mem_limit: 2g
+    cpus: 1.5
+    pids_limit: 256
+    shm_size: 256m
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=256m,mode=1777
+    environment:
+      BROWSERACT_DATA_DIR: /browseract
+    volumes:
+      - type: bind
+        source: ${ORIGIN_BOOK_APPROVAL:?Exact private approval file}
+        target: /private/approval.json
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${ORIGIN_BOOK_TOKEN:?Exact private Hub worker token file}
+        target: /private/worker.token
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${ORIGIN_BOOK_CUSTODY:?Existing cumulative pool custody directory}
+        target: /custody
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${ORIGIN_BOOK_BROWSER_STATE:?Separate private BrowserAct state directory}
+        target: /browseract
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${ORIGIN_BOOK_PROFILE_PATH:?Only the approved existing profile directory}
+        target: /browseract/profiles/${ORIGIN_BOOK_PROFILE_ID:?Approved local profile ID}
+        bind: {create_host_path: false}
+    command: ["--watch-seconds", "3600"]

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Same installed Chrome as the approved host profile. Non-root, read-only
+# container boundaries remain required; this is not Chrome sandbox authority.
+exec /opt/google/chrome/chrome --no-sandbox "$@"
