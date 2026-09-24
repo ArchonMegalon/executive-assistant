@@ -1,5 +1,14 @@
 # Private First Book chapter recovery
 
+The dated observations below preserve the 22–23 September development history,
+including failures and limitations of those inputs. On 24 September, the
+separate native linked-owner synthetic first-decision route completed provider
+generation, review/adoption, HTML export and cold reopen. That does not qualify
+the entire multi-chapter route or physical Play installation. Current execution
+entry points are documented in [ORIGIN_CHAPTER_LOCAL_CYCLE.md](ORIGIN_CHAPTER_LOCAL_CYCLE.md)
+and [ORIGIN_CHAPTER_WATCH.md](ORIGIN_CHAPTER_WATCH.md); source availability alone
+does not enable a service or expand provider-spending permission.
+
 `scripts/booka_book_worker.py` supports `mode: capture_existing_chapter` for a
 trusted local caller holding its own authenticated BrowserAct session. This is
 a read-only provider adapter, **not** a deployed Android generation service.

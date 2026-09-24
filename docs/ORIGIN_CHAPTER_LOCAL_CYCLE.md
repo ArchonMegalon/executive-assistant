@@ -66,9 +66,11 @@ admission is reconciliation-only, never permission to regenerate.
 
 This adds phase orchestration, **not a deployed queue service**. The companion
 intake tick below adds bounded Hub selection and exact predecessor handoff. No
-polling daemon or new spending policy is enabled by installing either module. The current live browser
-authorization remains synthetic-only; this change does not authorize real-user
-source uploads to the provider.
+polling daemon or new spending policy is enabled by installing either module.
+Profile authorization is a separate operator decision. Real-user execution
+requires a profile approved for `consented_origin`, fresh Chummer consent to the
+exact character facts, and a separate book-scoped execution admission. A profile
+login or an app consent flag alone cannot enlarge the execution budget.
 
 Focused tests exercise exact preparation handoffs, next-slot continuation,
 one-write fencing, missing/changed Hub authority, acceptance boundaries, finite
@@ -76,9 +78,12 @@ observation, lock ownership and project discovery. Simulated-browser tests are
 not a new live generation or Android UI proof. Existing signed-Hub chapter
 reconciliation can be tested read-only with provider calls and POSTs forbidden.
 
-Android reading/adoption/export, public account routing and local signing/Play
-delivery remain separate unfinished work. No new publication claim follows from
-a successful cycle.
+On 24 September, the separate native linked-owner synthetic first-decision
+smoke completed genuine provider generation, review, explicit adoption, HTML
+export and cold reopen. Preview29 was separately observed on Play Internal.
+Neither observation proves a complete multi-chapter real-user route, physical
+Play installation, or a deployed tester-queue consumer. This source module
+does not grant any publication authority.
 
 ## Book-scoped intake
 
@@ -155,7 +160,11 @@ retry. `owned-session-<bookRef>.json` is private execution custody, not a Hub jo
 or provider-result authority. Backup it with the intake and provider journals.
 
 This is a bounded local entry point, not an enabled polling daemon or a general
-provider-account allocator. The current FirstBook browser is authorized for
-synthetic tests only until the operator explicitly expands that scope. A live
-read-only account/session check and an idle Hub intake do not prove a new paid
-generation, real-user rollout, Android UI path or Play delivery.
+provider-account allocator. Verify the selected profile's current authorized
+scope before each enrollment. A live read-only account/session check and idle
+Hub intake do not prove paid generation, real-user rollout, Android UI behavior
+or Play delivery.
+
+The optional [enrolled-book watch](ORIGIN_CHAPTER_WATCH.md) waits for later exact
+chapter requests within the original admission and a finite lifetime. It does
+not enroll new books, activate a service or renew expired execution approval.
