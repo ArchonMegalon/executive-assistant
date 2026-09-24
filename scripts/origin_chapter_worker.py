@@ -111,6 +111,13 @@ class LocalHub:
             raise ValueError("origin_worker_hub_response_invalid")
         return result
 
+    def pending_books(self) -> list[dict]:
+        """Private bounded discovery; only the separately approved pool uses it."""
+        result = self._request("pending?limit=20", None)
+        if not isinstance(result, list) or len(result) > 20 or any(not isinstance(work, dict) for work in result):
+            raise ValueError("origin_worker_hub_response_invalid")
+        return result
+
     def _request(self, route: str, body: dict | None):
         data = None if body is None else json.dumps(body, ensure_ascii=False).encode("utf-8")
         if data is not None and len(data) > 128 * 1024:

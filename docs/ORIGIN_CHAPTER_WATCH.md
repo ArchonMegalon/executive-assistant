@@ -59,3 +59,7 @@ approvals, spend a credit or restart the general EA stack. A local deployment mu
 explicitly supply the approved enrollment and the existing private custody.
 Continuous operation for arbitrary tester books still needs a bounded enrollment
 and account-capacity policy; that is not inferred from consent to character facts.
+
+The separately approved [finite book pool](ORIGIN_BOOK_POOL.md) adds cumulative
+new-book admission for one fixed account/profile. It does not enlarge an existing
+single-book grant or change the reader-acceptance and reconciliation boundaries.
