@@ -32,8 +32,9 @@ FULL_MANUSCRIPT_BLOCKER = "first_book_full_manuscript_export_pending"
 
 def _load_packet(path: str | None) -> dict[str, object]:
     if path:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    raw = os.sys.stdin.read()
+        raw = Path(path).read_text(encoding="utf-8")
+    else:
+        raw = os.sys.stdin.read()
     if not raw.strip():
         raise RuntimeError("booka_worker_input_missing")
     loaded = json.loads(raw)
@@ -299,6 +300,15 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     packet = _load_packet(args.packet_path or None)
+    if packet.get("mode") not in (None, "create_framework", "capture_existing_chapter"):
+        raise ValueError("firstbook_unknown_worker_mode")
+    if packet.get("mode") == "capture_existing_chapter":
+        try:
+            from scripts.firstbook_chapter_capture import capture_existing_chapter
+        except ImportError:
+            from firstbook_chapter_capture import capture_existing_chapter
+        print(json.dumps(capture_existing_chapter(packet, OUTPUT_ROOT), ensure_ascii=False))
+        return 0
     packet.setdefault("login_email", DEFAULT_EMAIL)
     packet.setdefault("login_password", DEFAULT_PASSWORD)
     timeout_seconds = max(120, int(packet.get("timeout_seconds") or 240))
