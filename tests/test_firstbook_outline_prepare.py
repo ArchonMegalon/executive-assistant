@@ -177,7 +177,52 @@ def test_author_style_is_synthetic_and_facts_are_not_invented():
     plan = outline._author_plan(binding)
     assert "not the player's personal experiences" in plan["anecdotes"]
     assert "Nera is an elf." in plan["anecdotes"]
-    assert "Nera" not in plan["sample"] and "Regen" in plan["sample"]
+    assert "Nera" not in plan["sample"] and "vertraute Umgebung" in plan["sample"]
+    assert "Regen" in outline._author_plan(binding, version=3)["sample"]
+
+
+@pytest.mark.parametrize("locale", ["de-DE", "en-US", "es-ES"])
+def test_prose_instructions_address_observed_inventory_and_rule_leakage(locale):
+    data = packet()
+    data["approved_source"]["locale"] = locale
+    binding = outline.setup._binding(data)
+    facts = json.dumps([f["text"] for f in binding["approved_source"]["facts"]], ensure_ascii=False)
+    plan = outline._plan(binding, 8)
+    assert outline._plan_version(binding, plan) == 4
+    for part in plan[0]["parts"]:
+        text = part["description"]
+        assert facts in text  # Do not achieve better prose by dropping approved facts.
+        assert "Karma costs, negative-quality budgets, zero entries, unassigned pools" in text
+        assert "have no biographical meaning" in text
+        assert "A skill grant does not grant its equipment" in text
+        assert "Missing augmentation data does not mean an unmodified body" in text
+        assert "developing habits" in text and "never mastery" in text
+        assert "2-4 varied sentences" in text and "150-210 words" in text
+        assert "do not reuse its weather, room, objects or events" in text
+    assert all(facts not in json.dumps(future) for future in plan[1:])
+
+
+@pytest.mark.parametrize("version", [1, 2, 3])
+def test_resumed_author_form_preserves_admitted_style(tmp_path, surface, monkeypatch, version):
+    data, root, page, calls = surface
+    binding = outline.setup._binding(data)
+    path = root / ("outline-" + data["book_ref"] + ".json")
+    record = {"binding": binding,
+        "provider": {"provider_book_id": "existing-book", "book_title": "Nera's private book"},
+        "plan": outline._plan(binding, 8, version=version), "before": [],
+        "state": "outline_lock_dispatched", "browser_session": data["browser_session"], "page_epoch": 1000}
+    outline.writer._save(path, record)
+    author_plan = outline._author_plan
+    selected = []
+    def retained_style(binding, *, version):
+        selected.append(version)
+        return author_plan(binding, version=version)
+    monkeypatch.setattr(outline, "_author_plan", retained_style)
+    assert outline.prepare_first_chapter(data, tmp_path)["state"] == "credit_dispatched"
+    assert selected == [version]
+    assert outline.writer._load(path)["plan"] == record["plan"]
+    assert not any("Lock & Start" in call for call in calls)
+    assert sum("Start writing my book" in call for call in calls) == 1
 
 
 @pytest.mark.parametrize("locale", ["de-DE", "en-US", "es-ES"])
@@ -276,12 +321,13 @@ def test_near_source_byte_bound_fits_writer_and_durable_record(tmp_path, text):
         outline.setup._binding(data)
 
 
-def test_current_pre_upgrade_outline_is_recovered_byte_for_byte(tmp_path, surface):
+@pytest.mark.parametrize("version", [2, 3])
+def test_current_pre_upgrade_outline_is_recovered_byte_for_byte(tmp_path, surface, version):
     data, root, page, calls = surface
     outline.prepare_first_chapter(data, tmp_path)
     path = root / ("outline-" + data["book_ref"] + ".json")
     record = outline.writer._load(path)
-    record["plan"] = outline._plan(record["binding"], 8, version=2)
+    record["plan"] = outline._plan(record["binding"], 8, version=version)
     outline.writer._save(path, record)
     old_plan = copy.deepcopy(record["plan"])
     calls.clear()
