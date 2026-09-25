@@ -182,13 +182,38 @@ def test_author_style_is_synthetic_and_facts_are_not_invented():
 
 
 @pytest.mark.parametrize("locale", ["de-DE", "en-US", "es-ES"])
+def test_new_prose_preserves_unspecified_identity_and_distinguishes_scene_from_biography(locale):
+    data = packet()
+    data["approved_source"]["locale"] = locale
+    binding = outline.setup._binding(data)
+    plan = outline._plan(binding, 8)
+    assert outline._plan_version(binding, plan) == 6
+    for part in plan[0]["parts"]:
+        text = part["description"]
+        assert "pronouns only when explicitly confirmed" in text
+        assert "otherwise use the runner's name" in text
+        assert "Survival does not establish childhood forest treks" in text
+        assert "Leadership does not mean peers already trust or follow" in text
+        assert "Small present-moment sensory details" in text
+        assert "not possessions, relationships, remembered events or successful outcomes" in text
+    endings = [part["description"].removeprefix(plan[0]["summary"]) for part in plan[0]["parts"]]
+    assert "one confirmed contribution" in endings[0]
+    assert "different confirmed contribution" in endings[1]
+    assert "Do not recap the training or bonuses" in endings[2]
+    assert "Establish the confirmed metatype, birth background and childhood" in plan[0]["summary"]
+    assert "currentDecisionFacts" not in plan[0]["summary"]
+    sample = outline._author_plan(binding)["sample"]
+    assert not re.search(r"\b(sie|ihr|ihre|er|sein|she|her|he|his|ella|él)\b", sample, re.IGNORECASE)
+
+
+@pytest.mark.parametrize("locale", ["de-DE", "en-US", "es-ES"])
 def test_prose_instructions_address_observed_inventory_and_rule_leakage(locale):
     data = packet()
     data["approved_source"]["locale"] = locale
     binding = outline.setup._binding(data)
     facts = json.dumps([f["text"] for f in binding["approved_source"]["facts"]], ensure_ascii=False)
     plan = outline._plan(binding, 8)
-    assert outline._plan_version(binding, plan) == 4
+    assert outline._plan_version(binding, plan) == 6
     for part in plan[0]["parts"]:
         text = part["description"]
         assert facts in text  # Do not achieve better prose by dropping approved facts.
@@ -202,7 +227,7 @@ def test_prose_instructions_address_observed_inventory_and_rule_leakage(locale):
     assert all(facts not in json.dumps(future) for future in plan[1:])
 
 
-@pytest.mark.parametrize("version", [1, 2, 3])
+@pytest.mark.parametrize("version", [1, 2, 3, 4])
 def test_resumed_author_form_preserves_admitted_style(tmp_path, surface, monkeypatch, version):
     data, root, page, calls = surface
     binding = outline.setup._binding(data)
@@ -321,7 +346,7 @@ def test_near_source_byte_bound_fits_writer_and_durable_record(tmp_path, text):
         outline.setup._binding(data)
 
 
-@pytest.mark.parametrize("version", [2, 3])
+@pytest.mark.parametrize("version", [2, 3, 4])
 def test_current_pre_upgrade_outline_is_recovered_byte_for_byte(tmp_path, surface, version):
     data, root, page, calls = surface
     outline.prepare_first_chapter(data, tmp_path)
