@@ -147,9 +147,10 @@ def test_other_chapter_changes_and_partial_edits_remain_blocked(tmp_path, contin
 
 
 @pytest.mark.parametrize("state", ["editing", "save_dispatched", "prepared"])
-def test_existing_next_outline_keeps_original_instructions(tmp_path, continuation, monkeypatch, state):
+@pytest.mark.parametrize("version", [2, 3])
+def test_existing_next_outline_keeps_original_instructions(tmp_path, continuation, monkeypatch, state, version):
     s = continuation
-    source, old_plan = nxt._plan(s["setup"], s["old"]["prepared"], version=2)
+    source, old_plan = nxt._plan(s["setup"], s["old"]["prepared"], version=version)
     path = nxt._path(s["root"], source["work_id"])
     nxt.writer._save(path, {"source": source, "previous": nxt.writer._binding(s["old"]["prepared"]),
         "plan": old_plan, "before": s["before"], "state": state})

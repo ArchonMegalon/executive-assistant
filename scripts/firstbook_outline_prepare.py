@@ -19,12 +19,12 @@ capture = writer.capture
 _HEADER = "//div[contains(concat(' ',normalize-space(@class),' '),' cursor-pointer ')][span[normalize-space(.)=NUMBER]]"
 
 
-def _plan(binding: dict, count: int, *, legacy: bool = False, version: int = 3) -> list[dict]:
-    # Versions 1/2 only recognize immutable, already retained outlines. New
-    # work uses 3; changing instructions must never rewrite an admitted book.
+def _plan(binding: dict, count: int, *, legacy: bool = False, version: int = 4) -> list[dict]:
+    # Versions 1/2/3 only recognize immutable, already retained outlines. New
+    # work uses 4; changing instructions must never rewrite an admitted book.
     if legacy:
         version = 1
-    if type(version) is not int or version not in (1, 2, 3):
+    if type(version) is not int or version not in (1, 2, 3, 4):
         raise ValueError("firstbook_outline_plan_version_invalid")
     source = binding["approved_source"]
     locale = source["locale"].split("-")[0]
@@ -51,6 +51,22 @@ def _plan(binding: dict, count: int, *, legacy: bool = False, version: int = 3) 
             "plausibly develops or expresses them, without inventing extra biographical events or rewards. "
             "Unassigned pools remain unassigned; contributions are not final ratings. "
             "Use readable narrative, not a character sheet, bonus list or rules explanation.")
+    if version >= 4:
+        direction += (" Editorial delivery: tell the story through the character's perspective, in connected paragraphs "
+            "of 2-4 varied sentences, not a sequence of clipped declarations or a catalogue of objects. "
+            "The quoted mechanics are reference notes, NOT phrases to copy or metaphors to narrate. "
+            "Karma costs, negative-quality budgets, zero entries, unassigned pools and unavailable contributions "
+            "have no biographical meaning; leave them out of the prose. Only a named, confirmed quality may "
+            "supply a specific limitation. Express confirmed skill/attribute contributions as developing habits "
+            "or familiarity, never mastery, perfect fluency, flawless reasoning, guaranteed success or a final rating. "
+            "A background can explain opportunities to learn, not an invented lesson, school, mentor or remembered incident. "
+            "A skill grant does not grant its equipment; wealth does not confirm an estate, security systems, "
+            "weapons, vehicles or possessions. Missing augmentation data does not mean an unmodified body. "
+            "Connect the confirmed cultural and childhood circumstances to a few relevant strengths naturally; "
+            "do not force every rule entry into its own scene. Keep names and choices exact. "
+            "The synthetic style sample supplies sentence rhythm only: do not reuse its weather, room, objects or events. "
+            "Write ONLY this section in 150-210 words. Do not output a synopsis, analytical subtitle, rule commentary "
+            "or the other sections. End before any new decision or outcome.")
     outline = [{"title": title, "description": direction + " " + ending} for title, ending in zip(parts, (
         "Open in this confirmed stage, with atmosphere but no new biographical event.",
         "Deepen the same moment without moving to a later life stage.",
@@ -68,16 +84,20 @@ def _plan(binding: dict, count: int, *, legacy: bool = False, version: int = 3) 
     return [initial] + [{**future, "title": f"{pending} — {number}"} for number in range(2, count + 1)]
 
 
-def _matches_plan(binding: dict, plan: list[dict]) -> bool:
-    for version in (1, 2, 3):
+def _plan_version(binding: dict, plan: list[dict]) -> int | None:
+    for version in (4, 3, 2, 1):
         try:
             if plan == _plan(binding, len(plan), version=version):
-                return True
+                return version
         except ValueError:
             # A larger current source could never have had the older plan.
             # Conversely a valid older plan need not fit newer instructions.
             continue
-    return False
+    return None
+
+
+def _matches_plan(binding: dict, plan: list[dict]) -> bool:
+    return _plan_version(binding, plan) is not None
 
 
 def _inspect(session: str) -> dict:
@@ -205,13 +225,30 @@ _ANECDOTES = 'textarea[placeholder^="e.g. - The time I fired"]'
 _SAMPLE = 'textarea[placeholder="Paste sample text here..."]'
 
 
-def _author_plan(binding: dict) -> dict:
+def _author_plan(binding: dict, *, version: int = 4) -> dict:
+    if type(version) is not int or version not in (1, 2, 3, 4):
+        raise ValueError("firstbook_outline_plan_version_invalid")
     source = binding["approved_source"]
     samples = {
         "de": "Regen zog feine Linien über das Glas. Dahinter flackerte ein rotes Licht, verschwand und kehrte zurück. In der Ferne summte die Stadt. Der Augenblick blieb offen, als hielte jemand den Atem an.",
         "en": "Rain traced thin lines down the glass. Beyond it a red light flickered, vanished and returned. The city hummed in the distance. The moment remained open, as though someone were holding their breath.",
         "es": "La lluvia trazaba líneas finas sobre el cristal. Al otro lado, una luz roja parpadeaba, desaparecía y volvía. La ciudad zumbaba a lo lejos. El instante seguía abierto, como si alguien contuviera el aliento.",
     }
+    if version >= 4:
+        # A complete paragraph models readable cadence. This fictional example
+        # is not a substitute for, or an addition to, the approved source facts.
+        samples = {
+            "de": "Sie bemerkte, wie sehr die vertraute Umgebung ihren Blick auf die Welt geprägt hatte. "
+                "Was lange selbstverständlich gewesen war, bekam nun Konturen, ohne schon eine Antwort auf "
+                "ihre Fragen zu liefern. Sie ließ den Gedanken einen Augenblick stehen; noch musste sie "
+                "sich für keinen Weg entscheiden.",
+            "en": "She began to notice how deeply familiar surroundings had shaped her way of seeing the world. "
+                "Things she had taken for granted were coming into focus, though they offered no ready answer "
+                "to her questions. She let the thought settle for a moment; there was no need to choose a path yet.",
+            "es": "Empezaba a notar cuánto había influido su entorno familiar en su manera de ver el mundo. "
+                "Lo que siempre había dado por sentado adquiría un nuevo relieve, sin ofrecer todavía una "
+                "respuesta a sus preguntas. Dejó reposar la idea un momento; aún no tenía que elegir un camino.",
+        }
     return {"anecdotes": "Fictional character facts only, not the player's personal experiences. "
             "The separate synthetic writing sample is tone only, not biography. "
             "No other history or future decisions are confirmed. Quoted facts: " +
@@ -248,7 +285,12 @@ def _complete_author_step(session: str, record: dict, path: Path) -> None:
         raise RuntimeError("firstbook_author_continuation_not_bound")
     capture._browser(session, "wait", "selector", "--selector", _ANECDOTES, "--timeout", "15000")
     _require_author(_inspect_author(session), record, {"anecdotes": "", "sample": ""})
-    plan = _author_plan(record["binding"])
+    # A resumed activation must use the style belonging to its retained plan,
+    # not silently change the already admitted book after an adapter update.
+    version = _plan_version(record["binding"], record["plan"])
+    if version is None:
+        raise RuntimeError("firstbook_outline_retained_binding_mismatch")
+    plan = _author_plan(record["binding"], version=version)
     record["state"] = "author_form_editing"
     writer._save(path, record)
     for key, selector in (("anecdotes", _ANECDOTES), ("sample", _SAMPLE)):

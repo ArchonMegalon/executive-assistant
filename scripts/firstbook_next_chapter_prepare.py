@@ -19,7 +19,7 @@ capture = writer.capture
 _LOCK = "Lock & Start Writing"
 
 
-def _plan(packet: dict, previous: dict, *, version: int = 3) -> tuple[dict, dict]:
+def _plan(packet: dict, previous: dict, *, version: int = 4) -> tuple[dict, dict]:
     source = outline.setup._binding({**packet, "framework_generation_approved": True})
     prior = writer._binding(previous)
     if (source["account_sha256"] != prior["account_sha256"]
@@ -50,12 +50,13 @@ def _retained_plan(packet: dict, previous: dict, source: dict, planned: dict, re
         raise RuntimeError("firstbook_next_retained_mismatch")
     if record.get("plan") == planned:
         return planned
-    try:
-        _, old_plan = _plan(packet, previous, version=2)
-        if record.get("plan") == old_plan:
-            return old_plan
-    except ValueError:
-        pass
+    for version in (3, 2):
+        try:
+            _, old_plan = _plan(packet, previous, version=version)
+            if record.get("plan") == old_plan:
+                return old_plan
+        except ValueError:
+            pass
     raise RuntimeError("firstbook_next_retained_mismatch")
 
 
