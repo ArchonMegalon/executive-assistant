@@ -8,6 +8,7 @@ for reconciliation, never closed or adopted by another invocation automatically.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -20,6 +21,30 @@ from scripts import origin_chapter_intake as intake
 worker = intake.worker
 _SAFE_CLOSE = {"idle", "review_required", "chapter_limit_reached", "awaiting_reader_acceptance", "final_chapter_retained"}
 _WATCH_AGAIN = {"idle", "review_required", "awaiting_reader_acceptance"}
+
+
+def _unstarted_recovery(root: Path, path: Path, previous: dict, binding: dict) -> bool:
+    """Consume only an exact operator-reviewed pre-admission recovery record.
+
+    The old lifecycle journal is preserved, not falsely marked closed. A new
+    open replaces that journal, so this record cannot authorize another retry.
+    """
+    digest = hashlib.sha256(worker._read_private(path, 4_000_000)).hexdigest()
+    receipt = worker.writer._load(root / ("unstarted-session-" + digest + ".json"))
+    if receipt is None:
+        return False
+    expected = {"state", "binding", "session", "session_sha256", "intake_sha256",
+        "pool_before_sha256", "book_ref", "work_id", "reserved_books", "remaining_books",
+        "publication_authorized"}
+    return (set(receipt) == expected and receipt["state"] == "reconciled_unstarted"
+        and previous["state"] == "retained_for_reconciliation"
+        and receipt["binding"] == binding and receipt["session"] == previous["session"]
+        and receipt["session_sha256"] == digest
+        and receipt["book_ref"] == binding["execution"]["book_ref"]
+        and receipt["work_id"] == binding["execution"]["first_work_id"]
+        and receipt["publication_authorized"] is False
+        and receipt["intake_sha256"] == hashlib.sha256(worker._read_private(
+            root / ("intake-" + receipt["book_ref"] + ".json"), 4_000_000)).hexdigest())
 
 
 class Browser:
@@ -77,7 +102,8 @@ def run_bounded(configuration: dict, hub: worker.LocalHub, output_root: Path, *,
     with intake.cycle._lease(output_root):
         previous = worker.writer._load(path)
         if previous is not None and (set(previous) != {"binding", "session", "state"}
-            or previous["binding"] != binding or previous["state"] != "closed"):
+            or previous["binding"] != binding or (previous["state"] != "closed"
+                and not _unstarted_recovery(root, path, previous, binding))):
             raise RuntimeError("origin_runtime_previous_session_requires_reconciliation")
         opened = attempted = work_may_have_started = False
 

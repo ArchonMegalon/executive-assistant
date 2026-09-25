@@ -194,6 +194,92 @@ def reconcile_completed(load_configuration, hub, output_root: Path, *,
         return result
 
 
+def reconcile_unstarted(load_configuration, hub, output_root: Path, *,
+                        expected_pool_sha256: str, expected_session_sha256: str,
+                        stopped_session: str, book_ref: str, now=time.time) -> dict:
+    """Explicit recovery BEFORE the first Hub/provider execution admission.
+
+    The operator must independently verify the executor is terminal and its
+    browser is absent, then supply that exact stopped session and reviewed
+    hashes. Names/journals alone do not prove a stopped process. This function
+    never stops/adopts a browser, dispatches work, refunds a reservation or
+    changes Hub. Neither run nor watch invokes it automatically.
+    """
+    if (any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)
+            for value in (expected_pool_sha256, expected_session_sha256, book_ref))
+        or not isinstance(stopped_session, str)
+        or not re.fullmatch(r"origin-book-[0-9a-f]{32}", stopped_session)):
+        raise ValueError("origin_pool_reconciliation_identity_invalid")
+    binding = _configuration(load_configuration(), now())
+    with _lease(output_root) as path, runtime.intake.cycle._lease(output_root):
+        raw = worker._read_private(path, 200000)
+        if hashlib.sha256(raw).hexdigest() != expected_pool_sha256:
+            raise RuntimeError("origin_pool_reconciliation_snapshot_changed")
+        state = _read_ledger(path, binding, now())
+        if state["in_flight"] != book_ref:
+            raise RuntimeError("origin_pool_reconciliation_fence_mismatch")
+        config = next(b for b in state["books"] if b["admission"]["book_ref"] == book_ref)
+        admission, book_binding = runtime._configuration(config, "validation-only", now())
+        root = path.parent
+        intake_path = root / ("intake-" + book_ref + ".json")
+        session_path = root / ("owned-session-" + book_ref + ".json")
+        snapshots = {p: worker._read_private(p, 4_000_000) for p in (intake_path, session_path)}
+        for data in snapshots.values():
+            worker._json(data)
+        session = worker._json(snapshots[session_path])
+        if (hashlib.sha256(snapshots[session_path]).hexdigest() != expected_session_sha256
+            or not isinstance(session, dict) or set(session) != {"binding", "session", "state"}
+            or session["binding"] != book_binding or session["session"] != stopped_session
+            or session["state"] != "retained_for_reconciliation"):
+            raise RuntimeError("origin_pool_reconciliation_session_mismatch")
+        intake = runtime.intake._restore(intake_path, book_binding["execution"])
+        if (len(intake["jobs"]) != 1 or intake["jobs"][0]["state"] != "working"
+            or intake["jobs"][0]["prepared"] is not None):
+            raise RuntimeError("origin_pool_reconciliation_not_unstarted")
+        packet = intake["jobs"][0]["packet"]
+        work = hub.call(packet["work_id"])
+        runtime.intake._scope(work, admission)
+        job = worker._validate_work(work, packet, preparing=True)
+        if (job["state"] != "awaiting_authoring" or "executionAdmission" not in work
+            or work["executionAdmission"] is not None or work.get("previousWorkId") is not None
+            or job.get("previous") is not None or packet["setup"]["browser_session"] != stopped_session):
+            raise RuntimeError("origin_pool_reconciliation_not_unstarted")
+        # Hub /admit precedes any provider action. Also reject surviving local
+        # setup/outline custody, including malformed or linked files.
+        def assert_no_provider_custody():
+            for prefix in ("setup-", "outline-"):
+                if worker.writer._load(root / (prefix + book_ref + ".json")) is not None:
+                    raise RuntimeError("origin_pool_reconciliation_not_unstarted")
+        assert_no_provider_custody()
+        if hub.pending(book_ref) != [work]:
+            raise RuntimeError("origin_pool_reconciliation_queue_changed")
+        if (hub.call(packet["work_id"]) != work or hub.pending(book_ref) != [work]
+            or _configuration(load_configuration(), now()) != binding
+            or worker._read_private(path, 200000) != raw
+            or any(worker._read_private(p, 4_000_000) != data for p, data in snapshots.items())):
+            raise RuntimeError("origin_pool_reconciliation_snapshot_changed")
+        assert_no_provider_custody()
+        result = {"state": "reconciled_unstarted", "binding": book_binding,
+            "session": stopped_session, "session_sha256": expected_session_sha256,
+            "intake_sha256": hashlib.sha256(snapshots[intake_path]).hexdigest(),
+            "pool_before_sha256": expected_pool_sha256, "book_ref": book_ref,
+            "work_id": packet["work_id"], "reserved_books": len(state["books"]),
+            "remaining_books": binding["maximum_new_books"] - len(state["books"]),
+            "publication_authorized": False}
+        receipt_path = root / ("unstarted-session-" + expected_session_sha256 + ".json")
+        existing = worker.writer._load(receipt_path)
+        if existing is not None and existing != result:
+            raise RuntimeError("origin_pool_reconciliation_receipt_mismatch")
+        if existing is None:
+            worker.writer._save(receipt_path, result)
+        # Persist the exact recovery before releasing the pool fence. If this
+        # last write fails, execution remains blocked and explicit recovery is
+        # repeatable against the same snapshots. Intake/session history is intact.
+        state["in_flight"] = None
+        worker.writer._save(path, state)
+        return result
+
+
 def _new_books(hub, binding: dict, enrolled: set[str], now: float) -> list[dict]:
     pending = hub.pending_books()
     if not isinstance(pending, list) or len(pending) >= 20:
