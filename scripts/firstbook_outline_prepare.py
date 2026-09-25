@@ -20,11 +20,12 @@ _HEADER = "//div[contains(concat(' ',normalize-space(@class),' '),' cursor-point
 
 
 def _plan(binding: dict, count: int, *, legacy: bool = False, version: int = 4) -> list[dict]:
-    # Versions 1/2/3 only recognize immutable, already retained outlines. New
-    # work uses 4; changing instructions must never rewrite an admitted book.
+    # Versions 1/2/3 recognize immutable retained outlines. Opening chapters
+    # still use 4; version 5 is selected only for new continuation chapters.
+    # Changing instructions must never rewrite an admitted book.
     if legacy:
         version = 1
-    if type(version) is not int or version not in (1, 2, 3, 4):
+    if type(version) is not int or version not in (1, 2, 3, 4, 5):
         raise ValueError("firstbook_outline_plan_version_invalid")
     source = binding["approved_source"]
     locale = source["locale"].split("-")[0]
@@ -34,6 +35,16 @@ def _plan(binding: dict, count: int, *, legacy: bool = False, version: int = 4) 
         "es": ("Un comienzo", ["El momento", "Bajo la superficie", "Antes de decidir"], "Aún sin decidir"),
     }[locale]
     facts = json.dumps([f["text"] for f in source["facts"]], ensure_ascii=False)
+    if version >= 5:
+        # Source facts are identity-sorted, not chronological. Preserve every
+        # approved value but carry the latest decision's grouping into the
+        # provider prompt without leaking local fact/decision/workspace IDs.
+        current = [f["text"] for f in source["facts"] if f["decisionId"] == source["acceptedDecisionId"]]
+        if not current:
+            raise ValueError("firstbook_current_decision_facts_missing")
+        facts = json.dumps({"currentDecisionFacts": current, "priorContextFacts": [
+            f["text"] for f in source["facts"] if f["decisionId"] != source["acceptedDecisionId"]
+        ]}, ensure_ascii=False)
     direction = (f"Private fictional third-person prose in {setup._LANGUAGES[locale]}. "
         "Write a brief sensory scene, not analysis or advice. Only these quoted facts are confirmed: " + facts +
         " Do not invent relatives, contacts, schools, abilities, equipment, past events or outcomes. "
@@ -45,8 +56,16 @@ def _plan(binding: dict, count: int, *, legacy: bool = False, version: int = 4) 
             "Metatype/species is not permission to invent physiology, enhanced senses, powers or skills. "
             "Use ordinary sensations only unless a special ability is an explicitly confirmed fact.")
     if version >= 3:
-        direction += (" Establish the confirmed metatype, birth background and childhood as the opening situation. "
-            "In later chapters, earlier facts are context, not events to repeat; focus on the latest confirmed stage. "
+        if version >= 5:
+            direction += (" Continue from currentDecisionFacts: these are the latest confirmed module, answers "
+                "and contributions, the focus of this chapter. priorContextFacts are earlier background only, "
+                "not a sequence to replay; neither list's order is chronology. "
+                "Do not restart the birth or childhood opening. Connect the current stage to established "
+                "background without retelling earlier stages or assigning their contributions to this module. ")
+        else:
+            direction += (" Establish the confirmed metatype, birth background and childhood as the opening situation. "
+                "In later chapters, earlier facts are context, not events to repeat; focus on the latest confirmed stage. ")
+        direction += (
             "Weave the confirmed module contributions and trade-offs into that situation: show how this background "
             "plausibly develops or expresses them, without inventing extra biographical events or rewards. "
             "Unassigned pools remain unassigned; contributions are not final ratings. "
