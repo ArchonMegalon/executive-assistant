@@ -11,6 +11,7 @@ import argparse
 import copy
 from contextlib import contextmanager
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -79,7 +80,7 @@ def initialize(config: dict, output_root: Path, *, now=time.time) -> dict:
             "remaining_books": binding["maximum_new_books"], "publication_authorized": False}
 
 
-def _restore(path: Path, binding: dict, now: float) -> dict:
+def _read_ledger(path: Path, binding: dict, now: float) -> dict:
     # Missing/invalid custody is not a fresh allowance. Duplicate JSON members
     # are rejected too; no counter is ever inferred from remaining provider credits.
     try:
@@ -100,9 +101,97 @@ def _restore(path: Path, binding: dict, now: float) -> dict:
         if entry != expected or ref in seen or ref in binding["excluded_book_refs"]:
             raise RuntimeError("origin_pool_custody_mismatch")
         seen.add(ref)
+    if state["in_flight"] is not None and state["in_flight"] not in seen:
+        raise RuntimeError("origin_pool_custody_mismatch")
+    return state
+
+
+def _restore(path: Path, binding: dict, now: float) -> dict:
+    state = _read_ledger(path, binding, now)
     if state["in_flight"] is not None:
         raise RuntimeError("origin_pool_execution_requires_reconciliation")
     return state
+
+
+def reconcile_completed(load_configuration, hub, output_root: Path, *,
+                        expected_pool_sha256: str, book_ref: str, now=time.time) -> dict:
+    """Explicit operator recovery of an idle/completed sweep, never a retry.
+
+    A stopped executor must first be inspected by the operator. Both execution
+    leases, a reviewed exact ledger, closed session custody, all completed Hub
+    jobs and an empty book queue are required here. Uncertain provider work is
+    deliberately unsupported. Reservations, expiry and reader acceptance stay
+    unchanged; watch/run never invoke this recovery automatically.
+    """
+    if any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)
+           for value in (expected_pool_sha256, book_ref)):
+        raise ValueError("origin_pool_reconciliation_identity_invalid")
+    binding = _configuration(load_configuration(), now())
+    with _lease(output_root) as path, runtime.intake.cycle._lease(output_root):
+        raw = worker._read_private(path, 200000)
+        if hashlib.sha256(raw).hexdigest() != expected_pool_sha256:
+            raise RuntimeError("origin_pool_reconciliation_snapshot_changed")
+        state = _read_ledger(path, binding, now())
+        if state["in_flight"] != book_ref:
+            raise RuntimeError("origin_pool_reconciliation_fence_mismatch")
+        config = next(b for b in state["books"] if b["admission"]["book_ref"] == book_ref)
+        admission, book_binding = runtime._configuration(config, "validation-only", now())
+        root = path.parent
+        intake_path = root / ("intake-" + book_ref + ".json")
+        session_path = root / ("owned-session-" + book_ref + ".json")
+        snapshots = {p: worker._read_private(p, 4_000_000) for p in (intake_path, session_path)}
+        # Duplicate members are not an operator-reviewable snapshot.
+        for data in snapshots.values():
+            worker._json(data)
+        session = worker._json(snapshots[session_path])
+        if (not isinstance(session, dict) or set(session) != {"binding", "session", "state"}
+            or session["binding"] != book_binding or session["state"] != "closed"
+            or not isinstance(session["session"], str)
+            or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", session["session"])):
+            raise RuntimeError("origin_pool_reconciliation_session_not_closed")
+        intake = runtime.intake._restore(intake_path, book_binding["execution"])
+        if not intake["jobs"] or any(entry["state"] != "review_required" for entry in intake["jobs"]):
+            raise RuntimeError("origin_pool_reconciliation_jobs_not_completed")
+        observed, completed = [], []
+        for entry in intake["jobs"]:
+            packet = entry["packet"]
+            work = hub.call(packet["work_id"])
+            runtime.intake._scope(work, admission)
+            job = worker._validate_work(work, packet, preparing=True)
+            if job["state"] != "review_required":
+                raise RuntimeError("origin_pool_reconciliation_jobs_not_completed")
+            if observed:
+                worker._validate_previous(work, observed[-1], packet["previous"])
+            observed.append(work)
+            completed.append({"work_id": packet["work_id"],
+                "text_sha256": hashlib.sha256(job["draftText"].encode("utf-8")).hexdigest(),
+                "provider_receipt_sha256": job["providerReceiptDigest"],
+                "reader_accepted_text_sha256": job.get("readerAcceptedTextDigest")})
+        if hub.pending(book_ref) != []:
+            raise RuntimeError("origin_pool_reconciliation_queue_not_empty")
+        # Re-read: a revision, successor, revocation or custody change during
+        # observation must not be treated as the operator's reviewed snapshot.
+        if any(hub.call(work["workId"]) != work for work in observed) or hub.pending(book_ref) != []:
+            raise RuntimeError("origin_pool_reconciliation_snapshot_changed")
+        if (_configuration(load_configuration(), now()) != binding
+            or worker._read_private(path, 200000) != raw
+            or any(worker._read_private(p, 4_000_000) != data for p, data in snapshots.items())):
+            raise RuntimeError("origin_pool_reconciliation_snapshot_changed")
+        state["in_flight"] = None
+        result = {"state": "reconciled_completed", "book_ref": book_ref,
+            "pool_before_sha256": expected_pool_sha256,
+            "pool_after_sha256": hashlib.sha256(json.dumps(state, ensure_ascii=False).encode("utf-8")).hexdigest(),
+            "reserved_books": len(state["books"]),
+            "remaining_books": binding["maximum_new_books"] - len(state["books"]),
+            "completed_jobs": completed, "publication_authorized": False}
+        receipt_path = root / ("pool-reconciliation-" + expected_pool_sha256 + ".json")
+        existing = worker.writer._load(receipt_path)
+        if existing is not None and existing != result:
+            raise RuntimeError("origin_pool_reconciliation_receipt_mismatch")
+        if existing is None:
+            worker.writer._save(receipt_path, result)
+        worker.writer._save(path, state)
+        return result
 
 
 def _new_books(hub, binding: dict, enrolled: set[str], now: float) -> list[dict]:
@@ -206,12 +295,19 @@ def main() -> int:
     parser.add_argument("--configuration-path", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--initialize", action="store_true")
+    parser.add_argument("--reconcile-completed-book", help="Operator-only recovery; never starts execution.")
+    parser.add_argument("--expected-pool-sha256")
     parser.add_argument("--hub-origin")
     parser.add_argument("--hub-host")
     parser.add_argument("--token-file", type=Path)
     parser.add_argument("--watch-seconds", type=int)
     parser.add_argument("--poll-interval", type=int, default=30)
     args = parser.parse_args()
+    if args.reconcile_completed_book is not None:
+        if args.initialize or args.watch_seconds is not None or args.expected_pool_sha256 is None:
+            parser.error("reconciliation requires an exact pool hash and cannot initialize/watch")
+    elif args.expected_pool_sha256 is not None:
+        parser.error("--expected-pool-sha256 requires --reconcile-completed-book")
     load = lambda: worker._json(worker._read_private(args.configuration_path, 16000))
     if args.initialize:
         result = initialize(load(), args.output_root)
@@ -219,7 +315,10 @@ def main() -> int:
         if not args.hub_origin or args.token_file is None:
             parser.error("--hub-origin and --token-file are required for execution")
         hub = worker.LocalHub(args.hub_origin, args.token_file, host=args.hub_host)
-        if args.watch_seconds is not None:
+        if args.reconcile_completed_book is not None:
+            result = reconcile_completed(load, hub, args.output_root,
+                expected_pool_sha256=args.expected_pool_sha256, book_ref=args.reconcile_completed_book)
+        elif args.watch_seconds is not None:
             result = watch(load, hub, args.output_root, duration=args.watch_seconds, poll_interval=args.poll_interval)
         else:
             result = run_once(load, hub, args.output_root)
