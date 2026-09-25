@@ -189,7 +189,8 @@ def project_packet():
 
 def overview(data):
     plan = prepare._plan(prepare._binding(data))
-    return {"origin": "https://app.firstbook.ai", "titles": [data["framework_project"]["book_title"]],
+    return {"origin": "https://app.firstbook.ai", "pageEpoch": 1000,
+            "titles": [data["framework_project"]["book_title"]],
             "ids": [data["framework_project"]["provider_book_id"]], "reviewOutlineCount": 1,
             "context": {label: {"count": 1, "value": plan[key]}
                         for label, key in (("Premise", "premise"), ("Goal", "goal"), ("Audience", "audience"))}}
@@ -200,7 +201,7 @@ def mock_overview(monkeypatch, observed):
         {"overviewControls": 1} if "overviewControls" in expression else observed)
     def wait(session, *args):
         assert args[:3] == ("wait", "selector", "--selector")
-        assert "//h1[normalize-space(.)=" in args[3]
+        assert "//h1[normalize-space(.)=" in args[3] or args[3] == "h1"
         assert args[4:] == ("--timeout", "15000")
     monkeypatch.setattr(prepare.capture, "_browser", wait)
 
@@ -269,16 +270,19 @@ def test_reconciliation_does_not_navigate_away_from_active_generation(tmp_path, 
     assert form.clicks == before
 
 
-def test_ready_owned_framework_can_discover_exact_provider_without_operator_copy(tmp_path, form, monkeypatch):
+@pytest.mark.parametrize("actual_title", ["Nera — Vor dem ersten Run", "Provider-generated new title"])
+def test_ready_owned_framework_can_discover_exact_provider_without_operator_copy(tmp_path, form, monkeypatch, actual_title):
     data = {**packet(), "framework_project_discovery_approved": True}
     prepare.prepare_framework(data, tmp_path)
-    expected = {"provider_book_id": "new-provider-book", "book_title": prepare._plan(prepare._binding(data))["title"]}
+    expected = {"provider_book_id": "new-provider-book", "book_title": actual_title}
     mock_overview(monkeypatch, overview({**data, "framework_project": expected}))
     before = len(form.clicks)
     result = prepare.prepare_framework(data, tmp_path, allow_new_dispatch=False)
     assert result["state"] == "framework_bound_needs_outline_review"
     stored = writer._load(tmp_path / "firstbook-private-writes" / ("setup-" + data["book_ref"] + ".json"))
     assert stored["provider"] == expected
+    assert form.clicks[before:] == ["xpath=//button[normalize-space(.)='Book Overview']"]
+    assert len(form.account_checks) == 1  # no dashboard/title lookup after dispatch
     assert not any(x in click for click in form.clicks[before:] for x in ("Generate", "Lock", "Start writing", "Approve"))
     previous = list(form.clicks)
     assert prepare.prepare_framework(data, tmp_path)["state"] == "framework_bound_needs_outline_review"
@@ -298,15 +302,18 @@ def test_discovery_cannot_leave_unready_or_foreign_framework(tmp_path, form, mon
     assert prepare.prepare_framework(data, tmp_path)["state"] == expected
 
 
-@pytest.mark.parametrize("change", ["title", "ids", "context", "reviewOutlineCount"])
+@pytest.mark.parametrize("change", ["title", "duplicate_title", "ids", "context", "reviewOutlineCount", "origin", "page"])
 def test_discovery_does_not_bind_ambiguous_or_wrong_source_project(tmp_path, form, monkeypatch, change):
     data = {**packet(), "framework_project_discovery_approved": True}
     prepare.prepare_framework(data, tmp_path)
     expected = {"provider_book_id": "new-provider-book", "book_title": prepare._plan(prepare._binding(data))["title"]}
     value = overview({**data, "framework_project": expected})
-    if change == "title": value["titles"] = ["other book"]
+    if change == "title": value["titles"] = [""]
+    elif change == "duplicate_title": value["titles"] *= 2
     elif change == "ids": value["ids"] *= 2
     elif change == "context": value["context"]["Premise"]["value"] = "other facts"
+    elif change == "origin": value["origin"] = "https://untrusted.invalid"
+    elif change == "page": value["pageEpoch"] += 1
     else: value["reviewOutlineCount"] = 0
     mock_overview(monkeypatch, value)
     with pytest.raises(RuntimeError, match="existing_project_mismatch"):
