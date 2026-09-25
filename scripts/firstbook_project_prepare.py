@@ -148,27 +148,44 @@ def _project(value: dict) -> dict:
     return project
 
 
-def _observe_existing_framework(session: str, binding: dict, plan: dict, project: dict | None) -> dict:
+def _observe_existing_framework(session: str, binding: dict, plan: dict, project: dict | None,
+                                *, page_epoch: int | float | None = None) -> dict:
     """Recover an explicitly selected existing project by read-only navigation.
 
     Titles alone are not identity. Check the visible provider ID and the exact
     original premise, goal and audience; never select a different project or
     generate another framework when the retained setup cannot be reconciled.
     """
-    title = project["book_title"] if project is not None else plan["title"]
-    capture._open_overview(session, binding["account_sha256"], title)
+    if project is not None:
+        capture._open_overview(session, binding["account_sha256"], project["book_title"])
+    else:
+        # FirstBook may replace the proposed title when generating a framework.
+        # Stay on the exclusively owned, authenticated dispatch page; searching
+        # the dashboard by the proposal can select an older, unrelated book.
+        current = _inspect(session)
+        if (page_epoch is None or current.get("pageEpoch") != page_epoch
+            or current.get("frameworkVisible") is not True):
+            raise RuntimeError("firstbook_setup_dispatch_page_changed")
+        capture._click(session, "xpath=//button[normalize-space(.)='Book Overview']")
+        capture._browser(session, "wait", "selector", "--selector", "h1", "--timeout", "15000")
     overview = capture._eval(session, """(() => {
         const context = Object.fromEntries(['Premise','Goal','Audience'].map(label => {
             const spans = Array.from(document.querySelectorAll('span')).filter(e=>e.textContent.trim()===label);
             return [label, {count:spans.length, value:spans.length===1?spans[0].nextElementSibling?.textContent.trim():null}];
         }));
-        return {origin:location.origin, titles:Array.from(document.querySelectorAll('h1')).map(e=>e.innerText.trim()),
+        return {origin:location.origin, pageEpoch:performance.timeOrigin,
+            titles:Array.from(document.querySelectorAll('h1')).map(e=>e.innerText.trim()),
             ids:Array.from(document.querySelectorAll('span.font-mono.select-all')).map(e=>e.textContent.trim()),
             reviewOutlineCount:Array.from(document.querySelectorAll('button')).filter(e=>e.innerText.trim()==='Review Outline').length,
             context};
     })()""")
     ids = overview.get("ids")
-    if (overview.get("titles") != [title]
+    titles = overview.get("titles")
+    if (overview.get("origin") != capture._ORIGIN.rstrip("/")
+        or not isinstance(titles, list) or len(titles) != 1
+        or not isinstance(titles[0], str) or not titles[0].strip() or len(titles[0]) > 2048
+        or (project is not None and titles != [project["book_title"]])
+        or (project is None and overview.get("pageEpoch") != page_epoch)
         or not isinstance(ids, list) or len(ids) != 1
         or not isinstance(ids[0], str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", ids[0])
         or (project is not None and ids != [project["provider_book_id"]])
@@ -176,7 +193,7 @@ def _observe_existing_framework(session: str, binding: dict, plan: dict, project
         or overview.get("context") != {label: {"count": 1, "value": plan[key]}
             for label, key in (("Premise", "premise"), ("Goal", "goal"), ("Audience", "audience"))}):
         raise RuntimeError("firstbook_setup_existing_project_mismatch")
-    return {"book_title": title, "provider_book_id": ids[0]}
+    return {"book_title": titles[0], "provider_book_id": ids[0]}
 
 
 def prepare_framework(packet: dict, output_root: Path, *, allow_new_dispatch: bool = True) -> dict:
@@ -243,7 +260,8 @@ def prepare_framework(packet: dict, output_root: Path, *, allow_new_dispatch: bo
                         # still require an explicitly reconciled project ID.
                         if writer._inspect(session).get("generating") is True:
                             return status("provider_busy")
-                        record["provider"] = _observe_existing_framework(session, binding, plan, None)
+                        record["provider"] = _observe_existing_framework(session, binding, plan, None,
+                            page_epoch=record["page_epoch"])
                         writer._save(path, record)
                         return status("framework_bound_needs_outline_review")
                     return status("framework_observed_needs_project_binding")
