@@ -1,5 +1,6 @@
 import copy
 import hashlib
+import json
 
 import pytest
 
@@ -62,6 +63,82 @@ def continuation(tmp_path, monkeypatch):
 def prepare(state, tmp_path, **kw):
     return nxt.prepare_next_chapter(state["setup"], state["old"]["prepared"], tmp_path,
                                     state["text"], state["receipt"], **kw)
+
+
+@pytest.mark.parametrize("locale", ["de-DE", "en-US", "es-ES"])
+@pytest.mark.parametrize("current_position", [0, 1, 2])
+def test_new_chapter_preserves_decision_focus_without_guessing_fact_order(continuation, locale, current_position):
+    s = continuation
+    data, previous = copy.deepcopy(s["setup"]), copy.deepcopy(s["old"]["prepared"])
+    data["approved_source"]["locale"] = previous["narrative_locale"] = locale
+    current = {"factId": "private-current", "decisionId": "school", "text": "Military School"}
+    facts = [
+        {"factId": "private-birth", "decisionId": "private-birth-decision", "text": "Human · Salish-Shidhe"},
+        {"factId": "private-childhood", "decisionId": "private-childhood-decision", "text": "Rich Kid"},
+    ]
+    facts.insert(current_position, current)
+    facts.insert(1, {"factId": "private-contribution", "decisionId": "school",
+                     "text": "Leadership: +1 (contribution, not final rating)"})
+    data["approved_source"]["facts"] = facts
+    original = copy.deepcopy(data)
+    source, plan = nxt._plan(data, previous)
+    expected = json.dumps({
+        "currentDecisionFacts": [f["text"] for f in facts if f["decisionId"] == "school"],
+        "priorContextFacts": [f["text"] for f in facts if f["decisionId"] != "school"],
+    }, ensure_ascii=False)
+    for value in [plan["chapter"]["summary"], *[p["description"] for p in plan["chapter"]["parts"]]]:
+        assert expected in value
+        assert "Do not restart the birth or childhood opening" in value
+        assert "Establish the confirmed metatype, birth background and childhood as the opening situation" not in value
+        assert "contributions are not final ratings" in value
+        assert "150-210 words" in value
+        assert "private-" not in value
+    assert data == original and source["approved_source"] == original["approved_source"]
+    assert plan["prepared"]["source_packet_sha256"] == data["source_packet_sha256"]
+
+
+def test_current_decision_with_no_facts_is_rejected_before_browser_or_journal(tmp_path, continuation):
+    s = continuation
+    s["setup"]["approved_source"]["acceptedDecisionId"] = "missing-decision"
+    with pytest.raises(ValueError, match="current_decision_facts_missing"):
+        prepare(s, tmp_path)
+    assert not s["actions"]
+    assert not nxt._path(s["root"], s["new"]["work_id"]).exists()
+
+
+def test_equal_text_in_two_decisions_keeps_both_attributions(continuation):
+    s = continuation
+    data = copy.deepcopy(s["setup"])
+    data["approved_source"]["facts"] = [
+        {"factId": "before", "decisionId": "before", "text": "Leadership: +1"},
+        {"factId": "now", "decisionId": "school", "text": "Leadership: +1"},
+    ]
+    _, plan = nxt._plan(data, s["old"]["prepared"])
+    assert json.dumps({"currentDecisionFacts": ["Leadership: +1"],
+                       "priorContextFacts": ["Leadership: +1"]}) in plan["chapter"]["summary"]
+
+
+@pytest.mark.parametrize("state", ["editing", "save_dispatched", "prepared"])
+def test_new_focus_requirement_does_not_strand_an_admitted_legacy_outline(tmp_path, continuation, state):
+    s = continuation
+    # Version 4 admitted this source; do not send a new instruction or create
+    # another paid request merely because the new recipe cannot focus it.
+    s["setup"]["approved_source"]["acceptedDecisionId"] = "legacy-no-matching-fact"
+    source, old_plan = nxt._plan(s["setup"], s["old"]["prepared"], version=4)
+    path = nxt._path(s["root"], source["work_id"])
+    nxt.writer._save(path, {"source": source, "previous": nxt.writer._binding(s["old"]["prepared"]),
+        "plan": old_plan, "before": s["before"], "state": state})
+    if state == "editing":
+        assert prepare(s, tmp_path)["state"] == "outline_save_dispatched"
+        assert s["values"][1] == nxt.outline._values(old_plan["chapter"])
+        assert sum("Lock & Start Writing" in a for a in s["actions"]) == 1
+    else:
+        s["observed"].update(chapterTitle=old_plan["prepared"]["chapter_title"],
+                             outline=old_plan["prepared"]["expected_outline"])
+        assert prepare(s, tmp_path)["prepared"] == old_plan["prepared"]
+        assert not any("Lock" in a for a in s["actions"])
+        assert nxt.retained_next_chapter(s["setup"], s["old"]["prepared"], tmp_path) == old_plan["prepared"]
+    assert nxt.writer._load(path)["plan"] == old_plan
 
 
 def test_next_choice_changes_only_one_slot_and_cold_read_completes_once(tmp_path, continuation):
@@ -147,7 +224,7 @@ def test_other_chapter_changes_and_partial_edits_remain_blocked(tmp_path, contin
 
 
 @pytest.mark.parametrize("state", ["editing", "save_dispatched", "prepared"])
-@pytest.mark.parametrize("version", [2, 3])
+@pytest.mark.parametrize("version", [2, 3, 4])
 def test_existing_next_outline_keeps_original_instructions(tmp_path, continuation, monkeypatch, state, version):
     s = continuation
     source, old_plan = nxt._plan(s["setup"], s["old"]["prepared"], version=version)
