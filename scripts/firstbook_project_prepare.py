@@ -64,7 +64,7 @@ def _binding(packet: dict) -> dict:
             raise ValueError("firstbook_setup_duplicate_fact")
         ids.add(identity)
     encoded = json.dumps(source, ensure_ascii=False).encode("utf-8")
-    if len(encoded) > 32768:
+    if len(encoded) > writer.MAX_SOURCE_BYTES:
         raise ValueError("firstbook_setup_source_oversized")
     # Preserve all local identity fields, but never send them to the provider.
     return {**result, "approved_source": json.loads(encoded)}

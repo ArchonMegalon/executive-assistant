@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 
 import pytest
 
@@ -151,11 +152,13 @@ def test_plan_is_localized_and_does_not_leak_private_identity(locale, first, pen
         assert excluded not in text
 
 
-def test_facts_are_not_silently_truncated_for_provider_limit():
+def test_historical_local_limit_is_not_silently_reinterpreted():
     data = packet()
     data["approved_source"]["facts"][0]["text"] = "a" * 2048
     with pytest.raises(ValueError, match="description"):
-        outline._plan(outline.setup._binding(data), 8)
+        outline._plan(outline.setup._binding(data), 8, version=2)
+    plan = outline._plan(outline.setup._binding(data), 8)
+    assert all("a" * 2048 in part["description"] for part in plan[0]["parts"])
 
 
 @pytest.mark.parametrize("patch", [{"creditCost": "2"}, {"pageEpoch": 2000}, {"anecdotes": "Some other person's story"},
@@ -210,7 +213,7 @@ def test_legacy_recovery_does_not_apply_new_prompt_size_to_retained_plan(tmp_pat
     provider = {"provider_book_id": "existing-book", "book_title": "Nera's private book"}
     old_plan = outline._plan(binding, 8, legacy=True)
     with pytest.raises(ValueError, match="description"):
-        outline._plan(binding, 8)
+        outline._plan(binding, 8, version=2)
     outline.writer._save(root / ("setup-" + binding["book_ref"] + ".json"), {
         "binding": binding, "plan": outline.setup._plan(binding), "state": "framework_dispatched",
         "provider": provider})
@@ -220,3 +223,91 @@ def test_legacy_recovery_does_not_apply_new_prompt_size_to_retained_plan(tmp_pat
     assert outline.prepare_first_chapter(data, tmp_path)["state"] == "first_chapter_prepared"
     assert calls == ["reopen_paid"]
     assert outline.writer._load(path)["plan"] == old_plan
+
+
+@pytest.mark.parametrize("locale", ["de-DE", "en-US", "es-ES"])
+def test_opening_setup_and_contributions_fit_without_losing_any_fact(locale):
+    data = packet()
+    data["approved_source"]["locale"] = locale
+    texts = ["Metatype: elf. " + "m" * 50,
+             "Birth background and confirmed contributions: " + "b" * 1073,
+             "Childhood and confirmed contributions: " + "c" * 1083]
+    data["approved_source"]["facts"] = [
+        {"factId": f"private-fact-{i}", "decisionId": f"private-decision-{i}", "text": value}
+        for i, value in enumerate(texts)]
+    binding = outline.setup._binding(data)
+    facts = json.dumps(texts, ensure_ascii=False)
+    plan = outline._plan(binding, 8)
+    assert facts in plan[0]["summary"]
+    assert facts in outline.setup._plan(binding)["background"]
+    assert facts in outline._author_plan(binding)["anecdotes"]
+    for part in plan[0]["parts"]:
+        assert facts in part["description"]
+        assert "metatype, birth background and childhood" in part["description"]
+        assert "confirmed module contributions and trade-offs" in part["description"]
+        assert "contributions are not final ratings" in part["description"]
+        assert "without inventing extra biographical events or rewards" in part["description"]
+    assert "private-fact" not in json.dumps(plan) and "private-decision" not in json.dumps(plan)
+    assert all(text not in json.dumps(plan[1:]) for text in texts)
+    prepared = outline._prepared(binding, {"provider_book_id": "existing-book", "book_title": "Nera"}, plan)
+    accepted = outline.writer._binding({**prepared, "generation_approved": True})
+    assert accepted["expected_outline"] == plan[0]["parts"]
+
+
+@pytest.mark.parametrize("text", ["a" * 2048, "境" * 680])
+def test_near_source_byte_bound_fits_writer_and_durable_record(tmp_path, text):
+    data = packet()
+    data["approved_source"]["facts"] = [
+        {"factId": f"f-{i}", "decisionId": f"d-{i}", "text": f"{i}:" + text[3:]}
+        for i in range(15)]
+    binding = outline.setup._binding(data)
+    assert len(json.dumps(binding["approved_source"], ensure_ascii=False).encode("utf-8")) > 30_000
+    plan = outline._plan(binding, 100)
+    assert outline._matches_plan(binding, plan)
+    prepared = outline._prepared(binding, {"provider_book_id": "existing-book", "book_title": "Nera"}, plan)
+    outline.writer._binding({**prepared, "generation_approved": True})
+    root = outline.writer._private_root(tmp_path)
+    path = root / "bounded-outline.json"
+    record = {"binding": binding, "plan": plan, "before": [outline._values(chapter) for chapter in plan]}
+    outline.writer._save(path, record)
+    assert outline.writer._load(path) == record
+    data["approved_source"]["facts"].append({"factId": "overflow", "decisionId": "d", "text": text})
+    with pytest.raises(ValueError, match="source_oversized"):
+        outline.setup._binding(data)
+
+
+def test_current_pre_upgrade_outline_is_recovered_byte_for_byte(tmp_path, surface):
+    data, root, page, calls = surface
+    outline.prepare_first_chapter(data, tmp_path)
+    path = root / ("outline-" + data["book_ref"] + ".json")
+    record = outline.writer._load(path)
+    record["plan"] = outline._plan(record["binding"], 8, version=2)
+    outline.writer._save(path, record)
+    old_plan = copy.deepcopy(record["plan"])
+    calls.clear()
+    assert outline.prepare_first_chapter(data, tmp_path)["state"] == "first_chapter_prepared"
+    assert calls == ["reopen_paid"]
+    assert outline.writer._load(path)["plan"] == old_plan
+    assert outline.retained_first_chapter(data, tmp_path)["expected_outline"] == old_plan[0]["parts"]
+
+
+@pytest.mark.parametrize("fits", [[True] * 8, [True] * 7 + [False], None, [True] * 7])
+def test_live_field_capacity_is_checked_before_any_input(monkeypatch, fits):
+    data = packet()
+    data["approved_source"]["facts"][0]["text"] = "Nera: 🌧"
+    chapter = outline._plan(outline.setup._binding(data), 1)[0]
+    calls = []
+    def inspect(session, expression):
+        lengths = json.loads(re.search(r"lengths=(\[[^\]]+\])", expression)[1])
+        assert lengths == [len(value.encode("utf-16-le")) // 2 for value in outline._values(chapter)]
+        assert lengths[1] > len(chapter["summary"])
+        return {"origin": "https://app.firstbook.ai", "fits": fits}
+    monkeypatch.setattr(outline.capture, "_eval", inspect)
+    monkeypatch.setattr(outline.capture, "_browser", lambda s, *args: calls.append(args))
+    if fits == [True] * 8:
+        outline._fill_card("owned", 1, chapter)
+        assert [call[4] for call in calls] == outline._values(chapter)
+    else:
+        with pytest.raises(RuntimeError, match="field_capacity_mismatch"):
+            outline._fill_card("owned", 1, chapter)
+        assert not calls

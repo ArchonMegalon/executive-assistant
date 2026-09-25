@@ -146,6 +146,41 @@ def test_other_chapter_changes_and_partial_edits_remain_blocked(tmp_path, contin
     assert not any("Lock" in a for a in s["actions"])
 
 
+@pytest.mark.parametrize("state", ["editing", "save_dispatched", "prepared"])
+def test_existing_next_outline_keeps_original_instructions(tmp_path, continuation, monkeypatch, state):
+    s = continuation
+    source, old_plan = nxt._plan(s["setup"], s["old"]["prepared"], version=2)
+    path = nxt._path(s["root"], source["work_id"])
+    nxt.writer._save(path, {"source": source, "previous": nxt.writer._binding(s["old"]["prepared"]),
+        "plan": old_plan, "before": s["before"], "state": state})
+    if state == "editing":
+        fill = nxt.outline._fill_card
+        def keep_old(session, number, chapter):
+            assert chapter == old_plan["chapter"]
+            fill(session, number, chapter)
+        monkeypatch.setattr(nxt.outline, "_fill_card", keep_old)
+        assert prepare(s, tmp_path)["state"] == "outline_save_dispatched"
+    else:
+        s["observed"].update(chapterTitle=old_plan["prepared"]["chapter_title"],
+                             outline=old_plan["prepared"]["expected_outline"])
+        assert prepare(s, tmp_path)["prepared"] == old_plan["prepared"]
+        assert not any("Lock" in action for action in s["actions"])
+        assert nxt.retained_next_chapter(s["setup"], s["old"]["prepared"], tmp_path) == old_plan["prepared"]
+    assert nxt.writer._load(path)["plan"] == old_plan
+
+
+def test_changed_retained_next_outline_is_rejected_before_navigation(tmp_path, continuation):
+    s = continuation
+    source, old_plan = nxt._plan(s["setup"], s["old"]["prepared"], version=2)
+    old_plan["chapter"]["summary"] += " Changed biography."
+    nxt.writer._save(nxt._path(s["root"], source["work_id"]), {
+        "source": source, "previous": nxt.writer._binding(s["old"]["prepared"]),
+        "plan": old_plan, "before": s["before"], "state": "prepared"})
+    with pytest.raises(RuntimeError, match="next_retained_mismatch"):
+        prepare(s, tmp_path)
+    assert not s["actions"]
+
+
 def test_worker_binds_both_hub_sources_before_preparing_and_reuses_admission(tmp_path, continuation, monkeypatch):
     s = continuation
     old_work = copy.deepcopy(s["hub"].work)

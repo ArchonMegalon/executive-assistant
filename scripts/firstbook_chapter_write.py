@@ -20,6 +20,12 @@ from scripts import firstbook_chapter_capture as capture
 
 MODE = "write_prepared_chapter"
 _MAX_RECORD_BYTES = 512_000
+# Local intake bounds, not a claim about the provider's server limits. The
+# observed FirstBook outline textareas have no maxlength; exact live readback
+# still has to succeed before Lock/Write. A whole approved source (32 KiB,
+# including identities) plus bounded instructions must fit without truncation.
+MAX_SOURCE_BYTES = 32_768
+MAX_DESCRIPTION_CHARS = MAX_SOURCE_BYTES + 2_048
 
 
 def _binding(packet: dict) -> dict:
@@ -34,7 +40,7 @@ def _binding(packet: dict) -> dict:
         if not isinstance(part, dict) or set(part) != {"title", "description"}:
             raise ValueError("firstbook_chapter_outline_invalid")
         retained.append({"title": capture._text(part, "title"),
-                         "description": capture._text(part, "description", 2048)})
+                         "description": capture._text(part, "description", MAX_DESCRIPTION_CHARS)})
     return {**binding, "expected_outline": retained, "depth": "Brief"}
 
 
