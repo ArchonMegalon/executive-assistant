@@ -30,10 +30,10 @@ def _source(packet: dict, previous: dict) -> tuple[dict, dict]:
     return source, prior
 
 
-def _plan(packet: dict, previous: dict, *, version: int = 5) -> tuple[dict, dict]:
+def _plan(packet: dict, previous: dict, *, version: int = 6) -> tuple[dict, dict]:
     source, prior = _source(packet, previous)
     number = prior["chapter_number"] + 1
-    chapter = outline._plan(source, 1, version=version)[0]
+    chapter = outline._plan(source, 1, version=version, continuation=True)[0]
     label = {"de": "Der nächste Schritt", "en": "The Next Step", "es": "El siguiente paso"}[
         prior["narrative_locale"].split("-")[0]]
     chapter["title"] = f'{source["approved_source"]["runnerName"]} — {label} {number}'
@@ -55,7 +55,7 @@ def _retained_plan(packet: dict, previous: dict, source: dict, record: dict) -> 
         raise RuntimeError("firstbook_next_retained_mismatch")
     # New focus/size requirements cannot invalidate a previously admitted
     # outline. Match the entire retained plan under its original recipe.
-    for version in (5, 4, 3, 2):
+    for version in (6, 5, 4, 3, 2):
         try:
             _, old_plan = _plan(packet, previous, version=version)
             if record.get("plan") == old_plan:

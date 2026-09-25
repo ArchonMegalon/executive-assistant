@@ -19,14 +19,17 @@ capture = writer.capture
 _HEADER = "//div[contains(concat(' ',normalize-space(@class),' '),' cursor-pointer ')][span[normalize-space(.)=NUMBER]]"
 
 
-def _plan(binding: dict, count: int, *, legacy: bool = False, version: int = 4) -> list[dict]:
-    # Versions 1/2/3 recognize immutable retained outlines. Opening chapters
-    # still use 4; version 5 is selected only for new continuation chapters.
+def _plan(binding: dict, count: int, *, legacy: bool = False, version: int = 6,
+          continuation: bool = False) -> list[dict]:
+    # Versions 1-5 recognize immutable retained outlines (5 was continuation
+    # only). New opening/continuation plans share 6's grounding instructions,
+    # but only continuations focus one decision rather than the whole opening.
     # Changing instructions must never rewrite an admitted book.
     if legacy:
         version = 1
-    if type(version) is not int or version not in (1, 2, 3, 4, 5):
+    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6):
         raise ValueError("firstbook_outline_plan_version_invalid")
+    focus_current = version == 5 or (version >= 6 and continuation)
     source = binding["approved_source"]
     locale = source["locale"].split("-")[0]
     first, parts, pending = {
@@ -35,7 +38,7 @@ def _plan(binding: dict, count: int, *, legacy: bool = False, version: int = 4) 
         "es": ("Un comienzo", ["El momento", "Bajo la superficie", "Antes de decidir"], "Aún sin decidir"),
     }[locale]
     facts = json.dumps([f["text"] for f in source["facts"]], ensure_ascii=False)
-    if version >= 5:
+    if focus_current:
         # Source facts are identity-sorted, not chronological. Preserve every
         # approved value but carry the latest decision's grouping into the
         # provider prompt without leaking local fact/decision/workspace IDs.
@@ -56,7 +59,7 @@ def _plan(binding: dict, count: int, *, legacy: bool = False, version: int = 4) 
             "Metatype/species is not permission to invent physiology, enhanced senses, powers or skills. "
             "Use ordinary sensations only unless a special ability is an explicitly confirmed fact.")
     if version >= 3:
-        if version >= 5:
+        if focus_current:
             direction += (" Continue from currentDecisionFacts: these are the latest confirmed module, answers "
                 "and contributions, the focus of this chapter. priorContextFacts are earlier background only, "
                 "not a sequence to replay; neither list's order is chronology. "
@@ -86,10 +89,28 @@ def _plan(binding: dict, count: int, *, legacy: bool = False, version: int = 4) 
             "The synthetic style sample supplies sentence rhythm only: do not reuse its weather, room, objects or events. "
             "Write ONLY this section in 150-210 words. Do not output a synopsis, analytical subtitle, rule commentary "
             "or the other sections. End before any new decision or outcome.")
-    outline = [{"title": title, "description": direction + " " + ending} for title, ending in zip(parts, (
+    endings = (
         "Open in this confirmed stage, with atmosphere but no new biographical event.",
         "Deepen the same moment without moving to a later life stage.",
-        "Stop before the player's next unchosen decision; do not select or resolve it."))]
+        "Stop before the player's next unchosen decision; do not select or resolve it.")
+    if version >= 6:
+        direction += (" Identity: use gendered terms and pronouns only when explicitly confirmed in the facts; "
+            "otherwise use the runner's name and gender-neutral phrasing, including in German and Spanish. "
+            "Do not infer identity from a name, module or style sample. "
+            "Small present-moment sensory details may make this scene vivid, but are not possessions, "
+            "relationships, remembered events or successful outcomes. "
+            "Survival does not establish childhood forest treks; Leadership does not mean peers already trust or follow. "
+            "Show a contribution as something the character is learning, not proof of a past achievement. "
+            "Never turn a reference example into an event in this biography.")
+        endings = (
+            "Start one moment within the confirmed stage. Show one confirmed contribution taking shape, "
+            "without a flashback, new identity or completed achievement.",
+            "Stay in that moment. Explore a different confirmed contribution or perspective without "
+            "repeating the first section's routine, atmosphere or claimed progress.",
+            "Close the same moment with an open thought, before the player's next unchosen decision. "
+            "Do not recap the training or bonuses, advance time to a later stage, or resolve future outcomes.")
+    outline = [{"title": title, "description": direction + " " + ending}
+               for title, ending in zip(parts, endings)]
     # Match the existing writer's bounded, exact three-part contract. Never
     # silently truncate confirmed facts to fit a provider field.
     for part in outline:
@@ -104,7 +125,7 @@ def _plan(binding: dict, count: int, *, legacy: bool = False, version: int = 4) 
 
 
 def _plan_version(binding: dict, plan: list[dict]) -> int | None:
-    for version in (4, 3, 2, 1):
+    for version in (6, 4, 3, 2, 1):
         try:
             if plan == _plan(binding, len(plan), version=version):
                 return version
@@ -244,8 +265,8 @@ _ANECDOTES = 'textarea[placeholder^="e.g. - The time I fired"]'
 _SAMPLE = 'textarea[placeholder="Paste sample text here..."]'
 
 
-def _author_plan(binding: dict, *, version: int = 4) -> dict:
-    if type(version) is not int or version not in (1, 2, 3, 4):
+def _author_plan(binding: dict, *, version: int = 6) -> dict:
+    if type(version) is not int or version not in (1, 2, 3, 4, 6):
         raise ValueError("firstbook_outline_plan_version_invalid")
     source = binding["approved_source"]
     samples = {
@@ -267,6 +288,20 @@ def _author_plan(binding: dict, *, version: int = 4) -> dict:
             "es": "Empezaba a notar cuánto había influido su entorno familiar en su manera de ver el mundo. "
                 "Lo que siempre había dado por sentado adquiría un nuevo relieve, sin ofrecer todavía una "
                 "respuesta a sus preguntas. Dejó reposar la idea un momento; aún no tenía que elegir un camino.",
+        }
+    if version >= 6:
+        # Model cadence without supplying a gender or a reusable biography.
+        # Retained author forms still use the exact admitted version's sample.
+        samples = {
+            "de": "Die vertraute Umgebung bekam neue Konturen. Zwischen dem Bekannten und dem noch "
+                "Unverstandenen blieb Raum für Fragen, ohne dass schon eine Antwort feststand. "
+                "Für einen Augenblick durfte diese Ungewissheit bestehen; noch war kein Weg gewählt.",
+            "en": "Familiar surroundings began to take on a different shape. Between what was known and "
+                "what remained unclear, there was room for questions without a ready answer. "
+                "For a moment, that uncertainty could remain; no path had yet been chosen.",
+            "es": "El entorno familiar empezaba a adquirir un relieve distinto. Entre lo conocido y lo "
+                "que aún no estaba claro quedaba espacio para preguntas sin respuesta inmediata. "
+                "Por un momento podía perdurar esa incertidumbre; todavía no se había elegido un camino.",
         }
     return {"anecdotes": "Fictional character facts only, not the player's personal experiences. "
             "The separate synthetic writing sample is tone only, not biography. "

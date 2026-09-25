@@ -92,6 +92,9 @@ def test_new_chapter_preserves_decision_focus_without_guessing_fact_order(contin
         assert "Establish the confirmed metatype, birth background and childhood as the opening situation" not in value
         assert "contributions are not final ratings" in value
         assert "150-210 words" in value
+        assert "pronouns only when explicitly confirmed" in value
+        assert "Survival does not establish childhood forest treks" in value
+        assert "Leadership does not mean peers already trust or follow" in value
         assert "private-" not in value
     assert data == original and source["approved_source"] == original["approved_source"]
     assert plan["prepared"]["source_packet_sha256"] == data["source_packet_sha256"]
@@ -224,7 +227,7 @@ def test_other_chapter_changes_and_partial_edits_remain_blocked(tmp_path, contin
 
 
 @pytest.mark.parametrize("state", ["editing", "save_dispatched", "prepared"])
-@pytest.mark.parametrize("version", [2, 3, 4])
+@pytest.mark.parametrize("version", [2, 3, 4, 5])
 def test_existing_next_outline_keeps_original_instructions(tmp_path, continuation, monkeypatch, state, version):
     s = continuation
     source, old_plan = nxt._plan(s["setup"], s["old"]["prepared"], version=version)
