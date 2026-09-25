@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 
 import pytest
@@ -219,3 +220,144 @@ def test_duplicate_json_member_in_custody_is_rejected(tmp_path):
     path.write_text('{"books": [], ' + json.dumps(ledger(tmp_path))[1:])
     with pytest.raises(ValueError, match="invalid_json"): run(config, hub, tmp_path)
     assert not hub.calls
+
+
+def completed_fence(tmp_path, executor):
+    config, hub = start(tmp_path), Books()
+    hub.add("1")
+    run(config, hub, tmp_path)
+    root = tmp_path / "firstbook-private-writes"
+    path = root / "book-pool.json"
+    state = ledger(tmp_path)
+    state["in_flight"] = "1" * 64  # deadline/crash before clearing an idle sweep
+    pool.worker.writer._save(path, state)
+    hub.calls.clear()
+    executor.clear()
+    return config, hub, root, path
+
+
+def reconcile(config, hub, root, path, **kwargs):
+    return pool.reconcile_completed(lambda: copy.deepcopy(config), hub, root.parent,
+        expected_pool_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+        book_ref="1" * 64, now=lambda: 1000, **kwargs)
+
+
+def test_explicit_completed_reconciliation_preserves_budget_and_never_dispatches(tmp_path, executor):
+    config, hub, root, path = completed_fence(tmp_path, executor)
+    before = path.read_bytes()
+    journals = {p.name: p.read_bytes() for p in root.iterdir() if p.suffix == ".json" and p != path}
+    result = reconcile(config, hub, root, path)
+    assert result["state"] == "reconciled_completed"
+    assert result["reserved_books"] == 1 and result["remaining_books"] == 2
+    expected = json.loads(before)
+    expected["in_flight"] = None
+    assert ledger(tmp_path) == expected
+    assert all((root / name).read_bytes() == raw for name, raw in journals.items())
+    assert not executor and all(action in ("", "pending") for action, _ in hub.calls)
+    assert hub.jobs["1" * 64 + "." + "a" * 64]["job"].get("readerAcceptedTextDigest") is None
+    receipt = pool.worker.writer._load(root / ("pool-reconciliation-" + hashlib.sha256(before).hexdigest() + ".json"))
+    assert receipt == result
+    assert receipt["pool_after_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert run(config, hub, tmp_path)["state"] == "idle"
+
+
+@pytest.mark.parametrize("change", ["open_session", "wrong_session_binding", "missing_session",
+    "missing_intake", "local_pending", "hub_pending", "wrong_source", "wrong_admission",
+    "invalid_receipt", "bad_acceptance", "pending_successor", "revoked", "expanded_budget"])
+def test_uncertain_reconciliation_keeps_every_byte_and_cannot_dispatch(tmp_path, executor, change):
+    config, hub, root, path = completed_fence(tmp_path, executor)
+    session = root / ("owned-session-" + "1" * 64 + ".json")
+    intake = root / ("intake-" + "1" * 64 + ".json")
+    job = next(iter(hub.jobs.values()))
+    if change in ("open_session", "wrong_session_binding"):
+        value = pool.worker.writer._load(session)
+        if change == "open_session": value["state"] = "retained_for_reconciliation"
+        else: value["binding"]["profile_id"] = "chrome_local_999"
+        pool.worker.writer._save(session, value)
+    if change == "missing_session": session.unlink()
+    if change == "missing_intake": intake.unlink()
+    if change == "local_pending":
+        value = pool.worker.writer._load(intake)
+        value["jobs"][-1]["state"] = "working"
+        pool.worker.writer._save(intake, value)
+    if change == "hub_pending": job["job"].update(state="reconciliation_required", draftText=None, providerReceiptDigest=None)
+    if change == "wrong_source": job["job"]["source"]["runnerName"] = "Wrong runner"
+    if change == "wrong_admission": job["executionAdmission"] = "other"
+    if change == "invalid_receipt": job["job"]["providerReceiptDigest"] = None
+    if change == "bad_acceptance": job["job"]["readerAcceptedTextDigest"] = "f" * 64
+    if change == "pending_successor": hub.next()
+    if change == "revoked": config["approved"] = False
+    if change == "expanded_budget": config["maximum_new_books"] = 4
+    before = {p.name: p.read_bytes() for p in root.iterdir() if p.suffix == ".json"}
+    with pytest.raises((ValueError, RuntimeError, FileNotFoundError)):
+        reconcile(config, hub, root, path)
+    assert {p.name: p.read_bytes() for p in root.iterdir() if p.suffix == ".json"} == before
+    assert not executor and all(action in ("", "pending") for action, _ in hub.calls)
+
+
+@pytest.mark.parametrize("lease", [pool._lease, pool.runtime.intake.cycle._lease])
+def test_reconciliation_cannot_touch_live_controller_or_cycle(tmp_path, executor, lease):
+    config, hub, root, path = completed_fence(tmp_path, executor)
+    before = path.read_bytes()
+    with lease(tmp_path), pytest.raises(RuntimeError, match="busy"):
+        reconcile(config, hub, root, path)
+    assert path.read_bytes() == before and not hub.calls and not executor
+
+
+def test_reconciliation_requires_exact_reviewed_fence_and_stable_inputs(tmp_path, executor):
+    config, hub, root, path = completed_fence(tmp_path, executor)
+    before = path.read_bytes()
+    with pytest.raises(RuntimeError, match="snapshot_changed"):
+        pool.reconcile_completed(lambda: config, hub, tmp_path, expected_pool_sha256="0" * 64,
+            book_ref="1" * 64, now=lambda: 1000)
+    assert not hub.calls
+    original = hub.pending
+    def change_approval(ref):
+        config["approved"] = False
+        return original(ref)
+    hub.pending = change_approval
+    with pytest.raises(ValueError): reconcile(config, hub, root, path)
+    assert path.read_bytes() == before and not executor
+
+
+@pytest.mark.parametrize("change", ["pool", "session", "intake", "hub_text", "expired"])
+def test_reconciliation_rejects_inputs_changed_during_readback(tmp_path, executor, change):
+    config, hub, root, path = completed_fence(tmp_path, executor)
+    original = hub.pending
+    def mutate(ref):
+        if change == "pool":
+            value = ledger(tmp_path)
+            value["in_flight"] = None
+            pool.worker.writer._save(path, value)
+        if change in ("session", "intake"):
+            target = root / (("owned-session-" if change == "session" else "intake-") + ref + ".json")
+            target.write_bytes(target.read_bytes() + b" ")
+        if change == "hub_text": next(iter(hub.jobs.values()))["job"]["draftText"] += " Revised."
+        if change == "expired": config["expires_at"] = 999
+        return original(ref)
+    hub.pending = mutate
+    with pytest.raises((ValueError, RuntimeError)): reconcile(config, hub, root, path)
+    assert not list(root.glob("pool-reconciliation-*")) and not executor
+
+
+def test_reconciliation_keeps_all_reservations_and_validates_completed_chain(tmp_path, executor):
+    config, hub, root, path = completed_fence(tmp_path, executor)
+    reconcile(config, hub, root, path)
+    hub.next()
+    run(config, hub, tmp_path)
+    hub.add("2")
+    run(config, hub, tmp_path)
+    state = ledger(tmp_path)
+    state["in_flight"] = "1" * 64
+    pool.worker.writer._save(path, state)
+    before = path.read_bytes()
+    executor.clear()
+    result = reconcile(config, hub, root, path)
+    assert result["reserved_books"] == 2 and result["remaining_books"] == 1
+    assert len(result["completed_jobs"]) == 2
+    assert result["completed_jobs"][0]["reader_accepted_text_sha256"] is not None
+    assert result["completed_jobs"][1]["reader_accepted_text_sha256"] is None
+    assert ledger(tmp_path)["books"] == state["books"] and not executor
+    with pytest.raises(RuntimeError, match="snapshot_changed"):
+        pool.reconcile_completed(lambda: config, hub, tmp_path,
+            expected_pool_sha256=hashlib.sha256(before).hexdigest(), book_ref="1" * 64, now=lambda: 1000)
