@@ -189,3 +189,96 @@ def test_connector_bounds_edited_text_before_hub_completion(tmp_path, surface):
     with pytest.raises(ValueError, match="result_oversized"):
         worker.run_once(data, hub, tmp_path, reviewed_draft_digest=writer.capture._sha(surface[2]["text"]))
     assert not any(action == "/complete" for action, _ in hub.calls)
+
+
+def delivered_revision(tmp_path):
+    data, hub, original = prepare_hub_review(tmp_path)
+    old_bytes = original.read_bytes()
+    text = json.loads(old_bytes)["result"]["text"]
+    digests = {"text_digest": writer.capture._sha(EDITED),
+               "expected_receipt_digest": hashlib.sha256(old_bytes).hexdigest(),
+               "expected_text_digest": writer.capture._sha(text)}
+    hub.work["job"].update(state="review_required", draftText=text,
+                           providerReceiptDigest=digests["expected_receipt_digest"])
+    call = hub.call
+
+    def revision(work_id, action="", body=None):
+        if action == "/revise-unaccepted":
+            assert body["sourceDigest"] == hub.work["job"]["sourceDigest"]
+            assert body["executionAdmission"] == hub.work["executionAdmission"]
+            assert hub.work["job"].get("readerAcceptedTextDigest") is None
+            assert body["expectedProviderReceiptDigest"] == digests["expected_receipt_digest"]
+            assert body["expectedTextDigest"] == digests["expected_text_digest"]
+            hub.work["job"].update(draftText=body["draftText"], providerReceiptDigest=body["providerReceiptDigest"])
+        return call(work_id, action, body)
+
+    hub.call = revision
+    return data, hub, original, digests
+
+
+def test_unaccepted_revision_retains_both_versions_and_retries_without_generation(tmp_path, surface, monkeypatch):
+    data, hub, original, digests = delivered_revision(tmp_path)
+    old_bytes = original.read_bytes()
+    monkeypatch.setattr(writer, "write_prepared_chapter", lambda *a, **k: pytest.fail("revision cannot generate"))
+    call = hub.call
+
+    def lost(work_id, action="", body=None):
+        result = call(work_id, action, body)
+        if action == "/revise-unaccepted":
+            raise RuntimeError("lost_revision_reply")
+        return result
+
+    hub.call = lost
+    with pytest.raises(RuntimeError, match="lost_revision_reply"):
+        worker.revise_unaccepted_once(data, hub, tmp_path, **digests)
+    hub.call = call
+    assert worker.revise_unaccepted_once(data, hub, tmp_path, **digests)["state"] == "review_required"
+    assert original.read_bytes() == old_bytes and surface[3] == ["capture"]
+    assert hub.work["job"]["draftText"] == EDITED
+    assert hub.work["job"].get("readerAcceptedTextDigest") is None
+    assert all(action in ("", "/revise-unaccepted") for action, _ in hub.calls)
+    selected = review.retained(writer._binding({**data["prepared"], "request_id": data["work_id"]}),
+                               tmp_path, digests["text_digest"])
+    assert hub.work["job"]["providerReceiptDigest"] == hashlib.sha256(selected[1].read_bytes()).hexdigest()
+    # The normal polling path still cannot replace a delivered revision.
+    with pytest.raises(ValueError, match="immutable"):
+        worker.run_once(data, hub, tmp_path, reviewed_draft_digest=digests["expected_text_digest"])
+
+
+@pytest.mark.parametrize("change", ["source", "owner", "admission", "receipt", "text", "accepted", "pending", "changed"])
+def test_revision_rejects_stale_unowned_or_accepted_work_before_browser_capture(tmp_path, surface, change):
+    data, hub, original, digests = delivered_revision(tmp_path)
+    old_bytes = original.read_bytes()
+    if change == "source":
+        hub.work["job"]["sourceDigest"] = "f" * 64
+    elif change == "owner":
+        hub.work["workId"] = "f" * 64 + "." + "2" * 64
+    elif change == "admission":
+        hub.work["executionAdmission"] = "other"
+    elif change == "receipt":
+        digests["expected_receipt_digest"] = "f" * 64
+    elif change == "text":
+        digests["expected_text_digest"] = "f" * 64
+    elif change == "accepted":
+        hub.work["job"]["readerAcceptedTextDigest"] = digests["expected_text_digest"]
+    elif change == "pending":
+        hub.work["job"].update(state="reconciliation_required", draftText=None, providerReceiptDigest=None)
+    else:
+        hub.work["job"].update(draftText="Newer result", providerReceiptDigest="f" * 64)
+    with pytest.raises(ValueError, match="binding_mismatch|revision_"):
+        worker.revise_unaccepted_once(data, hub, tmp_path, **digests)
+    assert not surface[3] and original.read_bytes() == old_bytes
+    assert all(action == "" for action, _ in hub.calls)
+
+
+def test_revision_cannot_deliver_oversized_text_or_capture_while_provider_busy(tmp_path, surface, monkeypatch):
+    data, hub, original, digests = delivered_revision(tmp_path)
+    monkeypatch.setattr(writer, "_inspect", lambda *a: {"generating": True})
+    assert worker.revise_unaccepted_once(data, hub, tmp_path, **digests)["state"] == "provider_busy"
+    assert not surface[3] and all(action == "" for action, _ in hub.calls)
+    monkeypatch.setattr(writer, "_inspect", lambda *a: {**prepared(), "hasDraft": True})
+    surface[2]["text"] = "x" * 65537
+    digests["text_digest"] = writer.capture._sha(surface[2]["text"])
+    with pytest.raises(ValueError, match="capture_changed"):
+        worker.revise_unaccepted_once(data, hub, tmp_path, **digests)
+    assert all(action == "" for action, _ in hub.calls)
