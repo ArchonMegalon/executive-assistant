@@ -149,6 +149,17 @@ def test_missing_admission_cannot_touch_browser_or_storage(tmp_path, browser):
     assert browser == [] and list(tmp_path.iterdir()) == []
 
 
+def test_description_limit_is_bounded_and_never_truncates(tmp_path, browser):
+    data = packet()
+    description = "a" * writer.MAX_DESCRIPTION_CHARS
+    data["expected_outline"][0]["description"] = description
+    assert writer._binding(data)["expected_outline"][0]["description"] == description
+    data["expected_outline"][0]["description"] += "b"
+    with pytest.raises(ValueError, match="invalid_description"):
+        writer.write_prepared_chapter(data, tmp_path)
+    assert browser == [] and list(tmp_path.iterdir()) == []
+
+
 def test_wrong_draft_does_not_complete_or_trigger_rewrite(tmp_path, browser, monkeypatch):
     writer.write_prepared_chapter(packet(), tmp_path)
     monkeypatch.setattr(writer, "_inspect", lambda *a: {"hasDraft": True})

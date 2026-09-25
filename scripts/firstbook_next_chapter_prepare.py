@@ -19,7 +19,7 @@ capture = writer.capture
 _LOCK = "Lock & Start Writing"
 
 
-def _plan(packet: dict, previous: dict) -> tuple[dict, dict]:
+def _plan(packet: dict, previous: dict, *, version: int = 3) -> tuple[dict, dict]:
     source = outline.setup._binding({**packet, "framework_generation_approved": True})
     prior = writer._binding(previous)
     if (source["account_sha256"] != prior["account_sha256"]
@@ -28,7 +28,7 @@ def _plan(packet: dict, previous: dict) -> tuple[dict, dict]:
         or source["work_id"] == prior["request_id"] or prior["chapter_number"] >= 100):
         raise ValueError("firstbook_next_source_mismatch")
     number = prior["chapter_number"] + 1
-    chapter = outline._plan(source, 1)[0]
+    chapter = outline._plan(source, 1, version=version)[0]
     label = {"de": "Der nächste Schritt", "en": "The Next Step", "es": "El siguiente paso"}[
         prior["narrative_locale"].split("-")[0]]
     chapter["title"] = f'{source["approved_source"]["runnerName"]} — {label} {number}'
@@ -44,15 +44,27 @@ def _path(root: Path, work_id: str) -> Path:
     return root / ("next-outline-" + capture._sha(work_id) + ".json")
 
 
+def _retained_plan(packet: dict, previous: dict, source: dict, planned: dict, record: dict) -> dict:
+    if (record.get("source") != source or record.get("previous") != writer._binding(previous)
+        or record.get("state") not in ("editing", "save_dispatched", "prepared")):
+        raise RuntimeError("firstbook_next_retained_mismatch")
+    if record.get("plan") == planned:
+        return planned
+    try:
+        _, old_plan = _plan(packet, previous, version=2)
+        if record.get("plan") == old_plan:
+            return old_plan
+    except ValueError:
+        pass
+    raise RuntimeError("firstbook_next_retained_mismatch")
+
+
 def retained_next_chapter(packet: dict, previous: dict, output_root: Path) -> dict | None:
     source, planned = _plan(packet, previous)
     record = writer._load(_path(writer._private_root(output_root), source["work_id"]))
     if record is None:
         return None
-    if (record.get("source") != source or record.get("plan") != planned
-        or record.get("previous") != writer._binding(previous)
-        or record.get("state") not in ("editing", "save_dispatched", "prepared")):
-        raise RuntimeError("firstbook_next_retained_mismatch")
+    planned = _retained_plan(packet, previous, source, planned, record)
     return planned["prepared"] if record["state"] == "prepared" else None
 
 
@@ -88,10 +100,11 @@ def prepare_next_chapter(packet: dict, previous: dict, output_root: Path,
         if number > count:
             raise RuntimeError("firstbook_next_no_remaining_slot")
         # Validate an existing journal before any navigation or input.
-        prepared = retained_next_chapter(packet, previous, output_root)
         record = writer._load(path)
-        if prepared is not None:
-            return {"state": "next_chapter_prepared", "prepared": prepared}
+        if record is not None:
+            planned = _retained_plan(packet, previous, source, planned, record)
+            if record["state"] == "prepared":
+                return {"state": "next_chapter_prepared", "prepared": planned["prepared"]}
         if record is None and not allow_new_dispatch:
             return {"state": "outline_reconciliation_required"}
         if writer._inspect(session).get("generating") is True:
