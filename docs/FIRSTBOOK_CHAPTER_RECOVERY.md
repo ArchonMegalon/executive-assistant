@@ -314,3 +314,21 @@ provider alone wrote an operator-edited passage.
 Focused coverage: `tests/test_firstbook_chapter_review.py` alongside the capture,
 writer, advancement and worker suites. Real-provider capture is read-only;
 reader-approved continuation still needs the actual app/Hub route.
+
+## Revise an unaccepted delivered draft
+
+The separate operator-only `--revise-unaccepted-draft TEXT_SHA256` mode also
+requires `--expected-receipt-digest` and `--expected-text-digest` identifying the
+exact previous Hub draft. Both the original writer journal and the selected
+edited capture remain immutable in private custody. The operator edits the
+existing provider page first; this command only captures it and calls the
+private Hub `revise-unaccepted` endpoint. It does not click Edit, Rewrite, Write,
+Save or Approve, spend credits, reset dispatch or acknowledge a reading.
+
+Hub atomically checks the exact source, admission and previous result. A reader
+acceptance, newer revision, changed source, wrong owner or replay prevents the
+replacement. A lost reply can read back the identical committed revision.
+Up to three superseded drafts are retained with the job; ordinary completion
+still cannot replace a delivered result. Android must read and explicitly accept
+the new proposal before continuation. This is an operator recovery seam, not an
+automatic rewrite or a user-facing revision request control.
