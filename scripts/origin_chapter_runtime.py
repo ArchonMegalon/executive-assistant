@@ -89,7 +89,8 @@ def _configuration(value: dict, session: str, now: float) -> tuple[dict, dict]:
 
 
 def run_bounded(configuration: dict, hub: worker.LocalHub, output_root: Path, *, cycles: int = 60,
-                interval: int = 5, browser=None, now=time.time, sleep=time.sleep, before_tick=None) -> dict:
+                interval: int = 5, browser=None, now=time.time, sleep=time.sleep, before_tick=None,
+                report_idle_failure: bool = False) -> dict:
     if type(cycles) is not int or not 1 <= cycles <= 120 or type(interval) is not int or not 2 <= interval <= 30:
         raise ValueError("origin_runtime_invalid_budget")
     # Caller-supplied session names are forbidden: only this process opens and
@@ -119,6 +120,10 @@ def run_bounded(configuration: dict, hub: worker.LocalHub, output_root: Path, *,
 
         def ensure_browser():
             nonlocal opened, attempted, work_may_have_started
+            # Hub reads/account verification may consume the remaining lifetime.
+            # Do not start a provider operation under an already expired watch.
+            if before_tick is not None:
+                before_tick()
             if not opened:
                 retain("opening")
                 attempted = True
@@ -126,6 +131,8 @@ def run_bounded(configuration: dict, hub: worker.LocalHub, output_root: Path, *,
                 opened = True
                 retain("open")
                 browser.verify_account(session, admission["account_sha256"])
+                if before_tick is not None:
+                    before_tick()
             work_may_have_started = True
 
         try:
@@ -145,13 +152,23 @@ def run_bounded(configuration: dict, hub: worker.LocalHub, output_root: Path, *,
                     retain("retained_for_reconciliation")
             return {**result, "browser_session": session if attempted else None,
                 "browser_retained": opened, "publication_authorized": False}
-        except BaseException:
+        except BaseException as error:
             # A failed open acknowledgement may still have created a window.
             # Never discover/close it from a name or silently open a replacement.
+            no_browser = not attempted
             if opened and not work_may_have_started:
                 close()
+                no_browser = True  # only after the close acknowledgement and journal write
             elif attempted:
                 retain("retained_for_reconciliation")
+            if report_idle_failure and no_browser and isinstance(error, Exception):
+                # Prior custody was validated above. This invocation either
+                # never opened or verified its pre-work window closed. Preserve
+                # the journals and pool fence without retaining an empty
+                # container. Unknown opens/closes still raise and are retained.
+                return {"state": "reconciliation_required", "browser_retained": False,
+                    "stop_reason": "origin_runtime_failed_without_browser",
+                    "publication_authorized": False}
             raise
 
 

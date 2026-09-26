@@ -110,40 +110,43 @@ def test_observation_keeps_same_window_and_lock_until_review(tmp_path, monkeypat
     assert [call[0] for call in browser.calls] == ["open", "account", "close"]
 
 
-def test_uncertain_open_does_not_close_or_retry_an_unconfirmed_window(tmp_path):
+@pytest.mark.parametrize("report_idle_failure", [False, True])
+def test_uncertain_open_does_not_close_or_retry_an_unconfirmed_window(tmp_path, report_idle_failure):
     hub, browser = Queue(), Browser()
     def lost(profile, session):
         browser.calls.append(("open", profile, session))
         raise RuntimeError("open acknowledgement lost")
     browser.open = lost
     with pytest.raises(RuntimeError, match="acknowledgement lost"):
-        run(configuration(hub), hub, tmp_path, browser)
+        run(configuration(hub), hub, tmp_path, browser, report_idle_failure=report_idle_failure)
     with pytest.raises(RuntimeError, match="previous_session_requires_reconciliation"):
-        run(configuration(hub), hub, tmp_path, browser)
+        run(configuration(hub), hub, tmp_path, browser, report_idle_failure=report_idle_failure)
     assert len(browser.calls) == 1 and not any(action == "/admit" for action, _ in hub.calls)
 
 
-def test_error_after_work_starts_preserves_window_and_original_work(tmp_path, monkeypatch):
+@pytest.mark.parametrize("report_idle_failure", [False, True])
+def test_error_after_work_starts_preserves_window_and_original_work(tmp_path, monkeypatch, report_idle_failure):
     hub, browser = Queue(), Browser()
     def failure(*args): raise RuntimeError("uncertain provider result")
     monkeypatch.setattr(runtime.intake.cycle, "_step", failure)
     with pytest.raises(RuntimeError, match="uncertain provider result"):
-        run(configuration(hub), hub, tmp_path, browser)
+        run(configuration(hub), hub, tmp_path, browser, report_idle_failure=report_idle_failure)
     assert [call[0] for call in browser.calls] == ["open", "account"]
     path = tmp_path / "firstbook-private-writes" / ("intake-" + hub.first["bookRef"] + ".json")
     assert runtime.worker.writer._load(path)["jobs"][0]["state"] == "working"
 
 
-def test_uncertain_close_is_not_recorded_as_successful_cleanup(tmp_path, executor):
+@pytest.mark.parametrize("report_idle_failure", [False, True])
+def test_uncertain_close_is_not_recorded_as_successful_cleanup(tmp_path, executor, report_idle_failure):
     hub, browser = Queue(), Browser()
     def lost(session):
         browser.calls.append(("close", session))
         raise RuntimeError("close acknowledgement lost")
     browser.close = lost
     with pytest.raises(RuntimeError, match="close acknowledgement lost"):
-        run(configuration(hub), hub, tmp_path, browser)
+        run(configuration(hub), hub, tmp_path, browser, report_idle_failure=report_idle_failure)
     with pytest.raises(RuntimeError, match="previous_session_requires_reconciliation"):
-        run(configuration(hub), hub, tmp_path, browser)
+        run(configuration(hub), hub, tmp_path, browser, report_idle_failure=report_idle_failure)
     assert [call[0] for call in browser.calls] == ["open", "account", "close"]
 
 

@@ -104,9 +104,11 @@ def watch_or_retain(load, hub, *, duration: int, hold=signal.pause, selected_boo
             selected_book_ref=selected_book_ref)
     except Exception:
         result = {"state": "reconciliation_required", "publication_authorized": False}
-    if result["state"] == "reconciliation_required":
+    if result["state"] == "reconciliation_required" and result.get("browser_retained") is not False:
         # Do not let PID 1 exit and kill an in-progress provider page. Nothing
         # retries here. Keep the owned browser available for explicit recovery.
+        # An explicit no-browser runtime result can exit while leaving its fence
+        # intact. Missing/uncertain lifecycle evidence must still retain PID 1.
         print(json.dumps({**result, "controller": "stopped_no_retry"}), flush=True)
         while True:
             hold()
