@@ -58,6 +58,17 @@ for idle or already retained results. The fourth new book stays queued. A full
 20-item Hub queue page or ambiguous first chapter stops; there is no guessed
 pagination or arbitrary choice between conflicting chapters.
 
+For a deliberate single-book run, add `--selected-book <exact-64-hex-book-ref>`
+to either the pool CLI or the Docker entrypoint. This services only that book,
+while retaining every previous reservation and the shared execution fence.
+A missing, excluded, ambiguous or over-budget selection fails closed; it never
+falls back to a different queued book. A selected existing book does not reserve
+another credit. Selection does not recover or reopen historical sessions.
+The three-book configuration above records the original approval, not a renewed
+allowance. A later explicit owner grant needs a separately reviewed custody and
+configuration amendment, preserving all reservations; `--selected-book` does
+not enlarge it.
+
 `book-pool.json` contains the immutable approval binding, cumulative reservations
 and an in-flight marker. Keep it with all provider/intake/session journals in
 private recovery custody. Missing custody fails closed; execution never

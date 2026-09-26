@@ -98,9 +98,10 @@ def preflight(config: dict, browser=None) -> dict:
         "browser_session": session, "browser_retained": False, "credits_spent": 0}
 
 
-def watch_or_retain(load, hub, *, duration: int, hold=signal.pause) -> dict:
+def watch_or_retain(load, hub, *, duration: int, hold=signal.pause, selected_book_ref=None) -> dict:
     try:
-        result = pool.watch(load, hub, Path("/custody"), duration=duration)
+        result = pool.watch(load, hub, Path("/custody"), duration=duration,
+            selected_book_ref=selected_book_ref)
     except Exception:
         result = {"state": "reconciliation_required", "publication_authorized": False}
     if result["state"] == "reconciliation_required":
@@ -116,6 +117,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--preflight", action="store_true")
     parser.add_argument("--watch-seconds", type=int, default=3600)
+    parser.add_argument("--selected-book", help="Restrict this invocation to one exact admitted book.")
     args = parser.parse_args()
     os.umask(0o077)
     load = lambda: pool.worker._json(pool.worker._read_private(Path("/private/approval.json"), 16000))
@@ -129,7 +131,7 @@ def main() -> int:
         result = preflight(config)
     else:
         hub = pool.worker.LocalHub("http://127.0.0.1:15099", Path("/private/worker.token"), host="chummer.run")
-        result = watch_or_retain(load, hub, duration=args.watch_seconds)
+        result = watch_or_retain(load, hub, duration=args.watch_seconds, selected_book_ref=args.selected_book)
     print(json.dumps(result))
     return 2 if result["state"] == "reconciliation_required" else 0
 

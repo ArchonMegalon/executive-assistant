@@ -81,6 +81,63 @@ def test_reservation_and_inflight_fence_are_persisted_before_runtime(tmp_path, m
     assert len(ledger(tmp_path)["books"]) == 1
 
 
+def test_selected_book_preserves_prior_books_and_only_executes_exact_selection(tmp_path, monkeypatch):
+    config, hub = start(tmp_path), Books()
+    for digit in "123": hub.add(digit)
+    observed = []
+    def execute(book, *args, **kwargs):
+        observed.append(book["admission"]["book_ref"])
+        assert ledger(tmp_path)["in_flight"] == observed[-1]
+        return {"state": "review_required", "browser_retained": False}
+    monkeypatch.setattr(pool.runtime, "run_bounded", execute)
+    def selected(ref):
+        return pool.run_once(lambda: config, hub, tmp_path, now=lambda: 1000, selected_book_ref=ref)
+    selected("1" * 64)
+    previous = copy.deepcopy(ledger(tmp_path)["books"])
+    selected("3" * 64)
+    assert observed == ["1" * 64, "3" * 64]
+    assert ledger(tmp_path)["books"][:1] == previous
+    assert len(ledger(tmp_path)["books"]) == 2
+    selected("3" * 64)
+    assert observed[-1] == "3" * 64 and len(ledger(tmp_path)["books"]) == 2
+    assert hub.jobs["2" * 64 + "." + "a" * 64]["executionAdmission"] is None
+
+
+@pytest.mark.parametrize("ref", ["missing", "", True, "F" * 64])
+def test_selected_invalid_identity_does_not_query_hub(tmp_path, ref):
+    config, hub = start(tmp_path), Books()
+    with pytest.raises(ValueError, match="selection_invalid"):
+        pool.run_once(lambda: config, hub, tmp_path, now=lambda: 1000, selected_book_ref=ref)
+    assert not hub.calls
+
+
+def test_selected_missing_book_cannot_fall_back_to_another(tmp_path, executor):
+    config, hub = start(tmp_path), Books()
+    hub.add("1")
+    with pytest.raises(RuntimeError, match="selected_book_not_admitted"):
+        pool.run_once(lambda: config, hub, tmp_path, now=lambda: 1000, selected_book_ref="2" * 64)
+    assert not executor and not ledger(tmp_path)["books"]
+
+
+def test_selected_book_does_not_bypass_capacity_or_uncertain_fence(tmp_path, monkeypatch):
+    config = configuration()
+    config["maximum_new_books"] = 1
+    start(tmp_path, config)
+    hub = Books()
+    for digit in "12": hub.add(digit)
+    monkeypatch.setattr(pool.runtime, "run_bounded", lambda *a, **k:
+        {"state": "idle", "browser_retained": False})
+    run(config, hub, tmp_path)
+    before = ledger(tmp_path)
+    with pytest.raises(RuntimeError, match="selected_book_not_admitted"):
+        pool.run_once(lambda: config, hub, tmp_path, now=lambda: 1000, selected_book_ref="2" * 64)
+    assert ledger(tmp_path) == before
+    before["in_flight"] = "1" * 64
+    pool.worker.writer._save(tmp_path / "firstbook-private-writes/book-pool.json", before)
+    with pytest.raises(RuntimeError, match="requires_reconciliation"):
+        pool.run_once(lambda: config, hub, tmp_path, now=lambda: 1000, selected_book_ref="2" * 64)
+
+
 def test_reader_requested_continuation_reuses_book_without_another_slot_or_credit(tmp_path, executor):
     config, hub = start(tmp_path), Books()
     hub.add("1")
