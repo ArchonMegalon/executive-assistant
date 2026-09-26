@@ -114,17 +114,30 @@ def _restore(path: Path, binding: dict, now: float) -> dict:
 
 
 def reconcile_completed(load_configuration, hub, output_root: Path, *,
-                        expected_pool_sha256: str, book_ref: str, now=time.time) -> dict:
+                        expected_pool_sha256: str, book_ref: str,
+                        stopped_session: str | None = None,
+                        expected_session_sha256: str | None = None, now=time.time) -> dict:
     """Explicit operator recovery of an idle/completed sweep, never a retry.
 
     A stopped executor must first be inspected by the operator. Both execution
-    leases, a reviewed exact ledger, closed session custody, all completed Hub
-    jobs and an empty book queue are required here. Uncertain provider work is
-    deliberately unsupported. Reservations, expiry and reader acceptance stay
-    unchanged; watch/run never invoke this recovery automatically.
+    leases, a reviewed exact ledger, all completed Hub jobs and an empty book
+    queue are required here. Normally the session custody must be closed. A
+    killed executor may instead leave an open journal: the operator must verify
+    the exact old process/window is absent and provider work is terminal, then
+    supply its session identity AND journal digest. The journal is preserved,
+    never falsely rewritten as a successful close. This only releases the pool
+    fence, not permission to reopen that old session or replay its provider work.
+    Reservations, expiry and reader acceptance stay unchanged; watch/run never
+    invoke this recovery automatically. Uncertain provider work is unsupported.
     """
     if any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)
            for value in (expected_pool_sha256, book_ref)):
+        raise ValueError("origin_pool_reconciliation_identity_invalid")
+    stopped = stopped_session is not None or expected_session_sha256 is not None
+    if stopped and (not isinstance(stopped_session, str)
+        or not re.fullmatch(r"origin-book-[0-9a-f]{32}", stopped_session)
+        or not isinstance(expected_session_sha256, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", expected_session_sha256)):
         raise ValueError("origin_pool_reconciliation_identity_invalid")
     binding = _configuration(load_configuration(), now())
     with _lease(output_root) as path, runtime.intake.cycle._lease(output_root):
@@ -145,9 +158,16 @@ def reconcile_completed(load_configuration, hub, output_root: Path, *,
             worker._json(data)
         session = worker._json(snapshots[session_path])
         if (not isinstance(session, dict) or set(session) != {"binding", "session", "state"}
-            or session["binding"] != book_binding or session["state"] != "closed"
+            or session["binding"] != book_binding
             or not isinstance(session["session"], str)
             or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", session["session"])):
+            raise RuntimeError("origin_pool_reconciliation_session_not_closed")
+        if stopped:
+            if (session["state"] not in ("open", "retained_for_reconciliation")
+                or session["session"] != stopped_session
+                or hashlib.sha256(snapshots[session_path]).hexdigest() != expected_session_sha256):
+                raise RuntimeError("origin_pool_reconciliation_session_mismatch")
+        elif session["state"] != "closed":
             raise RuntimeError("origin_pool_reconciliation_session_not_closed")
         intake = runtime.intake._restore(intake_path, book_binding["execution"])
         if not intake["jobs"] or any(entry["state"] != "review_required" for entry in intake["jobs"]):
@@ -184,6 +204,9 @@ def reconcile_completed(load_configuration, hub, output_root: Path, *,
             "reserved_books": len(state["books"]),
             "remaining_books": binding["maximum_new_books"] - len(state["books"]),
             "completed_jobs": completed, "publication_authorized": False}
+        if stopped:
+            result.update(stopped_session=stopped_session, session_sha256=expected_session_sha256,
+                retained_session_state=session["state"])
         receipt_path = root / ("pool-reconciliation-" + expected_pool_sha256 + ".json")
         existing = worker.writer._load(receipt_path)
         if existing is not None and existing != result:
