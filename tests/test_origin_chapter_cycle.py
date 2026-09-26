@@ -38,7 +38,7 @@ def test_cycle_derives_prepared_mapping_and_completes_one_write(tmp_path, monkey
     observed["generating"] = True
     assert cycle.run_once(data, hub, tmp_path)["state"] == "provider_busy"
     before = list(calls)
-    observed.update(generating=False, hasDraft=True)
+    observed.update(generating=False, hasDraft=True, reviewReady=True)
     assert cycle.run_once(data, hub, tmp_path)["state"] == "review_required"
     assert sum("Write Chapter" in c for c in calls) == 1
     assert not any("Approve" in c for c in calls)

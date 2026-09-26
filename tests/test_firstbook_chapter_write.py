@@ -61,7 +61,7 @@ def test_dispatch_fence_precedes_write_and_retry_cannot_repeat(tmp_path, browser
 
 def test_real_draft_capture_and_cold_retry_do_not_navigate_or_admit_canon(tmp_path, browser, monkeypatch):
     writer.write_prepared_chapter(packet(), tmp_path)
-    monkeypatch.setattr(writer, "_inspect", lambda *a: {"hasDraft": True})
+    monkeypatch.setattr(writer, "_inspect", lambda *a: {"hasDraft": True, "reviewReady": True})
     result = writer.write_prepared_chapter(packet(), tmp_path)
     assert result["render_status"] == "chapter_review_required"
     assert result["provider_generation_attempted"] is True
@@ -110,6 +110,33 @@ def test_poll_does_not_navigate_away_from_inflight_browser_generation(tmp_path, 
     monkeypatch.setattr(writer, "_inspect", lambda *a: {"generating": True})
     assert writer.write_prepared_chapter(packet(), tmp_path)["render_status"] == "provider_busy"
     assert browser == before
+
+
+@pytest.mark.parametrize("surface", [
+    prepared(), {}, {"hasDraft": False, "writeEnabled": False},
+    {"hasDraft": True, "reviewReady": False},
+])
+def test_dispatch_poll_never_reopens_an_unfinished_or_uncertain_page(tmp_path, browser, monkeypatch, surface):
+    writer.write_prepared_chapter(packet(), tmp_path)
+    before = list(browser)
+    retained = next(tmp_path.rglob("*.json"))
+    original = retained.read_bytes()
+    monkeypatch.setattr(writer, "_inspect", lambda *args: surface)
+    result = writer.write_prepared_chapter(packet(), tmp_path)
+    assert result["render_status"] in ("provider_busy", "reconciliation_required")
+    assert result["retry_generation_allowed"] is False
+    assert browser == before
+    assert retained.read_bytes() == original
+
+
+def test_review_revalidation_does_not_capture_a_resumed_rewrite(tmp_path, browser, monkeypatch):
+    writer.write_prepared_chapter(packet(), tmp_path)
+    current = iter([{"hasDraft": True, "reviewReady": True},
+                    {"hasDraft": True, "reviewReady": True, "generating": True}])
+    monkeypatch.setattr(writer, "_inspect", lambda *args: next(current))
+    monkeypatch.setattr(capture, "_read_draft", lambda *args: pytest.fail("live rewrite is not final prose"))
+    assert writer.write_prepared_chapter(packet(), tmp_path)["render_status"] == "provider_busy"
+    assert sum("Write Chapter" in action for action in browser) == 1
 
 
 @pytest.mark.parametrize("labels,busy", [
@@ -162,7 +189,7 @@ def test_description_limit_is_bounded_and_never_truncates(tmp_path, browser):
 
 def test_wrong_draft_does_not_complete_or_trigger_rewrite(tmp_path, browser, monkeypatch):
     writer.write_prepared_chapter(packet(), tmp_path)
-    monkeypatch.setattr(writer, "_inspect", lambda *a: {"hasDraft": True})
+    monkeypatch.setattr(writer, "_inspect", lambda *a: {"hasDraft": True, "reviewReady": True})
     monkeypatch.setattr(capture, "_read_draft", lambda *a: {**draft(), "chapterNumber": 2})
     with pytest.raises(RuntimeError, match="draft_not_verified"):
         writer.write_prepared_chapter(packet(), tmp_path)
@@ -172,7 +199,7 @@ def test_wrong_draft_does_not_complete_or_trigger_rewrite(tmp_path, browser, mon
 
 def test_corrupt_retained_result_does_not_recover_or_regenerate(tmp_path, browser, monkeypatch):
     writer.write_prepared_chapter(packet(), tmp_path)
-    monkeypatch.setattr(writer, "_inspect", lambda *a: {"hasDraft": True})
+    monkeypatch.setattr(writer, "_inspect", lambda *a: {"hasDraft": True, "reviewReady": True})
     result = writer.write_prepared_chapter(packet(), tmp_path)
     path = Path(result["asset_path"])
     saved = json.loads(path.read_text())
