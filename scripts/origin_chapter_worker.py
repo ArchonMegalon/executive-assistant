@@ -36,6 +36,22 @@ _PREFIX = "/api/internal/origin/chapters/"
 _MAX_BYTES = 512_000
 
 
+def _require_story_draft(text: str) -> None:
+    """Hold the observed FirstBook nonfiction scaffold for editorial review.
+
+    This is a narrow negative screen, not language/canon/quality approval. Both
+    cues occurred together in two retained outputs despite a fiction brief.
+    One ordinary mention of an argument or steps is not sufficient to reject a
+    story. Captures remain immutable; failure never authorizes another write,
+    a rewrite, reader acceptance, or an alternate provider.
+    """
+    argument = re.search(r"\bcounter[\s\-‐‑–]?argument\b", text, re.IGNORECASE)
+    instruction = re.search(r"\bactionable\b[^.!?\n]{0,80}\bsteps\b", text, re.IGNORECASE)
+    if argument and instruction:
+        # Do not expose user prose or provider details in worker error output.
+        raise ValueError("origin_worker_draft_needs_editorial_review")
+
+
 def _read_private(path: Path, limit: int) -> bytes:
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     with os.fdopen(fd, "rb") as source:
@@ -401,6 +417,7 @@ def run_once(packet: dict, hub: LocalHub, output_root: Path, *, advance_accepted
         raise ValueError("origin_worker_result_changed")
     if len(selected["text"].encode("utf-8")) > 65536:
         raise ValueError("origin_worker_result_oversized")
+    _require_story_draft(selected["text"])
     completed = hub.call(packet["work_id"], "/complete", {
         "sourceDigest": job["sourceDigest"], "executionAdmission": packet["execution_admission"],
         "draftText": result["text"], "providerReceiptDigest": receipt})
@@ -462,6 +479,7 @@ def revise_unaccepted_once(packet: dict, hub: LocalHub, output_root: Path, *,
     if (selected["text_sha256"] != text_digest or selected["text"] != result.get("text")
         or len(selected["text"].encode("utf-8")) > 65536):
         raise ValueError("origin_worker_revision_capture_changed")
+    _require_story_draft(selected["text"])
     receipt = hashlib.sha256(raw).hexdigest()
     completed = hub.call(packet["work_id"], "/revise-unaccepted", {
         "sourceDigest": job["sourceDigest"], "executionAdmission": packet["execution_admission"],

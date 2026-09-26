@@ -255,6 +255,41 @@ def test_retained_provider_draft_returns_to_hub_and_completed_retry_skips_browse
     assert len(hub.calls) == before + 1
 
 
+def test_analytical_provider_draft_stays_private_without_replaying_generation(tmp_path, monkeypatch):
+    hub = Hub()
+    data, _ = retained_setup(tmp_path, hub)
+    observed, calls = prepared_browser(data, monkeypatch)
+    text = ("An opposing counter-argument emerged during the observation.\n\n"
+            "Readiness required actionable, methodical steps. First, isolate the detail; "
+            "second, assess the baseline; third, categorize the result.")
+    read_draft = writer.capture._read_draft
+    monkeypatch.setattr(writer.capture, "_read_draft", lambda *args: {**read_draft(*args), "text": text})
+    assert worker.run_once(data, hub, tmp_path)["state"] == "generation_dispatched"
+    observed["hasDraft"] = True
+    for _ in range(2):
+        with pytest.raises(ValueError, match="^origin_worker_draft_needs_editorial_review$"):
+            worker.run_once(data, hub, tmp_path)
+    binding = writer._binding({**data["prepared"], "request_id": data["work_id"]})
+    retained = writer._load(writer._record_path(writer._private_root(tmp_path), binding))
+    assert retained["result"]["text"] == text
+    assert retained["state"] == "chapter_review_required"
+    assert hub.work["job"]["draftText"] is None
+    assert hub.work["job"]["state"] == "reconciliation_required"
+    assert not any(action == "/complete" for action, _ in hub.calls)
+    assert sum("Write Chapter" in action for action in calls) == 1
+    assert not any("Approve" in action or "Rewrite" in action for action in calls)
+
+
+@pytest.mark.parametrize("text", [
+    "Nera waited by the window. The next choice was hers.",
+    "Nera whispered a counter-argument, then stepped away from the window.",
+    "Nera wrote actionable steps in her notebook, then shut it and left.",
+    "Nera hörte die Schritte im Hof. Sie ließ das Fenster offen.",
+])
+def test_editorial_screen_does_not_treat_isolated_words_as_nonfiction(text):
+    assert worker._require_story_draft(text) is None
+
+
 @pytest.mark.parametrize("key,value", [("sourceDigest", "c" * 64), ("source", {}),
                                        ("requiresReaderReview", False), ("affectsMechanics", True),
                                        ("publicationAuthorized", True), ("provider", "other")])

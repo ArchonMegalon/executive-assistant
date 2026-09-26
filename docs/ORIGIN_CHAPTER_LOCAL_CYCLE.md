@@ -62,6 +62,20 @@ those validated journals, not a caller-supplied replacement mapping. A completed
 Hub result needs only one GET and no browser. A missing journal after a consumed
 admission is reconciliation-only, never permission to regenerate.
 
+Before either initial Hub delivery or replacement of an unaccepted draft, the
+worker screens the retained text for the observed FirstBook nonfiction scaffold:
+`counter-argument` together with `actionable ... steps`. Detection stops with
+`origin_worker_draft_needs_editorial_review`; the original and any separately
+captured revision remain private and unchanged. Selecting an exact text digest
+is not an editorial approval and cannot bypass this check. No automatic rewrite,
+credit use or provider change follows. Use the existing session-reconciliation
+rules below; do not clear a dispatch fence to regenerate the chapter.
+
+This is a narrow negative screen for a reproduced output defect, **not** proof
+that other text has the right language, length, mechanics, canon or prose quality.
+Those checks and the exact reader acceptance remain separate. Historical
+delivered/accepted text is not rewritten or retroactively revoked by this screen.
+
 ## Delivery status and remaining work
 
 This adds phase orchestration, **not a deployed queue service**. The companion
