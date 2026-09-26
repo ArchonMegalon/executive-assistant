@@ -179,3 +179,12 @@ def test_uncertain_watch_keeps_window_alive_without_retry(monkeypatch, capsys, f
     assert calls == [1]
     output = capsys.readouterr().out
     assert "stopped_no_retry" in output and "sensitive_provider_diagnostic" not in output
+
+
+def test_container_propagates_exact_book_selection(monkeypatch):
+    def watch(*args, **kwargs):
+        assert kwargs["selected_book_ref"] == "a" * 64
+        return {"state": "watch_finished"}
+    monkeypatch.setattr(container.pool, "watch", watch)
+    assert container.watch_or_retain(lambda: {}, object(), duration=1,
+        selected_book_ref="a" * 64)["state"] == "watch_finished"

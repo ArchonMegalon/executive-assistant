@@ -332,7 +332,12 @@ def _new_books(hub, binding: dict, enrolled: set[str], now: float) -> list[dict]
 
 
 def run_once(load_configuration, hub, output_root: Path, *, now=time.time, browser=None,
-             cycles=60, interval=5, sleep=time.sleep) -> dict:
+             cycles=60, interval=5, sleep=time.sleep, selected_book_ref=None) -> dict:
+    # Explicit operator selection narrows a sweep; it never bypasses admission,
+    # cumulative reservations or an outstanding execution fence.
+    if selected_book_ref is not None and (not isinstance(selected_book_ref, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", selected_book_ref)):
+        raise ValueError("origin_pool_selection_invalid")
     binding = _configuration(load_configuration(), now())
 
     def check():
@@ -342,8 +347,12 @@ def run_once(load_configuration, hub, output_root: Path, *, now=time.time, brows
     with _lease(output_root) as path:
         state = _restore(path, binding, now())
         books = state["books"]
-        if len(books) < binding["maximum_new_books"]:
+        enrolled = {b["admission"]["book_ref"] for b in books}
+        if (len(books) < binding["maximum_new_books"]
+            and (selected_book_ref is None or selected_book_ref not in enrolled)):
             candidates = _new_books(hub, binding, {b["admission"]["book_ref"] for b in books}, now())
+            if selected_book_ref is not None:
+                candidates = [w for w in candidates if w["bookRef"] == selected_book_ref]
             if candidates:
                 # Enumerating a queue isn't consent/source admission. Re-read
                 # the exact Hub item and reject any changed initial snapshot.
@@ -354,8 +363,12 @@ def run_once(load_configuration, hub, output_root: Path, *, now=time.time, brows
                 check()
                 books.append(_book_configuration(binding, fresh))
                 worker.writer._save(path, state)  # reserve BEFORE any browser/Hub write
+        selected_books = [b for b in books if selected_book_ref is None
+                          or b["admission"]["book_ref"] == selected_book_ref]
+        if selected_book_ref is not None and not selected_books:
+            raise RuntimeError("origin_pool_selected_book_not_admitted")
         results = []
-        for config in books:
+        for config in selected_books:
             check()
             state["in_flight"] = config["admission"]["book_ref"]
             worker.writer._save(path, state)
@@ -411,7 +424,10 @@ def main() -> int:
     parser.add_argument("--token-file", type=Path)
     parser.add_argument("--watch-seconds", type=int)
     parser.add_argument("--poll-interval", type=int, default=30)
+    parser.add_argument("--selected-book", help="Execute only this exact book, preserving all pool reservations.")
     args = parser.parse_args()
+    if args.selected_book is not None and (args.initialize or args.reconcile_completed_book is not None):
+        parser.error("--selected-book is execution-only")
     if args.reconcile_completed_book is not None:
         if args.initialize or args.watch_seconds is not None or args.expected_pool_sha256 is None:
             parser.error("reconciliation requires an exact pool hash and cannot initialize/watch")
@@ -428,9 +444,10 @@ def main() -> int:
             result = reconcile_completed(load, hub, args.output_root,
                 expected_pool_sha256=args.expected_pool_sha256, book_ref=args.reconcile_completed_book)
         elif args.watch_seconds is not None:
-            result = watch(load, hub, args.output_root, duration=args.watch_seconds, poll_interval=args.poll_interval)
+            result = watch(load, hub, args.output_root, duration=args.watch_seconds, poll_interval=args.poll_interval,
+                selected_book_ref=args.selected_book)
         else:
-            result = run_once(load, hub, args.output_root)
+            result = run_once(load, hub, args.output_root, selected_book_ref=args.selected_book)
     print(json.dumps(result))
     return 2 if result["state"] == "reconciliation_required" else 0
 
