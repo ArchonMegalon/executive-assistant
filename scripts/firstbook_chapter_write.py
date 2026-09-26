@@ -54,6 +54,8 @@ def _inspect(session: str) -> dict:
             .filter(e => e.innerText.trim() === 'Write Chapter');
         const brief = Array.from(main?.querySelectorAll('button') || [])
             .filter(e => Array.from(e.querySelectorAll('div')).some(d => d.innerText === 'Brief'));
+        const approvals = Array.from(main?.querySelectorAll('button') || [])
+            .filter(e => e.innerText.trim() === 'Approve & Next');
         return {origin:location.origin, chapterTitle:main?.querySelector('h2')?.innerText,
             chapterNumber:indicator ? Number(indicator[1]) : null,
             chapterCount:indicator ? Number(indicator[2]) : null,
@@ -68,7 +70,11 @@ def _inspect(session: str) -> dict:
             generating:main?.innerText.includes('Generating chapter...') === true,
             generationLabels:Array.from(main?.querySelectorAll('.animate-pulse') || [])
                 .filter(e=>!e.closest('.prose')).map(e=>e.innerText.trim()),
-            hasDraft:document.querySelector('.prose h1')!==null};
+            hasDraft:document.querySelector('.prose h1')!==null,
+            reviewReady:document.querySelector('.prose h1')!==null
+                && document.querySelector('[contenteditable=true]')===null
+                && main?.innerText.includes('Review Mode: Changes must be approved before proceeding.')===true
+                && approvals.length===1 && !approvals[0].disabled};
     })()""")
     # First Book keeps the previous draft visible while rewriting individual
     # subchapters. That is still live frontend work: navigation interrupts it.
@@ -218,14 +224,28 @@ def write_prepared_chapter(packet: dict, output_root: Path, *, allow_new_dispatc
         # First Book writes through the live page. Do not navigate away from an
         # active generation to perform readback; that can interrupt its requests.
         # This hint never authorizes a result or mutation, even on another page.
-        if _inspect(session).get("generating") is True:
+        current = _inspect(session)
+        if current.get("generating") is True:
             return {"mode": MODE, "render_status": "provider_busy",
+                    "request_id": binding["request_id"], "asset_path": str(path),
+                    "publication_authorized": False, "retry_generation_allowed": False}
+        if record is not None and (current.get("hasDraft") is not True
+                                   or current.get("reviewReady") is not True):
+            # Absence of a recognized progress label is not proof that frontend
+            # generation has finished. Reopening the book cancels live requests.
+            # Only a visible completed review can enter the existing authenticated
+            # readback path; ambiguous or unwritten pages retain the dispatch fence.
+            return {"mode": MODE, "render_status": "reconciliation_required",
                     "request_id": binding["request_id"], "asset_path": str(path),
                     "publication_authorized": False, "retry_generation_allowed": False}
         capture._open_book(session, binding)
         observed = _inspect(session)
         if record is not None:
-            if observed.get("hasDraft") is True:
+            if observed.get("generating") is True:
+                return {"mode": MODE, "render_status": "provider_busy",
+                        "request_id": binding["request_id"], "asset_path": str(path),
+                        "publication_authorized": False, "retry_generation_allowed": False}
+            if observed.get("hasDraft") is True and observed.get("reviewReady") is True:
                 result = _result(binding, capture._read_draft(session))
                 _save(path, {"binding": binding, "state": "chapter_review_required", "result": result})
                 return {**result, "asset_path": str(path), "reused_capture": False}

@@ -180,7 +180,7 @@ def test_completed_setup_can_start_first_chapter_once_under_same_hub_admission(t
     observed, calls = prepared_browser(data, monkeypatch)
     assert worker.run_once(data, hub, tmp_path)["state"] == "generation_dispatched"
     assert worker.run_once(data, hub, tmp_path)["state"] == "reconciliation_required"
-    observed["hasDraft"] = True
+    observed.update(hasDraft=True, reviewReady=True)
     assert worker.run_once(data, hub, tmp_path)["state"] == "review_required"
     previous = list(calls)
     assert worker.run_once(data, hub, tmp_path)["state"] == "review_required"
@@ -267,7 +267,7 @@ def test_analytical_provider_draft_stays_private_without_replaying_generation(tm
     read_draft = writer.capture._read_draft
     monkeypatch.setattr(writer.capture, "_read_draft", lambda *args: {**read_draft(*args), "text": text})
     assert worker.run_once(data, hub, tmp_path)["state"] == "generation_dispatched"
-    observed["hasDraft"] = True
+    observed.update(hasDraft=True, reviewReady=True)
     for _ in range(2):
         with pytest.raises(ValueError, match="^origin_worker_draft_needs_editorial_review$"):
             worker.run_once(data, hub, tmp_path)
