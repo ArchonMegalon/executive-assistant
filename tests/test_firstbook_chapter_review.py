@@ -237,10 +237,97 @@ def delivered_revision(tmp_path):
             assert body["expectedProviderReceiptDigest"] == digests["expected_receipt_digest"]
             assert body["expectedTextDigest"] == digests["expected_text_digest"]
             hub.work["job"].update(draftText=body["draftText"], providerReceiptDigest=body["providerReceiptDigest"])
+            if "editorial" in body:
+                hub.work["job"]["editorial"] = copy.deepcopy(body["editorial"])
         return call(work_id, action, body)
 
     hub.call = revision
     return data, hub, original, digests
+
+
+def editorial_input(path):
+    raw = path.read_bytes()
+    return {"originalTextDigest": writer.capture._sha(json.loads(raw)["result"]["text"]),
+            "originalProviderReceiptDigest": hashlib.sha256(raw).hexdigest(), "method": "ea_ai_with_codex_edit"}
+
+
+@pytest.mark.parametrize("revision", [False, True])
+def test_attributed_editorial_keeps_real_capture_and_exact_reader_advance(tmp_path, surface, revision):
+    if revision:
+        data, hub, original, digests = delivered_revision(tmp_path)
+    else:
+        data, hub, original = prepare_hub_review(tmp_path)
+    raw = original.read_bytes()
+    provenance = editorial_input(original)
+    digest = writer.capture._sha(EDITED)
+    if revision:
+        worker.revise_unaccepted_once(data, hub, tmp_path, **digests, editorial=provenance)
+    else:
+        worker.run_once(data, hub, tmp_path, reviewed_draft_digest=digest, editorial=provenance)
+    assert hub.work["job"]["editorial"] == provenance
+    assert hub.work["job"].get("readerAcceptedTextDigest") is None
+    binding = writer._binding({**data["prepared"], "request_id": data["work_id"]})
+    capture = review.retained(binding, tmp_path, digest)
+    assert hub.work["job"]["providerReceiptDigest"] == hashlib.sha256(capture[1].read_bytes()).hexdigest()
+    assert worker.run_once(data, hub, tmp_path, advance_accepted=True)["state"] == "awaiting_reader_acceptance"
+    assert worker.run_once(data, hub, tmp_path, reviewed_draft_digest=digest,
+                           editorial=provenance)["state"] == "review_required"
+    with pytest.raises(ValueError, match="immutable"):
+        worker.run_once(data, hub, tmp_path, reviewed_draft_digest=digest,
+                        editorial={**provenance, "method": "ea_ai"})
+    hub.work["job"]["readerAcceptedTextDigest"] = digest
+    assert worker.run_once(data, hub, tmp_path, advance_accepted=True)["state"] == "advance_dispatched"
+    assert sum("Approve & Next" in action for action in surface[3]) == 1
+    assert original.read_bytes() == raw
+
+
+@pytest.mark.parametrize("change", ["receipt", "text", "method", "extra", "unchanged", "no-capture"])
+def test_editorial_input_must_be_retained_and_exact_before_any_hub_or_browser_call(tmp_path, surface, change):
+    data, hub, original = prepare_hub_review(tmp_path)
+    value = editorial_input(original)
+    digest = writer.capture._sha(EDITED)
+    if change == "receipt":
+        value["originalProviderReceiptDigest"] = "f" * 64
+    elif change == "text":
+        value["originalTextDigest"] = "f" * 64
+    elif change == "method":
+        value["method"] = "untrusted"
+    elif change == "extra":
+        value["privateAccount"] = "must-not-leak"
+    elif change == "unchanged":
+        digest = value["originalTextDigest"]
+    else:
+        digest = None
+    with pytest.raises(ValueError, match="editorial"):
+        worker.run_once(data, hub, tmp_path, reviewed_draft_digest=digest, editorial=value)
+    assert not hub.calls and not surface[3]
+
+
+def test_older_hub_that_drops_editorial_attribution_cannot_report_success(tmp_path, surface):
+    data, hub, original = prepare_hub_review(tmp_path)
+    call = hub.call
+    def drop(*args, **kwargs):
+        result = call(*args, **kwargs)
+        if len(args) > 1 and args[1] == "/complete":
+            result["job"].pop("editorial", None)
+        return result
+    hub.call = drop
+    with pytest.raises(ValueError, match="readback_mismatch"):
+        worker.run_once(data, hub, tmp_path, reviewed_draft_digest=writer.capture._sha(EDITED),
+                        editorial=editorial_input(original))
+
+
+def test_editorial_input_can_bind_an_earlier_retained_provider_edit(tmp_path, surface):
+    data, hub, _ = prepare_hub_review(tmp_path)
+    prepared_packet = {**data["prepared"], "request_id": data["work_id"]}
+    digest = writer.capture._sha(EDITED)
+    first = review.capture_reviewed_chapter(prepared_packet, tmp_path, digest)
+    provenance = {"originalTextDigest": digest, "originalProviderReceiptDigest":
+                  hashlib.sha256(worker._read_private(worker.Path(first["asset_path"]), worker._MAX_BYTES)).hexdigest(),
+                  "method": "ea_ai"}
+    surface[2]["text"] = EDITED + " Sie löst das kleine Problem."
+    worker.run_once(data, hub, tmp_path, reviewed_draft_digest=writer.capture._sha(surface[2]["text"]), editorial=provenance)
+    assert hub.work["job"]["editorial"] == provenance
 
 
 def test_unaccepted_revision_retains_both_versions_and_retries_without_generation(tmp_path, surface, monkeypatch):

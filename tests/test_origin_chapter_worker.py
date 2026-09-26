@@ -43,6 +43,8 @@ class Hub:
         if action == "/complete":
             self.work["job"].update(state="review_required", draftText=body["draftText"],
                                     providerReceiptDigest=body["providerReceiptDigest"])
+            if "editorial" in body:
+                self.work["job"]["editorial"] = copy.deepcopy(body["editorial"])
         return copy.deepcopy(self.work)
 
 

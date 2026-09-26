@@ -91,7 +91,8 @@ def test_new_chapter_preserves_decision_focus_without_guessing_fact_order(contin
         assert "Do not restart the birth or childhood opening" in value
         assert "Establish the confirmed metatype, birth background and childhood as the opening situation" not in value
         assert "contributions are not final ratings" in value
-        assert "150-210 words" in value
+        assert "Long stories are welcome" in value
+        assert "150-210 words" not in value and "450-650" not in value
         assert "pronouns only when explicitly confirmed" in value
         assert "Survival does not establish childhood forest treks" in value
         assert "Leadership does not mean peers already trust or follow" in value
