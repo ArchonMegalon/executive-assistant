@@ -187,7 +187,7 @@ def test_new_prose_preserves_unspecified_identity_and_distinguishes_scene_from_b
     data["approved_source"]["locale"] = locale
     binding = outline.setup._binding(data)
     plan = outline._plan(binding, 8)
-    assert outline._plan_version(binding, plan) == 6
+    assert outline._plan_version(binding, plan) == 7
     for part in plan[0]["parts"]:
         text = part["description"]
         assert "pronouns only when explicitly confirmed" in text
@@ -213,7 +213,7 @@ def test_prose_instructions_address_observed_inventory_and_rule_leakage(locale):
     binding = outline.setup._binding(data)
     facts = json.dumps([f["text"] for f in binding["approved_source"]["facts"]], ensure_ascii=False)
     plan = outline._plan(binding, 8)
-    assert outline._plan_version(binding, plan) == 6
+    assert outline._plan_version(binding, plan) == 7
     for part in plan[0]["parts"]:
         text = part["description"]
         assert facts in text  # Do not achieve better prose by dropping approved facts.
@@ -222,7 +222,7 @@ def test_prose_instructions_address_observed_inventory_and_rule_leakage(locale):
         assert "A skill grant does not grant its equipment" in text
         assert "Missing augmentation data does not mean an unmodified body" in text
         assert "developing habits" in text and "never mastery" in text
-        assert "2-4 varied sentences" in text and "150-210 words" in text
+        assert "2-4 varied sentences" in text and "meaningful development" in text
         assert "do not reuse its weather, room, objects or events" in text
     assert all(facts not in json.dumps(future) for future in plan[1:])
 
@@ -251,15 +251,23 @@ def test_resumed_author_form_preserves_admitted_style(tmp_path, surface, monkeyp
 
 
 @pytest.mark.parametrize("locale", ["de-DE", "en-US", "es-ES"])
-def test_new_plan_bounds_whole_scene_and_does_not_infer_abilities(locale):
+def test_new_plan_allows_long_stories_without_inferring_abilities(locale):
     data = packet()
     data["approved_source"]["locale"] = locale
     plan = outline._plan(outline.setup._binding(data), 8)
     for part in plan[0]["parts"]:
-        assert "450-650 words TOTAL" in part["description"]
-        assert "150-210 words in this section" in part["description"]
+        assert "Long stories are welcome" in part["description"]
+        assert "450-650" not in part["description"] and "150-210" not in part["description"]
         assert "enhanced senses, powers or skills" in part["description"]
         assert "ordinary sensations only" in part["description"]
+
+
+def test_prior_short_plan_remains_identifiable_without_rewriting_existing_books():
+    binding = outline.setup._binding(packet())
+    retained = outline._plan(binding, 8, version=6)
+    assert outline._plan_version(binding, retained) == 6
+    assert "450-650 words TOTAL" in retained[0]["summary"]
+    assert outline._plan_version(binding, outline._plan(binding, 8)) == 7
 
 
 def test_prior_exact_outline_recovers_without_rewriting_or_repaying(tmp_path, surface):
