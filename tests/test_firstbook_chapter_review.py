@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 
@@ -189,6 +190,32 @@ def test_connector_bounds_edited_text_before_hub_completion(tmp_path, surface):
     with pytest.raises(ValueError, match="result_oversized"):
         worker.run_once(data, hub, tmp_path, reviewed_draft_digest=writer.capture._sha(surface[2]["text"]))
     assert not any(action == "/complete" for action, _ in hub.calls)
+
+
+@pytest.mark.parametrize("revision", [False, True])
+def test_editorial_scaffold_cannot_be_delivered_by_exact_digest_selection(tmp_path, surface, monkeypatch, revision):
+    text = ("A COUNTER–ARGUMENT emerged in the silence.\n\n"
+            "The process required internal, actionable steps. First, observe; second, classify.")
+    if revision:
+        data, hub, original, digests = delivered_revision(tmp_path)
+    else:
+        data, hub, original = prepare_hub_review(tmp_path)
+    original_bytes = original.read_bytes()
+    before = copy.deepcopy(hub.work)
+    surface[2]["text"] = text
+    digest = writer.capture._sha(text)
+    monkeypatch.setattr(writer, "write_prepared_chapter", lambda *a, **k: pytest.fail("no generation"))
+    for _ in range(2):
+        with pytest.raises(ValueError, match="^origin_worker_draft_needs_editorial_review$"):
+            if revision:
+                worker.revise_unaccepted_once(data, hub, tmp_path, **{**digests, "text_digest": digest})
+            else:
+                worker.run_once(data, hub, tmp_path, reviewed_draft_digest=digest)
+    assert hub.work == before and original.read_bytes() == original_bytes
+    assert all(action in ("", "/admit") for action, _ in hub.calls)
+    assert surface[3] == ["capture"]
+    binding = writer._binding({**data["prepared"], "request_id": data["work_id"]})
+    assert review.retained(binding, tmp_path, digest)[0]["text"] == text
 
 
 def delivered_revision(tmp_path):
