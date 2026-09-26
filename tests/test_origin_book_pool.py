@@ -261,6 +261,51 @@ def test_explicit_completed_reconciliation_preserves_budget_and_never_dispatches
     assert run(config, hub, tmp_path)["state"] == "idle"
 
 
+@pytest.mark.parametrize("retained_state", ["open", "retained_for_reconciliation"])
+def test_operator_verified_stopped_completed_session_preserves_original_journal(tmp_path, executor, retained_state):
+    config, hub, root, path = completed_fence(tmp_path, executor)
+    session_path = root / ("owned-session-" + "1" * 64 + ".json")
+    session = pool.worker.writer._load(session_path)
+    session["state"] = retained_state
+    pool.worker.writer._save(session_path, session)
+    original = session_path.read_bytes()
+    digest = hashlib.sha256(original).hexdigest()
+    with pytest.raises(RuntimeError, match="session_not_closed"):
+        reconcile(config, hub, root, path)
+    result = reconcile(config, hub, root, path,
+        stopped_session=session["session"], expected_session_sha256=digest)
+    assert result["state"] == "reconciled_completed"
+    assert result["stopped_session"] == session["session"]
+    assert result["session_sha256"] == digest
+    assert result["retained_session_state"] == retained_state
+    assert session_path.read_bytes() == original
+    assert ledger(tmp_path)["in_flight"] is None
+    assert len(ledger(tmp_path)["books"]) == 1
+    assert not executor and all(action in ("", "pending") for action, _ in hub.calls)
+
+
+@pytest.mark.parametrize("change", ["digest", "session", "half_identity", "opening", "unfinished"])
+def test_stopped_completion_rejects_uncertain_or_mismatched_state(tmp_path, executor, change):
+    config, hub, root, path = completed_fence(tmp_path, executor)
+    session_path = root / ("owned-session-" + "1" * 64 + ".json")
+    session = pool.worker.writer._load(session_path)
+    session["state"] = "opening" if change == "opening" else "open"
+    pool.worker.writer._save(session_path, session)
+    kwargs = {"stopped_session": session["session"],
+        "expected_session_sha256": hashlib.sha256(session_path.read_bytes()).hexdigest()}
+    if change == "digest": kwargs["expected_session_sha256"] = "f" * 64
+    if change == "session": kwargs["stopped_session"] = "origin-book-" + "f" * 32
+    if change == "half_identity": kwargs.pop("expected_session_sha256")
+    if change == "unfinished":
+        next(iter(hub.jobs.values()))["job"].update(state="reconciliation_required", draftText=None,
+            providerReceiptDigest=None)
+    before = {p.name: p.read_bytes() for p in root.iterdir() if p.suffix == ".json"}
+    with pytest.raises((RuntimeError, ValueError)):
+        reconcile(config, hub, root, path, **kwargs)
+    assert {p.name: p.read_bytes() for p in root.iterdir() if p.suffix == ".json"} == before
+    assert not executor and all(action in ("", "pending") for action, _ in hub.calls)
+
+
 @pytest.mark.parametrize("change", ["open_session", "wrong_session_binding", "missing_session",
     "missing_intake", "local_pending", "hub_pending", "wrong_source", "wrong_admission",
     "invalid_receipt", "bad_acceptance", "pending_successor", "revoked", "expanded_budget"])
