@@ -134,6 +134,29 @@ def test_errors_are_not_retried_and_raw_data_not_added_to_results(tmp_path, monk
     assert len(calls) == 1 and clock.elapsed == 0 and not browser.calls
 
 
+@pytest.mark.parametrize("during", ["hub_read", "account_check"])
+def test_expiry_during_preparation_cannot_start_provider_work(tmp_path, executor, during):
+    hub, browser, clock = Queue(), Browser(), Clock()
+    config = configuration(hub)
+    if during == "hub_read":
+        original = hub.call
+        def read(*args, **kwargs):
+            result = original(*args, **kwargs)
+            clock.elapsed = 2
+            return result
+        hub.call = read
+    else:
+        original = browser.verify_account
+        def account(*args):
+            original(*args)
+            clock.elapsed = 2
+        browser.verify_account = account
+    with pytest.raises(RuntimeError, match="watch_budget_exhausted"):
+        watch(config, hub, tmp_path, browser, clock, duration=1)
+    assert not executor and not any(action == "/admit" for action, _ in hub.calls)
+    assert [c[0] for c in browser.calls] == ([] if during == "hub_read" else ["open", "account", "close"])
+
+
 def test_monotonic_limit_survives_wall_clock_rollback(tmp_path):
     hub, browser, clock = Queue(), Browser(), Clock()
     hub.jobs.clear()

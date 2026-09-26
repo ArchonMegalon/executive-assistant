@@ -373,10 +373,12 @@ def run_once(load_configuration, hub, output_root: Path, *, now=time.time, brows
             state["in_flight"] = config["admission"]["book_ref"]
             worker.writer._save(path, state)
             result = runtime.run_bounded(config, hub, output_root, now=now, browser=browser,
-                cycles=cycles, interval=interval, sleep=sleep, before_tick=check)
+                cycles=cycles, interval=interval, sleep=sleep, before_tick=check,
+                report_idle_failure=True)
             if result.get("browser_retained") is not False or result.get("state") not in _SAFE:
                 return {"state": "reconciliation_required", "reserved_books": len(books),
-                    "remaining_books": binding["maximum_new_books"] - len(books), "publication_authorized": False}
+                    "remaining_books": binding["maximum_new_books"] - len(books), "publication_authorized": False,
+                    **{key: result[key] for key in ("browser_retained", "stop_reason") if key in result}}
             # An exception or process death leaves in_flight intact. No automatic
             # retry, release of the reservation or new browser on process restart.
             state["in_flight"] = None

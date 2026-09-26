@@ -188,3 +188,12 @@ def test_container_propagates_exact_book_selection(monkeypatch):
     monkeypatch.setattr(container.pool, "watch", watch)
     assert container.watch_or_retain(lambda: {}, object(), duration=1,
         selected_book_ref="a" * 64)["state"] == "watch_finished"
+
+
+def test_verified_no_browser_failure_exits_instead_of_holding_display(monkeypatch):
+    result = {"state": "reconciliation_required", "browser_retained": False,
+        "stop_reason": "origin_runtime_failed_without_browser", "publication_authorized": False}
+    monkeypatch.setattr(container.pool, "watch", lambda *a, **k: result)
+    def hold():
+        pytest.fail("No owned browser can need retention in this verified failure")
+    assert container.watch_or_retain(lambda: {}, object(), duration=1, hold=hold) == result

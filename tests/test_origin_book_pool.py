@@ -249,6 +249,32 @@ def test_idle_watch_is_bounded_and_opens_no_browser(tmp_path, executor):
     assert result["remaining_books"] == 3 and not browser.calls and not executor
 
 
+def test_completed_book_read_failure_reports_no_browser_but_preserves_fence(tmp_path, executor):
+    config, hub, browser = start(tmp_path), Books(), Browser()
+    hub.add("1")
+    run(config, hub, tmp_path, browser)
+    before = copy.deepcopy(ledger(tmp_path))
+    executor.clear()
+    browser.calls.clear()
+    calls = []
+
+    def unavailable(*args):
+        calls.append(1)
+        raise RuntimeError("sensitive transport details must not escape")
+
+    hub.pending = unavailable
+    result = run(config, hub, tmp_path, browser)
+    assert result["state"] == "reconciliation_required"
+    assert result["browser_retained"] is False
+    assert result["stop_reason"] == "origin_runtime_failed_without_browser"
+    assert "sensitive" not in json.dumps(result)
+    assert calls == [1] and not executor and not browser.calls
+    assert ledger(tmp_path) == {**before, "in_flight": "1" * 64}
+    with pytest.raises(RuntimeError, match="requires_reconciliation"):
+        run(config, hub, tmp_path, browser)
+    assert calls == [1]  # stopped, never a transport retry or credit reset
+
+
 def test_mid_dispatch_revocation_stops_before_provider_cycle(tmp_path, executor):
     config, hub, browser = start(tmp_path), Books(), Browser()
     hub.add("1")
@@ -258,9 +284,30 @@ def test_mid_dispatch_revocation_stops_before_provider_cycle(tmp_path, executor)
         return original(*args, **kwargs)
     from unittest.mock import patch
     with patch.object(pool.runtime, "run_bounded", invoke):
-        with pytest.raises(ValueError): run(config, hub, tmp_path, browser)
+        result = run(config, hub, tmp_path, browser)
+    assert result["state"] == "reconciliation_required" and result["browser_retained"] is False
     assert not executor and not browser.calls
     assert ledger(tmp_path)["in_flight"] == "1" * 64
+
+
+def test_revoked_during_account_check_reports_verified_closed_browser(tmp_path, executor):
+    config, hub, browser = start(tmp_path), Books(), Browser()
+    hub.add("1")
+    original = browser.verify_account
+
+    def revoked(*args):
+        original(*args)
+        config["approved"] = False
+
+    browser.verify_account = revoked
+    result = run(config, hub, tmp_path, browser)
+    assert result["state"] == "reconciliation_required"
+    assert result["browser_retained"] is False
+    assert [call[0] for call in browser.calls] == ["open", "account", "close"]
+    assert not executor and not any(action == "/admit" for action, _ in hub.calls)
+    assert ledger(tmp_path)["in_flight"] == "1" * 64
+    journal = tmp_path / "firstbook-private-writes" / ("owned-session-" + "1" * 64 + ".json")
+    assert pool.worker.writer._load(journal)["state"] == "closed"
 
 
 def test_full_pending_page_is_not_misrepresented_as_complete(tmp_path):
