@@ -52,6 +52,39 @@ def _require_story_draft(text: str) -> None:
         raise ValueError("origin_worker_draft_needs_editorial_review")
 
 
+def _validate_editorial(value: dict) -> None:
+    if (not isinstance(value, dict)
+        or set(value) != {"originalTextDigest", "originalProviderReceiptDigest", "method"}
+        or value["method"] not in ("ea_ai", "ea_ai_with_codex_edit")
+        or any(not isinstance(value[key], str) or not re.fullmatch(r"[0-9a-f]{64}", value[key])
+               for key in ("originalTextDigest", "originalProviderReceiptDigest"))):
+        raise ValueError("origin_worker_editorial_provenance_invalid")
+
+
+def _retained_editorial_input(binding: dict, root: Path, value: dict, selected_digest: str) -> None:
+    """Attribute an explicitly edited, recaptured draft without forging capture.
+
+    This never edits/generates text. The trusted caller asserts the editorial
+    method; private custody proves the exact earlier FirstBook input. The final
+    receipt remains a real FirstBook capture, so reader-bound advancement still
+    verifies the very same displayed provider draft.
+    """
+    _validate_editorial(value)
+    if value["originalTextDigest"] == selected_digest:
+        raise ValueError("origin_worker_editorial_input_unchanged")
+    original, path = review._original(binding, root)
+    text = original["result"]["text"]
+    if writer.capture._sha(text) != value["originalTextDigest"]:
+        retained = review.retained(binding, root, value["originalTextDigest"])
+        if retained is None:
+            raise ValueError("origin_worker_editorial_input_not_retained")
+        selected, path = retained
+        text = selected["text"]
+    if (writer.capture._sha(text) != value["originalTextDigest"]
+        or hashlib.sha256(_read_private(path, _MAX_BYTES)).hexdigest() != value["originalProviderReceiptDigest"]):
+        raise ValueError("origin_worker_editorial_input_mismatch")
+
+
 def _read_private(path: Path, limit: int) -> bytes:
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     with os.fdopen(fd, "rb") as source:
@@ -195,6 +228,12 @@ def _validate_work(work: dict, packet: dict, *, preparing: bool = False) -> dict
             raise ValueError("origin_worker_completed_result_invalid")
     elif job.get("draftText") is not None or job.get("providerReceiptDigest") is not None:
         raise ValueError("origin_worker_pending_result_invalid")
+    if job.get("editorial") is not None:
+        _validate_editorial(job["editorial"])
+        if (job["state"] != "review_required"
+            or job["editorial"]["originalTextDigest"] == writer.capture._sha(job["draftText"])
+            or job["editorial"]["originalProviderReceiptDigest"] == job["providerReceiptDigest"]):
+            raise ValueError("origin_worker_editorial_provenance_invalid")
     if job.get("readerAcceptedTextDigest") is not None and (job["state"] != "review_required"
         or job["readerAcceptedTextDigest"] != hashlib.sha256(job["draftText"].encode("utf-8")).hexdigest()):
         raise ValueError("origin_worker_reader_acceptance_invalid")
@@ -311,7 +350,7 @@ def prepare_next_once(packet: dict, hub: LocalHub, output_root: Path) -> dict:
 
 
 def run_once(packet: dict, hub: LocalHub, output_root: Path, *, advance_accepted: bool = False,
-             reviewed_draft_digest: str | None = None) -> dict:
+             reviewed_draft_digest: str | None = None, editorial: dict | None = None) -> dict:
     if (not isinstance(packet.get("work_id"), str)
         or not re.fullmatch(r"[0-9a-f]{64}\.[0-9a-f]{64}", packet["work_id"])
         or not isinstance(packet.get("execution_admission"), str)
@@ -327,6 +366,10 @@ def run_once(packet: dict, hub: LocalHub, output_root: Path, *, advance_accepted
         review._binding(binding, reviewed_draft_digest)
     if prepared["narrative_locale"] != packet["approved_source"].get("locale"):
         raise ValueError("origin_worker_story_language_mismatch")
+    if editorial is not None:
+        if reviewed_draft_digest is None or advance_accepted:
+            raise ValueError("origin_worker_editorial_requires_exact_capture")
+        _retained_editorial_input(binding, output_root, editorial, reviewed_draft_digest)
     observed = hub.call(packet["work_id"])
     job = _validate_work(observed, packet)
     if job.get("previous") is not None and job["state"] != "review_required":
@@ -374,6 +417,8 @@ def run_once(packet: dict, hub: LocalHub, output_root: Path, *, advance_accepted
     if job["state"] == "review_required":
         if reviewed_draft_digest is not None and writer.capture._sha(job["draftText"]) != reviewed_draft_digest:
             raise ValueError("origin_worker_delivered_draft_is_immutable")
+        if editorial is not None and job.get("editorial") != editorial:
+            raise ValueError("origin_worker_delivered_draft_is_immutable")
         return {"state": "review_required", "work_id": packet["work_id"], "publication_authorized": False}
     if reviewed_draft_digest is not None:
         if (job["state"] != "reconciliation_required"
@@ -420,16 +465,18 @@ def run_once(packet: dict, hub: LocalHub, output_root: Path, *, advance_accepted
     _require_story_draft(selected["text"])
     completed = hub.call(packet["work_id"], "/complete", {
         "sourceDigest": job["sourceDigest"], "executionAdmission": packet["execution_admission"],
-        "draftText": result["text"], "providerReceiptDigest": receipt})
+        "draftText": result["text"], "providerReceiptDigest": receipt,
+        **({"editorial": editorial} if editorial is not None else {})})
     completed_job = _validate_work(completed, packet)
     if (completed.get("bookRef") != book_ref or completed_job.get("draftText") != result["text"]
-        or completed_job.get("providerReceiptDigest") != receipt):
+        or completed_job.get("providerReceiptDigest") != receipt or completed_job.get("editorial") != editorial):
         raise ValueError("origin_worker_completion_readback_mismatch")
     return {"state": "review_required", "work_id": packet["work_id"], "publication_authorized": False}
 
 
 def revise_unaccepted_once(packet: dict, hub: LocalHub, output_root: Path, *,
-                           text_digest: str, expected_receipt_digest: str, expected_text_digest: str) -> dict:
+                           text_digest: str, expected_receipt_digest: str, expected_text_digest: str,
+                           editorial: dict | None = None) -> dict:
     """Explicit read-only capture and CAS handoff, never a provider rewrite.
 
     The operator has already edited the retained provider draft. Both versions
@@ -450,6 +497,8 @@ def revise_unaccepted_once(packet: dict, hub: LocalHub, output_root: Path, *,
     binding = writer._binding(prepared)
     if prepared["narrative_locale"] != packet["approved_source"].get("locale"):
         raise ValueError("origin_worker_story_language_mismatch")
+    if editorial is not None:
+        _retained_editorial_input(binding, output_root, editorial, text_digest)
     original, original_path = review._original(binding, output_root)
     prior = original["result"]
     prior_receipt = hashlib.sha256(_read_private(original_path, _MAX_BYTES)).hexdigest()
@@ -484,10 +533,12 @@ def revise_unaccepted_once(packet: dict, hub: LocalHub, output_root: Path, *,
     completed = hub.call(packet["work_id"], "/revise-unaccepted", {
         "sourceDigest": job["sourceDigest"], "executionAdmission": packet["execution_admission"],
         "expectedProviderReceiptDigest": expected_receipt_digest, "expectedTextDigest": expected_text_digest,
-        "draftText": selected["text"], "providerReceiptDigest": receipt})
+        "draftText": selected["text"], "providerReceiptDigest": receipt,
+        **({"editorial": editorial} if editorial is not None else {})})
     completed_job = _validate_work(completed, packet)
     if (completed.get("bookRef") != observed["bookRef"] or completed_job.get("draftText") != selected["text"]
-        or completed_job.get("providerReceiptDigest") != receipt or completed_job.get("readerAcceptedTextDigest") is not None):
+        or completed_job.get("providerReceiptDigest") != receipt or completed_job.get("readerAcceptedTextDigest") is not None
+        or completed_job.get("editorial") != editorial):
         raise ValueError("origin_worker_revision_readback_mismatch")
     return {"state": "review_required", "work_id": packet["work_id"], "publication_authorized": False}
 
@@ -512,21 +563,32 @@ def main() -> int:
         help="Capture an already edited provider draft and supersede only the exact unaccepted Hub result; no generation.")
     parser.add_argument("--expected-receipt-digest")
     parser.add_argument("--expected-text-digest")
+    parser.add_argument("--editorial-original-text-digest")
+    parser.add_argument("--editorial-original-receipt-digest")
+    parser.add_argument("--editorial-method", choices=("ea_ai", "ea_ai_with_codex_edit"))
     args = parser.parse_args()
     if bool(args.revise_unaccepted_draft) != bool(args.expected_receipt_digest and args.expected_text_digest) or (
         not args.revise_unaccepted_draft and (args.expected_receipt_digest or args.expected_text_digest)):
         parser.error("Revision requires both exact previous digests; other modes cannot accept them.")
+    editorial_values = (args.editorial_original_text_digest, args.editorial_original_receipt_digest, args.editorial_method)
+    if any(editorial_values) and (not all(editorial_values)
+        or not (args.capture_reviewed_draft or args.revise_unaccepted_draft)):
+        parser.error("Editorial attribution requires all three fields and an exact capture/revision mode.")
+    editorial = ({"originalTextDigest": args.editorial_original_text_digest,
+        "originalProviderReceiptDigest": args.editorial_original_receipt_digest,
+        "method": args.editorial_method} if all(editorial_values) else None)
     packet = _json(_read_private(args.packet_path, 64_000))
     if not isinstance(packet, dict):
         raise ValueError("origin_worker_invalid_packet")
     hub = LocalHub(args.hub_origin, args.token_file, host=args.hub_host)
     result = (revise_unaccepted_once(packet, hub, args.output_root, text_digest=args.revise_unaccepted_draft,
-        expected_receipt_digest=args.expected_receipt_digest, expected_text_digest=args.expected_text_digest)
+        expected_receipt_digest=args.expected_receipt_digest, expected_text_digest=args.expected_text_digest,
+        editorial=editorial)
         if args.revise_unaccepted_draft else
         prepare_next_once(packet, hub, args.output_root) if args.prepare_next_chapter else
         prepare_once(packet, hub, args.output_root) if args.prepare_book_framework else
         run_once(packet, hub, args.output_root, advance_accepted=args.advance_accepted,
-                 reviewed_draft_digest=args.capture_reviewed_draft))
+                 reviewed_draft_digest=args.capture_reviewed_draft, editorial=editorial))
     print(json.dumps(result))
     return 0
 
