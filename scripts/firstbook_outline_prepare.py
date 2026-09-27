@@ -19,18 +19,20 @@ capture = writer.capture
 _HEADER = "//div[contains(concat(' ',normalize-space(@class),' '),' cursor-pointer ')][span[normalize-space(.)=NUMBER]]"
 
 
-def _plan(binding: dict, count: int, *, legacy: bool = False, version: int = 7,
+def _plan(binding: dict, count: int, *, legacy: bool = False, version: int | None = None,
           continuation: bool = False) -> list[dict]:
     # Versions 1-6 recognize immutable retained outlines (5 was continuation
     # only). Version 7 honors the user's preference for longer stories without
     # artificial short-scene quotas; grounding/decision boundaries stay intact.
+    # Version 8 adds optional, unchosen possibilities, separate from history.
     # Changing instructions must never rewrite an admitted book.
     if legacy:
         version = 1
-    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7):
+    source = binding["approved_source"]
+    version = setup._story_recipe_version(source, version)
+    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7, 8):
         raise ValueError("firstbook_outline_plan_version_invalid")
     focus_current = version == 5 or (version >= 6 and continuation)
-    source = binding["approved_source"]
     locale = source["locale"].split("-")[0]
     first, parts, pending = {
         "de": ("Ein Anfang", ["Der Augenblick", "Unter der Oberfläche", "Vor der Entscheidung"], "Noch unentschieden"),
@@ -117,6 +119,8 @@ def _plan(binding: dict, count: int, *, legacy: bool = False, version: int = 7,
             "repeating the first section's routine, atmosphere or claimed progress.",
             "Close the same moment with an open thought, before the player's next unchosen decision. "
             "Do not recap the training or bonuses, advance time to a later stage, or resolve future outcomes.")
+    if version == 8:
+        direction += setup._story_opportunities(source)
     outline = [{"title": title, "description": direction + " " + ending}
                for title, ending in zip(parts, endings)]
     # Match the existing writer's bounded, exact three-part contract. Never
@@ -133,7 +137,7 @@ def _plan(binding: dict, count: int, *, legacy: bool = False, version: int = 7,
 
 
 def _plan_version(binding: dict, plan: list[dict]) -> int | None:
-    for version in (7, 6, 4, 3, 2, 1):
+    for version in (8, 7, 6, 4, 3, 2, 1):
         try:
             if plan == _plan(binding, len(plan), version=version):
                 return version
@@ -273,10 +277,11 @@ _ANECDOTES = 'textarea[placeholder^="e.g. - The time I fired"]'
 _SAMPLE = 'textarea[placeholder="Paste sample text here..."]'
 
 
-def _author_plan(binding: dict, *, version: int = 7) -> dict:
-    if type(version) is not int or version not in (1, 2, 3, 4, 6, 7):
-        raise ValueError("firstbook_outline_plan_version_invalid")
+def _author_plan(binding: dict, *, version: int | None = None) -> dict:
     source = binding["approved_source"]
+    version = setup._story_recipe_version(source, version)
+    if type(version) is not int or version not in (1, 2, 3, 4, 6, 7, 8):
+        raise ValueError("firstbook_outline_plan_version_invalid")
     samples = {
         "de": "Regen zog feine Linien über das Glas. Dahinter flackerte ein rotes Licht, verschwand und kehrte zurück. In der Ferne summte die Stadt. Der Augenblick blieb offen, als hielte jemand den Atem an.",
         "en": "Rain traced thin lines down the glass. Beyond it a red light flickered, vanished and returned. The city hummed in the distance. The moment remained open, as though someone were holding their breath.",
@@ -314,7 +319,8 @@ def _author_plan(binding: dict, *, version: int = 7) -> dict:
     return {"anecdotes": "Fictional character facts only, not the player's personal experiences. "
             "The separate synthetic writing sample is tone only, not biography. "
             "No other history or future decisions are confirmed. Quoted facts: " +
-            json.dumps([f["text"] for f in source["facts"]], ensure_ascii=False),
+            json.dumps([f["text"] for f in source["facts"]], ensure_ascii=False)
+            + (setup._story_opportunities(source) if version == 8 else ""),
             "sample": samples[source["locale"].split("-")[0]]}
 
 

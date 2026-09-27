@@ -7,6 +7,7 @@ import pytest
 from scripts import origin_chapter_intake as intake
 from tests.test_origin_chapter_worker import Hub, setup_packet
 from tests.test_origin_chapter_worker import retained_setup, prepared_browser
+from tests.test_firstbook_project_prepare import story_context
 
 
 class Queue:
@@ -212,8 +213,11 @@ def test_pending_request_uses_only_scoped_loopback_get_and_bounds_response(tmp_p
     with pytest.raises(RuntimeError, match="response_oversized"): client.pending("c" * 64)
 
 
-def test_intake_drives_real_cycle_writer_and_result_adapter_without_replaying(tmp_path, monkeypatch):
+@pytest.mark.parametrize("context", [None, story_context()])
+def test_intake_drives_real_cycle_writer_and_result_adapter_without_replaying(tmp_path, monkeypatch, context):
     hub = Queue()
+    if context is not None:
+        hub.first["job"]["source"]["narrativeContext"] = copy.deepcopy(context)
     data = admission(hub)
     browser = {}
     def prepare(packet, client, output):
@@ -221,7 +225,10 @@ def test_intake_drives_real_cycle_writer_and_result_adapter_without_replaying(tm
         # cycle, retained handoff, writer fence and result validation run below.
         fixture = Hub()
         setup_packet(fixture)
-        retained, _ = retained_setup(output, fixture)
+        retained, _ = retained_setup(output, fixture, narrative_context=context)
+        assert retained["approved_source"] == packet["approved_source"]
+        if context is not None:
+            assert "Military High School" in retained["prepared"]["expected_outline"][0]["description"]
         client.call(packet["work_id"], "/admit", {"executionAdmission": packet["execution_admission"]})
         observed, actions = prepared_browser(retained, monkeypatch)
         browser.update(observed=observed, actions=actions)
@@ -239,7 +246,9 @@ def test_intake_drives_real_cycle_writer_and_result_adapter_without_replaying(tm
     assert run(data, hub, tmp_path)["state"] == "generation_dispatched"
     browser["observed"].update(generating=True)
     assert run(data, hub, tmp_path)["state"] == "provider_busy"
-    browser["observed"].update(generating=False, hasDraft=True)
+    # PR41 deliberately requires the completed review marker as well as text;
+    # a draft alone must not cause navigation away from an unfinished writer.
+    browser["observed"].update(generating=False, hasDraft=True, reviewReady=True)
     assert run(data, hub, tmp_path)["state"] == "review_required"
     assert run(data, hub, tmp_path)["state"] == "idle"
     assert sum("Write Chapter" in action for action in browser["actions"]) == 1

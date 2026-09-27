@@ -7,6 +7,7 @@ import pytest
 from scripts import firstbook_next_chapter_prepare as nxt
 from scripts import origin_chapter_worker as worker
 from tests.test_origin_chapter_worker import Hub, setup_packet, packet as worker_packet, prepared_browser
+from tests.test_firstbook_project_prepare import story_context
 
 
 @pytest.fixture
@@ -228,7 +229,7 @@ def test_other_chapter_changes_and_partial_edits_remain_blocked(tmp_path, contin
 
 
 @pytest.mark.parametrize("state", ["editing", "save_dispatched", "prepared"])
-@pytest.mark.parametrize("version", [2, 3, 4, 5])
+@pytest.mark.parametrize("version", [2, 3, 4, 5, 6, 7])
 def test_existing_next_outline_keeps_original_instructions(tmp_path, continuation, monkeypatch, state, version):
     s = continuation
     source, old_plan = nxt._plan(s["setup"], s["old"]["prepared"], version=version)
@@ -261,6 +262,53 @@ def test_changed_retained_next_outline_is_rejected_before_navigation(tmp_path, c
     with pytest.raises(RuntimeError, match="next_retained_mismatch"):
         prepare(s, tmp_path)
     assert not s["actions"]
+
+
+def test_opportunities_only_edit_current_slot_and_resume_without_paid_replay(tmp_path, continuation):
+    s = continuation
+    previous_bytes = s["path"].read_bytes()
+    s["setup"]["approved_source"]["narrativeContext"] = story_context()
+    _, plan = nxt._plan(s["setup"], s["old"]["prepared"])
+    # The fake browser's readback refers to this exact planned current slot.
+    s["plan"].update(plan)
+    assert prepare(s, tmp_path)["state"] == "outline_save_dispatched"
+    assert "Military High School" in s["values"][1][1]
+    assert "currentDecisionFacts" in s["values"][1][1]
+    assert "Do not restart the birth or childhood opening" in s["values"][1][1]
+    assert s["values"][:1] == s["before"][:1] and s["values"][2:] == s["before"][2:]
+    before = list(s["actions"])
+    assert prepare(s, tmp_path, allow_new_dispatch=False)["state"] == "next_chapter_prepared"
+    assert s["actions"] == before + ["open"]  # Readback of the same saved slot, not another save.
+    before = list(s["actions"])
+    assert prepare(s, tmp_path)["prepared"] == plan["prepared"]
+    assert s["actions"] == before and s["path"].read_bytes() == previous_bytes
+    assert sum("Lock & Start Writing" in a for a in before) == 1
+    assert not any(word in a for a in before for word in ("1 Credit", "Write Chapter", "Approve", "Regenerate"))
+
+
+@pytest.mark.parametrize("change", ["add", "remove", "availability", "turn"])
+def test_changed_opportunities_cannot_rebind_an_uncertain_successor(tmp_path, continuation, change):
+    s = continuation
+    if change != "add":
+        s["setup"]["approved_source"]["narrativeContext"] = story_context()
+        _, plan = nxt._plan(s["setup"], s["old"]["prepared"])
+        s["plan"].update(plan)
+    assert prepare(s, tmp_path)["state"] == "outline_save_dispatched"
+    path = nxt._path(s["root"], s["new"]["work_id"])
+    retained_bytes = path.read_bytes()
+    before = list(s["actions"])
+    source = s["setup"]["approved_source"]
+    if change == "add":
+        source["narrativeContext"] = story_context()
+    elif change == "remove":
+        del source["narrativeContext"]
+    elif change == "availability":
+        source["narrativeContext"]["opportunities"][0]["availability"] = "unavailable"
+    else:
+        source["narrativeContext"]["turnId"] = "different-turn"
+    with pytest.raises(RuntimeError, match="next_retained_mismatch"):
+        prepare(s, tmp_path)
+    assert s["actions"] == before and path.read_bytes() == retained_bytes
 
 
 def test_worker_binds_both_hub_sources_before_preparing_and_reuses_admission(tmp_path, continuation, monkeypatch):

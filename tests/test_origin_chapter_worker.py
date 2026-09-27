@@ -138,8 +138,10 @@ def test_pending_worker_reuses_upstream_admission_without_new_permission(tmp_pat
     assert allowed == [True, False]
 
 
-def retained_setup(tmp_path, hub, *, legacy=False):
+def retained_setup(tmp_path, hub, *, legacy=False, narrative_context=None):
     data = setup_packet(hub)
+    if narrative_context is not None:
+        data["approved_source"]["narrativeContext"] = copy.deepcopy(narrative_context)
     binding = prepare._binding({**data["setup"], "work_id": data["work_id"],
         "book_ref": hub.work["bookRef"], "approved_source": data["approved_source"]})
     provider = {"provider_book_id": "book-1", "book_title": "Nera"}
