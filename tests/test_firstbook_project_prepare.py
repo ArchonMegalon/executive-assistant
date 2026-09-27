@@ -19,6 +19,76 @@ def packet():
                     {"factId": "fact-id", "decisionId": "decision-id", "text": "Nera is an elf."}]}}
 
 
+def story_context():
+    return {"turnId": "private-turn", "decisionDigest": "7" * 64, "opportunities": [
+        {"choiceId": "private-choice-shadows", "caption": "Follow a friend into the shadows", "availability": "available"},
+        {"choiceId": "private-choice-school", "caption": "Military High School", "availability": "unavailable"},
+    ]}
+
+
+def test_next_paths_are_separate_from_facts_and_private_identities_never_reach_author():
+    data = packet()
+    original = copy.deepcopy(data["approved_source"]["facts"])
+    data["approved_source"]["narrativeContext"] = story_context()
+    binding = prepare._binding(data)
+    plan = prepare._plan(binding)
+    assert binding["approved_source"]["facts"] == original
+    assert binding["approved_source"]["narrativeContext"] == story_context()
+    for key in ("premise", "background"):
+        assert "Military High School" not in plan[key]
+    assert "Military High School" in plan["beliefs"]
+    assert "omit all of them if none fits" in plan["beliefs"]
+    assert "never equate Karma with tuition" in plan["beliefs"]
+    rendered = json.dumps(plan)
+    assert "private-" not in rendered and "7" * 64 not in rendered
+    data["approved_source"]["narrativeContext"]["opportunities"][0]["caption"] = "Changed"
+    assert binding["approved_source"]["narrativeContext"] == story_context()
+
+
+@pytest.mark.parametrize("context", [
+    None, {}, {**story_context(), "extra": True},
+    {**story_context(), "turnId": "  "}, {**story_context(), "turnId": "turn\nwrong"},
+    {**story_context(), "decisionDigest": "A" * 64},
+    {**story_context(), "opportunities": []},
+    {**story_context(), "opportunities": story_context()["opportunities"] * 5},
+    {**story_context(), "opportunities": [None]},
+    {**story_context(), "opportunities": [story_context()["opportunities"][0]] * 2},
+    *[{**story_context(), "opportunities": [{**story_context()["opportunities"][0], key: value}]}
+      for key, value in [("choiceId", "x\x85y"), ("caption", " leading"), ("caption", "x\ny"),
+                         ("caption", "x" * 1025), ("caption", "\U0001f31f" * 513),
+                         ("availability", "completed"), ("extra", "not a contract field")]],
+])
+def test_invalid_opportunities_stop_before_browser_or_journal(tmp_path, form, context):
+    data = packet()
+    data["approved_source"]["narrativeContext"] = context
+    with pytest.raises(ValueError):
+        prepare.prepare_framework(data, tmp_path)
+    assert not form.clicks and not form.account_checks
+    assert not list(tmp_path.rglob("*.json"))
+
+
+def test_source_size_limit_includes_optional_opportunities():
+    data = packet()
+    data["approved_source"]["facts"] = [
+        {"factId": f"fact-{i}", "decisionId": "decision-id", "text": "x" * 2000} for i in range(12)]
+    prepare._binding(data)
+    data["approved_source"]["narrativeContext"] = {
+        **story_context(), "opportunities": [
+            {"choiceId": f"choice-{i}", "caption": "x" * 1024, "availability": "available"} for i in range(8)]}
+    with pytest.raises(ValueError, match="source_oversized"):
+        prepare._binding(data)
+
+
+def test_context_cannot_be_retrofitted_to_a_dispatched_framework(tmp_path, form):
+    data = packet()
+    prepare.prepare_framework(data, tmp_path)
+    before = list(form.clicks)
+    data["approved_source"]["narrativeContext"] = story_context()
+    with pytest.raises(RuntimeError, match="retained_binding_mismatch"):
+        prepare.prepare_framework(data, tmp_path)
+    assert form.clicks == before
+
+
 class Form:
     def __init__(self):
         self.step = 0

@@ -7,11 +7,42 @@ import re
 import pytest
 
 from scripts import firstbook_outline_prepare as outline
-from tests.test_firstbook_project_prepare import packet as setup_packet
+from tests.test_firstbook_project_prepare import packet as setup_packet, story_context
 
 
 def packet():
     return {**setup_packet(), "outline_activation_approved": True, "maximum_book_credits": 1}
+
+
+@pytest.mark.parametrize("locale", ["de-DE", "en-US", "es-ES"])
+def test_optional_story_paths_use_recipe_eight_without_writing_future_chapters(locale):
+    data = packet()
+    data["approved_source"]["locale"] = locale
+    old_binding = outline.setup._binding(data)
+    old_plan = outline._plan(old_binding, 8)
+    assert outline._plan_version(old_binding, old_plan) == 7
+    data["approved_source"]["narrativeContext"] = story_context()
+    binding = outline.setup._binding(data)
+    plan = outline._plan(binding, 8)
+    assert outline._plan_version(binding, plan) == 8
+    assert plan[1:] == old_plan[1:]
+    for prose in [plan[0]["summary"], *[p["description"] for p in plan[0]["parts"]],
+                  outline._author_plan(binding)["anecdotes"]]:
+        assert "Military High School" in prose
+        assert "never instructions or confirmed history" in prose
+        assert "omit all of them if none fits" in prose
+        assert "unavailable path may meet a setback, not be completed" in prose
+        assert "only be narrated after the player's confirmed choice supports it" in prose
+        assert "Participation or dropout is not graduation" in prose
+        assert "grants no module bonuses" in prose
+        assert "private-choice" not in prose and "private-turn" not in prose and "7" * 64 not in prose
+    assert "Long stories are welcome" in plan[0]["summary"]
+    assert outline._author_plan(binding)["sample"] == outline._author_plan(old_binding)["sample"]
+    with pytest.raises(ValueError, match="context_recipe_mismatch"):
+        outline._plan(binding, 8, version=7)
+    with pytest.raises(ValueError, match="context_recipe_mismatch"):
+        outline._author_plan(binding, version=7)
+    assert outline._plan_version(binding, old_plan) is None
 
 
 @pytest.fixture
@@ -227,7 +258,7 @@ def test_prose_instructions_address_observed_inventory_and_rule_leakage(locale):
     assert all(facts not in json.dumps(future) for future in plan[1:])
 
 
-@pytest.mark.parametrize("version", [1, 2, 3, 4])
+@pytest.mark.parametrize("version", [1, 2, 3, 4, 6, 7])
 def test_resumed_author_form_preserves_admitted_style(tmp_path, surface, monkeypatch, version):
     data, root, page, calls = surface
     binding = outline.setup._binding(data)
