@@ -108,6 +108,17 @@ leaves the fence in place, including after process restart. It never becomes an
 entitlement to click Write again. A completed unapproved draft is retained with
 its exact text hash; cold retries then return it without browser actions.
 
+Browser commands disable automatic dialog handling, including runtime session
+setup/cleanup. The live 28 September test found that FirstBook's error path uses
+`window.alert` and returns the chapter to pending; the CLI default could dismiss
+that message before inspection. An unexpected dialog must now remain available
+to the operator, without automatic acceptance, dismissal, navigation or retry.
+Inspect it with `browser-act --no-auto-dialog --session OWNED_SESSION dialog
+status`; do not log arbitrary dialog contents, which may contain private data.
+Even a visible error and an empty reopened chapter do not clear a dispatched
+write fence or authorize another generation. This correction preserves failure
+evidence; it does not repair the provider's failed generation or prove full prose.
+
 The record is scoped to provider account/project/chapter in
 `firstbook-private-writes/` (0700, files 0600). It is a private execution journal,
 not canonical Hub job storage. A recovered draft remains review-required;

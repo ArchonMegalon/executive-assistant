@@ -51,7 +51,9 @@ class Browser:
     @staticmethod
     def _command(*args: str) -> str:
         try:
-            run = subprocess.run(["browser-act", *args], capture_output=True, text=True, check=True, timeout=45)
+            # Keep the same fail-closed dialog policy as the chapter adapter,
+            # including session setup/cleanup. Unexpected dialogs are not consent.
+            run = subprocess.run(["browser-act", "--no-auto-dialog", *args], capture_output=True, text=True, check=True, timeout=45)
         except (subprocess.SubprocessError, OSError):
             raise RuntimeError("origin_runtime_browser_command_uncertain") from None
         if len(run.stdout) > 200000:
