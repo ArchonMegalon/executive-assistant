@@ -118,6 +118,62 @@ def test_account_mismatch_stops_before_book_navigation(monkeypatch):
     assert clicks == ['button[title="Your Profile"]']
 
 
+def duplicate_overviews(monkeypatch, identities, *, counts=(2, 2, 2)):
+    clicks, visits = [], []
+    counts = iter(counts)
+    identities = iter(identities)
+    def click(session, selector):
+        if selector.startswith("xpath=//h3["):
+            raise RuntimeError("firstbook_capture_control_not_unique")
+        clicks.append(selector)
+    def observe(session, expression):
+        return {"ids": next(identities)} if "ids:" in expression else {"count": next(counts)}
+    monkeypatch.setattr(capture, "_open_dashboard", lambda *a: visits.append("dashboard"))
+    monkeypatch.setattr(capture, "_overview_route", lambda *a: visits.append("overview"))
+    monkeypatch.setattr(capture, "_click", click)
+    monkeypatch.setattr(capture, "_eval", observe)
+    monkeypatch.setattr(capture, "_browser", lambda *a: pytest.fail("no other browser operation"))
+    return clicks, visits
+
+
+def test_duplicate_book_titles_require_the_exact_retained_provider_identity(monkeypatch):
+    clicks, visits = duplicate_overviews(monkeypatch, [["other-book"], ["private-book-id"]])
+    capture._open_overview("owned", "1" * 64, "Runner: Before the First Run", "private-book-id")
+    assert clicks == ["xpath=(//h3[normalize-space(.)='Runner: Before the First Run'])[1]",
+                      "xpath=(//h3[normalize-space(.)='Runner: Before the First Run'])[2]"]
+    assert visits == ["dashboard", "overview", "dashboard", "overview"]
+
+
+def test_duplicate_title_without_retained_project_still_fails_closed(monkeypatch):
+    clicks, visits = duplicate_overviews(monkeypatch, [])
+    with pytest.raises(RuntimeError, match="control_not_unique"):
+        capture._open_overview("owned", "1" * 64, "Runner")
+    assert clicks == [] and visits == ["dashboard"]
+
+
+@pytest.mark.parametrize("identities,reason", [
+    ([["other-book"], ["second-other"]], "book_mismatch"),
+    ([[]], "project_identity_ambiguous"),
+    ([["private-book-id", "other"]], "project_identity_ambiguous"),
+    ([["other-book"], ["other-book"]], "project_identity_ambiguous"),
+])
+def test_duplicate_title_mismatch_cannot_admit_another_book(monkeypatch, identities, reason):
+    duplicate_overviews(monkeypatch, identities)
+    with pytest.raises(RuntimeError, match=reason):
+        capture._open_overview("owned", "1" * 64, "Runner", "private-book-id")
+
+
+@pytest.mark.parametrize("counts,reason", [
+    ((21,), "duplicate_titles_invalid"), ((0,), "duplicate_titles_invalid"),
+    ((True,), "duplicate_titles_invalid"), ((2, 3), "dashboard_changed"),
+])
+def test_duplicate_title_scan_is_bounded_and_checks_inventory(monkeypatch, counts, reason):
+    clicks, _ = duplicate_overviews(monkeypatch, [], counts=counts)
+    with pytest.raises(RuntimeError, match=reason):
+        capture._open_overview("owned", "1" * 64, "Runner", "private-book-id")
+    assert clicks == []
+
+
 def test_book_route_is_awaited_before_reading_transient_dashboard_dom(monkeypatch):
     calls = []
     monkeypatch.setattr(capture, "_open_dashboard", lambda *args: None)

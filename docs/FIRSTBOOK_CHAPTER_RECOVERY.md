@@ -47,6 +47,16 @@ chapter title/number, bounded text and the visible approval-required state.
 It waits for those concrete controls rather than global network-idle state.
 Changed layouts, login challenges and ambiguous controls stop without generation.
 
+Duplicate titles are not project identities. The native 28 September test
+produced a second `Runner: Before the First Run` book and exposed a title-only
+lookup failure. For an already retained provider project ID, the adapter can
+visit up to20 same-title overview cards using read-only navigation and return
+only the exact ID. It rejects changed counts, repeated/missing/malformed IDs,
+or no match, and never activates or writes a candidate while searching. Without
+a retained project ID, ambiguous titles still stop. Source/account and chapter
+checks remain mandatory after selection. This is not permission to retry a
+dispatched generation or replace an uncertain project.
+
 The complete observation is atomically retained under
 `EA_UI_SERVICE_WORKER_OUTPUT_ROOT/firstbook-private-captures/` in a 0700 directory
 and a 0600 file. Reusing the same request returns those exact bytes without
