@@ -107,8 +107,26 @@ A downloaded BrowserAct kernel is not a substitute for the local Chrome driver.
 The container supplies a private Xvfb display; it never mounts the host display.
 Chrome uses `--no-sandbox`, as does the existing local operator installation:
 the required non-root, read-only, capability-free container is the isolation
-boundary, not Chrome's renderer sandbox. Host networking reaches the existing
-loopback Hub; verify all browser/control listeners bind only to loopback.
+boundary, not Chrome's renderer sandbox. Do not use host networking: unrelated
+Docker interface churn can interrupt Chromium with `ERR_NETWORK_CHANGED`.
+The worker joins the exact running Hub container's network namespace. Supply
+its inspected full 64-character ID in `ORIGIN_BOOK_HUB_CONTAINER_ID`, and the
+existing private **container-internal** listener port in `ORIGIN_BOOK_HUB_PORT`
+(currently 5089, not the host-published 15099). Confirm the target is the intended
+running local Hub before launch. Names, shortened IDs and an ambient host-mode
+fallback are not accepted. A recreated Hub needs an explicit repin; do not
+automatically follow a mutable service name or resume a retained paid job.
+
+`LocalHub` still connects only to literal loopback with proxies and redirects
+disabled. No Hub listener is changed or newly published. Verify the private
+worker route rejects unauthenticated requests and browser/control listeners
+bind only to loopback **inside the shared namespace**. The Hub container is
+therefore part of the local browser-control trust boundary. Its existing public
+ingress must never proxy those random control ports. No Docker socket is mounted.
+Host UTS supplies the existing profile's stable hostname only; networking,
+PID/IPC and display remain isolated, all capabilities are dropped, and the
+non-root worker cannot change that hostname. On host replacement, preserve the
+profile's hostname or reconcile it explicitly; never delete locks to force entry.
 
 Provide five exact private bind mounts through the Compose variables:
 approval, worker token, existing cumulative custody, separate BrowserAct state,

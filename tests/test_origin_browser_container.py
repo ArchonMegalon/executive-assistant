@@ -9,6 +9,44 @@ from tests.test_origin_book_pool import configuration
 from tests.test_origin_chapter_runtime import Browser
 
 
+def test_hub_origin_keeps_literal_loopback_in_exact_container_namespace(monkeypatch):
+    monkeypatch.setenv("ORIGIN_BOOK_HUB_CONTAINER_ID", "a" * 64)
+    monkeypatch.setenv("ORIGIN_BOOK_HUB_PORT", "5089")
+    assert container.hub_origin() == "http://127.0.0.1:5089"
+
+
+@pytest.mark.parametrize("container_id", ["", "hub", "chummer-hub-1", "a" * 12,
+    "A" * 64, "a" * 63, "a" * 65, "a" * 64 + "\n", "host", "service:hub"])
+def test_hub_namespace_cannot_use_mutable_names_or_ambient_host(monkeypatch, container_id):
+    monkeypatch.setenv("ORIGIN_BOOK_HUB_CONTAINER_ID", container_id)
+    monkeypatch.setenv("ORIGIN_BOOK_HUB_PORT", "5089")
+    with pytest.raises(RuntimeError, match="exact_hub_required"):
+        container.hub_origin()
+
+
+@pytest.mark.parametrize("port", ["", "80", "1023", "65536", "05089", "5089\n", " 5089",
+    "http://hub:5089", "5089@external.invalid", "5089/path", "-5089", "5e3"])
+def test_hub_port_cannot_change_the_credential_destination(monkeypatch, port):
+    monkeypatch.setenv("ORIGIN_BOOK_HUB_CONTAINER_ID", "a" * 64)
+    monkeypatch.setenv("ORIGIN_BOOK_HUB_PORT", port)
+    with pytest.raises(RuntimeError, match="private_hub_port_required"):
+        container.hub_origin()
+
+
+@pytest.mark.parametrize("arguments", [[], ["--preflight"]])
+def test_missing_namespace_fails_before_custody_or_browser(monkeypatch, arguments):
+    import sys
+    monkeypatch.setattr(sys, "argv", ["origin_browser_container", *arguments])
+    monkeypatch.delenv("ORIGIN_BOOK_HUB_CONTAINER_ID", raising=False)
+    monkeypatch.setenv("ORIGIN_BOOK_HUB_PORT", "5089")
+    def unexpected(*args, **kwargs):
+        pytest.fail("Invalid network configuration must not touch private state")
+    monkeypatch.setattr(container.pool.worker, "_read_private", unexpected)
+    monkeypatch.setattr(container, "prepare_browser", unexpected)
+    with pytest.raises(RuntimeError, match="exact_hub_required"):
+        container.main()
+
+
 def prepared(tmp_path):
     root = tmp_path / "browseract"
     root.mkdir(mode=0o700)
@@ -146,7 +184,11 @@ def test_compose_has_no_automatic_restart_daemon_or_broad_host_mount():
     service = spec["services"]["origin-book"]
     assert service["restart"] == "no" and service["pull_policy"] == "never"
     assert service["read_only"] is True and service["cap_drop"] == ["ALL"]
-    assert service["hostname"] == "chummer-origin-book"
+    assert service["network_mode"] == "container:${ORIGIN_BOOK_HUB_CONTAINER_ID:?Set the inspected full running Hub container ID}"
+    assert service["uts"] == "host" and "hostname" not in service
+    assert "pid" not in service and "ipc" not in service and "privileged" not in service
+    assert service["environment"]["ORIGIN_BOOK_HUB_CONTAINER_ID"] == "${ORIGIN_BOOK_HUB_CONTAINER_ID:?Set the inspected full running Hub container ID}"
+    assert service["environment"]["ORIGIN_BOOK_HUB_PORT"] == "${ORIGIN_BOOK_HUB_PORT:?Set the existing private Hub container-internal listener port}"
     assert "ports" not in service and "env_file" not in service
     assert len(service["volumes"]) == 5
     assert all(v["bind"]["create_host_path"] is False for v in service["volumes"])
