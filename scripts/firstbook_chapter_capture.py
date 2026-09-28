@@ -62,7 +62,11 @@ def _xpath(value: str) -> str:
 def _browser(session: str, *args: str) -> str:
     try:
         run = subprocess.run(
-            ["browser-act", "--session", session, *args], capture_output=True,
+            # FirstBook reports chapter failures through window.alert. The CLI
+            # default automatically handles dialogs, hiding that evidence (and
+            # potentially confirming an unexpected prompt). Leave every dialog
+            # for explicit operator inspection; never accept/dismiss on a poll.
+            ["browser-act", "--no-auto-dialog", "--session", session, *args], capture_output=True,
             text=True, check=True, timeout=45,
         )
     except (subprocess.SubprocessError, OSError):

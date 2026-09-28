@@ -1,11 +1,39 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from scripts import firstbook_chapter_capture as capture
+
+
+@pytest.mark.parametrize("args", [
+    ("eval", "document.title"),
+    ("click", "--selector", "button"),
+    ("navigate", "https://app.firstbook.ai/"),
+    ("wait", "selector", "--selector", "main"),
+])
+def test_browser_commands_never_automatically_handle_provider_dialogs(monkeypatch, args):
+    def execute(command, **options):
+        assert command == ["browser-act", "--no-auto-dialog", "--session", "owned", *args]
+        assert options == {"capture_output": True, "text": True, "check": True, "timeout": 45}
+        return subprocess.CompletedProcess(command, 0, stdout=" observed \n")
+    monkeypatch.setattr(capture.subprocess, "run", execute)
+    assert capture._browser("owned", *args) == "observed"
+
+
+def test_dialog_blocked_command_stops_without_acceptance_retry_or_private_output(monkeypatch):
+    calls = []
+    def execute(command, **options):
+        calls.append(command)
+        raise subprocess.CalledProcessError(1, command, output="private provider dialog")
+    monkeypatch.setattr(capture.subprocess, "run", execute)
+    with pytest.raises(RuntimeError, match="^firstbook_capture_browser_unavailable$") as error:
+        capture._browser("owned", "eval", "document.title")
+    assert len(calls) == 1 and "--no-auto-dialog" in calls[0]
+    assert "private" not in str(error.value)
 
 
 def packet() -> dict:

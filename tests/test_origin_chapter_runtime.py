@@ -162,8 +162,8 @@ def test_driver_uses_exact_non_shell_open_and_close_and_redacts_failures(monkeyp
     browser = runtime.Browser()
     browser.open("chrome_local_123", "owned")
     browser.close("owned")
-    assert calls == [["browser-act", "--session", "owned", "browser", "open", "chrome_local_123", "https://app.firstbook.ai/"],
-                     ["browser-act", "session", "close", "owned"]]
+    assert calls == [["browser-act", "--no-auto-dialog", "--session", "owned", "browser", "open", "chrome_local_123", "https://app.firstbook.ai/"],
+                     ["browser-act", "--no-auto-dialog", "session", "close", "owned"]]
     def failure(*args, **kwargs):
         raise subprocess.CalledProcessError(1, args, output="private page data")
     monkeypatch.setattr(runtime.subprocess, "run", failure)
