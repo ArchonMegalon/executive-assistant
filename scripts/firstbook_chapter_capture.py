@@ -107,10 +107,8 @@ def _open_dashboard(session: str, account_sha256: str) -> None:
     _click(session, "xpath=//button[normalize-space(.)='Back to Dashboard']")
 
 
-def _open_overview(session: str, account_sha256: str, book_title: str) -> None:
-    """Wait for the selected book, not the preceding dashboard's DOM."""
-    _open_dashboard(session, account_sha256)
-    _click(session, "xpath=//h3[normalize-space(.)=" + _xpath(book_title) + "]")
+def _overview_route(session: str, book_title: str) -> None:
+    """Normalize only read-only navigation after selecting a dashboard card."""
     title = "//h1[normalize-space(.)=" + _xpath(book_title) + "]"
     _browser(session, "wait", "selector", "--selector",
              "xpath=//button[normalize-space(.)='Book Overview'] | " + title, "--timeout", "15000")
@@ -124,9 +122,60 @@ def _open_overview(session: str, account_sha256: str, book_title: str) -> None:
     _browser(session, "wait", "selector", "--selector", "xpath=" + title, "--timeout", "15000")
 
 
+def _open_overview(session: str, account_sha256: str, book_title: str,
+                   provider_book_id: str | None = None) -> None:
+    """Resolve duplicate titles by the retained project ID, never title order.
+
+    FirstBook has no project identifier on its dashboard cards. Bounded,
+    read-only overview visits may locate an already bound project; they never
+    activate, write, approve or edit a candidate. Missing/ambiguous IDs fail.
+    """
+    if provider_book_id is not None and (not isinstance(provider_book_id, str)
+        or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", provider_book_id)):
+        raise ValueError("firstbook_invalid_provider_book_id")
+    _open_dashboard(session, account_sha256)
+    selector = "//h3[normalize-space(.)=" + _xpath(book_title) + "]"
+    try:
+        _click(session, "xpath=" + selector)
+    except RuntimeError as error:
+        if str(error) != "firstbook_capture_control_not_unique" or provider_book_id is None:
+            raise
+    else:
+        _overview_route(session, book_title)
+        return  # Existing callers also verify exact project identity below.
+
+    def count_titles() -> int:
+        result = _eval(session, "({origin:location.origin,count:document.evaluate("
+            + json.dumps(selector) + ",document,null,XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,null).snapshotLength})")
+        count = result.get("count")
+        if type(count) is not int or not 2 <= count <= 20:
+            raise RuntimeError("firstbook_capture_duplicate_titles_invalid")
+        return count
+
+    count = count_titles()
+    seen = set()
+    for number in range(1, count + 1):
+        if number > 1:
+            _open_dashboard(session, account_sha256)
+        if count_titles() != count:
+            raise RuntimeError("firstbook_capture_dashboard_changed")
+        _click(session, "xpath=(" + selector + ")[" + str(number) + "]")
+        _overview_route(session, book_title)
+        observed = _eval(session, "({origin:location.origin,ids:Array.from("
+            "document.querySelectorAll('span.font-mono.select-all')).map(e=>e.textContent.trim())})")
+        ids = observed.get("ids")
+        if (not isinstance(ids, list) or len(ids) != 1 or not isinstance(ids[0], str)
+            or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", ids[0]) or ids[0] in seen):
+            raise RuntimeError("firstbook_capture_project_identity_ambiguous")
+        if ids[0] == provider_book_id:
+            return
+        seen.add(ids[0])
+    raise RuntimeError("firstbook_capture_book_mismatch")
+
+
 def _open_book(session: str, binding: dict) -> None:
     # Navigation only. None of these controls generate or approve text.
-    _open_overview(session, binding["account_sha256"], binding["book_title"])
+    _open_overview(session, binding["account_sha256"], binding["book_title"], binding["provider_book_id"])
     _browser(session, "wait", "selector", "--selector", "xpath=//button[normalize-space(.)='Resume Writing']", "--timeout", "15000")
     overview = _eval(session, "({origin:location.origin,leaves:Array.from(document.querySelectorAll('body *')).filter(e=>e.childElementCount===0).map(e=>e.textContent.trim())})")
     if overview.get("leaves", []).count(binding["provider_book_id"]) != 1:

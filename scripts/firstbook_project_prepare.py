@@ -229,7 +229,7 @@ def _observe_existing_framework(session: str, binding: dict, plan: dict, project
     generate another framework when the retained setup cannot be reconciled.
     """
     if project is not None:
-        capture._open_overview(session, binding["account_sha256"], project["book_title"])
+        capture._open_overview(session, binding["account_sha256"], project["book_title"], project["provider_book_id"])
     else:
         # FirstBook may replace the proposed title when generating a framework.
         # Stay on the exclusively owned, authenticated dispatch page; searching
