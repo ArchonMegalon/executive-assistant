@@ -29,6 +29,23 @@ def _private_directory(path: Path) -> None:
         raise RuntimeError("origin_container_directory_not_private")
 
 
+def hub_origin() -> str:
+    """Validate the exact namespace/port inputs also consumed by Compose.
+
+    Docker performs the namespace join; this is not proof of that join for
+    an arbitrary manual launch. Never accept a URL, hostname, mutable container
+    name or host-network fallback. LocalHub retains its own loopback, proxy and
+    redirect checks. A replaced Hub requires an explicit new inspected ID.
+    """
+    container_id = os.environ.get("ORIGIN_BOOK_HUB_CONTAINER_ID", "")
+    port = os.environ.get("ORIGIN_BOOK_HUB_PORT", "")
+    if not re.fullmatch(r"[0-9a-f]{64}", container_id):
+        raise RuntimeError("origin_container_exact_hub_required")
+    if not re.fullmatch(r"[1-9][0-9]{3,4}", port) or not 1024 <= int(port) <= 65535:
+        raise RuntimeError("origin_container_private_hub_port_required")
+    return f"http://127.0.0.1:{port}"
+
+
 def prepare_browser(config: dict, root: Path) -> None:
     profile = config["profile_id"]
     if not re.fullmatch(r"chrome_local_[0-9]{1,32}", profile):
@@ -122,6 +139,7 @@ def main() -> int:
     parser.add_argument("--selected-book", help="Restrict this invocation to one exact admitted book.")
     args = parser.parse_args()
     os.umask(0o077)
+    origin = hub_origin()  # Fail before reading credentials/custody or opening a browser.
     load = lambda: pool.worker._json(pool.worker._read_private(Path("/private/approval.json"), 16000))
     config = pool._configuration(load(), time.time())
     # Missing/changed/uncertain custody cannot become a new allowance, even
@@ -132,7 +150,7 @@ def main() -> int:
     if args.preflight:
         result = preflight(config)
     else:
-        hub = pool.worker.LocalHub("http://127.0.0.1:15099", Path("/private/worker.token"), host="chummer.run")
+        hub = pool.worker.LocalHub(origin, Path("/private/worker.token"), host="chummer.run")
         result = watch_or_retain(load, hub, duration=args.watch_seconds, selected_book_ref=args.selected_book)
     print(json.dumps(result))
     return 2 if result["state"] == "reconciliation_required" else 0

@@ -8,11 +8,16 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     init: true
-    hostname: chummer-origin-book
     restart: "no"
-    # Existing private Hub is loopback-only. No listener is published by this
-    # service; BrowserAct/Chrome debugging listeners must remain loopback-only.
-    network_mode: host
+    # Join the exact running Hub's isolated network namespace, not the host.
+    # Chromium must not observe unrelated host veth creation/removal. Reach the
+    # private Hub via literal loopback; browser controls bind to loopback here;
+    # this worker publishes no port and never mounts the Docker socket.
+    network_mode: "container:${ORIGIN_BOOK_HUB_CONTAINER_ID:?Set the inspected full running Hub container ID}"
+    # Preserve the existing local profile's stable host name without sharing
+    # host networking, PID/IPC namespaces or the host display. ALL capabilities
+    # remain dropped, so the worker cannot change the host's UTS settings.
+    uts: host
     mem_limit: 2g
     cpus: 1.5
     pids_limit: 256
@@ -21,6 +26,8 @@ services:
       - /tmp:rw,nosuid,nodev,size=256m,mode=1777
     environment:
       BROWSERACT_DATA_DIR: /browseract
+      ORIGIN_BOOK_HUB_CONTAINER_ID: ${ORIGIN_BOOK_HUB_CONTAINER_ID:?Set the inspected full running Hub container ID}
+      ORIGIN_BOOK_HUB_PORT: ${ORIGIN_BOOK_HUB_PORT:?Set the existing private Hub container-internal listener port}
     volumes:
       - type: bind
         source: ${ORIGIN_BOOK_APPROVAL:?Exact private approval file}
