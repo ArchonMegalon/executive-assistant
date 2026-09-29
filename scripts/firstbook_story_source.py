@@ -165,6 +165,31 @@ SCENE_DIRECTION = (
     "not biography or events. The character's confirmed tone and circumstances take precedence."
 )
 
+# Recipe11 responds to an observed scene that converted modest contributions
+# into owned weapons and professional transit-system expertise. Keep earlier
+# constants byte-for-byte: paid books must still match their admitted recipe.
+GROUNDED_SCENE_DIRECTION = (
+    " Scale the local problem and its resolution to developing familiarity, not professional competence. "
+    "Archery does not supply a bow, arrows or weapon case; Survival does not supply a kit or expedition. "
+    "An interest in trains is not mechanical training, repair ability or knowledge of safety-system resets. "
+    "Logic may support a tentative question or noticing a discrepancy, not an infallible diagnosis. "
+    "The character may notice, ask qualified staff, make a modest attempt or accept help; "
+    "technical work and safety decisions remain with qualified staff unless expertise is explicitly confirmed. "
+    "A small success is welcome, but it must not certify mastery or persuade staff to bypass safety. "
+    "An ordinary temporary prop is scenery, not permission for newly owned specialist gear. "
+    "Use a present observation, not a guessed past journey, lesson, appointment or achievement. "
+    "These examples illustrate limits; do not turn them into required scenes or repeat them as rule commentary."
+)
+
+CHILDHOOD_DIRECTION = (
+    " Set this opening chapter inside childhood, not an independent adult runner's departure adventure. "
+    "Let the confirmed birth background and childhood shape the setting, immediate concern and limited autonomy "
+    "through the scene itself, not only a prefatory summary. Do not assign an exact age unless confirmed. "
+    "Use child-scale observation, learning and dialogue without inventing named parents, guardians or past trips. "
+    "Stay before the next unchosen education or life stage. An optional school invitation may be noticed, "
+    "but neither attendance nor travel to start that schooling has been chosen."
+)
+
 SCENE_SAMPLES = {
     "en": 'A gust scattered the papers across the entrance. “Hold the door!” someone called. '
           'A shoe caught the door before it slammed, but the last page was already sliding towards the steps. '

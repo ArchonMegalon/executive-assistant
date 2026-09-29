@@ -135,11 +135,11 @@ def _story_recipe_version(source: dict, version: int | None) -> int:
     has_context = source.get("narrativeContext") is not None
     if version is None:
         if story.has_contributions(source):
-            return 10
+            return 11
         return 8 if has_context else 7
     # Context was never admitted by recipes 1-7. Do not silently discard it or
     # reinterpret an old retained request using the new recipe.
-    if version not in (9, 10) and has_context != (version == 8):
+    if version not in (9, 10, 11) and has_context != (version == 8):
         raise ValueError("firstbook_narrative_context_recipe_mismatch")
     return version
 

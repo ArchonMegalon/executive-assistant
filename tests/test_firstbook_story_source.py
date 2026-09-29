@@ -64,7 +64,7 @@ def test_every_new_author_field_uses_story_projection_without_changing_source(lo
     plan = outline._plan(binding, 8)
     author = outline._author_plan(binding)
     assert outline.setup._plan_version(binding, project) == 2
-    assert outline._plan_version(binding, plan) == 10
+    assert outline._plan_version(binding, plan) == 11
     for text in (project["premise"], project["background"], author["anecdotes"], plan[0]["summary"],
                  *[part["description"] for part in plan[0]["parts"]]):
         for forbidden in ("40 Karma", "+1", "+2", "+3", "-5", "Etiquette", "LOG", "contributions:v1",
@@ -243,3 +243,66 @@ def test_next_chapter_recognizes_new_scene_recipe_and_never_reinterprets_retaine
     assert "A small local problem may be resolved" in plan["chapter"]["summary"]
     record = {"source": source, "previous": nxt.writer._binding(previous), "state": "prepared", "plan": plan}
     assert nxt._retained_plan(incoming, previous, source, record) == plan
+
+
+@pytest.mark.parametrize("locale", ["en-US", "de-DE", "es-ES"])
+@pytest.mark.parametrize("context", [False, True])
+def test_grounded_scene_keeps_childhood_and_skill_scale_explicit_in_every_section(locale, context):
+    incoming = data(locale, context=context)
+    before = copy.deepcopy(incoming)
+    binding = outline.setup._binding(incoming)
+    plan = outline._plan(binding, 8)
+    for text in (outline._author_plan(binding)["anecdotes"], plan[0]["summary"],
+                 *[part["description"] for part in plan[0]["parts"]]):
+        assert "Archery does not supply a bow" in text
+        assert "Survival does not supply a kit" in text
+        assert "interest in trains is not mechanical training" in text
+        assert "ask qualified staff" in text
+        assert "not a guessed past journey" in text
+    for part in plan[0]["parts"]:
+        text = part["description"]
+        assert "inside childhood" in text
+        assert "birth background" in text
+        assert "not an independent adult" in text
+        assert "Do not assign an exact age" in text
+        assert len(text) <= outline.writer.MAX_DESCRIPTION_CHARS
+    later = outline._plan(binding, 1, continuation=True)
+    for part in later[0]["parts"]:
+        text = part["description"]
+        assert "currentDecisionFacts are this chapter's confirmed stage" in text
+        assert "inside childhood" not in text
+        assert "Archery does not supply a bow" in text
+    assert all("inside childhood" not in json.dumps(slot) for slot in plan[1:])
+    assert incoming == before
+
+
+@pytest.mark.parametrize("locale,context,expected", [
+    ("en-US", False, "bca83e8bcc7278a85fe4ad86368dcc1e1e0e7ff28fdbe55e76a73981d4bf9e46"),
+    ("en-US", True, "2c6ac1b684f179475362b9392a7a7dabdd5c57abd97946465250e66734fd1c7a"),
+    ("de-DE", False, "2de6db5b04c58321c42b85959b6578a616b5bbfa42be38dd964c7580fabd6219"),
+    ("de-DE", True, "2627ade5376243d6e2e0cbbed6c867bf7b89c17cef76b5012a7ddfb4cb179c9e"),
+    ("es-ES", False, "e0731e548295a489d49a65652fd61a76f4f94ce4457fe58977ac1f115424a1ad"),
+    ("es-ES", True, "697d67cc12450ed26bfd909885cf3daacd12fe533849f9655cd2cdb1d4c8011b"),
+])
+def test_admitted_recipe_ten_keeps_outline_author_and_continuation_bytes(locale, context, expected):
+    binding = outline.setup._binding(data(locale, context=context))
+    plan = outline._plan(binding, 8, version=10)
+    value = {"outline": plan, "author": outline._author_plan(binding, version=10),
+             "continuation": outline._plan(binding, 1, version=10, continuation=True)}
+    assert hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True).encode()).hexdigest() == expected
+    assert outline._plan_version(binding, plan) == 10
+
+
+def test_next_chapter_retains_ten_but_new_request_uses_grounding_without_restarting_childhood():
+    incoming = data()
+    binding = outline.setup._binding(incoming)
+    previous = {**outline._prepared(binding, {"provider_book_id": "book", "book_title": "Book"},
+                                  outline._plan(binding, 8, version=10)), "generation_approved": True}
+    incoming["work_id"] = "1" * 64 + "." + "9" * 64
+    source, admitted = nxt._plan(incoming, previous, version=10)
+    record = {"source": source, "previous": nxt.writer._binding(previous), "state": "prepared", "plan": admitted}
+    assert nxt._retained_plan(incoming, previous, source, record) == admitted
+    _, new = nxt._plan(incoming, previous)
+    assert new != admitted
+    assert "Archery does not supply a bow" in new["chapter"]["summary"]
+    assert "inside childhood" not in new["chapter"]["summary"]
