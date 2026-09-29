@@ -55,7 +55,7 @@ def _retained_plan(packet: dict, previous: dict, source: dict, record: dict) -> 
         raise RuntimeError("firstbook_next_retained_mismatch")
     # New focus/size requirements cannot invalidate a previously admitted
     # outline. Match the entire retained plan under its original recipe.
-    for version in (11, 10, 9, 8, 7, 6, 5, 4, 3, 2):
+    for version in (12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2):
         try:
             _, old_plan = _plan(packet, previous, version=version)
             if record.get("plan") == old_plan:

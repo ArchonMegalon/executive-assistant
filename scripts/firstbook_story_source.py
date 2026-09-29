@@ -207,3 +207,60 @@ SCENE_SAMPLES = {
           'La tinta se había corrido en una esquina; la dirección todavía se leía. '
           '«Servirá», llegó la respuesta, con alivio. Al otro lado de la puerta, la cola volvió a avanzar.',
 }
+
+# Recipe12: the live provider inferred a strict objective/staccato profile from
+# SCENE_SAMPLES, forbidding adjectives, adverbs and internal monologue. Model the
+# desired voice positively in both the actual style field and the sample it
+# analyzes. Older recipes keep their exact samples and instructions above.
+NATURAL_VOICE_DIRECTION = (
+    " Use fluent close-third-person narration with varied sentence lengths and connected paragraphs. "
+    "Ordinary descriptive adjectives and adverbs are welcome; combine sensory detail with the character's "
+    "inner thoughts, feelings and clearly attributed dialogue. Let reflection explain a present reaction "
+    "without inventing past events or deciding future choices. People act, not disembodied hands, boots "
+    "or an anonymous body: use the character's name and confirmed pronouns naturally. "
+    "If gender is unknown, English may use singular they; German and Spanish can recast sentences around "
+    "the name without assigning gender. Respect the confirmed tone rather than forcing cheerfulness. "
+    "Do not turn every sentence into a short objective action or fragment. "
+    "The synthetic sample is a voice example, not a biography: do not copy Robin, the mural, painter, "
+    "colours or incident into this character's story."
+)
+
+NATURAL_VOICE_SAMPLES = {
+    "en": 'Robin stopped in front of the unfinished mural. All those bright shapes seemed to know where '
+          'they belonged, except for a crooked blue stripe that wandered straight across the sun. '
+          'Robin wondered whether the painter had made a mistake. Asking felt risky; what if everyone '
+          'else understood the picture already?\n\n'
+          '“Is that supposed to be there?” Robin said at last, quietly enough that the question almost '
+          'disappeared into the courtyard.\n\n'
+          'The painter leaned back. “It wasn’t when I started. What do you see?”\n\n'
+          'For a moment Robin wished the question back. Then they looked again, following the stripe '
+          'instead of trying to straighten it in their mind. “A river. Maybe the sun is reflected in it.”\n\n'
+          '“Maybe it is,” the painter said, and added a small ripple. Robin laughed in surprise. '
+          'The wall had not changed very much, but the crooked line no longer felt like something '
+          'that needed an apology. They stayed to watch the next brushstroke, a little less afraid '
+          'of asking another question.',
+    "de": 'Robin blieb vor dem unfertigen Wandbild stehen. Die leuchtenden Formen schienen alle ihren '
+          'Platz zu kennen, nur ein krummer blauer Streifen lief mitten durch die Sonne. Robin fragte '
+          'sich, ob da etwas schiefgegangen war. Nachzufragen kostete Überwindung; vielleicht verstanden '
+          'alle anderen das Bild längst?\n\n'
+          '„Soll das so sein?“, sagte Robin schließlich, so leise, dass die Frage im Hof beinahe unterging.\n\n'
+          'Der Mensch vor der Wand trat einen Schritt zurück. „Am Anfang nicht. Was siehst du darin?“\n\n'
+          'Einen Moment lang hätte Robin die Frage am liebsten zurückgenommen. Dann folgte der Blick '
+          'noch einmal dem Streifen, ohne ihn in Gedanken geradezurücken. „Einen Fluss. Vielleicht '
+          'spiegelt sich die Sonne darin.“\n\n'
+          '„Vielleicht“, kam die Antwort. Ein kleiner Pinselstrich wurde zur Welle, und Robin musste '
+          'überrascht lachen. Die Wand hatte sich kaum verändert, doch die krumme Linie wirkte nicht '
+          'mehr wie etwas, für das man sich entschuldigen musste. Robin blieb noch ein wenig und '
+          'beobachtete den nächsten Pinselstrich. Die nächste Frage würde schon leichter fallen.',
+    "es": 'Robin se detuvo ante el mural a medio terminar. Todas aquellas formas luminosas parecían '
+          'saber cuál era su sitio, salvo una franja azul y torcida que cruzaba el sol. Robin se preguntó '
+          'si había sido un error. Preguntar daba un poco de miedo: ¿y si todo el mundo entendía ya el dibujo?\n\n'
+          '«¿Eso va ahí?», dijo Robin al fin, tan bajito que la pregunta casi se perdió en el patio.\n\n'
+          'La persona que pintaba retrocedió un paso. «Al principio no. ¿Qué ves tú?»\n\n'
+          'Por un momento, Robin quiso retirar la pregunta. Después volvió a seguir la franja con la '
+          'mirada, sin intentar enderezarla mentalmente. «Un río. A lo mejor el sol se refleja en él».\n\n'
+          '«A lo mejor», llegó la respuesta. Una pincelada pequeña se convirtió en una onda, y a Robin '
+          'se le escapó una risa de sorpresa. La pared apenas había cambiado, pero aquella línea torcida '
+          'ya no parecía algo por lo que hubiera que disculparse. Robin se quedó un rato más, pendiente '
+          'de la siguiente pincelada y con un poco menos de miedo a volver a preguntar.',
+}
