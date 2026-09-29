@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 
 import pytest
@@ -63,7 +64,7 @@ def test_every_new_author_field_uses_story_projection_without_changing_source(lo
     plan = outline._plan(binding, 8)
     author = outline._author_plan(binding)
     assert outline.setup._plan_version(binding, project) == 2
-    assert outline._plan_version(binding, plan) == 9
+    assert outline._plan_version(binding, plan) == 10
     for text in (project["premise"], project["background"], author["anecdotes"], plan[0]["summary"],
                  *[part["description"] for part in plan[0]["parts"]]):
         for forbidden in ("40 Karma", "+1", "+2", "+3", "-5", "Etiquette", "LOG", "contributions:v1",
@@ -180,7 +181,7 @@ def test_retained_next_chapter_recognizes_version_nine_without_repreparing():
     previous = {**outline._prepared(binding, {"provider_book_id": "book", "book_title": "Book"}, previous_plan),
                 "generation_approved": True}
     incoming["work_id"] = "1" * 64 + "." + "9" * 64
-    source, plan = nxt._plan(incoming, previous)
+    source, plan = nxt._plan(incoming, previous, version=9)
     record = {"source": source, "previous": nxt.writer._binding(previous), "state": "prepared", "plan": plan}
     assert nxt._retained_plan(incoming, previous, source, record) == plan
     assert "40 Karma" not in json.dumps(plan)
@@ -188,3 +189,57 @@ def test_retained_next_chapter_recognizes_version_nine_without_repreparing():
     changed["plan"]["chapter"]["summary"] += " changed"
     with pytest.raises(RuntimeError, match="retained_mismatch"):
         nxt._retained_plan(incoming, previous, source, changed)
+
+
+@pytest.mark.parametrize("locale,spoken", [("en-US", "Hold the door"),
+                                          ("de-DE", "Halt die Tür"),
+                                          ("es-ES", "Sujeta la puerta")])
+@pytest.mark.parametrize("context", [False, True])
+def test_new_recipe_models_action_dialogue_and_local_resolution_without_a_biography(locale, spoken, context):
+    incoming = data(locale, context=context)
+    before = copy.deepcopy(incoming)
+    binding = outline.setup._binding(incoming)
+    author = outline._author_plan(binding)
+    assert spoken in author["sample"]
+    assert "not biography or events" in author["anecdotes"]
+    for continuation in (False, True):
+        plan = outline._plan(binding, 8, continuation=continuation)
+        for text in (author["anecdotes"], plan[0]["summary"],
+                     *[part["description"] for part in plan[0]["parts"]]):
+            assert "A small local problem may be resolved" in text
+            assert "incidental dialogue" in text
+            assert "not new family, trusted contacts, possessions" in text
+            assert "Do not borrow the style sample's" in text
+        assert "dialogue" in plan[0]["parts"][1]["description"]
+        assert "local problem" in plan[0]["parts"][2]["description"]
+        assert "Hold the door" not in json.dumps(plan)  # sample is not an outline event
+        assert all("local problem" not in json.dumps(slot) for slot in plan[1:])
+    assert incoming == before
+
+
+@pytest.mark.parametrize("locale,context,expected", [
+    ("en-US", False, "26d7f2452c30f56d0e0d458fe8aba388a6bca21e591c990f49e6bbfeb103b716"),
+    ("en-US", True, "796843657041bd917cd29c0bd3fc256b61fb061421e274bf6dfce77c56ecc317"),
+    ("de-DE", False, "292eef32ec1dab3172159e5199e658c790a7c74158aa13a16c4b7aeabeefa77b"),
+    ("de-DE", True, "457340211f60e8314aa03a13f64cc26f828c8235258c84e2ad754cd5af45bb5a"),
+    ("es-ES", False, "f7d9f71b612d72ea4d4b28b4c48104c9a1163bdd7048a948d77894bc0db4f586"),
+    ("es-ES", True, "31d774acc4f0cec1f8ebf14c5b16b90a927acb3d6dc03f3bf3f896023f8fe6d3"),
+])
+def test_paid_version_nine_outline_and_author_style_keep_exact_historical_bytes(locale, context, expected):
+    binding = outline.setup._binding(data(locale, context=context))
+    plan = outline._plan(binding, 8, version=9)
+    old = {"outline": plan, "author": outline._author_plan(binding, version=9)}
+    assert hashlib.sha256(json.dumps(old, ensure_ascii=False, sort_keys=True).encode()).hexdigest() == expected
+    assert outline._plan_version(binding, plan) == 9
+
+
+def test_next_chapter_recognizes_new_scene_recipe_and_never_reinterprets_retained_nine():
+    incoming = data()
+    binding = outline.setup._binding(incoming)
+    previous = {**outline._prepared(binding, {"provider_book_id": "book", "book_title": "Book"},
+                                  outline._plan(binding, 8, version=9)), "generation_approved": True}
+    incoming["work_id"] = "1" * 64 + "." + "9" * 64
+    source, plan = nxt._plan(incoming, previous)
+    assert "A small local problem may be resolved" in plan["chapter"]["summary"]
+    record = {"source": source, "previous": nxt.writer._binding(previous), "state": "prepared", "plan": plan}
+    assert nxt._retained_plan(incoming, previous, source, record) == plan
