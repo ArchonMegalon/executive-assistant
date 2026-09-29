@@ -63,8 +63,8 @@ def test_every_new_author_field_uses_story_projection_without_changing_source(lo
     project = outline.setup._plan(binding)
     plan = outline._plan(binding, 8)
     author = outline._author_plan(binding)
-    assert outline.setup._plan_version(binding, project) == 2
-    assert outline._plan_version(binding, plan) == 11
+    assert outline.setup._plan_version(binding, project) == 3
+    assert outline._plan_version(binding, plan) == 12
     for text in (project["premise"], project["background"], author["anecdotes"], plan[0]["summary"],
                  *[part["description"] for part in plan[0]["parts"]]):
         for forbidden in ("40 Karma", "+1", "+2", "+3", "-5", "Etiquette", "LOG", "contributions:v1",
@@ -199,11 +199,11 @@ def test_new_recipe_models_action_dialogue_and_local_resolution_without_a_biogra
     incoming = data(locale, context=context)
     before = copy.deepcopy(incoming)
     binding = outline.setup._binding(incoming)
-    author = outline._author_plan(binding)
+    author = outline._author_plan(binding, version=10)
     assert spoken in author["sample"]
     assert "not biography or events" in author["anecdotes"]
     for continuation in (False, True):
-        plan = outline._plan(binding, 8, continuation=continuation)
+        plan = outline._plan(binding, 8, version=10, continuation=continuation)
         for text in (author["anecdotes"], plan[0]["summary"],
                      *[part["description"] for part in plan[0]["parts"]]):
             assert "A small local problem may be resolved" in text
@@ -305,4 +305,95 @@ def test_next_chapter_retains_ten_but_new_request_uses_grounding_without_restart
     _, new = nxt._plan(incoming, previous)
     assert new != admitted
     assert "Archery does not supply a bow" in new["chapter"]["summary"]
+    assert "inside childhood" not in new["chapter"]["summary"]
+
+
+@pytest.mark.parametrize("locale,reflection,dialogue", [
+    ("en-US", "Robin wondered", "Robin said"),
+    ("de-DE", "Robin fragte sich", "sagte Robin"),
+    ("es-ES", "Robin se preguntó", "dijo Robin"),
+])
+@pytest.mark.parametrize("context", [False, True])
+def test_natural_voice_reaches_actual_style_field_sample_and_each_section(locale, reflection, dialogue, context):
+    incoming = data(locale, context=context)
+    original = copy.deepcopy(incoming)
+    binding = outline.setup._binding(incoming)
+    framework = outline.setup._plan(binding)
+    author = outline._author_plan(binding)
+    assert reflection in author["sample"] and dialogue in author["sample"]
+    assert author["sample"] != story.SCENE_SAMPLES[locale[:2]]
+    # The provider uses only the first 2,000 characters of its sample.
+    assert 600 < len(author["sample"]) <= 2000
+    for continuation in (False, True):
+        plan = outline._plan(binding, 8, continuation=continuation)
+        for text in (framework["tone"], author["anecdotes"], plan[0]["summary"],
+                     *[part["description"] for part in plan[0]["parts"]]):
+            assert "varied sentence lengths" in text
+            assert "adjectives and adverbs" in text
+            assert "inner thoughts" in text
+            assert "clearly attributed dialogue" in text
+            assert "not disembodied hands" in text
+            assert "not a biography" in text
+        assert "singular they" in framework["tone"]
+        for part in plan[0]["parts"]:
+            assert len(part["description"]) <= outline.writer.MAX_DESCRIPTION_CHARS
+            if not continuation:
+                assert part["description"].index("inside childhood") < part["description"].index("Quoted character reference")
+        assert all("inner thoughts" not in json.dumps(slot) for slot in plan[1:])
+    assert incoming == original
+
+
+@pytest.mark.parametrize("locale,context,expected", [
+    ("en-US", False, "f053bd5e59dc7d2ac90f3e7887590e8c37113d93a767cafc533fe39df9598e4a"),
+    ("en-US", True, "70fe41136ffc1958959badf2a725dedd7eee4c4d37e89a2925d6e2583d49130b"),
+    ("de-DE", False, "519601574810c3cc4850ef9c7ac9214a85996c1483270630689c08b2518bd8be"),
+    ("de-DE", True, "8ade60a8df94c37a18f9edc7fc9a8ee1cf0ec8db301fe6e1ef7c56901caddf8f"),
+    ("es-ES", False, "47284aa14c4eb3a43ff8d770c2ca8137b5d7e91959ec0ab195983230e207fcac"),
+    ("es-ES", True, "2f3478cb97abecbcff21e055eeb1fea030004574c2061561e6320b81a8e2f56a"),
+])
+def test_admitted_recipe_eleven_and_framework_two_keep_exact_bytes(locale, context, expected):
+    binding = outline.setup._binding(data(locale, context=context))
+    plan = outline._plan(binding, 8, version=11)
+    value = {"framework": outline.setup._plan(binding, version=2), "outline": plan,
+             "author": outline._author_plan(binding, version=11),
+             "continuation": outline._plan(binding, 1, version=11, continuation=True)}
+    assert hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True).encode()).hexdigest() == expected
+    assert outline._plan_version(binding, plan) == 11
+    assert outline.setup._plan_version(binding, value["framework"]) == 2
+
+
+def test_old_style_framework_without_outline_is_not_paid_but_admitted_eleven_can_resume(tmp_path, surface):
+    _, root, _, calls = surface
+    incoming = {**data(), "outline_activation_approved": True, "maximum_book_credits": 1}
+    binding = outline.setup._binding(incoming)
+    provider = {"provider_book_id": "existing-book", "book_title": "Nera's private book"}
+    setup_path = root / ("setup-" + binding["book_ref"] + ".json")
+    outline_path = root / ("outline-" + binding["book_ref"] + ".json")
+    outline.writer._save(setup_path, {"binding": binding, "plan": outline.setup._plan(binding, version=2),
+        "state": "framework_dispatched", "provider": provider, "browser_session": incoming["browser_session"], "page_epoch": 1000})
+    before = setup_path.read_bytes()
+    assert outline.prepare_first_chapter(incoming, tmp_path)["state"] == "outline_reconciliation_required"
+    assert not calls and setup_path.read_bytes() == before and not outline_path.exists()
+    old_plan = outline._plan(binding, 8, version=11)
+    outline.writer._save(outline_path, {"binding": binding, "provider": provider, "plan": old_plan,
+        "before": [], "state": "first_chapter_prepared", "browser_session": incoming["browser_session"], "page_epoch": 1000})
+    old_bytes = outline_path.read_bytes()
+    assert outline.retained_first_chapter(incoming, tmp_path)["expected_outline"] == old_plan[0]["parts"]
+    assert outline.prepare_first_chapter(incoming, tmp_path)["state"] == "first_chapter_prepared"
+    assert calls == ["reopen_paid"]  # no outline/style edits or credit dispatch
+    assert setup_path.read_bytes() == before and outline_path.read_bytes() == old_bytes
+
+
+def test_next_chapter_recognizes_new_twelve_and_retained_eleven_without_style_rewrite():
+    incoming = data()
+    binding = outline.setup._binding(incoming)
+    previous = {**outline._prepared(binding, {"provider_book_id": "book", "book_title": "Book"},
+                                  outline._plan(binding, 8, version=11)), "generation_approved": True}
+    incoming["work_id"] = "1" * 64 + "." + "9" * 64
+    for version in (11, 12):
+        source, plan = nxt._plan(incoming, previous, version=version)
+        record = {"source": source, "previous": nxt.writer._binding(previous), "state": "prepared", "plan": plan}
+        assert nxt._retained_plan(incoming, previous, source, record) == plan
+    _, new = nxt._plan(incoming, previous)
+    assert "inner thoughts" in new["chapter"]["summary"]
     assert "inside childhood" not in new["chapter"]["summary"]

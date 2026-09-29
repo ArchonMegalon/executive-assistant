@@ -135,11 +135,11 @@ def _story_recipe_version(source: dict, version: int | None) -> int:
     has_context = source.get("narrativeContext") is not None
     if version is None:
         if story.has_contributions(source):
-            return 11
+            return 12
         return 8 if has_context else 7
     # Context was never admitted by recipes 1-7. Do not silently discard it or
     # reinterpret an old retained request using the new recipe.
-    if version not in (9, 10, 11) and has_context != (version == 8):
+    if version not in (9, 10, 11, 12) and has_context != (version == 8):
         raise ValueError("firstbook_narrative_context_recipe_mismatch")
     return version
 
@@ -147,13 +147,13 @@ def _story_recipe_version(source: dict, version: int | None) -> int:
 def _plan(binding: dict, *, version: int | None = None) -> dict:
     source = binding["approved_source"]
     if version is None:
-        version = 2 if story.has_contributions(source) else 1
-    if type(version) is not int or version not in (1, 2):
+        version = 3 if story.has_contributions(source) else 1
+    if type(version) is not int or version not in (1, 2, 3):
         raise ValueError("firstbook_setup_plan_version_invalid")
     language = _LANGUAGES[source["locale"].split("-")[0]]
-    facts = (story.facts_json(source) if version == 2
+    facts = (story.facts_json(source) if version >= 2
              else json.dumps([f["text"] for f in source["facts"]], ensure_ascii=False))
-    if version == 2:
+    if version >= 2:
         return {
             "title": source["runnerName"] + " — " + _TITLES[source["locale"].split("-")[0]],
             "language": language, "goal": "Legacy & Personal Story",
@@ -163,7 +163,8 @@ def _plan(binding: dict, *, version: int | None = None) -> dict:
             "audience": "The player privately reading this fictional character's unfolding backstory.",
             "background": "This is fiction, not a professional memoir. Quoted character reference: " + facts,
             "beliefs": story.FICTION_DIRECTION + _story_opportunities(source),
-            "tone": f"Literary third-person fiction in {language}. " + story.FICTION_DIRECTION,
+            "tone": f"Literary third-person fiction in {language}. " + story.FICTION_DIRECTION
+                + (story.NATURAL_VOICE_DIRECTION if version >= 3 else ""),
             "references": "",
         }
     return {
@@ -193,7 +194,7 @@ def _plan(binding: dict, *, version: int | None = None) -> dict:
 def _plan_version(binding: dict, plan: dict) -> int | None:
     # Recognize historical bytes before projecting anything under a new recipe.
     # A projection failure must not strand a previously dispatched framework.
-    for version in (1, 2):
+    for version in (1, 2, 3):
         try:
             if plan == _plan(binding, version=version):
                 return version
