@@ -20,7 +20,8 @@ COPY scripts/origin_book_pool.py scripts/origin_chapter_runtime.py \
     scripts/firstbook_chapter_capture.py scripts/firstbook_chapter_write.py \
     scripts/firstbook_chapter_review.py scripts/firstbook_chapter_advance.py \
     scripts/firstbook_book_binding.py scripts/firstbook_project_prepare.py \
-    scripts/firstbook_outline_prepare.py scripts/firstbook_next_chapter_prepare.py ./scripts/
+    scripts/firstbook_outline_prepare.py scripts/firstbook_next_chapter_prepare.py \
+    scripts/firstbook_story_source.py ./scripts/
 RUN chmod -R a+rX /app/scripts
 USER 1000:1000
 RUN python -c 'import importlib.metadata; assert importlib.metadata.version("browser-act-cli") == "1.1.0"; from browser_act_cli.registry import Registry; from scripts import origin_book_pool'

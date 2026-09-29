@@ -17,6 +17,21 @@ from scripts import firstbook_project_prepare as setup
 writer = setup.writer
 capture = writer.capture
 _HEADER = "//div[contains(concat(' ',normalize-space(@class),' '),' cursor-pointer ')][span[normalize-space(.)=NUMBER]]"
+_LABELS = {
+    "de": ("Ein Anfang", ["Der Augenblick", "Unter der Oberfläche", "Vor der Entscheidung"], "Noch unentschieden"),
+    "en": ("A Beginning", ["The Moment", "Beneath the Surface", "Before the Choice"], "Still Undecided"),
+    "es": ("Un comienzo", ["El momento", "Bajo la superficie", "Antes de decidir"], "Aún sin decidir"),
+}
+
+
+def _placeholder(source: dict, number: int) -> dict:
+    # Historical and current recipes share these exact bytes. Looking up an
+    # empty future slot must not reproject a retained chapter's authoring facts.
+    _, parts, pending = _LABELS[source["locale"].split("-")[0]]
+    return {"title": f"{pending} — {number}",
+        "summary": "Unapproved future slot. No facts or choices exist for this stage. Do not write it.",
+        "parts": [{"title": title, "description": "No confirmed content yet. Wait for a new player-approved source packet; do not invent or foreshadow a biography."}
+                  for title in parts]}
 
 
 def _plan(binding: dict, count: int, *, legacy: bool = False, version: int | None = None,
@@ -25,20 +40,19 @@ def _plan(binding: dict, count: int, *, legacy: bool = False, version: int | Non
     # only). Version 7 honors the user's preference for longer stories without
     # artificial short-scene quotas; grounding/decision boundaries stay intact.
     # Version 8 adds optional, unchosen possibilities, separate from history.
+    # Version 9 projects confirmed contributions into story-only references.
     # Changing instructions must never rewrite an admitted book.
     if legacy:
         version = 1
     source = binding["approved_source"]
     version = setup._story_recipe_version(source, version)
-    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7, 8):
+    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7, 8, 9):
         raise ValueError("firstbook_outline_plan_version_invalid")
     focus_current = version == 5 or (version >= 6 and continuation)
     locale = source["locale"].split("-")[0]
-    first, parts, pending = {
-        "de": ("Ein Anfang", ["Der Augenblick", "Unter der Oberfläche", "Vor der Entscheidung"], "Noch unentschieden"),
-        "en": ("A Beginning", ["The Moment", "Beneath the Surface", "Before the Choice"], "Still Undecided"),
-        "es": ("Un comienzo", ["El momento", "Bajo la superficie", "Antes de decidir"], "Aún sin decidir"),
-    }[locale]
+    first, parts, _ = _LABELS[locale]
+    if version == 9:
+        return _story_plan(binding, count, first, parts, continuation=continuation)
     facts = json.dumps([f["text"] for f in source["facts"]], ensure_ascii=False)
     if focus_current:
         # Source facts are identity-sorted, not chronological. Preserve every
@@ -130,14 +144,37 @@ def _plan(binding: dict, count: int, *, legacy: bool = False, version: int | Non
     initial = {"title": source["runnerName"] + " — " + first,
                "summary": direction, "parts": outline}
     capture._text(initial, "title")
-    future = {"title": pending, "summary": "Unapproved future slot. No facts or choices exist for this stage. Do not write it.",
-        "parts": [{"title": title, "description": "No confirmed content yet. Wait for a new player-approved source packet; do not invent or foreshadow a biography."}
-                  for title in parts]}
-    return [initial] + [{**future, "title": f"{pending} — {number}"} for number in range(2, count + 1)]
+    return [initial] + [_placeholder(source, number) for number in range(2, count + 1)]
+
+
+def _story_plan(binding: dict, count: int, first: str, parts: list[str],
+                *, continuation: bool) -> list[dict]:
+    source = binding["approved_source"]
+    direction = (f"Private fictional third-person prose in {setup._LANGUAGES[source['locale'].split('-')[0]]}. "
+        + setup.story.FICTION_DIRECTION + " Quoted character reference: "
+        + setup.story.facts_json(source, continuation=continuation))
+    direction += (" currentDecisionFacts are this chapter's confirmed stage; priorContextFacts are background. "
+                  "Neither list's order is chronology. Do not restart the birth or childhood opening."
+                  if continuation else
+                  " Establish the confirmed metatype, birth background and childhood as the opening situation.")
+    direction += setup._story_opportunities(source)
+    endings = (
+        "Open with a concrete scene in the confirmed stage and a small immediate concern for the character.",
+        "Continue the action and the character's response. Let a relevant learning influence emerge through "
+        "what the character notices or tries, without guaranteeing success or retelling the opening.",
+        "Bring the scene to a natural pause. Leave room for the next player choice, without selecting it "
+        "or jumping into an unchosen life stage.")
+    outline = [{"title": title, "description": direction + " Write only this section. " + ending}
+               for title, ending in zip(parts, endings)]
+    for part in outline:
+        capture._text(part, "description", writer.MAX_DESCRIPTION_CHARS)
+    initial = {"title": source["runnerName"] + " — " + first, "summary": direction, "parts": outline}
+    capture._text(initial, "title")
+    return [initial] + [_placeholder(source, number) for number in range(2, count + 1)]
 
 
 def _plan_version(binding: dict, plan: list[dict]) -> int | None:
-    for version in (8, 7, 6, 4, 3, 2, 1):
+    for version in (9, 8, 7, 6, 4, 3, 2, 1):
         try:
             if plan == _plan(binding, len(plan), version=version):
                 return version
@@ -265,7 +302,7 @@ def retained_first_chapter(packet: dict, output_root: Path) -> dict | None:
         return None
     binding = setup._binding(packet)
     initial = writer._load(root / ("setup-" + book_ref + ".json"))
-    if (initial is None or initial.get("binding") != binding or initial.get("plan") != setup._plan(binding)
+    if (initial is None or initial.get("binding") != binding or setup._plan_version(binding, initial.get("plan")) is None
         or initial.get("state") != "framework_dispatched" or "provider" not in initial):
         raise RuntimeError("firstbook_outline_retained_binding_mismatch")
     provider = setup._project(initial["provider"])
@@ -280,7 +317,7 @@ _SAMPLE = 'textarea[placeholder="Paste sample text here..."]'
 def _author_plan(binding: dict, *, version: int | None = None) -> dict:
     source = binding["approved_source"]
     version = setup._story_recipe_version(source, version)
-    if type(version) is not int or version not in (1, 2, 3, 4, 6, 7, 8):
+    if type(version) is not int or version not in (1, 2, 3, 4, 6, 7, 8, 9):
         raise ValueError("firstbook_outline_plan_version_invalid")
     samples = {
         "de": "Regen zog feine Linien über das Glas. Dahinter flackerte ein rotes Licht, verschwand und kehrte zurück. In der Ferne summte die Stadt. Der Augenblick blieb offen, als hielte jemand den Atem an.",
@@ -316,6 +353,12 @@ def _author_plan(binding: dict, *, version: int | None = None) -> dict:
                 "que aún no estaba claro quedaba espacio para preguntas sin respuesta inmediata. "
                 "Por un momento podía perdurar esa incertidumbre; todavía no se había elegido un camino.",
         }
+    if version == 9:
+        return {"anecdotes": "Fictional character reference, not the player's personal experiences or memoir anecdotes. "
+                    + setup.story.facts_json(source) + " " + setup.story.FICTION_DIRECTION
+                    + " The separate synthetic style sample supplies sentence rhythm only, not biography or events."
+                    + setup._story_opportunities(source),
+                "sample": samples[source["locale"].split("-")[0]]}
     return {"anecdotes": "Fictional character facts only, not the player's personal experiences. "
             "The separate synthetic writing sample is tone only, not biography. "
             "No other history or future decisions are confirmed. Quoted facts: " +
@@ -386,7 +429,7 @@ def prepare_first_chapter(packet: dict, output_root: Path) -> dict:
         except BlockingIOError:
             raise RuntimeError("firstbook_chapter_worker_busy") from None
         initial = writer._load(root / ("setup-" + binding["book_ref"] + ".json"))
-        if (initial is None or initial.get("binding") != binding or initial.get("plan") != setup._plan(binding)
+        if (initial is None or initial.get("binding") != binding or setup._plan_version(binding, initial.get("plan")) is None
             or initial.get("state") != "framework_dispatched" or "provider" not in initial):
             raise RuntimeError("firstbook_outline_setup_not_bound")
         provider = setup._project(initial["provider"])
@@ -415,6 +458,11 @@ def prepare_first_chapter(packet: dict, output_root: Path) -> dict:
             writer._save(path, record)
             return status("first_chapter_prepared")
 
+        if (setup.story.has_contributions(binding["approved_source"])
+            and setup._plan_version(binding, initial["plan"]) == 1):
+            # Its premise still contains raw mechanics. Do not silently combine
+            # a new story recipe with an old framework or pay to activate it.
+            return status("outline_reconciliation_required")
         if writer._inspect(session).get("generating") is True:
             return status("provider_busy")
         setup._observe_existing_framework(session, binding, initial["plan"], provider)

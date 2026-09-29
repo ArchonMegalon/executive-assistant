@@ -204,6 +204,8 @@ def test_image_supplies_normal_chrome_and_private_display():
     entrypoint = Path("docker/origin-book/entrypoint").read_text()
     assert "-nolisten tcp" in entrypoint and "Xvfb :97" in entrypoint
     assert "USER 1000:1000" in dockerfile
+    assert "scripts/firstbook_story_source.py" in dockerfile
+    assert "!scripts/firstbook_story_source.py" in Path("docker/origin-book/Dockerfile.dockerignore").read_text().splitlines()
 
 
 @pytest.mark.parametrize("failure", [True, False])
