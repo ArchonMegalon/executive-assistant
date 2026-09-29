@@ -9,6 +9,50 @@ entry points are documented in [ORIGIN_CHAPTER_LOCAL_CYCLE.md](ORIGIN_CHAPTER_LO
 and [ORIGIN_CHAPTER_WATCH.md](ORIGIN_CHAPTER_WATCH.md); source availability alone
 does not enable a service or expand provider-spending permission.
 
+## Story-only authoring input (29 September)
+
+New sources containing Core's `:contributions:v1` facts use framework recipe 2
+and outline/author recipe 9. `firstbook_story_source.py` projects the exact
+English, German and Spanish contribution-summary formats into named learning
+and quality references. It removes choice costs, numeric amounts, zero rows and
+unallocated knowledge/quality pools from authoring fields. Positive contributions
+are learning influences, not mastery, possessions or completed achievements;
+negative contributions are not diagnoses or final character ratings. Other
+confirmed names, answers, identity facts and optional unchosen story opportunities
+stay intact. Current and prior decisions remain separately identified in a
+continuation. This is a presentation adapter, not another rules evaluator.
+
+The original Hub-approved source, consent and digest are retained unchanged.
+Unknown formats/versions stop **new** preparation before browser input or paid
+dispatch; facts are never truncated to fit. Historical framework and outline
+recipes remain recognizable under their exact retained bytes. Empty future
+slots are independent of the current parser, so recovering an older interrupted
+outline does not attempt to reinterpret its contribution summary. An old raw-
+mechanics framework without an admitted outline requires reconciliation rather
+than silently combining it with the new recipe. Existing paid books and their
+earlier premise/author fields are not migrated or rewritten by this change.
+
+The new prompt asks for connected scenes and meaningful development, with no
+short word quota. It cannot guarantee provider compliance. A real 29 September
+generation under the **older** inputs returned a complete 5,047-word chapter,
+but review rejected leaked mechanics, invented possessions/history and repetitive
+exposition. Its provider request also appended a nonfiction template. That
+retained draft is diagnostic evidence, not an approved book or proof that the
+new recipe produces acceptable live prose. This source change neither starts a
+worker nor authorizes another Write, Rewrite, activation or reader acceptance.
+
+Focused local checks:
+
+```sh
+python3 -m pytest -q tests/test_firstbook_story_source.py tests/test_firstbook_project_prepare.py tests/test_firstbook_outline_prepare.py tests/test_firstbook_next_chapter_prepare.py tests/test_firstbook_chapter_write.py tests/test_origin_chapter_worker.py tests/test_origin_browser_container.py
+```
+
+Review boundary: canon fit passes (story-only presentation); boundary fit passes
+(Core rules and Hub source/consent remain authoritative); runtime fit passes for
+the focused local recovery tests, while new live prose remains unverified;
+mirror fit passes without modifying mirrored canon. No design-policy change,
+provider/model swap, new spending permission or release claim is introduced.
+
 `scripts/booka_book_worker.py` supports `mode: capture_existing_chapter` for a
 trusted local caller holding its own authenticated BrowserAct session. This is
 a read-only provider adapter, **not** a deployed Android generation service.
@@ -256,9 +300,9 @@ Focused local verification:
 python3 -m pytest -q tests/test_firstbook_chapter_advance.py tests/test_firstbook_book_binding.py tests/test_origin_chapter_worker.py tests/test_firstbook_chapter_write.py tests/test_firstbook_chapter_capture.py tests/test_booka_book_worker.py
 ```
 
-## Short scene quality and live rewrite observation
+## Historical short-scene recipe and live rewrite observation
 
-New `firstbook_outline_prepare.py` plans request one 450–650-word scene across
+The 22 September `firstbook_outline_prepare.py` plans requested one 450–650-word scene across
 three sections (150–210 words per section), with no repeated opening and no
 special physiology, enhanced senses or abilities inferred from metatype. Exact
 older retained plans remain recoverable; this prompt change does not rewrite

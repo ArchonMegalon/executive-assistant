@@ -55,7 +55,7 @@ def _retained_plan(packet: dict, previous: dict, source: dict, record: dict) -> 
         raise RuntimeError("firstbook_next_retained_mismatch")
     # New focus/size requirements cannot invalidate a previously admitted
     # outline. Match the entire retained plan under its original recipe.
-    for version in (8, 7, 6, 5, 4, 3, 2):
+    for version in (9, 8, 7, 6, 5, 4, 3, 2):
         try:
             _, old_plan = _plan(packet, previous, version=version)
             if record.get("plan") == old_plan:
@@ -122,7 +122,7 @@ def prepare_next_chapter(packet: dict, previous: dict, output_root: Path,
             record["state"] = "prepared"
             writer._save(path, record)
             return {"state": "next_chapter_prepared", "prepared": planned["prepared"]}
-        placeholder = outline._plan(source, count)[number - 1]
+        placeholder = outline._placeholder(source["approved_source"], number)
         empty = {**planned["prepared"], "chapter_title": placeholder["title"], "expected_outline": placeholder["parts"]}
         writer._require_prepared(writer._binding(empty), observed)
         capture._click(session, "xpath=//button[normalize-space(.)='Book Overview']")

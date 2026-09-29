@@ -146,6 +146,34 @@ def test_new_focus_requirement_does_not_strand_an_admitted_legacy_outline(tmp_pa
     assert nxt.writer._load(path)["plan"] == old_plan
 
 
+@pytest.mark.parametrize("state", ["editing", "save_dispatched", "prepared"])
+def test_new_projection_cannot_strand_retained_continuation(tmp_path, continuation, state):
+    s = continuation
+    s["setup"]["approved_source"]["facts"].append({
+        "factId": "school:contributions:v1", "decisionId": "school",
+        "text": "An older opaque contribution summary."})
+    source, old_plan = nxt._plan(s["setup"], s["old"]["prepared"], version=7)
+    path = nxt._path(s["root"], source["work_id"])
+    nxt.writer._save(path, {"source": source, "previous": nxt.writer._binding(s["old"]["prepared"]),
+        "plan": old_plan, "before": s["before"], "state": state})
+    original_predecessor = s["path"].read_bytes()
+    s["plan"].update(old_plan)
+    if state == "editing":
+        assert prepare(s, tmp_path)["state"] == "outline_save_dispatched"
+        assert s["values"][1] == nxt.outline._values(old_plan["chapter"])
+        assert s["values"][:1] == s["before"][:1] and s["values"][2:] == s["before"][2:]
+        assert sum("Lock & Start Writing" in a for a in s["actions"]) == 1
+        assert prepare(s, tmp_path, allow_new_dispatch=False)["prepared"] == old_plan["prepared"]
+    else:
+        s["observed"].update(chapterTitle=old_plan["prepared"]["chapter_title"],
+                             outline=old_plan["prepared"]["expected_outline"])
+        assert prepare(s, tmp_path)["prepared"] == old_plan["prepared"]
+        assert not any("Lock" in a for a in s["actions"])
+    assert nxt.retained_next_chapter(s["setup"], s["old"]["prepared"], tmp_path) == old_plan["prepared"]
+    assert nxt.writer._load(path)["plan"] == old_plan
+    assert s["path"].read_bytes() == original_predecessor
+
+
 def test_next_choice_changes_only_one_slot_and_cold_read_completes_once(tmp_path, continuation):
     s = continuation
     original = s["path"].read_bytes()
