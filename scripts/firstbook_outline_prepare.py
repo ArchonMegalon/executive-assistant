@@ -41,18 +41,19 @@ def _plan(binding: dict, count: int, *, legacy: bool = False, version: int | Non
     # artificial short-scene quotas; grounding/decision boundaries stay intact.
     # Version 8 adds optional, unchosen possibilities, separate from history.
     # Version 9 projects confirmed contributions into story-only references.
+    # Version 10 models action/dialogue rather than abstract indecision.
     # Changing instructions must never rewrite an admitted book.
     if legacy:
         version = 1
     source = binding["approved_source"]
     version = setup._story_recipe_version(source, version)
-    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7, 8, 9):
+    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10):
         raise ValueError("firstbook_outline_plan_version_invalid")
     focus_current = version == 5 or (version >= 6 and continuation)
     locale = source["locale"].split("-")[0]
     first, parts, _ = _LABELS[locale]
-    if version == 9:
-        return _story_plan(binding, count, first, parts, continuation=continuation)
+    if version in (9, 10):
+        return _story_plan(binding, count, first, parts, continuation=continuation, version=version)
     facts = json.dumps([f["text"] for f in source["facts"]], ensure_ascii=False)
     if focus_current:
         # Source facts are identity-sorted, not chronological. Preserve every
@@ -148,7 +149,7 @@ def _plan(binding: dict, count: int, *, legacy: bool = False, version: int | Non
 
 
 def _story_plan(binding: dict, count: int, first: str, parts: list[str],
-                *, continuation: bool) -> list[dict]:
+                *, continuation: bool, version: int) -> list[dict]:
     source = binding["approved_source"]
     direction = (f"Private fictional third-person prose in {setup._LANGUAGES[source['locale'].split('-')[0]]}. "
         + setup.story.FICTION_DIRECTION + " Quoted character reference: "
@@ -158,12 +159,23 @@ def _story_plan(binding: dict, count: int, first: str, parts: list[str],
                   if continuation else
                   " Establish the confirmed metatype, birth background and childhood as the opening situation.")
     direction += setup._story_opportunities(source)
+    if version == 10:
+        direction += setup.story.SCENE_DIRECTION
     endings = (
         "Open with a concrete scene in the confirmed stage and a small immediate concern for the character.",
         "Continue the action and the character's response. Let a relevant learning influence emerge through "
         "what the character notices or tries, without guaranteeing success or retelling the opening.",
         "Bring the scene to a natural pause. Leave room for the next player choice, without selecting it "
         "or jumping into an unchosen life stage.")
+    if version == 10:
+        endings = (
+            "Open with a concrete scene in the confirmed stage and a small immediate concern for the character. "
+            "Put a modest obstacle in the way and show the first attempt to deal with it.",
+            "Continue that same attempt through action and incidental dialogue, with a visible response "
+            "or complication. Do not restart the opening or repeat its reflection.",
+            "Resolve or change the local problem through the character's response. End at a natural pause "
+            "before the next life choice: no selected school, career, new reward or unchosen stage. "
+            "Do not replace the ending with another abstract recap of possible paths.")
     outline = [{"title": title, "description": direction + " Write only this section. " + ending}
                for title, ending in zip(parts, endings)]
     for part in outline:
@@ -174,7 +186,7 @@ def _story_plan(binding: dict, count: int, first: str, parts: list[str],
 
 
 def _plan_version(binding: dict, plan: list[dict]) -> int | None:
-    for version in (9, 8, 7, 6, 4, 3, 2, 1):
+    for version in (10, 9, 8, 7, 6, 4, 3, 2, 1):
         try:
             if plan == _plan(binding, len(plan), version=version):
                 return version
@@ -317,7 +329,7 @@ _SAMPLE = 'textarea[placeholder="Paste sample text here..."]'
 def _author_plan(binding: dict, *, version: int | None = None) -> dict:
     source = binding["approved_source"]
     version = setup._story_recipe_version(source, version)
-    if type(version) is not int or version not in (1, 2, 3, 4, 6, 7, 8, 9):
+    if type(version) is not int or version not in (1, 2, 3, 4, 6, 7, 8, 9, 10):
         raise ValueError("firstbook_outline_plan_version_invalid")
     samples = {
         "de": "Regen zog feine Linien über das Glas. Dahinter flackerte ein rotes Licht, verschwand und kehrte zurück. In der Ferne summte die Stadt. Der Augenblick blieb offen, als hielte jemand den Atem an.",
@@ -353,9 +365,12 @@ def _author_plan(binding: dict, *, version: int | None = None) -> dict:
                 "que aún no estaba claro quedaba espacio para preguntas sin respuesta inmediata. "
                 "Por un momento podía perdurar esa incertidumbre; todavía no se había elegido un camino.",
         }
-    if version == 9:
+    if version == 10:
+        samples = setup.story.SCENE_SAMPLES
+    if version in (9, 10):
         return {"anecdotes": "Fictional character reference, not the player's personal experiences or memoir anecdotes. "
                     + setup.story.facts_json(source) + " " + setup.story.FICTION_DIRECTION
+                    + (setup.story.SCENE_DIRECTION if version == 10 else "")
                     + " The separate synthetic style sample supplies sentence rhythm only, not biography or events."
                     + setup._story_opportunities(source),
                 "sample": samples[source["locale"].split("-")[0]]}

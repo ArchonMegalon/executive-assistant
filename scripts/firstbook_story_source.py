@@ -145,3 +145,40 @@ FICTION_DIRECTION = (
     "Deliver the fiction itself, not advice, actionable steps, counter-arguments, a memoir anecdote, "
     "synopsis or commentary about writing. Leave the next player decision open."
 )
+
+# Version 10 adds this direction without changing the admitted version-9 bytes.
+# The live chapter became abstract reflection despite asking for scenes; its
+# style sample modeled precisely that abstraction. Give a positive scene model
+# and separate a local resolution from an unchosen life-module outcome.
+SCENE_DIRECTION = (
+    " A small local problem may be resolved without resolving the next life choice. "
+    "Give the scene a concrete want, a modest obstacle, an attempt and a visible consequence. "
+    "Ordinary unnamed bystanders and incidental dialogue are permitted within this present scene; "
+    "they do not become established friends, relatives, mentors or future contacts. "
+    "Use public surroundings or temporary scene details, not newly owned gear. "
+    "Show a few confirmed influences through what the character notices, says or tries; "
+    "do not explain nationality or language as a way of thinking. "
+    "Replace repeated reflections about potential, paths or uncertainty with action or dialogue "
+    "that changes the immediate situation. Quiet reflection can connect those actions, not replace them. "
+    "Do not invent remembered lessons, guardian permissions, appointments or prior achievements. "
+    "Do not borrow the style sample's people, door, papers, weather or incident: it models prose, "
+    "not biography or events. The character's confirmed tone and circumstances take precedence."
+)
+
+SCENE_SAMPLES = {
+    "en": 'A gust scattered the papers across the entrance. “Hold the door!” someone called. '
+          'A shoe caught the door before it slammed, but the last page was already sliding towards the steps. '
+          '“That one?” “Yes—the one escaping.” A hand pinned it against the wet stone. '
+          'The ink had blurred at one corner; the address was still readable. '
+          '“Close enough,” came the relieved reply. Beyond the doorway, the queue began moving again.',
+    "de": 'Ein Windstoß trieb die Blätter quer durch den Eingang. „Halt die Tür!“, rief jemand. '
+          'Ein Schuh fing die Tür ab, bevor sie zuschlug, doch das letzte Blatt rutschte bereits auf die Stufen zu. '
+          '„Das da?“ „Ja, das auf der Flucht.“ Eine Hand drückte es auf den nassen Stein. '
+          'An einer Ecke war die Tinte verlaufen; die Adresse blieb lesbar. '
+          '„Das reicht“, kam die erleichterte Antwort. Hinter der Tür setzte sich die Schlange wieder in Bewegung.',
+    "es": 'Una ráfaga esparció los papeles por la entrada. «¡Sujeta la puerta!», gritó alguien. '
+          'Un zapato detuvo la puerta antes de que se cerrara, pero la última hoja ya se deslizaba hacia los escalones. '
+          '«¿Esa?» «Sí, la que se escapa». Una mano la sujetó contra la piedra mojada. '
+          'La tinta se había corrido en una esquina; la dirección todavía se leía. '
+          '«Servirá», llegó la respuesta, con alivio. Al otro lado de la puerta, la cola volvió a avanzar.',
+}
