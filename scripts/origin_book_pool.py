@@ -1,6 +1,6 @@
 """Cumulative local admission for a finite number of consented Origin books.
 
-One fixed FirstBook account/profile, one existing credit per new book. Hub owns
+One fixed FirstBook account/profile per book, one existing credit per new book. Hub owns
 the consented facts, chapter requests and reader acceptance. This controller
 never buys credits, creates Hub jobs, accepts prose or publishes. Reservations
 are durable before execution and are never refunded by failures or restarts.
@@ -17,19 +17,31 @@ import os
 from pathlib import Path
 import re
 import time
+import uuid
 
 from scripts import origin_chapter_runtime as runtime
 
 worker = runtime.worker
 _SCHEMA = "firstbook.local-book-pool/v1"
+_ROTATING_SCHEMA = "firstbook.local-book-pool/v2"
 _SAFE = runtime._SAFE_CLOSE
+
+
+def accounts(config: dict) -> list[dict]:
+    """Ordered, explicitly admitted profiles; never discover credentials."""
+    if config.get("schema") == _ROTATING_SCHEMA:
+        return config["accounts"]
+    return [{key: config[key] for key in ("profile_id", "profile_use_approved", "account_sha256")}]
 
 
 def _configuration(value: dict, now: float) -> dict:
     fields = {"schema", "approval_id", "approved", "maximum_new_books", "maximum_chapters_per_book",
               "profile_id", "profile_use_approved", "source_scope", "account_sha256", "expires_at",
               "excluded_book_refs"}
-    if (not isinstance(value, dict) or set(value) != fields or value.get("schema") != _SCHEMA
+    rotating = isinstance(value, dict) and value.get("schema") == _ROTATING_SCHEMA
+    if rotating:
+        fields = fields - {"profile_id", "profile_use_approved", "account_sha256"} | {"accounts"}
+    if (not isinstance(value, dict) or set(value) != fields or value.get("schema") not in (_SCHEMA, _ROTATING_SCHEMA)
         or value.get("approved") is not True or value.get("source_scope") != "consented_origin"
         or not isinstance(value.get("approval_id"), str)
         or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", value["approval_id"])
@@ -43,16 +55,27 @@ def _configuration(value: dict, now: float) -> dict:
     # Reuse the established profile, expiry, locale and one-credit bounds.
     dummy = {"bookRef": "0" * 64, "workId": "0" * 64 + "." + "1" * 64,
              "job": {"source": {"workspaceId": "validation-only", "locale": "en"}}}
-    runtime._configuration(_book_configuration(value, dummy), "validation-only", now)
+    choices = accounts(value)
+    if (not isinstance(choices, list) or not 1 <= len(choices) <= 20
+        or any(not isinstance(a, dict) or set(a) != {"profile_id", "profile_use_approved", "account_sha256"}
+               for a in choices)):
+        raise ValueError("origin_pool_accounts_invalid")
+    for account in choices:
+        runtime._configuration(_book_configuration(value, dummy, account), "validation-only", now)
+    if (len({a["profile_id"] for a in choices}) != len(choices)
+        or len({a["account_sha256"] for a in choices}) != len(choices)):
+        raise ValueError("origin_pool_accounts_not_isolated")
     return copy.deepcopy(value)
 
 
-def _book_configuration(config: dict, work: dict) -> dict:
+def _book_configuration(config: dict, work: dict, account: dict | None = None) -> dict:
+    account = accounts(config)[0] if account is None else account
     source = work["job"]["source"]
-    return {key: config[key] for key in ("profile_id", "profile_use_approved", "source_scope")} | {
+    return {key: account[key] for key in ("profile_id", "profile_use_approved")} | {
+        "source_scope": config["source_scope"],
         "admission": {"schema": runtime.intake._SCHEMA, "approved": True,
             "book_ref": work["bookRef"], "first_work_id": work["workId"],
-            "account_sha256": config["account_sha256"], "workspace_id": source["workspaceId"],
+            "account_sha256": account["account_sha256"], "workspace_id": source["workspaceId"],
             "locale": source["locale"], "expires_at": config["expires_at"],
             "maximum_chapters": config["maximum_chapters_per_book"], "maximum_book_credits": 1}}
 
@@ -96,8 +119,12 @@ def _read_ledger(path: Path, binding: dict, now: float) -> dict:
         runtime._configuration(entry, "validation-only", now)
         admission = entry["admission"]
         ref = admission["book_ref"]
+        selected = next((a for a in accounts(binding) if a["profile_id"] == entry["profile_id"]
+                         and a["account_sha256"] == admission["account_sha256"]), None)
+        if selected is None:
+            raise RuntimeError("origin_pool_custody_mismatch")
         expected = _book_configuration(binding, {"bookRef": ref, "workId": admission["first_work_id"],
-            "job": {"source": {"workspaceId": admission["workspace_id"], "locale": admission["locale"]}}})
+            "job": {"source": {"workspaceId": admission["workspace_id"], "locale": admission["locale"]}}}, selected)
         if entry != expected or ref in seen or ref in binding["excluded_book_refs"]:
             raise RuntimeError("origin_pool_custody_mismatch")
         seen.add(ref)
@@ -110,6 +137,9 @@ def _restore(path: Path, binding: dict, now: float) -> dict:
     state = _read_ledger(path, binding, now)
     if state["in_flight"] is not None:
         raise RuntimeError("origin_pool_execution_requires_reconciliation")
+    probe = worker.writer._load(path.parent / "account-probe.json")
+    if probe is not None and probe.get("state") != "closed":
+        raise RuntimeError("origin_pool_account_probe_requires_reconciliation")
     return state
 
 
@@ -331,6 +361,42 @@ def _new_books(hub, binding: dict, enrolled: set[str], now: float) -> list[dict]
     return [items[0] for _, items in sorted(groups.items())]
 
 
+def _select_account(binding, root, browser, check, now):
+    """Only verified zero credits permit advancing to the next account.
+
+    Runs under the pool lease, before a new book reservation. Existing books
+    never enter here. A failed/unknown browser open or close retains a fence;
+    login/identity/DOM/transport errors propagate, never mean 'empty'.
+    """
+    path = root / "account-probe.json"
+    previous = worker.writer._load(path)
+    if previous is not None and previous.get("state") != "closed":
+        raise RuntimeError("origin_pool_account_probe_requires_reconciliation")
+    for account in accounts(binding):
+        check()
+        session = "origin-credit-" + uuid.uuid4().hex
+        observation = {"state": "opening", "session": session,
+            "profile_id": account["profile_id"], "account_sha256": account["account_sha256"],
+            "remaining_credits": None, "observed_at": None}
+        worker.writer._save(path, observation)
+        browser.open(account["profile_id"], session)
+        try:
+            balance = browser.credit_balance(session, account["account_sha256"])
+            if type(balance) is not int or balance < 0:
+                raise RuntimeError("origin_pool_account_balance_unverified")
+            observation.update(remaining_credits=balance, observed_at=now())
+        finally:
+            observation["state"] = "closing"
+            worker.writer._save(path, observation)
+            browser.close(session)
+            observation["state"] = "closed"
+            worker.writer._save(path, observation)
+        check()
+        if balance > 0:
+            return account
+    return None
+
+
 def run_once(load_configuration, hub, output_root: Path, *, now=time.time, browser=None,
              cycles=60, interval=5, sleep=time.sleep, selected_book_ref=None) -> dict:
     # Explicit operator selection narrows a sweep; it never bypasses admission,
@@ -346,6 +412,7 @@ def run_once(load_configuration, hub, output_root: Path, *, now=time.time, brows
 
     with _lease(output_root) as path:
         state = _restore(path, binding, now())
+        exhausted = False
         books = state["books"]
         enrolled = {b["admission"]["book_ref"] for b in books}
         if (len(books) < binding["maximum_new_books"]
@@ -361,8 +428,24 @@ def run_once(load_configuration, hub, output_root: Path, *, now=time.time, brows
                 if fresh != selected:
                     raise RuntimeError("origin_pool_initial_source_changed")
                 check()
-                books.append(_book_configuration(binding, fresh))
-                worker.writer._save(path, state)  # reserve BEFORE any browser/Hub write
+                account = accounts(binding)[0]
+                if binding["schema"] == _ROTATING_SCHEMA:
+                    with runtime.intake.cycle._lease(output_root):
+                        account = _select_account(binding, path.parent, browser or runtime.Browser(), check, now)
+                    # Account observation can take time; recheck source/consent
+                    # before reserving or dispatching any paid provider action.
+                    if hub.call(selected["workId"]) != selected:
+                        raise RuntimeError("origin_pool_initial_source_changed")
+                    check()
+                if account is not None:
+                    books.append(_book_configuration(binding, fresh, account))
+                    worker.writer._save(path, state)  # reserve BEFORE any Hub/provider write
+                elif selected_book_ref is not None:
+                    return {"state": "accounts_exhausted", "reserved_books": len(books),
+                        "remaining_books": binding["maximum_new_books"] - len(books),
+                        "publication_authorized": False}
+                else:
+                    exhausted = True
         selected_books = [b for b in books if selected_book_ref is None
                           or b["admission"]["book_ref"] == selected_book_ref]
         if selected_book_ref is not None and not selected_books:
@@ -384,7 +467,8 @@ def run_once(load_configuration, hub, output_root: Path, *, now=time.time, brows
             state["in_flight"] = None
             worker.writer._save(path, state)
             results.append(result["state"])
-        return {"state": "idle" if not results or all(r == "idle" for r in results) else "observed",
+        return {"state": "accounts_exhausted" if exhausted else
+                ("idle" if not results or all(r == "idle" for r in results) else "observed"),
             "reserved_books": len(books), "remaining_books": binding["maximum_new_books"] - len(books),
             "book_states": results, "publication_authorized": False}
 
@@ -406,7 +490,7 @@ def watch(load_configuration, hub, output_root: Path, *, duration=3600, poll_int
     last = None
     while monotonic() < deadline and now() < original["expires_at"]:
         last = run_once(check, hub, output_root, now=now, sleep=sleep, **kwargs)
-        if last["state"] == "reconciliation_required":
+        if last["state"] in ("reconciliation_required", "accounts_exhausted"):
             return last
         remaining = min(deadline - monotonic(), original["expires_at"] - now())
         if remaining > 0:

@@ -6,6 +6,7 @@ import pytest
 
 from scripts import origin_browser_container as container
 from tests.test_origin_book_pool import configuration
+from tests.test_origin_book_pool import rotating_configuration
 from tests.test_origin_chapter_runtime import Browser
 
 
@@ -101,6 +102,22 @@ def test_wrong_registry_scope_rejected(tmp_path, field, value):
 def test_extra_profile_directory_rejected(tmp_path):
     root, _ = prepared(tmp_path)
     (root / "profiles/other").mkdir()
+    with pytest.raises(RuntimeError, match="only_approved_profile"):
+        container.prepare_browser(configuration(), root)
+
+
+def test_rotation_mounts_only_explicit_profiles_with_separate_cookie_stores(tmp_path):
+    root, _ = prepared(tmp_path)
+    config = rotating_configuration()
+    second = config["accounts"][1]["profile_id"]
+    profile = root / "profiles" / second
+    profile.mkdir(mode=0o700)
+    (profile / "Default").mkdir(mode=0o700)
+    with sqlite3.connect(root / "browsers.db") as db:
+        db.execute("INSERT INTO browsers VALUES (?,?,?,'normal',NULL,NULL,NULL,NULL,NULL,NULL,NULL,0)",
+                   (second, "chrome", "local"))
+    container.prepare_browser(config, root)
+    # The same two-profile mount is not admitted to a single-profile worker.
     with pytest.raises(RuntimeError, match="only_approved_profile"):
         container.prepare_browser(configuration(), root)
 

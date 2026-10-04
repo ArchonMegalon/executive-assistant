@@ -71,6 +71,9 @@ class Browser:
     def verify_account(self, session: str, account: str) -> None:
         worker.writer.capture._open_dashboard(session, account)
 
+    def credit_balance(self, session: str, account: str) -> int:
+        return worker.writer.capture.credit_balance(session, account)
+
     def close(self, session: str) -> None:
         raw = self._command("session", "close", session)
         if raw.splitlines().count("session_name=" + session + " closed=true") != 1:

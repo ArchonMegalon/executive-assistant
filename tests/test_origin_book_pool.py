@@ -18,6 +18,120 @@ def configuration():
         "expires_at": 1100, "excluded_book_refs": []}
 
 
+def rotating_configuration():
+    config = configuration()
+    first = {key: config.pop(key) for key in ("profile_id", "profile_use_approved", "account_sha256")}
+    return config | {"schema": pool._ROTATING_SCHEMA, "accounts": [first,
+        {**first, "profile_id": "chrome_local_67890", "account_sha256": "b" * 64}]}
+
+
+class BalanceBrowser(Browser):
+    def __init__(self, balances):
+        super().__init__()
+        self.balances = balances
+        self.probes = []
+
+    def credit_balance(self, session, account):
+        self.probes.append(account)
+        value = self.balances[account]
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+
+@pytest.mark.parametrize("first,expected", [(25, "a"), (0, "b")])
+def test_rotation_only_after_verified_zero_and_binding_survives_restart(tmp_path, monkeypatch, first, expected):
+    config, hub = start(tmp_path, rotating_configuration()), Books()
+    hub.add("1")
+    browser = BalanceBrowser({"a" * 64: first, "b" * 64: 10})
+    dispatched = []
+    def execute(book, *args, **kwargs):
+        assert ledger(tmp_path)["in_flight"] == "1" * 64
+        dispatched.append(book["admission"]["account_sha256"])
+        return {"state": "review_required", "browser_retained": False}
+    monkeypatch.setattr(pool.runtime, "run_bounded", execute)
+    run(config, hub, tmp_path, browser)
+    assert dispatched == [expected * 64]
+    assert browser.probes == (["a" * 64] if first else ["a" * 64, "b" * 64])
+    probes = browser.probes.copy()
+    browser.balances = {}  # Existing chapters never consume a new book credit.
+    run(config, hub, tmp_path, browser)
+    assert dispatched == [expected * 64] * 2 and browser.probes == probes
+
+
+@pytest.mark.parametrize("balance", [None, False, -1, "0", RuntimeError("login_required"),
+    RuntimeError("network_timeout"), RuntimeError("wrong_account")])
+def test_unknown_balance_or_error_never_rotates_or_reserves(tmp_path, executor, balance):
+    config, hub = start(tmp_path, rotating_configuration()), Books()
+    hub.add("1")
+    browser = BalanceBrowser({"a" * 64: balance, "b" * 64: 25})
+    with pytest.raises(RuntimeError):
+        run(config, hub, tmp_path, browser)
+    assert browser.probes == ["a" * 64] and not ledger(tmp_path)["books"] and not executor
+    assert browser.calls[-1][0] == "close"
+
+
+def test_all_empty_keeps_unadmitted_job_and_does_not_buy_or_poll_again(tmp_path, executor):
+    config, hub = start(tmp_path, rotating_configuration()), Books()
+    work = hub.add("1")
+    browser = BalanceBrowser({"a" * 64: 0, "b" * 64: 0})
+    result = pool.watch(lambda: config, hub, tmp_path, duration=1, now=lambda: 1000,
+        browser=browser, sleep=lambda _: pytest.fail("Exhausted accounts should stop the watch"))
+    assert result["state"] == "accounts_exhausted" and result["reserved_books"] == 0
+    assert work["executionAdmission"] is None and not executor
+
+
+@pytest.mark.parametrize("operation", ["open", "close"])
+def test_unknown_probe_lifecycle_blocks_another_window_and_account(tmp_path, monkeypatch, operation):
+    config, hub = start(tmp_path, rotating_configuration()), Books()
+    hub.add("1")
+    browser = BalanceBrowser({"a" * 64: 0, "b" * 64: 25})
+    def fail(*args): raise RuntimeError("uncertain_browser")
+    monkeypatch.setattr(browser, operation, fail)
+    with pytest.raises(RuntimeError, match="uncertain_browser"):
+        run(config, hub, tmp_path, browser)
+    with pytest.raises(RuntimeError, match="probe_requires_reconciliation"):
+        run(config, hub, tmp_path, browser)
+    assert "b" * 64 not in browser.probes and not ledger(tmp_path)["books"]
+
+
+def test_uncertain_execution_never_rotates_to_another_account(tmp_path, monkeypatch):
+    config, hub = start(tmp_path, rotating_configuration()), Books()
+    hub.add("1")
+    browser = BalanceBrowser({"a" * 64: 25, "b" * 64: 25})
+    monkeypatch.setattr(pool.runtime, "run_bounded", lambda *a, **k:
+        {"state": "provider_busy", "browser_retained": True})
+    assert run(config, hub, tmp_path, browser)["state"] == "reconciliation_required"
+    hub.add("2")
+    with pytest.raises(RuntimeError, match="requires_reconciliation"):
+        run(config, hub, tmp_path, browser)
+    assert browser.probes == ["a" * 64]
+
+
+@pytest.mark.parametrize("field", ["profile_id", "account_sha256"])
+def test_rotation_requires_distinct_accounts_and_cookie_profiles(tmp_path, field):
+    config = rotating_configuration()
+    config["accounts"][1][field] = config["accounts"][0][field]
+    with pytest.raises(ValueError, match="not_isolated"):
+        start(tmp_path, config)
+
+
+def test_rotating_configuration_cannot_reset_existing_single_account_custody(tmp_path):
+    start(tmp_path)
+    with pytest.raises(RuntimeError, match="custody_mismatch"):
+        run(rotating_configuration(), Books(), tmp_path)
+
+
+def test_credit_probe_cannot_overlap_an_existing_runtime_lease(tmp_path):
+    config, hub = start(tmp_path, rotating_configuration()), Books()
+    hub.add("1")
+    browser = BalanceBrowser({"a" * 64: 25})
+    with pool.runtime.intake.cycle._lease(tmp_path):
+        with pytest.raises(RuntimeError, match="busy"):
+            run(config, hub, tmp_path, browser)
+    assert not browser.calls and not ledger(tmp_path)["books"]
+
+
 class Books(Queue):
     def __init__(self):
         super().__init__()
