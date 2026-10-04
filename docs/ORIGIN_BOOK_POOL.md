@@ -1,16 +1,51 @@
 # Finite cumulative Origin book budget
 
-The user approved up to **three new books total** on 24 September 2026, only
+The historical user approval was up to **three new books total** on 24 September 2026, only
 for explicitly consented Chummer facts, using existing FirstBook credits, no
 purchases or publication. This does not renew daily, per account, or on restart.
-The completed synthetic book grants remain historical and unchanged.
+The completed synthetic book grants remain historical and unchanged. Later
+standing approval covers existing FirstBook credits, and on 4 October the user
+explicitly requested switching to their next account when one is empty. Neither
+decision resets an existing ledger or authorizes uncertain-job replay, purchases
+or publication. The three-book example below documents the original grant.
 
 `scripts.origin_book_pool` adds a narrow local controller over the existing
-owned-browser runtime. It reserves each distinct Hub book before any browser or
-Hub write. Each admitted book retains the existing one-credit cap. Later chapter
+owned-browser runtime. It reserves each distinct Hub book before any provider or
+Hub write (a v2 account balance probe is read-only). Each admitted book retains the existing one-credit cap. Later chapter
 requests reuse that paid book and require the exact reader-accepted predecessor.
 The controller never creates chapter requests, accepts prose, publishes a book,
-selects a different provider account or buys credits.
+transfers an existing book to another account or buys credits.
+
+## Account rotation for new books
+
+The optional `firstbook.local-book-pool/v2` configuration replaces the three
+top-level `profile_id`, `profile_use_approved` and `account_sha256` fields with
+an ordered `accounts` array. Each entry contains those same three fields, with
+a distinct verified account hash and a distinct explicitly approved browser
+profile. All remaining approval, expiry and cumulative-budget fields are unchanged.
+
+Before reserving a **new** book, the controller reads the current account's
+visible `CREDIT BALANCE` under its verified identity. Only exactly zero advances
+to the next configured account. Missing/ambiguous balance, authentication errors,
+account mismatch and network failures stop selection; they are never exhaustion.
+All accounts empty returns `accounts_exhausted` without reserving or starting a
+book. Only configured existing profiles are used; the controller never logs out,
+creates profiles, imports cookies or reads a credential inventory.
+
+The chosen account/profile is persisted with the book before execution and reused
+for all later chapters, even when its new-book balance reaches zero. The shared
+in-flight fence still stops unknown paid work from being repeated on another
+account. Read-only probes also retain a lifecycle fence if their browser open or
+close is unconfirmed. Monthly allowance and refill dates are not remaining credits.
+
+Existing v1 custody remains readable and unchanged; editing it to v2 is rejected.
+Do not create a new ledger to retry an old admitted book. A deployment must first
+reconcile existing work and explicitly enroll only genuinely new requests.
+The default Compose file still mounts one profile. For v2, add only each exact
+approved profile as a separate private bind mount in a local Compose override;
+never mount the global profile root or unrelated accounts. The scoped registry
+and mounted profiles must exactly match the admitted account set. Run the
+read-only preflight for all profiles before enabling rotation.
 
 The private owner-only configuration supplies:
 
@@ -128,10 +163,10 @@ PID/IPC and display remain isolated, all capabilities are dropped, and the
 non-root worker cannot change that hostname. On host replacement, preserve the
 profile's hostname or reconcile it explicitly; never delete locks to force entry.
 
-Provide five exact private bind mounts through the Compose variables:
+For the default single-account deployment, provide five exact private bind mounts through the Compose variables:
 approval, worker token, existing cumulative custody, separate BrowserAct state,
 and **only** the approved existing local profile. No global BrowserAct registry,
-API key, host home, Docker socket, imported profiles or additional accounts.
+API key, host home, Docker socket, imported profiles or unapproved accounts.
 The scoped registry records that same existing profile, not a newly created or
 imported browser. State/profile ownership must match the non-root runtime UID;
 directories are 0700 and secret files 0600. Profile access must be exclusive:

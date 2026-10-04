@@ -1,4 +1,4 @@
-"""Run the finite pool with one existing local Chrome profile, never all EA.
+"""Run the finite pool with explicitly approved local Chrome profiles, never all EA.
 
 No profile creation/import, cookie copying, API credential or host daemon mount.
 Only selected metadata is registered for the already mounted profile. The host
@@ -47,19 +47,20 @@ def hub_origin() -> str:
 
 
 def prepare_browser(config: dict, root: Path) -> None:
-    profile = config["profile_id"]
-    if not re.fullmatch(r"chrome_local_[0-9]{1,32}", profile):
+    approved = {account["profile_id"] for account in pool.accounts(config)}
+    if any(not re.fullmatch(r"chrome_local_[0-9]{1,32}", profile) for profile in approved):
         raise RuntimeError("origin_container_local_profile_required")
     if os.environ.get("BROWSERACT_API_KEY") or os.environ.get("BROWSERACT_CLI_SERVICE_URL"):
         raise RuntimeError("origin_container_ambient_browser_credentials")
     _private_directory(root)
     profiles = root / "profiles"
-    if profiles.is_symlink() or not profiles.is_dir() or {p.name for p in profiles.iterdir()} != {profile}:
+    if profiles.is_symlink() or not profiles.is_dir() or {p.name for p in profiles.iterdir()} != approved:
         raise RuntimeError("origin_container_only_approved_profile_allowed")
-    _private_directory(profiles / profile)
-    if not (profiles / profile / "Default").is_dir():
-        raise RuntimeError("origin_container_existing_profile_required")
-    _private_directory(profiles / profile / "Default")
+    for profile in approved:
+        _private_directory(profiles / profile)
+        if not (profiles / profile / "Default").is_dir():
+            raise RuntimeError("origin_container_existing_profile_required")
+        _private_directory(profiles / profile / "Default")
     settings = {"analytics_disabled": True, "exception_report_disabled": True}
     settings_path = root / "config.json"
     if settings_path.is_symlink():
@@ -87,8 +88,9 @@ def prepare_browser(config: dict, root: Path) -> None:
         from browser_act_cli.registry import Registry
         registry = Registry(registry_path=db)
         with registry._connect() as connection:
-            registry.insert_browser_row(connection, id=profile, name="firstbook-origin-dossier",
-                type="chrome", source="local", desc="Consented Chummer Origin only; no purchases or publication.")
+            for profile in sorted(approved):
+                registry.insert_browser_row(connection, id=profile, name="firstbook-origin-dossier",
+                    type="chrome", source="local", desc="Consented Chummer Origin only; no purchases or publication.")
         db.chmod(0o600)
     info = db.stat()
     if not db.is_file() or info.st_uid != os.getuid() or info.st_mode & 0o077:
@@ -96,7 +98,8 @@ def prepare_browser(config: dict, root: Path) -> None:
     with sqlite3.connect(db.as_uri() + "?mode=ro", uri=True) as connection:
         rows = connection.execute("SELECT id,type,source,mode,profile,source_profile,api_key_hash,"
             "proxy_type,dynamic_proxy,custom_proxy,static_proxy_id,confirm_before_use FROM browsers").fetchall()
-        if rows != [(profile, "chrome", "local", "normal", None, None, None, None, None, None, None, 0)]:
+        if sorted(rows) != [(profile, "chrome", "local", "normal", None, None, None, None, None, None, None, 0)
+                            for profile in sorted(approved)]:
             raise RuntimeError("origin_container_registry_not_scoped")
         if connection.execute("SELECT COUNT(*) FROM profiles").fetchone()[0] != 0:
             raise RuntimeError("origin_container_imported_profiles_forbidden")
@@ -105,6 +108,11 @@ def prepare_browser(config: dict, root: Path) -> None:
 def preflight(config: dict, browser=None) -> dict:
     """Owned read-only account probe; no Hub mutation or provider generation."""
     browser = browser or pool.runtime.Browser()
+    if config["schema"] == pool._ROTATING_SCHEMA:
+        results = [preflight({**config, **account, "schema": pool._SCHEMA}, browser)
+                   for account in pool.accounts(config)]
+        return {"state": "accounts_verified", "accounts": results, "credits_spent": 0,
+                "browser_retained": False}
     session = "origin-preflight-" + uuid.uuid4().hex
     browser.open(config["profile_id"], session)
     try:

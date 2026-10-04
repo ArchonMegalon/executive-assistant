@@ -9,6 +9,26 @@ import pytest
 from scripts import firstbook_chapter_capture as capture
 
 
+@pytest.mark.parametrize("text,expected", [("My Profile\nBook Credits\n25\nCredits per Month\n25", 25),
+    ("My Profile\nCREDIT BALANCE\n24\ncredits available\nAppSumo Lifetime Deal\nTier 5\n25\ncredits/mo\nLAST REFILL\n2026-10", 24),
+    ("My Profile\nCredits\n0\nLast Refill\n2026-10", 0)])
+def test_credit_probe_uses_visible_balance_not_monthly_allowance(monkeypatch, text, expected):
+    seen = []
+    monkeypatch.setattr(capture, "_account_profile", lambda session, account:
+        seen.append((session, account)) or text)
+    monkeypatch.setattr(capture, "_click", lambda *args: None)
+    assert capture.credit_balance("owned", "a" * 64) == expected
+    assert seen == [("owned", "a" * 64)]
+
+
+@pytest.mark.parametrize("text", ["Login", "My Profile\nCredits per Month\n25", "Credits\n-1",
+    "Credits\nunknown", "Credits\n0\nCredits\n25", "Credits\n25/month"])
+def test_missing_ambiguous_or_allowance_only_balance_is_not_zero(monkeypatch, text):
+    monkeypatch.setattr(capture, "_account_profile", lambda *args: text)
+    with pytest.raises(RuntimeError, match="credit_balance_unverified"):
+        capture.credit_balance("owned", "a" * 64)
+
+
 @pytest.mark.parametrize("args", [
     ("eval", "document.title"),
     ("click", "--selector", "button"),

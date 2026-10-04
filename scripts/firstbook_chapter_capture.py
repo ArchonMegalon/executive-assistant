@@ -99,8 +99,8 @@ def _click(session: str, selector: str) -> None:
     _browser(session, "click", "--selector", selector)
 
 
-def _open_dashboard(session: str, account_sha256: str) -> None:
-    """Read-only navigation through the visible account identity."""
+def _account_profile(session: str, account_sha256: str) -> str:
+    """Read the visible profile, verifying identity before using any balance."""
     _browser(session, "navigate", _ORIGIN)
     _click(session, 'button[title="Your Profile"]')
     _browser(session, "wait", "selector", "--selector", "xpath=//*[normalize-space(.)='My Profile']", "--timeout", "15000")
@@ -108,6 +108,25 @@ def _open_dashboard(session: str, account_sha256: str) -> None:
     emails = re.findall(r"[^\s@]+@[^\s@]+\.[^\s@]+", profile.get("text", ""))
     if len(emails) != 1 or _sha(emails[0].casefold()) != account_sha256:
         raise RuntimeError("firstbook_capture_account_mismatch")
+    return profile["text"]
+
+
+def credit_balance(session: str, account_sha256: str) -> int:
+    # Exact label/value pairs only. A missing balance, refill date, subscription
+    # allowance or login error must never be interpreted as zero remaining.
+    text = _account_profile(session, account_sha256)
+    matches = re.findall(r"(?im)^[ \t]*(?:CREDIT BALANCE|(?:Book |Available |Remaining )?Credits"
+        r"(?: Available| Remaining)?)[ \t]*:?[ \t]*\n[ \t]*([0-9]+)[ \t]*$", text)
+    if len(matches) != 1:
+        raise RuntimeError("firstbook_credit_balance_unverified")
+    balance = int(matches[0])
+    _click(session, "xpath=//button[normalize-space(.)='Back to Dashboard']")
+    return balance
+
+
+def _open_dashboard(session: str, account_sha256: str) -> None:
+    """Read-only navigation through the visible account identity."""
+    _account_profile(session, account_sha256)
     _click(session, "xpath=//button[normalize-space(.)='Back to Dashboard']")
 
 
