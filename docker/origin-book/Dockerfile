@@ -10,13 +10,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --chmod=0755 --from=browseract /lib/python3.12/site-packages/ /opt/browseract/
 COPY --from=chrome / /opt/google/chrome/
 COPY --chmod=0755 docker/origin-book/browser-act docker/origin-book/google-chrome docker/origin-book/entrypoint /usr/local/bin/
-ENV PYTHONPATH=/opt/browseract:/app PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
+COPY --chmod=0755 docker/origin-book/sitecustomize.py /opt/origin-browseract/sitecustomize.py
+ENV PYTHONPATH=/opt/origin-browseract:/opt/browseract:/app PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     BROWSERACT_DATA_DIR=/browseract DISPLAY=:97 \
     XDG_CONFIG_HOME=/tmp/config XDG_CACHE_HOME=/tmp/cache
 WORKDIR /app
 COPY scripts/origin_book_pool.py scripts/origin_chapter_runtime.py \
     scripts/origin_chapter_intake.py scripts/origin_chapter_cycle.py \
-    scripts/origin_chapter_worker.py scripts/origin_browser_container.py \
+    scripts/origin_chapter_worker.py scripts/origin_browser_container.py scripts/origin_browseract_guard.py \
     scripts/firstbook_chapter_capture.py scripts/firstbook_chapter_write.py \
     scripts/firstbook_chapter_review.py scripts/firstbook_chapter_advance.py \
     scripts/firstbook_book_binding.py scripts/firstbook_project_prepare.py \
@@ -25,5 +26,6 @@ COPY scripts/origin_book_pool.py scripts/origin_chapter_runtime.py \
 RUN chmod -R a+rX /app/scripts
 USER 1000:1000
 RUN python -c 'import importlib.metadata; assert importlib.metadata.version("browser-act-cli") == "1.1.0"; from browser_act_cli.registry import Registry; from scripts import origin_book_pool'
+RUN python -c 'from browser_act_cli.command_daemon import server; assert server._origin_lifecycle_guard_installed'
 RUN python -c 'from browser_act_cli.session.drivers.real_chrome import find_chrome_executable; assert find_chrome_executable() == "/usr/local/bin/google-chrome"' && google-chrome --version
 ENTRYPOINT ["/usr/local/bin/entrypoint"]
