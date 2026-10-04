@@ -19,8 +19,9 @@ import uuid
 from scripts import origin_chapter_intake as intake
 
 worker = intake.worker
-_SAFE_CLOSE = {"idle", "review_required", "chapter_limit_reached", "awaiting_reader_acceptance", "final_chapter_retained"}
-_WATCH_AGAIN = {"idle", "review_required", "awaiting_reader_acceptance"}
+_SAFE_CLOSE = {"idle", "review_required", "chapter_limit_reached", "awaiting_reader_acceptance",
+    "final_chapter_retained", "hub_queue_unavailable"}
+_WATCH_AGAIN = {"idle", "review_required", "awaiting_reader_acceptance", "hub_queue_unavailable"}
 
 
 def _unstarted_recovery(root: Path, path: Path, previous: dict, binding: dict) -> bool:

@@ -464,6 +464,117 @@ def test_completed_book_read_failure_reports_no_browser_but_preserves_fence(tmp_
     assert calls == [1]  # stopped, never a transport retry or credit reset
 
 
+def test_completed_book_pending_outage_keeps_custody_and_allows_later_accepted_chapter(tmp_path, executor):
+    config, hub, browser, clock = start(tmp_path), Books(), Browser(), Clock()
+    hub.add("1")
+    run(config, hub, tmp_path, browser)
+    executor.clear()
+    browser.calls.clear()
+    hub.calls.clear()
+    root = tmp_path / "firstbook-private-writes"
+    before = {p.name: p.read_bytes() for p in root.iterdir() if p.suffix == ".json"}
+    pending = hub.pending
+    reads, observations = [], []
+
+    def intermittent(book_ref):
+        reads.append(clock.elapsed)
+        if clock.elapsed == 0:
+            raise pool.worker.HubReadUnavailable("private upstream details")
+        return pending(book_ref)
+
+    def reader():
+        if clock.elapsed == 15:
+            assert all((root / name).read_bytes() == raw for name, raw in before.items())
+            assert not browser.calls and not executor
+            assert all(action == "pending_books" for action, _ in hub.calls)
+            hub.next()  # Only the separate reader accepts and requests a successor.
+
+    hub.pending = intermittent
+    clock.after_sleep = reader
+    result = pool.watch(lambda: copy.deepcopy(config), hub, tmp_path, browser=browser,
+        now=clock.wall, monotonic=clock.monotonic, sleep=clock.sleep, duration=31,
+        poll_interval=15, observe=observations.append)
+    assert result["state"] == "watch_finished" and reads == [0, 15, 30]
+    assert observations[0]["state"] == "hub_queue_unavailable"
+    assert "private upstream" not in json.dumps(observations)
+    assert len(executor) == 1 and "maximum_book_credits" not in executor[0]["setup"]
+    assert ledger(tmp_path)["in_flight"] is None and len(ledger(tmp_path)["books"]) == 1
+    assert [c[0] for c in browser.calls] == ["open", "account", "close"]
+    run(config, hub, tmp_path, browser)  # Cold invocation does not replay either chapter.
+    assert len(executor) == 1
+
+
+@pytest.mark.parametrize("revoked", [False, True])
+def test_completed_book_pending_outage_keeps_watch_budget_and_revocation(tmp_path, executor, revoked):
+    config, hub, browser, clock = start(tmp_path), Books(), Browser(), Clock()
+    hub.add("1")
+    run(config, hub, tmp_path, browser)
+    browser.calls.clear()
+    executor.clear()
+    reads = []
+
+    def unavailable(book_ref):
+        reads.append(clock.elapsed)
+        raise pool.worker.HubReadUnavailable("origin_worker_hub_http_503")
+
+    hub.pending = unavailable
+    if revoked:
+        clock.after_sleep = lambda: config.update(approved=False)
+    def watch():
+        return pool.watch(lambda: copy.deepcopy(config), hub, tmp_path, browser=browser,
+            now=clock.wall, monotonic=clock.monotonic, sleep=clock.sleep, duration=31, poll_interval=15)
+    if revoked:
+        with pytest.raises(ValueError):
+            watch()
+        assert reads == [0]
+    else:
+        assert watch()["state"] == "watch_finished"
+        assert reads == [0, 15, 30] and clock.elapsed == 31
+    assert not browser.calls and not executor and ledger(tmp_path)["in_flight"] is None
+
+
+@pytest.mark.parametrize("phase", ["pending_authorization", "source", "predecessor", "started"])
+def test_pending_recovery_never_retries_source_acceptance_or_started_work(tmp_path, executor, phase):
+    config, hub, browser = start(tmp_path), Books(), Browser()
+    first = hub.add("1")
+    run(config, hub, tmp_path, browser)
+    successor = hub.next()
+    executor.clear()
+    browser.calls.clear()
+    original = hub.call
+    failures = []
+
+    def read(work_id, action="", body=None):
+        if ((phase == "source" and work_id == successor["workId"])
+            or (phase == "predecessor" and work_id == first["workId"])
+            or (phase == "started" and action == "/admit")):
+            failures.append(1)
+            raise pool.worker.HubReadUnavailable("uncertain read or admitted operation")
+        return original(work_id, action, body)
+
+    if phase == "pending_authorization":
+        def unauthorized(book_ref):
+            failures.append(1)
+            raise RuntimeError("origin_worker_hub_http_401")
+        hub.pending = unauthorized
+    else:
+        hub.call = read
+    def watch():
+        return pool.watch(lambda: copy.deepcopy(config), hub, tmp_path, browser=browser,
+            now=lambda: 1000, duration=31, sleep=lambda _: pytest.fail("Unsafe retry"))
+    if phase == "started":
+        with pytest.raises(pool.worker.HubReadUnavailable):
+            watch()
+        assert [c[0] for c in browser.calls] == ["open", "account"]
+    else:
+        assert watch()["state"] == "reconciliation_required"
+        assert not browser.calls
+    assert failures == [1] and not executor and ledger(tmp_path)["in_flight"] == first["bookRef"]
+    with pytest.raises(RuntimeError, match="requires_reconciliation"):
+        run(config, hub, tmp_path, browser)
+    assert failures == [1]
+
+
 def test_mid_dispatch_revocation_stops_before_provider_cycle(tmp_path, executor):
     config, hub, browser = start(tmp_path), Books(), Browser()
     hub.add("1")
