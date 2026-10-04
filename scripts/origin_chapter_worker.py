@@ -118,6 +118,14 @@ class _NoRedirects(urllib.request.HTTPRedirectHandler):
         raise RuntimeError("origin_worker_redirect_rejected")
 
 
+class HubReadUnavailable(RuntimeError):
+    """Transient GET failure, not permission to replay an authoring operation.
+
+    Only a caller still in a proven read-only phase may poll again. Admission,
+    completion and provider state machines retain their existing fences.
+    """
+
+
 class LocalHub:
     def __init__(self, origin: str, token_file: Path, *, host: str | None = None):
         parsed = urllib.parse.urlsplit(origin)
@@ -185,8 +193,12 @@ class LocalHub:
                 raw = response.read(_MAX_BYTES + 1)
         except urllib.error.HTTPError as error:
             # No response bodies, request headers or credentials in logs/errors.
+            if data is None and error.code in (500, 502, 503, 504):
+                raise HubReadUnavailable(f"origin_worker_hub_http_{error.code}") from None
             raise RuntimeError(f"origin_worker_hub_http_{error.code}") from None
         except (urllib.error.URLError, TimeoutError, OSError):
+            if data is None:
+                raise HubReadUnavailable("origin_worker_hub_unavailable_reconcile_same_job") from None
             raise RuntimeError("origin_worker_hub_unavailable_reconcile_same_job") from None
         if len(raw) > _MAX_BYTES:
             raise RuntimeError("origin_worker_hub_response_oversized")

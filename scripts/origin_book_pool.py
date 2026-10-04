@@ -417,7 +417,18 @@ def run_once(load_configuration, hub, output_root: Path, *, now=time.time, brows
         enrolled = {b["admission"]["book_ref"] for b in books}
         if (len(books) < binding["maximum_new_books"]
             and (selected_book_ref is None or selected_book_ref not in enrolled)):
-            candidates = _new_books(hub, binding, {b["admission"]["book_ref"] for b in books}, now())
+            try:
+                candidates = _new_books(hub, binding, enrolled, now())
+            except worker.HubReadUnavailable:
+                # This is only queue discovery, before reservation, browser
+                # opening or any Hub/provider write. A Teable/Hub read outage
+                # may be observed again by the existing bounded watch. Never
+                # apply this recovery to source admission or started work.
+                check()
+                return {"state": "hub_discovery_unavailable", "browser_retained": False,
+                    "reserved_books": len(books),
+                    "remaining_books": binding["maximum_new_books"] - len(books),
+                    "publication_authorized": False}
             if selected_book_ref is not None:
                 candidates = [w for w in candidates if w["bookRef"] == selected_book_ref]
             if candidates:
@@ -474,7 +485,7 @@ def run_once(load_configuration, hub, output_root: Path, *, now=time.time, brows
 
 
 def watch(load_configuration, hub, output_root: Path, *, duration=3600, poll_interval=30,
-          now=time.time, monotonic=time.monotonic, sleep=time.sleep, **kwargs) -> dict:
+          now=time.time, monotonic=time.monotonic, sleep=time.sleep, observe=None, **kwargs) -> dict:
     if (type(duration) is not int or not 1 <= duration <= 86400
         or type(poll_interval) is not int or not 15 <= poll_interval <= 300):
         raise ValueError("origin_pool_watch_budget_invalid")
@@ -490,6 +501,8 @@ def watch(load_configuration, hub, output_root: Path, *, duration=3600, poll_int
     last = None
     while monotonic() < deadline and now() < original["expires_at"]:
         last = run_once(check, hub, output_root, now=now, sleep=sleep, **kwargs)
+        if observe is not None:
+            observe(last)
         if last["state"] in ("reconciliation_required", "accounts_exhausted"):
             return last
         remaining = min(deadline - monotonic(), original["expires_at"] - now())

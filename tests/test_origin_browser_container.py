@@ -258,3 +258,21 @@ def test_verified_no_browser_failure_exits_instead_of_holding_display(monkeypatc
     def hold():
         pytest.fail("No owned browser can need retention in this verified failure")
     assert container.watch_or_retain(lambda: {}, object(), duration=1, hold=hold) == result
+
+
+def test_watch_reports_state_changes_without_private_payloads_or_duplicate_noise(monkeypatch, capsys):
+    def watch(*args, observe, **kwargs):
+        idle = {"state": "idle", "reserved_books": 1, "remaining_books": 2,
+                "book_ref": "private identity", "draftText": "private prose"}
+        observe(idle)
+        observe(idle)
+        observe({**idle, "state": "hub_discovery_unavailable", "browser_retained": False})
+        observe(idle)
+        return {"state": "watch_finished"}
+    monkeypatch.setattr(container.pool, "watch", watch)
+    assert container.watch_or_retain(lambda: {}, object(), duration=1)["state"] == "watch_finished"
+    output = capsys.readouterr().out
+    observations = [json.loads(line) for line in output.splitlines()]
+    assert [item["state"] for item in observations] == ["idle", "hub_discovery_unavailable", "idle"]
+    assert all(item["controller"] == "watch_observation" for item in observations)
+    assert "private" not in output

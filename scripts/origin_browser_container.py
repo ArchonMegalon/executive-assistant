@@ -124,9 +124,21 @@ def preflight(config: dict, browser=None) -> dict:
 
 
 def watch_or_retain(load, hub, *, duration: int, hold=signal.pause, selected_book_ref=None) -> dict:
+    previous = None
+
+    def observe(result):
+        nonlocal previous
+        # State transitions only; no book identity, prose, credentials or raw
+        # exception text. "Running" Docker alone does not prove an active loop.
+        current = {key: result[key] for key in
+                   ("state", "reserved_books", "remaining_books", "browser_retained") if key in result}
+        if current != previous:
+            print(json.dumps({**current, "controller": "watch_observation"}), flush=True)
+            previous = current
+
     try:
         result = pool.watch(load, hub, Path("/custody"), duration=duration,
-            selected_book_ref=selected_book_ref)
+            selected_book_ref=selected_book_ref, observe=observe)
     except Exception:
         result = {"state": "reconciliation_required", "publication_authorized": False}
     if result["state"] == "reconciliation_required" and result.get("browser_retained") is not False:
