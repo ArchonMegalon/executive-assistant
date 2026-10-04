@@ -70,3 +70,19 @@ and account-capacity policy; that is not inferred from consent to character fact
 The separately approved [finite book pool](ORIGIN_BOOK_POOL.md) adds cumulative
 new-book admission for one fixed account/profile. It does not enlarge an existing
 single-book grant or change the reader-acceptance and reconciliation boundaries.
+
+## Isolated BrowserAct lifecycle compatibility
+
+The local Origin image pins BrowserAct 1.1.0. Its periodic orphan-browser scan
+can otherwise kill a newly starting Chrome before its public session is recorded.
+The container-only Python bootstrap serializes `browser.open` with that scan in
+each command daemon, including at cold start. It does not remove cleanup, change
+vendor timeouts, retry an open, delete profile locks or reopen paid work. Health
+and other commands remain independent of this lock. A timed-out maintenance
+observer does not release a scan's lock before the scan thread actually finishes.
+
+The guard loads in the CLI and auto-launched daemon through the image's scoped
+`PYTHONPATH`, not in the host BrowserAct installation. Version/installation failure
+stops Python with a redacted error (exit 78); it must never silently run without
+the guard. Changing the pinned vendor requires a separate compatibility check.
+Focused ordering tests do not by themselves prove a live provider generation.
