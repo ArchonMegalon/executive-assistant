@@ -122,6 +122,31 @@ cover three-book admission, fourth-book denial, persistence, chapter reuse,
 revocation, ambiguity, changed source, lost custody, errors and concurrent
 controllers. They are not new paid generation or physical Play-install proof.
 
+## Continue a completed one-book recovery
+
+A deliberately one-chapter repair must not leave the user's later chapters
+permanently limited to that diagnostic allowance. With explicit continuing
+authority, `scripts.origin_completed_book_import` imports one **completed**
+single-book pool into fresh private custody under the new approved pool config.
+Stop the old executor first. Supply the exact inspected source-ledger SHA-256.
+The destination must be empty; do not initialize it separately.
+
+The operator import takes the pool/cycle and direct writer locks, requires closed browser custody,
+validates every completed job and byte-identical provider receipt against Hub,
+and requires an empty queue for this book. Account/profile, source scope,
+provider project/slots and all retained job packets remain unchanged. Only the
+future chapter ceiling/expiry is taken from the new approval. The imported book
+counts as one already reserved book, not another available credit.
+
+Original custody remains untouched. The import retains source-file hashes and
+the original/continuation envelopes; provider receipt files are copied byte for
+byte. The destination ledger is committed last. Partial imports cannot execute
+or be automatically restarted. Unknown files, pending/uncertain jobs, edited
+drafts and multiple-book source pools are deliberately unsupported. This is an
+explicit completed-state handoff, never general paid-job recovery or replay.
+Reader acceptance is still checked normally before any successor dispatch.
+Retain the old custody but do not run both pools for the same book/profile.
+
 ## Scoped local Docker execution
 
 `docker-compose.origin-book.yml` runs only this worker, not the general EA
