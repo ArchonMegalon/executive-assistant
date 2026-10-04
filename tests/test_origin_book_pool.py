@@ -363,6 +363,81 @@ def test_idle_watch_is_bounded_and_opens_no_browser(tmp_path, executor):
     assert result["remaining_books"] == 3 and not browser.calls and not executor
 
 
+def test_discovery_read_outage_preserves_custody_and_recovers_on_next_poll(tmp_path, executor):
+    config, hub, browser, clock = start(tmp_path), Books(), Browser(), Clock()
+    original = hub.pending_books
+    calls = []
+    path = tmp_path / "firstbook-private-writes/book-pool.json"
+    before = path.read_bytes()
+
+    def pending():
+        calls.append(clock.elapsed)
+        if len(calls) == 1:
+            raise pool.worker.HubReadUnavailable("origin_worker_hub_http_500")
+        return original()
+
+    def after_sleep():
+        if clock.elapsed == 15:
+            assert path.read_bytes() == before
+            assert not browser.calls and not executor
+            hub.add("1")  # Genuine request appeared; the worker did not invent it.
+
+    hub.pending_books = pending
+    clock.after_sleep = after_sleep
+    result = pool.watch(lambda: copy.deepcopy(config), hub, tmp_path, browser=browser,
+        now=clock.wall, monotonic=clock.monotonic, sleep=clock.sleep, duration=31, poll_interval=15)
+    assert result["state"] == "watch_finished" and calls == [0, 15, 30]
+    assert len(executor) == 1 and len(ledger(tmp_path)["books"]) == 1
+    assert [c[0] for c in browser.calls] == ["open", "account", "close"]
+    assert hub.jobs["1" * 64 + "." + "a" * 64]["job"].get("readerAcceptedTextDigest") is None
+
+
+@pytest.mark.parametrize("revoked", [False, True])
+def test_discovery_outage_does_not_extend_lifetime_or_ignore_revocation(tmp_path, executor, revoked):
+    config, hub, browser, clock = start(tmp_path), Books(), Browser(), Clock()
+    calls = []
+    def unavailable():
+        calls.append(clock.elapsed)
+        raise pool.worker.HubReadUnavailable("origin_worker_hub_unavailable_reconcile_same_job")
+    hub.pending_books = unavailable
+    if revoked:
+        clock.after_sleep = lambda: config.update(approved=False)
+    def watch():
+        return pool.watch(lambda: copy.deepcopy(config), hub, tmp_path, browser=browser,
+            now=clock.wall, monotonic=clock.monotonic, sleep=clock.sleep, duration=31, poll_interval=15)
+    if revoked:
+        with pytest.raises(ValueError):
+            watch()
+        assert calls == [0]
+    else:
+        assert watch()["state"] == "watch_finished"
+        assert calls == [0, 15, 30] and clock.elapsed == 31
+    assert not executor and not browser.calls and not ledger(tmp_path)["books"]
+
+
+@pytest.mark.parametrize("phase", ["authorization", "fresh_source", "execution"])
+def test_read_recovery_cannot_retry_auth_source_or_started_execution_failures(tmp_path, monkeypatch, phase):
+    config, hub, browser = start(tmp_path), Books(), Browser()
+    hub.add("1")
+    calls = []
+    def fail(*args, **kwargs):
+        calls.append(1)
+        if phase == "authorization":
+            raise RuntimeError("origin_worker_hub_http_401")
+        raise pool.worker.HubReadUnavailable("origin_worker_hub_http_503")
+    if phase == "authorization":
+        hub.pending_books = fail
+    elif phase == "fresh_source":
+        hub.call = fail
+    else:
+        monkeypatch.setattr(pool.runtime, "run_bounded", fail)
+    with pytest.raises(RuntimeError):
+        pool.watch(lambda: config, hub, tmp_path, browser=browser, now=lambda: 1000,
+            duration=31, sleep=lambda _: pytest.fail("Unsafe failures must not be retried"))
+    assert calls == [1] and not browser.calls
+    assert ledger(tmp_path)["in_flight"] == ("1" * 64 if phase == "execution" else None)
+
+
 def test_completed_book_read_failure_reports_no_browser_but_preserves_fence(tmp_path, executor):
     config, hub, browser = start(tmp_path), Books(), Browser()
     hub.add("1")

@@ -4,6 +4,7 @@ import copy
 import io
 import json
 from pathlib import Path
+import urllib.error
 
 import pytest
 
@@ -397,6 +398,36 @@ def test_response_size_duplicate_json_and_redirects_are_rejected(tmp_path):
         worker._json(b'{"source":1,"source":2}')
     with pytest.raises(RuntimeError, match="redirect_rejected"):
         worker._NoRedirects().redirect_request(None, None, 302, "", {}, "https://outside.test")
+
+
+@pytest.mark.parametrize("failure", [500, 502, 503, 504, "timeout", "network", 401, 403, 404, 429])
+@pytest.mark.parametrize("write", [False, True])
+def test_only_transient_read_failures_are_classified_without_replaying(tmp_path, failure, write):
+    key = tmp_path / "service-token"
+    key.write_text("synthetic-worker-token-with-no-production-power")
+    key.chmod(0o600)
+    hub = worker.LocalHub("http://127.0.0.1:5089", key)
+    calls = []
+
+    class Transport:
+        def open(self, request, timeout):
+            calls.append(request.get_method())
+            if failure == "timeout":
+                raise TimeoutError("private transport details")
+            if failure == "network":
+                raise urllib.error.URLError("private transport details")
+            raise urllib.error.HTTPError(request.full_url, failure, "private details", {}, None)
+
+    hub._http = Transport()
+    with pytest.raises(RuntimeError) as observed:
+        if write:
+            hub.call(packet()["work_id"], "/admit", {"sourceDigest": "b" * 64})
+        else:
+            hub.pending_books()
+    assert isinstance(observed.value, worker.HubReadUnavailable) is (
+        not write and failure in (500, 502, 503, 504, "timeout", "network"))
+    assert calls == ["POST" if write else "GET"]
+    assert "private" not in str(observed.value)
 
 
 def test_story_language_must_match_approved_source_before_hub_dispatch(tmp_path, monkeypatch):
