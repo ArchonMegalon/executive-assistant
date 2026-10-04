@@ -479,7 +479,8 @@ def run_once(load_configuration, hub, output_root: Path, *, now=time.time, brows
             worker.writer._save(path, state)
             results.append(result["state"])
         return {"state": "accounts_exhausted" if exhausted else
-                ("idle" if not results or all(r == "idle" for r in results) else "observed"),
+                ("hub_queue_unavailable" if "hub_queue_unavailable" in results else
+                 ("idle" if not results or all(r == "idle" for r in results) else "observed")),
             "reserved_books": len(books), "remaining_books": binding["maximum_new_books"] - len(books),
             "book_states": results, "publication_authorized": False}
 

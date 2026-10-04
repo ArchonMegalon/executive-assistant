@@ -62,6 +62,22 @@ def test_idle_watch_never_opens_browser(tmp_path, executor):
     assert not browser.calls and not executor
 
 
+def test_idle_queue_read_outage_waits_without_opening_or_creating_custody(tmp_path, executor):
+    hub, browser, clock = Queue(), Browser(), Clock()
+    reads = []
+
+    def unavailable(book_ref):
+        reads.append(clock.elapsed)
+        raise runtime.worker.HubReadUnavailable("origin_worker_hub_http_503")
+
+    hub.pending = unavailable
+    result = watch(configuration(hub), hub, tmp_path, browser, clock, duration=31)
+    assert result["state"] == "watch_finished" and result["watch_polls"] == 3
+    assert reads == [0, 15, 30] and clock.elapsed == 31
+    assert not browser.calls and not executor
+    assert not list((tmp_path / "firstbook-private-writes").glob("*.json"))
+
+
 @pytest.mark.parametrize("change", ["revoked", "expiry", "profile", "scope", "budget", "account"])
 def test_reload_cannot_expand_or_revoke_authority_then_keep_processing(tmp_path, executor, change):
     hub, browser, clock = Queue(), Browser(), Clock()

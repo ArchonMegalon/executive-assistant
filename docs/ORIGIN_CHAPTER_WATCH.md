@@ -35,7 +35,14 @@ The watcher:
 - cannot extend its initial expiry, runs at most 24 hours, and uses a monotonic
   lifetime so moving the wall clock backwards cannot prolong execution.
 
-Errors are not retried. An incomplete provider operation keeps its original
+Only a typed transient failure of an idle book's pending-queue GET is observed
+again at the existing bounded poll interval (`hub_queue_unavailable`). At this
+boundary there is no unfinished local chapter, new packet, execution admission
+or provider/browser action. Custody and the original budget/expiry remain intact.
+This applies to the single-book watch and the finite pool. It does not clear a
+previously retained execution fence or recover an old stopped controller.
+
+Other errors are not retried. An incomplete provider operation keeps its original
 session and journals for reconciliation. A changed expiry requires a new
 explicit invocation; it cannot silently extend a running watch. Do not configure
 an unconditional restart loop around an error. Inspect retained state first.

@@ -138,7 +138,14 @@ def _tick(admission: dict, hub: worker.LocalHub, output_root: Path, *, now=time.
     else:
         if len(jobs) >= binding["maximum_chapters"]:
             return {"state": "chapter_limit_reached", "publication_authorized": False}
-        pending = hub.pending(binding["book_ref"])
+        try:
+            pending = hub.pending(binding["book_ref"])
+        except worker.HubReadUnavailable:
+            # Only enumeration of an idle book: custody was validated and no
+            # new packet, admission, browser or provider action has begun.
+            # Polling this GET again cannot replay a chapter. Errors while
+            # reading exact source/acceptance or advancing work still propagate.
+            return {"state": "hub_queue_unavailable", "publication_authorized": False}
         if not isinstance(pending, list) or len(pending) > 20:
             raise ValueError("origin_intake_pending_invalid")
         candidates = []
