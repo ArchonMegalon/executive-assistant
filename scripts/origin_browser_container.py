@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import signal
 import sqlite3
+import threading
 import time
 import uuid
 
@@ -123,7 +124,9 @@ def preflight(config: dict, browser=None) -> dict:
         "browser_session": session, "browser_retained": False, "credits_spent": 0}
 
 
-def watch_or_retain(load, hub, *, duration: int, hold=signal.pause, selected_book_ref=None) -> dict:
+def watch_or_retain(load, hub, *, duration: int | None, hold=signal.pause,
+                    selected_book_ref=None, stop_requested=lambda: False,
+                    idle_sleep=time.sleep) -> dict:
     previous = None
 
     def observe(result):
@@ -137,8 +140,12 @@ def watch_or_retain(load, hub, *, duration: int, hold=signal.pause, selected_boo
             previous = current
 
     try:
-        result = pool.watch(load, hub, Path("/custody"), duration=duration,
-            selected_book_ref=selected_book_ref, observe=observe)
+        if duration is None:
+            result = pool.serve(load, hub, Path("/custody"), stop_requested=stop_requested,
+                idle_wait=idle_sleep, selected_book_ref=selected_book_ref, observe=observe)
+        else:
+            result = pool.watch(load, hub, Path("/custody"), duration=duration,
+                selected_book_ref=selected_book_ref, observe=observe)
     except Exception:
         result = {"state": "reconciliation_required", "publication_authorized": False}
     if result["state"] == "reconciliation_required" and result.get("browser_retained") is not False:
@@ -154,8 +161,11 @@ def watch_or_retain(load, hub, *, duration: int, hold=signal.pause, selected_boo
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--preflight", action="store_true")
-    parser.add_argument("--watch-seconds", type=int, default=3600)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--preflight", action="store_true")
+    mode.add_argument("--watch-seconds", type=int)
+    mode.add_argument("--serve", action="store_true",
+        help="Watch until the existing approval expires or a graceful stop is requested; no renewal.")
     parser.add_argument("--selected-book", help="Restrict this invocation to one exact admitted book.")
     args = parser.parse_args()
     os.umask(0o077)
@@ -171,7 +181,20 @@ def main() -> int:
         result = preflight(config)
     else:
         hub = pool.worker.LocalHub(origin, Path("/private/worker.token"), host="chummer.run")
-        result = watch_or_retain(load, hub, duration=args.watch_seconds, selected_book_ref=args.selected_book)
+        if args.serve:
+            stop = threading.Event()
+            previous = {sig: signal.signal(sig, lambda *_: stop.set())
+                        for sig in (signal.SIGTERM, signal.SIGINT)}
+            try:
+                result = watch_or_retain(load, hub, duration=None,
+                    stop_requested=stop.is_set, idle_sleep=stop.wait,
+                    selected_book_ref=args.selected_book)
+            finally:
+                for sig, handler in previous.items():
+                    signal.signal(sig, handler)
+        else:
+            result = watch_or_retain(load, hub, duration=3600 if args.watch_seconds is None else args.watch_seconds,
+                selected_book_ref=args.selected_book)
     print(json.dumps(result))
     return 2 if result["state"] == "reconciliation_required" else 0
 

@@ -211,6 +211,20 @@ this never renews the total allowance. On uncertainty the controller stops
 without retry and keeps its container/browser alive for reconciliation. A
 running container in that state is **not** a healthy working controller.
 
+For normal local hosting, opt into `docker-compose.origin-book-service.yml`
+on top of the existing Compose file, or pass `--serve` to the scoped container.
+This observes later user-requested chapters without the one-hour invocation
+cutoff. It uses the **same** cumulative custody and exact approval. It stops on
+approval expiry, changed/revoked authority, exhausted accounts or reconciliation;
+it never renews a grant, refills reservations or replays uncertain jobs.
+SIGTERM/SIGINT stop an idle service promptly and drain an active bounded chapter
+before shutdown; the overlay allows six minutes. A forced kill leaves the
+existing in-flight fence intact. `restart: no` remains intentional: inspect
+terminal state and custody before starting again. This is continuous processing
+within a finite approval, not automatic failover or an unlimited credit grant.
+`--serve`, `--preflight` and `--watch-seconds` are mutually exclusive. Optional
+`--selected-book` retains its exact-book restriction in service mode too.
+
 Retain the approval, cumulative ledger, worker token and subsequent execution
 journals in private recovery custody together. A pre-activation empty snapshot
 is not a safe restore point after any execution. Automatic restore/resume is

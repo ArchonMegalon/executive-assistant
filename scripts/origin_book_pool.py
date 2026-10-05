@@ -487,11 +487,35 @@ def run_once(load_configuration, hub, output_root: Path, *, now=time.time, brows
 
 def watch(load_configuration, hub, output_root: Path, *, duration=3600, poll_interval=30,
           now=time.time, monotonic=time.monotonic, sleep=time.sleep, observe=None, **kwargs) -> dict:
-    if (type(duration) is not int or not 1 <= duration <= 86400
-        or type(poll_interval) is not int or not 15 <= poll_interval <= 300):
+    if type(duration) is not int or not 1 <= duration <= 86400:
+        raise ValueError("origin_pool_watch_budget_invalid")
+    return _watch(load_configuration, hub, output_root, duration=duration,
+        poll_interval=poll_interval, now=now, monotonic=monotonic, sleep=sleep,
+        observe=observe, **kwargs)
+
+
+def serve(load_configuration, hub, output_root: Path, *, stop_requested=lambda: False,
+          poll_interval=30, now=time.time, monotonic=time.monotonic,
+          sleep=time.sleep, idle_wait=None, observe=None, **kwargs) -> dict:
+    """Stay available for the existing approval, never renew it or replay work.
+
+    A stop request drains the current bounded execution before leaving the loop.
+    Expiry/revocation still apply inside that execution; they are not extended.
+    """
+    return _watch(load_configuration, hub, output_root, duration=None,
+        stop_requested=stop_requested, poll_interval=poll_interval, now=now,
+        monotonic=monotonic, sleep=sleep, idle_wait=idle_wait, observe=observe, **kwargs)
+
+
+def _watch(load_configuration, hub, output_root: Path, *, duration,
+           stop_requested=lambda: False, poll_interval=30, now=time.time,
+           monotonic=time.monotonic, sleep=time.sleep, idle_wait=None, observe=None, **kwargs) -> dict:
+    if type(poll_interval) is not int or not 15 <= poll_interval <= 300:
         raise ValueError("origin_pool_watch_budget_invalid")
     original = _configuration(load_configuration(), now())
-    deadline = monotonic() + min(duration, original["expires_at"] - now())
+    remaining_approval = original["expires_at"] - now()
+    deadline = monotonic() + (remaining_approval if duration is None
+                              else min(duration, remaining_approval))
 
     def check():
         current = _configuration(load_configuration(), now())
@@ -501,15 +525,20 @@ def watch(load_configuration, hub, output_root: Path, *, duration=3600, poll_int
 
     last = None
     while monotonic() < deadline and now() < original["expires_at"]:
+        if stop_requested():
+            return {**(last or {}), "state": "service_stopped", "publication_authorized": False}
         last = run_once(check, hub, output_root, now=now, sleep=sleep, **kwargs)
         if observe is not None:
             observe(last)
         if last["state"] in ("reconciliation_required", "accounts_exhausted"):
             return last
+        if stop_requested():
+            return {**last, "state": "service_stopped", "publication_authorized": False}
         remaining = min(deadline - monotonic(), original["expires_at"] - now())
         if remaining > 0:
-            sleep(min(poll_interval, remaining))
-    return {**(last or {}), "state": "watch_finished", "publication_authorized": False}
+            (idle_wait or sleep)(min(poll_interval, remaining))
+    return {**(last or {}), "state": "service_expired" if duration is None else "watch_finished",
+            "publication_authorized": False}
 
 
 def main() -> int:

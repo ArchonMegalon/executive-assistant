@@ -225,6 +225,13 @@ def test_image_supplies_normal_chrome_and_private_display():
     assert "!scripts/firstbook_story_source.py" in Path("docker/origin-book/Dockerfile.dockerignore").read_text().splitlines()
 
 
+def test_service_overlay_changes_only_duration_and_graceful_shutdown():
+    import yaml
+    spec = yaml.safe_load(Path("docker-compose.origin-book-service.yml").read_text())
+    assert spec == {"services": {"origin-book": {
+        "command": ["--serve"], "restart": "no", "stop_grace_period": "6m"}}}
+
+
 @pytest.mark.parametrize("failure", [True, False])
 def test_uncertain_watch_keeps_window_alive_without_retry(monkeypatch, capsys, failure):
     calls = []
@@ -249,6 +256,32 @@ def test_container_propagates_exact_book_selection(monkeypatch):
     monkeypatch.setattr(container.pool, "watch", watch)
     assert container.watch_or_retain(lambda: {}, object(), duration=1,
         selected_book_ref="a" * 64)["state"] == "watch_finished"
+
+
+def test_service_mode_uses_same_retention_and_exact_selection(monkeypatch, capsys):
+    def serve(*args, **kwargs):
+        assert kwargs["selected_book_ref"] == "a" * 64
+        assert kwargs["stop_requested"]() is False
+        assert "duration" not in kwargs and "sleep" not in kwargs
+        assert kwargs["idle_wait"] is not None
+        return {"state": "reconciliation_required", "browser_retained": True}
+    class Held(Exception): pass
+    def hold(): raise Held()
+    monkeypatch.setattr(container.pool, "serve", serve)
+    with pytest.raises(Held):
+        container.watch_or_retain(lambda: {}, object(), duration=None, hold=hold,
+            selected_book_ref="a" * 64)
+    assert "stopped_no_retry" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("arguments", [["--serve", "--preflight"], ["--serve", "--watch-seconds", "3600"]])
+def test_service_cannot_be_combined_with_other_execution_modes(monkeypatch, arguments):
+    import sys
+    monkeypatch.setattr(sys, "argv", ["origin_browser_container", *arguments])
+    monkeypatch.setattr(container, "hub_origin", lambda: pytest.fail("Must reject before runtime access"))
+    with pytest.raises(SystemExit) as error:
+        container.main()
+    assert error.value.code == 2
 
 
 def test_verified_no_browser_failure_exits_instead_of_holding_display(monkeypatch):
