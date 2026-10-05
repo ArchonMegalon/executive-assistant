@@ -93,6 +93,36 @@ def test_capture_and_retry_preserve_exact_unapproved_draft_without_browser_repla
     assert "operator@example.test" not in saved.read_text()
 
 
+@pytest.mark.parametrize("number", [1, 2, 8])
+def test_numbered_provider_heading_preserves_exact_title_text_and_binding(monkeypatch, tmp_path, number):
+    request = {**packet(), "chapter_number": number}
+    heading = f"Chapter {number}: The First Choice"
+    observed = {**observation(), "chapterNumber": number, "chapterTitle": heading,
+                "text": heading + "\n\nNera wartet an der Schwelle."}
+    monkeypatch.setattr(capture, "_observe", lambda *args: observed)
+    first = capture.capture_existing_chapter(request, tmp_path)
+    monkeypatch.setattr(capture, "_observe", lambda *args: pytest.fail("must reuse exact capture"))
+    assert capture.capture_existing_chapter(request, tmp_path)["text"] == observed["text"]
+    assert first["binding"] == capture._binding(request)
+    assert first["text_sha256"] == capture._sha(observed["text"])
+    assert first["canon_approved"] is False
+
+
+@pytest.mark.parametrize("heading,number", [
+    ("Chapter 1: The First Choice", 2), ("Chapter 3: The First Choice", 2),
+    ("Chapter 02: The First Choice", 2), ("Chapter 2: Other", 2),
+    ("Chapter 2: The First Choice extra", 2), ("The First Choice extra", 2),
+    ("Chapter 2: Chapter 2: The First Choice", 2), ("chapter 2: The First Choice", 2),
+    ("Chapter 2: The First Choice", 1),
+])
+def test_numbered_heading_cannot_relax_title_or_chapter_identity(monkeypatch, tmp_path, heading, number):
+    monkeypatch.setattr(capture, "_observe", lambda *args:
+        {**observation(), "chapterTitle": heading, "chapterNumber": number})
+    with pytest.raises(RuntimeError, match="draft_not_verified"):
+        capture.capture_existing_chapter({**packet(), "chapter_number": 2}, tmp_path)
+    assert not list(tmp_path.rglob("*.json"))
+
+
 @pytest.mark.parametrize("key,value", [
     ("source_packet_sha256", "2" * 64), ("account_sha256", "3" * 64),
     ("provider_book_id", "other-book"), ("book_title", "Another book"),

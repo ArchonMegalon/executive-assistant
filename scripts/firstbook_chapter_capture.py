@@ -231,9 +231,14 @@ def _read_draft(session: str) -> dict:
 
 def _capture(binding: dict, observed: dict) -> dict:
     text = observed.get("text")
+    # FirstBook may decorate the prose heading with its chapter number. Accept
+    # only that exact prefix plus the bound title; do not normalize arbitrary
+    # titles, mutate source identity, or rewrite the retained manuscript bytes.
+    titles = (binding["chapter_title"],
+              f"Chapter {binding['chapter_number']}: {binding['chapter_title']}")
     if (observed.get("origin") != _ORIGIN.rstrip("/")
         or observed.get("bookTitles") != [binding["book_title"]]
-        or observed.get("chapterTitle") != binding["chapter_title"]
+        or observed.get("chapterTitle") not in titles
         or observed.get("chapterNumber") != binding["chapter_number"]
         or type(observed.get("chapterCount")) is not int
         or not binding["chapter_number"] <= observed["chapterCount"] <= 100
