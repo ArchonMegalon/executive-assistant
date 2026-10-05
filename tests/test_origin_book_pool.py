@@ -163,6 +163,90 @@ def ledger(root):
     return pool.worker.writer._load(root / "firstbook-private-writes/book-pool.json")
 
 
+def test_service_observes_a_later_chapter_after_one_hour_without_new_credit(tmp_path, executor):
+    config, hub, browser, clock = configuration(), Books(), Browser(), Clock()
+    config["expires_at"] = 5500
+    start(tmp_path, config)
+    hub.add("1")
+    def next_chapter():
+        if clock.elapsed == 3900:
+            hub.next()  # Native reader/choice, never created by the worker.
+    clock.after_sleep = next_chapter
+    result = pool.serve(lambda: copy.deepcopy(config), hub, tmp_path, browser=browser,
+        now=clock.wall, monotonic=clock.monotonic, sleep=clock.sleep, poll_interval=300)
+    assert result["state"] == "service_expired" and clock.wall() == 5500
+    assert len(executor) == 2
+    assert sum(p["setup"].get("maximum_book_credits", 0) for p in executor) == 1
+    assert len(ledger(tmp_path)["books"]) == 1 and ledger(tmp_path)["in_flight"] is None
+    assert list(hub.jobs.values())[-1]["job"].get("readerAcceptedTextDigest") is None
+
+
+def test_service_stop_drains_current_chapter_and_restart_does_not_replay(tmp_path, executor):
+    config, hub, browser, clock = start(tmp_path), Books(), Browser(), Clock()
+    hub.add("1")
+    stopped = False
+    def observe(result):
+        nonlocal stopped
+        assert ledger(tmp_path)["in_flight"] is None
+        stopped = True
+    def invoke():
+        return pool.serve(lambda: copy.deepcopy(config), hub, tmp_path, browser=browser,
+            now=clock.wall, monotonic=clock.monotonic, sleep=clock.sleep,
+            stop_requested=lambda: stopped, observe=observe)
+    assert invoke()["state"] == "service_stopped"
+    assert len(executor) == 1 and [c[0] for c in browser.calls] == ["open", "account", "close"]
+    before = copy.deepcopy(ledger(tmp_path))
+    stopped = False
+    assert invoke()["state"] == "service_stopped"
+    assert len(executor) == 1 and ledger(tmp_path) == before
+
+
+@pytest.mark.parametrize("change", ["revoked", "expiry", "budget"])
+def test_service_never_renews_or_expands_approval_during_idle(tmp_path, executor, change):
+    config, hub, browser, clock = start(tmp_path), Books(), Browser(), Clock()
+    def modify():
+        if change == "revoked": config["approved"] = False
+        if change == "expiry": config["expires_at"] += 100
+        if change == "budget": config["maximum_new_books"] += 1
+    clock.after_sleep = modify
+    with pytest.raises((ValueError, RuntimeError)):
+        pool.serve(lambda: copy.deepcopy(config), hub, tmp_path, browser=browser,
+            now=clock.wall, monotonic=clock.monotonic, sleep=clock.sleep)
+    assert not executor and not browser.calls and not ledger(tmp_path)["books"]
+
+
+def test_service_preserves_existing_uncertain_fence_before_browser_or_hub(tmp_path):
+    config, hub, browser = start(tmp_path), Books(), Browser()
+    hub.add("1")
+    state = ledger(tmp_path)
+    state["books"] = [pool._book_configuration(config, next(iter(hub.jobs.values())))]
+    state["in_flight"] = "1" * 64
+    path = tmp_path / "firstbook-private-writes/book-pool.json"
+    pool.worker.writer._save(path, state)
+    before = path.read_bytes()
+    with pytest.raises(RuntimeError, match="requires_reconciliation"):
+        pool.serve(lambda: config, hub, tmp_path, browser=browser, now=lambda: 1000)
+    assert path.read_bytes() == before and not browser.calls and not hub.calls
+
+
+def test_service_stop_during_execution_keeps_provider_observation_spacing(tmp_path, monkeypatch):
+    config, hub, clock = start(tmp_path), Books(), Clock()
+    hub.add("1")
+    stopped = False
+    def execute(*args, sleep, **kwargs):
+        nonlocal stopped
+        stopped = True
+        sleep(5)
+        assert clock.elapsed == 5
+        return {"state": "review_required", "browser_retained": False}
+    monkeypatch.setattr(pool.runtime, "run_bounded", execute)
+    result = pool.serve(lambda: config, hub, tmp_path,
+        stop_requested=lambda: stopped, now=clock.wall, monotonic=clock.monotonic,
+        sleep=clock.sleep, idle_wait=lambda _: pytest.fail("Stopped service must not wait again"))
+    assert result["state"] == "service_stopped"
+    assert ledger(tmp_path)["in_flight"] is None
+
+
 def test_three_books_total_fourth_never_dispatched_and_restart_never_refills(tmp_path, executor):
     config, hub, browser = start(tmp_path), Books(), Browser()
     for digit in "1234": hub.add(digit)

@@ -1,0 +1,9 @@
+# Explicit opt-in overlay; reuse the same inspected image, approval and custody.
+# No automatic restart after uncertain execution or authorization expiry.
+services:
+  origin-book:
+    command: ["--serve"]
+    restart: "no"
+    # SIGTERM drains the current bounded chapter; idle shutdown is immediate.
+    # A forced kill still preserves the durable in-flight fence for reconciliation.
+    stop_grace_period: 6m
