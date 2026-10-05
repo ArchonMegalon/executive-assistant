@@ -73,6 +73,22 @@ def test_real_draft_capture_and_cold_retry_do_not_navigate_or_admit_canon(tmp_pa
     assert writer.write_prepared_chapter(packet(), tmp_path)["reused_capture"] is True
 
 
+def test_numbered_heading_recovers_dispatched_text_without_another_write(tmp_path, browser, monkeypatch):
+    writer.write_prepared_chapter(packet(), tmp_path)
+    observed = {**draft(), "chapterTitle": "Chapter 1: Childhood",
+                "text": "Chapter 1: Childhood\n\nNera wartet."}
+    monkeypatch.setattr(writer, "_inspect", lambda *a: {"hasDraft": True, "reviewReady": True})
+    monkeypatch.setattr(capture, "_read_draft", lambda *a: observed)
+    result = writer.write_prepared_chapter(packet(), tmp_path, allow_new_dispatch=False)
+    assert result["text"] == observed["text"]
+    assert result["text_sha256"] == capture._sha(observed["text"])
+    assert result["binding"]["chapter_title"] == "Childhood"
+    assert result["render_status"] == "chapter_review_required"
+    assert sum("Write Chapter" in action for action in browser) == 1
+    monkeypatch.setattr(capture, "_open_book", lambda *a: pytest.fail("retained result only"))
+    assert writer.write_prepared_chapter(packet(), tmp_path, allow_new_dispatch=False)["reused_capture"]
+
+
 @pytest.mark.parametrize("key,value", [("request_id", "job-2"), ("source_packet_sha256", "3" * 64),
                                        ("book_title", "Other"), ("narrative_locale", "es-ES"),
                                        ("expected_outline", [{"title": "changed", "description": "x"}] * 3)])
