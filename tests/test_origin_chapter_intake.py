@@ -108,6 +108,56 @@ def test_queue_to_three_chapters_retains_constant_size_predecessor_and_stops_at_
     assert sum(action == "/admit" for action, _ in hub.calls) == 3
 
 
+@pytest.mark.parametrize("replace_brief", [False, True])
+def test_chapter_wish_can_finish_while_canonical_history_and_paid_book_continue(tmp_path, executor, replace_brief):
+    hub = Queue()
+    key = "player-chapter-brief-" + "a" * 64
+    hub.first["job"]["source"]["facts"].append({"factId": key, "decisionId": key, "text": "A wish for this chapter only."})
+    data = admission(hub)
+    run(data, hub, tmp_path)
+    root = tmp_path / "firstbook-private-writes"
+    path = root / ("intake-" + data["book_ref"] + ".json")
+    old_entry = copy.deepcopy(intake.worker.writer._load(path)["jobs"][0])
+    successor = hub.next()
+    successor["job"]["source"]["facts"] = [f for f in successor["job"]["source"]["facts"] if f["factId"] != key]
+    if replace_brief:
+        new_key = "player-chapter-brief-" + "b" * 64
+        successor["job"]["source"]["facts"].append({"factId": new_key, "decisionId": new_key, "text": "A new wish."})
+    assert run(data, hub, tmp_path)["state"] == "review_required"
+    assert run(data, hub, tmp_path)["state"] == "idle"
+    assert intake.worker.writer._load(path)["jobs"][0] == old_entry
+    assert len(executor) == 2 and "maximum_book_credits" not in executor[1]["setup"]
+    assert successor["job"]["readerAcceptedTextDigest"] is None
+
+
+@pytest.mark.parametrize("kind", ["canonical", "opening", "background", "short", "upper", "decision", "text", "relabel"])
+def test_chapter_wish_exception_never_drops_or_rewrites_durable_history(tmp_path, executor, kind):
+    hub = Queue()
+    key = "player-chapter-brief-" + "a" * 64
+    if kind == "canonical": key = "rule-fact"
+    if kind == "opening": key = "player-story-brief-" + "a" * 64
+    if kind == "background": key = "player-background-" + "a" * 64
+    if kind == "short": key = "player-chapter-brief-a"
+    if kind == "upper": key = "player-chapter-brief-" + "A" * 64
+    fact = {"factId": key, "decisionId": "rule-decision" if kind == "decision" else key, "text": "Exact retained fact."}
+    hub.first["job"]["source"]["facts"].append(fact)
+    data = admission(hub)
+    run(data, hub, tmp_path)
+    successor = hub.next()
+    facts = successor["job"]["source"]["facts"]
+    if kind == "text": next(f for f in facts if f["factId"] == key)["text"] = "Changed."
+    else:
+        facts.remove(fact)
+        if kind == "relabel":
+            # Same fact ID but a replacement claims another decision identity.
+            facts.append({**fact, "decisionId": "player-chapter-brief-" + "b" * 64})
+    path = tmp_path / "firstbook-private-writes" / ("intake-" + data["book_ref"] + ".json")
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match="predecessor_binding_mismatch"):
+        run(data, hub, tmp_path)
+    assert path.read_bytes() == before and len(executor) == 1
+
+
 @pytest.mark.parametrize("key,value", [("approved", False), ("expires_at", 1000), ("expires_at", 900000),
     ("maximum_book_credits", 2), ("maximum_book_credits", True), ("maximum_chapters", 0),
     ("maximum_chapters", 101), ("account_sha256", "bad"), ("browser_session", "../bad"), ("locale", "xx")])

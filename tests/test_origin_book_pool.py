@@ -749,6 +749,86 @@ def test_explicit_completed_reconciliation_preserves_budget_and_never_dispatches
     assert run(config, hub, tmp_path)["state"] == "idle"
 
 
+def test_explicit_unadmitted_successor_recovery_preserves_history_then_continues_once(tmp_path, executor):
+    config, hub, root, path = completed_fence(tmp_path, executor)
+    reconcile(config, hub, root, path)
+    hub.next()
+    run(config, hub, tmp_path)
+    successor = hub.next(suffix="4")
+    state = ledger(tmp_path)
+    state["in_flight"] = "1" * 64
+    pool.worker.writer._save(path, state)
+    before = {p.name: p.read_bytes() for p in root.iterdir() if p.suffix == ".json" and p != path}
+    executor.clear()
+    hub.calls.clear()
+    result = reconcile(config, hub, root, path, pending_successor_work_id=successor["workId"])
+    assert result["state"] == "reconciled_unadmitted_successor"
+    assert result["provider_dispatch"] is result["hub_mutation"] is False
+    assert len(result["completed_jobs"]) == 2
+    assert result["pending_source_sha256"] == successor["job"]["sourceDigest"]
+    assert ledger(tmp_path)["books"] == state["books"]
+    assert all((root / name).read_bytes() == data for name, data in before.items())
+    assert successor["executionAdmission"] is None and not executor
+    assert all(action in ("", "pending") for action, _ in hub.calls)
+    result = run(config, hub, tmp_path)
+    assert result["state"] == "observed" and result["book_states"] == ["review_required"]
+    assert run(config, hub, tmp_path)["state"] == "idle"
+    assert len(executor) == 1 and executor[0]["work_id"] == successor["workId"]
+    assert "maximum_book_credits" not in executor[0]["setup"]
+    assert successor["job"]["readerAcceptedTextDigest"] is None
+
+
+@pytest.mark.parametrize("change", ["admitted", "missing_admission", "not_accepted", "wrong_previous",
+    "lost_fact", "wrong_book", "wrong_owner", "open_session", "local_working", "extra_pending"])
+def test_unadmitted_successor_recovery_rejects_uncertainty_without_writes(tmp_path, executor, change):
+    config, hub, root, path = completed_fence(tmp_path, executor)
+    successor = hub.next(accepted=change != "not_accepted")
+    if change == "admitted": successor["executionAdmission"] = "uncertain-execution"
+    if change == "missing_admission": successor.pop("executionAdmission")
+    if change == "wrong_previous": successor["previousWorkId"] = "f" * 64 + "." + "a" * 64
+    if change == "lost_fact": successor["job"]["source"]["facts"].pop(0)
+    if change == "wrong_book": successor["bookRef"] = "f" * 64
+    if change == "wrong_owner":
+        old_id = successor["workId"]
+        successor["workId"] = "f" * 64 + old_id[64:]
+        hub.jobs[successor["workId"]] = hub.jobs.pop(old_id)
+    if change == "open_session":
+        target = root / ("owned-session-" + "1" * 64 + ".json")
+        value = pool.worker.writer._load(target)
+        value["state"] = "open"
+        pool.worker.writer._save(target, value)
+    if change == "local_working":
+        target = root / ("intake-" + "1" * 64 + ".json")
+        value = pool.worker.writer._load(target)
+        value["jobs"][-1]["state"] = "working"
+        pool.worker.writer._save(target, value)
+    if change == "extra_pending":
+        extra = copy.deepcopy(successor)
+        extra["workId"] = "1" * 64 + "." + "f" * 64
+        hub.jobs[extra["workId"]] = extra
+    before = {p.name: p.read_bytes() for p in root.iterdir() if p.suffix == ".json"}
+    with pytest.raises((RuntimeError, ValueError)):
+        reconcile(config, hub, root, path, pending_successor_work_id=successor["workId"])
+    assert {p.name: p.read_bytes() for p in root.iterdir() if p.suffix == ".json"} == before
+    assert not executor and all(action in ("", "pending") for action, _ in hub.calls)
+
+
+def test_successor_admitted_during_recovery_is_not_released(tmp_path, executor):
+    config, hub, root, path = completed_fence(tmp_path, executor)
+    successor = hub.next()
+    original = hub.pending
+    def racing_admission(ref):
+        observed = original(ref)
+        successor["executionAdmission"] = "another-executor"
+        return observed
+    hub.pending = racing_admission
+    before = path.read_bytes()
+    with pytest.raises(RuntimeError, match="snapshot_changed"):
+        reconcile(config, hub, root, path, pending_successor_work_id=successor["workId"])
+    assert path.read_bytes() == before and not executor
+    assert not list(root.glob("pool-reconciliation-*"))
+
+
 @pytest.mark.parametrize("retained_state", ["open", "retained_for_reconciliation"])
 def test_operator_verified_stopped_completed_session_preserves_original_journal(tmp_path, executor, retained_state):
     config, hub, root, path = completed_fence(tmp_path, executor)
