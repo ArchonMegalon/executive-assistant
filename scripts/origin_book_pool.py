@@ -279,7 +279,8 @@ def approve_standing_service(load_configuration, configuration: dict, output_roo
 def reconcile_completed(load_configuration, hub, output_root: Path, *,
                         expected_pool_sha256: str, book_ref: str,
                         stopped_session: str | None = None,
-                        expected_session_sha256: str | None = None, now=time.time) -> dict:
+                        expected_session_sha256: str | None = None,
+                        pending_successor_work_id: str | None = None, now=time.time) -> dict:
     """Explicit operator recovery of an idle/completed sweep, never a retry.
 
     A stopped executor must first be inspected by the operator. Both execution
@@ -292,11 +293,21 @@ def reconcile_completed(load_configuration, hub, output_root: Path, *,
     fence, not permission to reopen that old session or replay its provider work.
     Reservations, expiry and reader acceptance stay unchanged; watch/run never
     invoke this recovery automatically. Uncertain provider work is unsupported.
+
+    An explicitly identified, still-unadmitted successor may be left queued
+    only with a closed browser journal and fully completed local history. This
+    covers pre-browser validation failures, not started or unknown provider work.
+    The successor is validated and reread; recovery itself only releases the
+    local pool fence. It neither admits nor dispatches that chapter.
     """
     if any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)
            for value in (expected_pool_sha256, book_ref)):
         raise ValueError("origin_pool_reconciliation_identity_invalid")
     stopped = stopped_session is not None or expected_session_sha256 is not None
+    if pending_successor_work_id is not None and (stopped
+        or not isinstance(pending_successor_work_id, str)
+        or not re.fullmatch(r"[0-9a-f]{64}\.[0-9a-f]{64}", pending_successor_work_id)):
+        raise ValueError("origin_pool_reconciliation_identity_invalid")
     if stopped and (not isinstance(stopped_session, str)
         or not re.fullmatch(r"origin-book-[0-9a-f]{32}", stopped_session)
         or not isinstance(expected_session_sha256, str)
@@ -351,11 +362,22 @@ def reconcile_completed(load_configuration, hub, output_root: Path, *,
                 "text_sha256": hashlib.sha256(job["draftText"].encode("utf-8")).hexdigest(),
                 "provider_receipt_sha256": job["providerReceiptDigest"],
                 "reader_accepted_text_sha256": job.get("readerAcceptedTextDigest")})
-        if hub.pending(book_ref) != []:
+        pending = []
+        if pending_successor_work_id is not None:
+            successor = hub.call(pending_successor_work_id)
+            if (successor.get("executionAdmission", "missing") is not None
+                or successor.get("job", {}).get("state") != "awaiting_authoring"
+                or any(j["packet"]["work_id"] == pending_successor_work_id for j in intake["jobs"])):
+                raise RuntimeError("origin_pool_reconciliation_not_unstarted")
+            packet = runtime.intake._new_packet(successor, admission, intake["jobs"][-1])
+            worker._validate_previous(successor, observed[-1], packet["previous"])
+            pending = [successor]
+        if hub.pending(book_ref) != pending:
             raise RuntimeError("origin_pool_reconciliation_queue_not_empty")
         # Re-read: a revision, successor, revocation or custody change during
         # observation must not be treated as the operator's reviewed snapshot.
-        if any(hub.call(work["workId"]) != work for work in observed) or hub.pending(book_ref) != []:
+        if (any(hub.call(work["workId"]) != work for work in observed + pending)
+            or hub.pending(book_ref) != pending):
             raise RuntimeError("origin_pool_reconciliation_snapshot_changed")
         if (_configuration(load_configuration(), now()) != binding
             or worker._read_private(path, _LEDGER_LIMIT) != raw
@@ -371,7 +393,19 @@ def reconcile_completed(load_configuration, hub, output_root: Path, *,
         if stopped:
             result.update(stopped_session=stopped_session, session_sha256=expected_session_sha256,
                 retained_session_state=session["state"])
+        if pending:
+            result.update(state="reconciled_unadmitted_successor",
+                pending_successor_work_id=pending_successor_work_id,
+                pending_source_sha256=pending[0]["job"]["sourceDigest"],
+                provider_dispatch=False, hub_mutation=False,
+                session_sha256=hashlib.sha256(snapshots[session_path]).hexdigest(),
+                intake_sha256=hashlib.sha256(snapshots[intake_path]).hexdigest())
         receipt_path = root / ("pool-reconciliation-" + expected_pool_sha256 + ".json")
+        if pending:
+            # The pool bytes can be identical on later chapter sweeps. Bind
+            # this distinct observation without overwriting an earlier receipt.
+            receipt_path = root / ("pool-reconciliation-" + expected_pool_sha256
+                + "-successor-" + hashlib.sha256(pending_successor_work_id.encode()).hexdigest() + ".json")
         existing = worker.writer._load(receipt_path)
         if existing is not None and existing != result:
             raise RuntimeError("origin_pool_reconciliation_receipt_mismatch")
@@ -697,6 +731,8 @@ def main() -> int:
     parser.add_argument("--approve-standing-service", type=Path,
         help="Explicit stopped-custody transition using a new owner-approved credit snapshot; no execution.")
     parser.add_argument("--reconcile-completed-book", help="Operator-only recovery; never starts execution.")
+    parser.add_argument("--pending-successor-work-id",
+        help="Exact unadmitted successor for closed-session recovery; never dispatches it.")
     parser.add_argument("--expected-pool-sha256")
     parser.add_argument("--hub-origin")
     parser.add_argument("--hub-host")
@@ -705,6 +741,8 @@ def main() -> int:
     parser.add_argument("--poll-interval", type=int, default=30)
     parser.add_argument("--selected-book", help="Execute only this exact book, preserving all pool reservations.")
     args = parser.parse_args()
+    if args.pending_successor_work_id is not None and args.reconcile_completed_book is None:
+        parser.error("--pending-successor-work-id requires --reconcile-completed-book")
     if args.approve_standing_service is not None:
         if (args.initialize or args.reconcile_completed_book is not None or args.watch_seconds is not None
             or args.selected_book is not None or args.expected_pool_sha256 is None):
@@ -730,7 +768,8 @@ def main() -> int:
         hub = worker.LocalHub(args.hub_origin, args.token_file, host=args.hub_host)
         if args.reconcile_completed_book is not None:
             result = reconcile_completed(load, hub, args.output_root,
-                expected_pool_sha256=args.expected_pool_sha256, book_ref=args.reconcile_completed_book)
+                expected_pool_sha256=args.expected_pool_sha256, book_ref=args.reconcile_completed_book,
+                pending_successor_work_id=args.pending_successor_work_id)
         elif args.watch_seconds is not None:
             result = watch(load, hub, args.output_root, duration=args.watch_seconds, poll_interval=args.poll_interval,
                 selected_book_ref=args.selected_book)

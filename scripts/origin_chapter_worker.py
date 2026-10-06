@@ -252,6 +252,17 @@ def _validate_work(work: dict, packet: dict, *, preparing: bool = False) -> dict
     return job
 
 
+def _chapter_scoped_brief(fact: dict) -> bool:
+    """Android's exact per-chapter wish identity, not a permanent runner fact.
+
+    Inspect only the immutable predecessor. A successor cannot relabel or edit
+    a retained fact to exempt it from cumulative history checks.
+    """
+    return (isinstance(fact, dict) and isinstance(fact.get("factId"), str)
+        and fact["factId"] == fact.get("decisionId")
+        and re.fullmatch(r"player-chapter-brief-[0-9a-f]{64}", fact["factId"]) is not None)
+
+
 def _validate_previous(work: dict, old: dict, packet: dict) -> dict:
     old_job = _validate_work(old, packet)
     source, old_source = work["job"]["source"], old_job["source"]
@@ -266,7 +277,10 @@ def _validate_previous(work: dict, old: dict, packet: dict) -> dict:
             "textDigest": old_job.get("readerAcceptedTextDigest")}
         if (work.get("previousWorkId") != old["workId"] or work["job"]["previous"] != expected
             or old_job.get("readerAcceptedTextDigest") is None
-            or any(fact not in source.get("facts", []) for fact in old_source.get("facts", []))):
+            or any(any(next_fact.get("factId") == fact.get("factId") and next_fact != fact
+                       for next_fact in source.get("facts", []))
+                   or not _chapter_scoped_brief(fact) and fact not in source.get("facts", [])
+                   for fact in old_source.get("facts", []))):
             raise ValueError("origin_worker_predecessor_binding_mismatch")
     return old_job
 

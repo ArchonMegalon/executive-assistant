@@ -397,3 +397,24 @@ Up to three superseded drafts are retained with the job; ordinary completion
 still cannot replace a delivered result. Android must read and explicitly accept
 the new proposal before continuation. This is an operator recovery seam, not an
 automatic rewrite or a user-facing revision request control.
+
+## Unstarted successor after a pre-browser validation failure
+
+Chapter-specific wishes use Android's exact `player-chapter-brief-` plus
+64-lowercase-hex identity, with matching fact and decision IDs. They may end
+after that chapter; opening/background and canonical character facts remain
+cumulative. Reusing a fact ID with altered content or decision identity is still
+rejected, including chapter wishes. Previous source packets remain immutable.
+
+After independently verifying the executor is stopped and its browser absent,
+the operator may pass `--pending-successor-work-id` together with
+`--reconcile-completed-book` and `--expected-pool-sha256`. This narrower case
+requires a closed session journal, only completed local chapters, the exact
+reader-accepted predecessor and one matching queued successor with explicitly
+absent Hub execution admission. All remote/local inputs are reread before the
+pool fence is released. Missing or uncertain evidence remains fenced.
+
+Recovery performs no provider dispatch, Hub mutation or reader acceptance. It
+preserves reservations and every original journal, and records a distinct
+successor-bound reconciliation. Only a later normal service invocation may
+admit the queued chapter. Watch/serve never invoke this recovery automatically.
