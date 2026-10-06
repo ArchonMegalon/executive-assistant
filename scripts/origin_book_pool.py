@@ -1,4 +1,4 @@
-"""Cumulative local admission for a finite number of consented Origin books.
+"""Cumulative local admission for explicitly approved consented Origin books.
 
 One fixed FirstBook account/profile per book, one existing credit per new book. Hub owns
 the consented facts, chapter requests and reader acceptance. This controller
@@ -24,12 +24,14 @@ from scripts import origin_chapter_runtime as runtime
 worker = runtime.worker
 _SCHEMA = "firstbook.local-book-pool/v1"
 _ROTATING_SCHEMA = "firstbook.local-book-pool/v2"
+_SERVICE_SCHEMA = "firstbook.local-book-service/v1"
+_LEDGER_LIMIT = 2_000_000
 _SAFE = runtime._SAFE_CLOSE
 
 
 def accounts(config: dict) -> list[dict]:
     """Ordered, explicitly admitted profiles; never discover credentials."""
-    if config.get("schema") == _ROTATING_SCHEMA:
+    if config.get("schema") in (_ROTATING_SCHEMA, _SERVICE_SCHEMA):
         return config["accounts"]
     return [{key: config[key] for key in ("profile_id", "profile_use_approved", "account_sha256")}]
 
@@ -38,14 +40,18 @@ def _configuration(value: dict, now: float) -> dict:
     fields = {"schema", "approval_id", "approved", "maximum_new_books", "maximum_chapters_per_book",
               "profile_id", "profile_use_approved", "source_scope", "account_sha256", "expires_at",
               "excluded_book_refs"}
-    rotating = isinstance(value, dict) and value.get("schema") == _ROTATING_SCHEMA
+    standing = isinstance(value, dict) and value.get("schema") == _SERVICE_SCHEMA
+    rotating = isinstance(value, dict) and value.get("schema") in (_ROTATING_SCHEMA, _SERVICE_SCHEMA)
     if rotating:
         fields = fields - {"profile_id", "profile_use_approved", "account_sha256"} | {"accounts"}
-    if (not isinstance(value, dict) or set(value) != fields or value.get("schema") not in (_SCHEMA, _ROTATING_SCHEMA)
+    if (not isinstance(value, dict) or set(value) != fields
+        or value.get("schema") not in (_SCHEMA, _ROTATING_SCHEMA, _SERVICE_SCHEMA)
         or value.get("approved") is not True or value.get("source_scope") != "consented_origin"
         or not isinstance(value.get("approval_id"), str)
         or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", value["approval_id"])
-        or type(value.get("maximum_new_books")) is not int or not 1 <= value["maximum_new_books"] <= 20
+        or type(value.get("maximum_new_books")) is not int
+        or not 1 <= value["maximum_new_books"] <= (1000 if standing else 20)
+        or standing and value["expires_at"] is not None
         or not isinstance(value.get("excluded_book_refs"), list)
         or len(value["excluded_book_refs"]) > 128
         or any(not isinstance(ref, str) or not re.fullmatch(r"[0-9a-f]{64}", ref)
@@ -56,12 +62,20 @@ def _configuration(value: dict, now: float) -> dict:
     dummy = {"bookRef": "0" * 64, "workId": "0" * 64 + "." + "1" * 64,
              "job": {"source": {"workspaceId": "validation-only", "locale": "en"}}}
     choices = accounts(value)
+    account_fields = {"profile_id", "profile_use_approved", "account_sha256"}
+    if standing:
+        account_fields.add("maximum_new_books")
     if (not isinstance(choices, list) or not 1 <= len(choices) <= 20
-        or any(not isinstance(a, dict) or set(a) != {"profile_id", "profile_use_approved", "account_sha256"}
+        or any(not isinstance(a, dict) or set(a) != account_fields
                for a in choices)):
         raise ValueError("origin_pool_accounts_invalid")
+    if standing and (any(type(a["maximum_new_books"]) is not int
+            or not 0 <= a["maximum_new_books"] <= 1000 for a in choices)
+        or sum(a["maximum_new_books"] for a in choices) != value["maximum_new_books"]):
+        raise ValueError("origin_pool_credit_snapshot_invalid")
     for account in choices:
-        runtime._configuration(_book_configuration(value, dummy, account), "validation-only", now)
+        runtime._configuration(_execution_configuration(value, _book_configuration(value, dummy, account), now),
+                               "validation-only", now)
     if (len({a["profile_id"] for a in choices}) != len(choices)
         or len({a["account_sha256"] for a in choices}) != len(choices)):
         raise ValueError("origin_pool_accounts_not_isolated")
@@ -78,6 +92,26 @@ def _book_configuration(config: dict, work: dict, account: dict | None = None) -
             "account_sha256": account["account_sha256"], "workspace_id": source["workspaceId"],
             "locale": source["locale"], "expires_at": config["expires_at"],
             "maximum_chapters": config["maximum_chapters_per_book"], "maximum_book_credits": 1}}
+
+
+def _execution_configuration(binding: dict, book: dict, now: float) -> dict:
+    """Derive a bounded child grant only from the explicitly standing parent.
+
+    No finite grant is renewed. The runtime's original one-credit, seven-day
+    maximum and stable custody binding are unchanged. Standing execution gets
+    one hour, and the parent is re-read by before_tick throughout that execution.
+    Persisted reservations have no ticking expiry; they never become new credit.
+    """
+    if binding["schema"] != _SERVICE_SCHEMA:
+        return book
+    return {**book, "admission": {**book["admission"], "expires_at": int(now) + 3600}}
+
+
+def _save_pool(path: Path, state: dict) -> None:
+    if state["configuration"]["schema"] == _SERVICE_SCHEMA:
+        worker.writer._save(path, state, maximum=_LEDGER_LIMIT)
+    else:
+        worker.writer._save(path, state)
 
 
 @contextmanager
@@ -98,7 +132,10 @@ def initialize(config: dict, output_root: Path, *, now=time.time) -> dict:
     with _lease(output_root) as path:
         if any(item.name != ".pool.lock" for item in path.parent.iterdir()):
             raise RuntimeError("origin_pool_initialization_requires_empty_custody")
-        worker.writer._save(path, {"configuration": binding, "books": [], "in_flight": None})
+        state = {"configuration": binding, "books": [], "in_flight": None}
+        if binding["schema"] == _SERVICE_SCHEMA:
+            state["new_book_admission_exhausted"] = False
+        _save_pool(path, state)
     return {"state": "initialized", "reserved_books": 0,
             "remaining_books": binding["maximum_new_books"], "publication_authorized": False}
 
@@ -107,16 +144,21 @@ def _read_ledger(path: Path, binding: dict, now: float) -> dict:
     # Missing/invalid custody is not a fresh allowance. Duplicate JSON members
     # are rejected too; no counter is ever inferred from remaining provider credits.
     try:
-        state = worker._json(worker._read_private(path, 200000))
+        state = worker._json(worker._read_private(path, _LEDGER_LIMIT))
     except FileNotFoundError:
         raise RuntimeError("origin_pool_custody_missing") from None
-    if (not isinstance(state, dict) or set(state) != {"configuration", "books", "in_flight"}
+    fields = {"configuration", "books", "in_flight"}
+    standing = binding["schema"] == _SERVICE_SCHEMA
+    if standing:
+        fields.add("new_book_admission_exhausted")
+    if (not isinstance(state, dict) or set(state) != fields
         or state["configuration"] != binding or not isinstance(state["books"], list)
-        or len(state["books"]) > binding["maximum_new_books"]):
+        or len(state["books"]) > binding["maximum_new_books"]
+        or standing and type(state["new_book_admission_exhausted"]) is not bool):
         raise RuntimeError("origin_pool_custody_mismatch")
     seen = set()
     for entry in state["books"]:
-        runtime._configuration(entry, "validation-only", now)
+        runtime._configuration(_execution_configuration(binding, entry, now), "validation-only", now)
         admission = entry["admission"]
         ref = admission["book_ref"]
         selected = next((a for a in accounts(binding) if a["profile_id"] == entry["profile_id"]
@@ -128,6 +170,9 @@ def _read_ledger(path: Path, binding: dict, now: float) -> dict:
         if entry != expected or ref in seen or ref in binding["excluded_book_refs"]:
             raise RuntimeError("origin_pool_custody_mismatch")
         seen.add(ref)
+    if standing and any(sum(b["admission"]["account_sha256"] == a["account_sha256"]
+                            for b in state["books"]) > a["maximum_new_books"] for a in accounts(binding)):
+        raise RuntimeError("origin_pool_custody_mismatch")
     if state["in_flight"] is not None and state["in_flight"] not in seen:
         raise RuntimeError("origin_pool_custody_mismatch")
     return state
@@ -141,6 +186,94 @@ def _restore(path: Path, binding: dict, now: float) -> dict:
     if probe is not None and probe.get("state") != "closed":
         raise RuntimeError("origin_pool_account_probe_requires_reconciliation")
     return state
+
+
+def approve_standing_service(load_configuration, configuration: dict, output_root: Path, *,
+                             expected_pool_sha256: str, now=time.time) -> dict:
+    """Explicit owner transition of stopped finite custody, never execution.
+
+    Stop and inspect the executor first. Preserve every reservation, exclusion,
+    intake and provider journal; never clear an uncertain fence. The new owner
+    approval records existing-credit ceilings (including previous reservations)
+    per account. Editing a finite approval in place is deliberately insufficient.
+    """
+    if not isinstance(expected_pool_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_pool_sha256):
+        raise ValueError("origin_pool_transition_snapshot_required")
+    target = _configuration(configuration, now())
+    if target["schema"] != _SERVICE_SCHEMA:
+        raise ValueError("origin_pool_transition_standing_required")
+    original = load_configuration()
+    expiry = original.get("expires_at") if isinstance(original, dict) else None
+    if type(expiry) is not int or expiry <= 0:
+        raise ValueError("origin_pool_transition_finite_required")
+    # Historical shape only: expired authority never executes here. The new
+    # explicit standing approval is the sole permission for future execution.
+    original = _configuration(original, expiry - 1)
+    if (original["approval_id"] == target["approval_id"]
+        or original["maximum_chapters_per_book"] != target["maximum_chapters_per_book"]
+        or not set(original["excluded_book_refs"]) <= set(target["excluded_book_refs"])):
+        raise ValueError("origin_pool_transition_scope_changed")
+    with _lease(output_root) as path, runtime.intake.cycle._lease(output_root):
+        raw = worker._read_private(path, _LEDGER_LIMIT)
+        if hashlib.sha256(raw).hexdigest() != expected_pool_sha256:
+            raise RuntimeError("origin_pool_transition_snapshot_changed")
+        state = _restore(path, original, expiry - 1)
+        books, snapshots = [], {}
+        for old in state["books"]:
+            admission, old_binding = runtime._configuration(old, "validation-only", expiry - 1)
+            ref = admission["book_ref"]
+            account = next((a for a in accounts(target) if a["profile_id"] == old["profile_id"]
+                and a["account_sha256"] == admission["account_sha256"]), None)
+            if account is None or ref in target["excluded_book_refs"]:
+                raise RuntimeError("origin_pool_transition_account_or_scope_changed")
+            # An admitted book must have intact completed custody. This does
+            # not repair a missing intake/session or infer provider completion.
+            for name in ("intake-", "owned-session-"):
+                item = path.parent / (name + ref + ".json")
+                snapshots[item] = worker._read_private(item, 4_000_000)
+                worker._json(snapshots[item])
+            intake = runtime.intake._restore(path.parent / ("intake-" + ref + ".json"),
+                                            old_binding["execution"])
+            session = worker._json(snapshots[path.parent / ("owned-session-" + ref + ".json")])
+            if (not intake["jobs"] or any(j["state"] != "review_required" for j in intake["jobs"])
+                or set(session) != {"binding", "session", "state"}
+                or session["binding"] != old_binding or session["state"] != "closed"
+                or not isinstance(session["session"], str)
+                or not re.fullmatch(r"origin-book-[0-9a-f]{32}", session["session"])):
+                raise RuntimeError("origin_pool_transition_incomplete_custody")
+            book = {**old, "admission": {**admission, "expires_at": None}}
+            del book["admission"]["browser_session"]
+            _, new_binding = runtime._configuration(_execution_configuration(target, book, now()),
+                                                    "validation-only", now())
+            if new_binding != old_binding:
+                raise RuntimeError("origin_pool_transition_runtime_binding_changed")
+            books.append(book)
+        if (len(books) > target["maximum_new_books"]
+            or any(sum(b["admission"]["account_sha256"] == a["account_sha256"] for b in books)
+                   > a["maximum_new_books"] for a in accounts(target))):
+            raise RuntimeError("origin_pool_transition_reserved_budget_exceeded")
+        if (load_configuration() != original or worker._read_private(path, _LEDGER_LIMIT) != raw
+            or any(worker._read_private(p, 4_000_000) != data for p, data in snapshots.items())):
+            raise RuntimeError("origin_pool_transition_snapshot_changed")
+        transitioned = {"configuration": target, "books": books, "in_flight": None,
+                        "new_book_admission_exhausted": False}
+        after = hashlib.sha256(json.dumps(transitioned, ensure_ascii=False).encode("utf-8")).hexdigest()
+        result = {"state": "standing_service_approved", "pool_before_sha256": expected_pool_sha256,
+            "pool_after_sha256": after, "reserved_books": len(books),
+            "remaining_books": target["maximum_new_books"] - len(books),
+            "provider_dispatch": False, "reader_acceptance_changed": False, "publication_authorized": False}
+        receipt = {**result, "previous_pool": state, "target_configuration": target,
+                   "custody_sha256": {p.name: hashlib.sha256(data).hexdigest() for p, data in snapshots.items()}}
+        record = path.parent / ("standing-approval-" + expected_pool_sha256 + "-" + after + ".json")
+        prior = worker.writer._load(record)
+        if prior is not None and prior != receipt:
+            raise RuntimeError("origin_pool_transition_receipt_changed")
+        if prior is None:
+            worker.writer._save(record, receipt)
+        # Commit last, atomically. Until the deployment uses the new approval,
+        # both old and mismatched configurations fail closed. No journal rewrite.
+        _save_pool(path, transitioned)
+        return result
 
 
 def reconcile_completed(load_configuration, hub, output_root: Path, *,
@@ -171,14 +304,15 @@ def reconcile_completed(load_configuration, hub, output_root: Path, *,
         raise ValueError("origin_pool_reconciliation_identity_invalid")
     binding = _configuration(load_configuration(), now())
     with _lease(output_root) as path, runtime.intake.cycle._lease(output_root):
-        raw = worker._read_private(path, 200000)
+        raw = worker._read_private(path, _LEDGER_LIMIT)
         if hashlib.sha256(raw).hexdigest() != expected_pool_sha256:
             raise RuntimeError("origin_pool_reconciliation_snapshot_changed")
         state = _read_ledger(path, binding, now())
         if state["in_flight"] != book_ref:
             raise RuntimeError("origin_pool_reconciliation_fence_mismatch")
         config = next(b for b in state["books"] if b["admission"]["book_ref"] == book_ref)
-        admission, book_binding = runtime._configuration(config, "validation-only", now())
+        admission, book_binding = runtime._configuration(_execution_configuration(binding, config, now()),
+                                                         "validation-only", now())
         root = path.parent
         intake_path = root / ("intake-" + book_ref + ".json")
         session_path = root / ("owned-session-" + book_ref + ".json")
@@ -224,7 +358,7 @@ def reconcile_completed(load_configuration, hub, output_root: Path, *,
         if any(hub.call(work["workId"]) != work for work in observed) or hub.pending(book_ref) != []:
             raise RuntimeError("origin_pool_reconciliation_snapshot_changed")
         if (_configuration(load_configuration(), now()) != binding
-            or worker._read_private(path, 200000) != raw
+            or worker._read_private(path, _LEDGER_LIMIT) != raw
             or any(worker._read_private(p, 4_000_000) != data for p, data in snapshots.items())):
             raise RuntimeError("origin_pool_reconciliation_snapshot_changed")
         state["in_flight"] = None
@@ -243,7 +377,7 @@ def reconcile_completed(load_configuration, hub, output_root: Path, *,
             raise RuntimeError("origin_pool_reconciliation_receipt_mismatch")
         if existing is None:
             worker.writer._save(receipt_path, result)
-        worker.writer._save(path, state)
+        _save_pool(path, state)
         return result
 
 
@@ -265,14 +399,15 @@ def reconcile_unstarted(load_configuration, hub, output_root: Path, *,
         raise ValueError("origin_pool_reconciliation_identity_invalid")
     binding = _configuration(load_configuration(), now())
     with _lease(output_root) as path, runtime.intake.cycle._lease(output_root):
-        raw = worker._read_private(path, 200000)
+        raw = worker._read_private(path, _LEDGER_LIMIT)
         if hashlib.sha256(raw).hexdigest() != expected_pool_sha256:
             raise RuntimeError("origin_pool_reconciliation_snapshot_changed")
         state = _read_ledger(path, binding, now())
         if state["in_flight"] != book_ref:
             raise RuntimeError("origin_pool_reconciliation_fence_mismatch")
         config = next(b for b in state["books"] if b["admission"]["book_ref"] == book_ref)
-        admission, book_binding = runtime._configuration(config, "validation-only", now())
+        admission, book_binding = runtime._configuration(_execution_configuration(binding, config, now()),
+                                                         "validation-only", now())
         root = path.parent
         intake_path = root / ("intake-" + book_ref + ".json")
         session_path = root / ("owned-session-" + book_ref + ".json")
@@ -308,7 +443,7 @@ def reconcile_unstarted(load_configuration, hub, output_root: Path, *,
             raise RuntimeError("origin_pool_reconciliation_queue_changed")
         if (hub.call(packet["work_id"]) != work or hub.pending(book_ref) != [work]
             or _configuration(load_configuration(), now()) != binding
-            or worker._read_private(path, 200000) != raw
+            or worker._read_private(path, _LEDGER_LIMIT) != raw
             or any(worker._read_private(p, 4_000_000) != data for p, data in snapshots.items())):
             raise RuntimeError("origin_pool_reconciliation_snapshot_changed")
         assert_no_provider_custody()
@@ -329,7 +464,7 @@ def reconcile_unstarted(load_configuration, hub, output_root: Path, *,
         # last write fails, execution remains blocked and explicit recovery is
         # repeatable against the same snapshots. Intake/session history is intact.
         state["in_flight"] = None
-        worker.writer._save(path, state)
+        _save_pool(path, state)
         return result
 
 
@@ -352,7 +487,7 @@ def _new_books(hub, binding: dict, enrolled: set[str], now: float) -> list[dict]
         if (work.get("executionAdmission") is not None or work.get("previousWorkId") is not None
             or job.get("previous") is not None or job.get("state") != "awaiting_authoring"):
             continue  # Existing/consumed work is never a new-credit enrollment.
-        configuration = _book_configuration(binding, work)
+        configuration = _execution_configuration(binding, _book_configuration(binding, work), now)
         admission, _ = runtime._configuration(configuration, "validation-only", now)
         runtime.intake._new_packet(work, admission, None)  # full source/consent/job shape
         groups.setdefault(ref, []).append(work)
@@ -361,7 +496,7 @@ def _new_books(hub, binding: dict, enrolled: set[str], now: float) -> list[dict]
     return [items[0] for _, items in sorted(groups.items())]
 
 
-def _select_account(binding, root, browser, check, now):
+def _select_account(binding, root, browser, check, now, books=()):
     """Only verified zero credits permit advancing to the next account.
 
     Runs under the pool lease, before a new book reservation. Existing books
@@ -374,6 +509,10 @@ def _select_account(binding, root, browser, check, now):
         raise RuntimeError("origin_pool_account_probe_requires_reconciliation")
     for account in accounts(binding):
         check()
+        if (binding["schema"] == _SERVICE_SCHEMA
+            and sum(b["admission"]["account_sha256"] == account["account_sha256"] for b in books)
+                >= account["maximum_new_books"]):
+            continue  # A refill/top-up cannot replenish the approved snapshot.
         session = "origin-credit-" + uuid.uuid4().hex
         observation = {"state": "opening", "session": session,
             "profile_id": account["profile_id"], "account_sha256": account["account_sha256"],
@@ -412,10 +551,11 @@ def run_once(load_configuration, hub, output_root: Path, *, now=time.time, brows
 
     with _lease(output_root) as path:
         state = _restore(path, binding, now())
-        exhausted = False
+        standing = binding["schema"] == _SERVICE_SCHEMA
+        exhausted = state.get("new_book_admission_exhausted", False)
         books = state["books"]
         enrolled = {b["admission"]["book_ref"] for b in books}
-        if (len(books) < binding["maximum_new_books"]
+        if (not exhausted and len(books) < binding["maximum_new_books"]
             and (selected_book_ref is None or selected_book_ref not in enrolled)):
             try:
                 candidates = _new_books(hub, binding, enrolled, now())
@@ -440,9 +580,9 @@ def run_once(load_configuration, hub, output_root: Path, *, now=time.time, brows
                     raise RuntimeError("origin_pool_initial_source_changed")
                 check()
                 account = accounts(binding)[0]
-                if binding["schema"] == _ROTATING_SCHEMA:
+                if binding["schema"] in (_ROTATING_SCHEMA, _SERVICE_SCHEMA):
                     with runtime.intake.cycle._lease(output_root):
-                        account = _select_account(binding, path.parent, browser or runtime.Browser(), check, now)
+                        account = _select_account(binding, path.parent, browser or runtime.Browser(), check, now, books)
                     # Account observation can take time; recheck source/consent
                     # before reserving or dispatching any paid provider action.
                     if hub.call(selected["workId"]) != selected:
@@ -450,13 +590,18 @@ def run_once(load_configuration, hub, output_root: Path, *, now=time.time, brows
                     check()
                 if account is not None:
                     books.append(_book_configuration(binding, fresh, account))
-                    worker.writer._save(path, state)  # reserve BEFORE any Hub/provider write
-                elif selected_book_ref is not None:
-                    return {"state": "accounts_exhausted", "reserved_books": len(books),
-                        "remaining_books": binding["maximum_new_books"] - len(books),
-                        "publication_authorized": False}
+                    _save_pool(path, state)  # reserve BEFORE any Hub/provider write
                 else:
                     exhausted = True
+                    if standing:
+                        # Stop new-book discovery/probing, not already paid
+                        # chapters. This latch survives restart and later refills.
+                        state["new_book_admission_exhausted"] = True
+                        _save_pool(path, state)
+                    if selected_book_ref is not None:
+                        return {"state": "accounts_exhausted", "reserved_books": len(books),
+                            "remaining_books": binding["maximum_new_books"] - len(books),
+                            "publication_authorized": False}
         selected_books = [b for b in books if selected_book_ref is None
                           or b["admission"]["book_ref"] == selected_book_ref]
         if selected_book_ref is not None and not selected_books:
@@ -465,8 +610,9 @@ def run_once(load_configuration, hub, output_root: Path, *, now=time.time, brows
         for config in selected_books:
             check()
             state["in_flight"] = config["admission"]["book_ref"]
-            worker.writer._save(path, state)
-            result = runtime.run_bounded(config, hub, output_root, now=now, browser=browser,
+            _save_pool(path, state)
+            result = runtime.run_bounded(_execution_configuration(binding, config, now()), hub,
+                output_root, now=now, browser=browser,
                 cycles=cycles, interval=interval, sleep=sleep, before_tick=check,
                 report_idle_failure=True)
             if result.get("browser_retained") is not False or result.get("state") not in _SAFE:
@@ -476,7 +622,7 @@ def run_once(load_configuration, hub, output_root: Path, *, now=time.time, brows
             # An exception or process death leaves in_flight intact. No automatic
             # retry, release of the reservation or new browser on process restart.
             state["in_flight"] = None
-            worker.writer._save(path, state)
+            _save_pool(path, state)
             results.append(result["state"])
         return {"state": "accounts_exhausted" if exhausted else
                 ("hub_queue_unavailable" if "hub_queue_unavailable" in results else
@@ -497,7 +643,7 @@ def watch(load_configuration, hub, output_root: Path, *, duration=3600, poll_int
 def serve(load_configuration, hub, output_root: Path, *, stop_requested=lambda: False,
           poll_interval=30, now=time.time, monotonic=time.monotonic,
           sleep=time.sleep, idle_wait=None, observe=None, **kwargs) -> dict:
-    """Stay available for the existing approval, never renew it or replay work.
+    """Stay available for the exact finite or standing approval; never replay.
 
     A stop request drains the current bounded execution before leaving the loop.
     Expiry/revocation still apply inside that execution; they are not extended.
@@ -513,7 +659,8 @@ def _watch(load_configuration, hub, output_root: Path, *, duration,
     if type(poll_interval) is not int or not 15 <= poll_interval <= 300:
         raise ValueError("origin_pool_watch_budget_invalid")
     original = _configuration(load_configuration(), now())
-    remaining_approval = original["expires_at"] - now()
+    expiry = float("inf") if original["schema"] == _SERVICE_SCHEMA else original["expires_at"]
+    remaining_approval = expiry - now()
     deadline = monotonic() + (remaining_approval if duration is None
                               else min(duration, remaining_approval))
 
@@ -524,17 +671,18 @@ def _watch(load_configuration, hub, output_root: Path, *, duration,
         return current
 
     last = None
-    while monotonic() < deadline and now() < original["expires_at"]:
+    while monotonic() < deadline and now() < expiry:
         if stop_requested():
             return {**(last or {}), "state": "service_stopped", "publication_authorized": False}
         last = run_once(check, hub, output_root, now=now, sleep=sleep, **kwargs)
         if observe is not None:
             observe(last)
-        if last["state"] in ("reconciliation_required", "accounts_exhausted"):
+        if last["state"] == "reconciliation_required" or (last["state"] == "accounts_exhausted"
+                and original["schema"] != _SERVICE_SCHEMA):
             return last
         if stop_requested():
             return {**last, "state": "service_stopped", "publication_authorized": False}
-        remaining = min(deadline - monotonic(), original["expires_at"] - now())
+        remaining = min(deadline - monotonic(), expiry - now())
         if remaining > 0:
             (idle_wait or sleep)(min(poll_interval, remaining))
     return {**(last or {}), "state": "service_expired" if duration is None else "watch_finished",
@@ -546,6 +694,8 @@ def main() -> int:
     parser.add_argument("--configuration-path", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--initialize", action="store_true")
+    parser.add_argument("--approve-standing-service", type=Path,
+        help="Explicit stopped-custody transition using a new owner-approved credit snapshot; no execution.")
     parser.add_argument("--reconcile-completed-book", help="Operator-only recovery; never starts execution.")
     parser.add_argument("--expected-pool-sha256")
     parser.add_argument("--hub-origin")
@@ -555,6 +705,15 @@ def main() -> int:
     parser.add_argument("--poll-interval", type=int, default=30)
     parser.add_argument("--selected-book", help="Execute only this exact book, preserving all pool reservations.")
     args = parser.parse_args()
+    if args.approve_standing_service is not None:
+        if (args.initialize or args.reconcile_completed_book is not None or args.watch_seconds is not None
+            or args.selected_book is not None or args.expected_pool_sha256 is None):
+            parser.error("standing transition requires an exact pool hash and cannot execute/initialize/reconcile")
+        load = lambda: worker._json(worker._read_private(args.configuration_path, 16000))
+        target = worker._json(worker._read_private(args.approve_standing_service, 16000))
+        print(json.dumps(approve_standing_service(load, target, args.output_root,
+            expected_pool_sha256=args.expected_pool_sha256)))
+        return 0
     if args.selected_book is not None and (args.initialize or args.reconcile_completed_book is not None):
         parser.error("--selected-book is execution-only")
     if args.reconcile_completed_book is not None:

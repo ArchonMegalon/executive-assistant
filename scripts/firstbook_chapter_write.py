@@ -113,7 +113,14 @@ def _private_root(output_root: Path) -> Path:
     return root
 
 
-def _load(path: Path) -> dict | None:
+def _record_limit(maximum: int) -> int:
+    if type(maximum) is not int or not 1 <= maximum <= 2_000_000:
+        raise ValueError("firstbook_chapter_record_limit_invalid")
+    return maximum
+
+
+def _load(path: Path, *, maximum: int = _MAX_RECORD_BYTES) -> dict | None:
+    maximum = _record_limit(maximum)
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     except FileNotFoundError:
@@ -121,10 +128,10 @@ def _load(path: Path) -> dict | None:
     with os.fdopen(fd, "rb") as stored:
         info = os.fstat(stored.fileno())
         if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
-            or info.st_mode & 0o077 or info.st_size > _MAX_RECORD_BYTES):
+            or info.st_mode & 0o077 or info.st_size > maximum):
             raise RuntimeError("firstbook_chapter_record_invalid")
-        raw = stored.read(_MAX_RECORD_BYTES + 1)
-    if len(raw) > _MAX_RECORD_BYTES:
+        raw = stored.read(maximum + 1)
+    if len(raw) > maximum:
         raise RuntimeError("firstbook_chapter_record_invalid")
     try:
         value = json.loads(raw)
@@ -135,9 +142,10 @@ def _load(path: Path) -> dict | None:
     return value
 
 
-def _save(path: Path, value: dict) -> None:
+def _save(path: Path, value: dict, *, maximum: int = _MAX_RECORD_BYTES) -> None:
+    maximum = _record_limit(maximum)
     data = json.dumps(value, ensure_ascii=False).encode("utf-8")
-    if len(data) > _MAX_RECORD_BYTES:
+    if len(data) > maximum:
         raise RuntimeError("firstbook_chapter_record_oversized")
     fd, temporary = tempfile.mkstemp(prefix=".chapter-", dir=path.parent)
     try:
