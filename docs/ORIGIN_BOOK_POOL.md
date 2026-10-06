@@ -1,4 +1,4 @@
-# Finite cumulative Origin book budget
+# Cumulative Origin book budget and standing service
 
 The historical user approval was up to **three new books total** on 24 September 2026, only
 for explicitly consented Chummer facts, using existing FirstBook credits, no
@@ -16,7 +16,67 @@ requests reuse that paid book and require the exact reader-accepted predecessor.
 The controller never creates chapter requests, accepts prose, publishes a book,
 transfers an existing book to another account or buys credits.
 
-## Account rotation for new books
+## Standing existing-credit service
+
+`firstbook.local-book-service/v1` implements the later standing approval without
+silently renewing the historical v1/v2 finite grants. It has the same fields as
+the rotating v2 configuration, except `expires_at` must be `null` and **each**
+account also has an integer `maximum_new_books` ceiling. Their sum must equal
+the top-level ceiling (1–1,000 books). Before deployment, verify each account's
+actual remaining credits. Set its ceiling to that observed balance **plus its
+reservations already retained in this pool**. This is a recorded existing-credit
+snapshot, not a permission to purchase credits or automatically add future
+refills. Accounts with a zero ceiling remain scoped but are not probed for new
+books. The private ledger is capped at 2 MB; ordinary chapter records retain
+their existing 512 KB limit.
+
+For example, one reserved book plus two currently available credits on account A,
+and four currently available credits on B, means ceilings 3 and 4, total 7—not
+seven additional credits. These numbers are illustrative, not provider evidence.
+The unchanged private approval is checked on every execution tick. Revocation,
+changed budgets/accounts, missing custody and uncertain jobs stop execution.
+Each runtime invocation still receives a finite one-hour, one-credit child grant;
+standalone runtime/intake admission does not accept a non-expiring grant.
+
+New books rotate only on verified zero balance or when the recorded account
+ceiling is reserved. Higher provider balances cannot enlarge that ceiling.
+If all eligible accounts are observed empty, a durable latch stops new-book
+discovery and balance probes, including after restart. **Already paid books
+continue** when the reader requests an accepted successor. Exhaustion never
+means accepting prose, generating the next chapter without the reader, or moving
+an existing book to another account. `remaining_books` denotes unreserved
+approved slots, not live provider credits.
+
+For existing finite custody, stop and inspect the old executor first. Use a new
+private approval ID and reviewed credit snapshot; retain the same accounts for
+every reserved book, all historical exclusions and the chapter ceiling. Then:
+
+```sh
+python3 -m scripts.origin_book_pool \
+  --configuration-path /private/old-approval.json \
+  --approve-standing-service /private/standing-approval.json \
+  --output-root /private/existing-pool \
+  --expected-pool-sha256 <exact-inspected-ledger-sha256>
+```
+
+This explicit transition takes both execution leases, rejects uncertainty or
+incomplete/missing book custody, retains the prior ledger in a private transition
+record, and commits the new ledger last. It never opens a browser or writes Hub.
+Every intake, provider and session journal remains byte-identical, including
+account/workspace identity and completed chapter bindings. Existing reservations
+count against the new ceilings. A partial transition cannot run using mismatched
+configuration. Do not erase custody, import an old book into another fresh pool,
+or clear a fence to activate this mode. This transition does not prove a live
+executor is stopped: independently inspect the exact process/container first.
+
+Point the existing local scoped Docker service at the new approval and **same**
+custody, run account preflight, then use `--serve` without `--selected-book` to
+allow new consented books. `restart: no`, exclusive profiles and existing
+no-replay recovery remain. No new public listener, provider purchase, publication,
+or automatic failover is added. Source support and simulated-provider tests do
+not establish that a deployment is active or that a new real book was generated.
+
+## Account rotation for finite new-book grants
 
 The optional `firstbook.local-book-pool/v2` configuration replaces the three
 top-level `profile_id`, `profile_use_approved` and `account_sha256` fields with
@@ -215,13 +275,13 @@ For normal local hosting, opt into `docker-compose.origin-book-service.yml`
 on top of the existing Compose file, or pass `--serve` to the scoped container.
 This observes later user-requested chapters without the one-hour invocation
 cutoff. It uses the **same** cumulative custody and exact approval. It stops on
-approval expiry, changed/revoked authority, exhausted accounts or reconciliation;
+finite approval expiry, changed/revoked authority, exhausted finite accounts or reconciliation;
 it never renews a grant, refills reservations or replays uncertain jobs.
 SIGTERM/SIGINT stop an idle service promptly and drain an active bounded chapter
 before shutdown; the overlay allows six minutes. A forced kill leaves the
 existing in-flight fence intact. `restart: no` remains intentional: inspect
 terminal state and custody before starting again. This is continuous processing
-within a finite approval, not automatic failover or an unlimited credit grant.
+within the exact approval, not automatic failover or an unlimited credit grant.
 `--serve`, `--preflight` and `--watch-seconds` are mutually exclusive. Optional
 `--selected-book` retains its exact-book restriction in service mode too.
 

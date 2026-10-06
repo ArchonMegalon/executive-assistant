@@ -1,4 +1,4 @@
-"""Run the finite pool with explicitly approved local Chrome profiles, never all EA.
+"""Run the approved book pool with scoped local Chrome profiles, never all EA.
 
 No profile creation/import, cookie copying, API credential or host daemon mount.
 Only selected metadata is registered for the already mounted profile. The host
@@ -109,7 +109,7 @@ def prepare_browser(config: dict, root: Path) -> None:
 def preflight(config: dict, browser=None) -> dict:
     """Owned read-only account probe; no Hub mutation or provider generation."""
     browser = browser or pool.runtime.Browser()
-    if config["schema"] == pool._ROTATING_SCHEMA:
+    if config["schema"] in (pool._ROTATING_SCHEMA, pool._SERVICE_SCHEMA):
         results = [preflight({**config, **account, "schema": pool._SCHEMA}, browser)
                    for account in pool.accounts(config)]
         return {"state": "accounts_verified", "accounts": results, "credits_spent": 0,
@@ -165,7 +165,7 @@ def main() -> int:
     mode.add_argument("--preflight", action="store_true")
     mode.add_argument("--watch-seconds", type=int)
     mode.add_argument("--serve", action="store_true",
-        help="Watch until the existing approval expires or a graceful stop is requested; no renewal.")
+        help="Serve the exact finite/standing approval until expiry, revocation or graceful stop.")
     parser.add_argument("--selected-book", help="Restrict this invocation to one exact admitted book.")
     args = parser.parse_args()
     os.umask(0o077)
