@@ -459,3 +459,43 @@ the existing admission, live-provider comparison and at-most-once fences.
 All other books remain outside this recovery pool. Restoring broader new-book
 admission is a separate reviewed allowance operation, not a side effect here.
 Recovery does not prove a full native Creation/Origin acceptance journey.
+
+### Explicit future allowance after completed-only recovery
+
+`python -m scripts.origin_recovered_allowance` admits a new, reviewed existing-credit
+snapshot without resetting the recovered pool. It is an operator operation, never
+an automatic worker fallback. Stop the executor gracefully, verify its exact
+terminal container identity, and use separate owned read-only browser sessions
+to verify every already-approved account and remaining balance. Close those
+sessions before the transition. Never treat a login/observation failure as zero.
+
+The `firstbook.recovered-credit-approval/v1` plan records `configuration`, exact
+`expected_pool_sha256` / `expected_recovery_sha256`, `observed_at`,
+`stopped_executor_id`, `executor_stopped: true`, `browsers_closed: true`, and
+ordered `accounts` observations containing `profile_id`, `account_sha256`,
+`remaining_credits`, `observed_at`, `capture_sha256`, `session`, `closed: true`.
+Fresh operator and balance observations expire after 30 minutes. The new normal
+standing configuration uses a distinct approval ID and per-account ceilings of
+**recovered reservations plus observed remaining credits**, not a claim that
+the lost historical ledger was restored. Account identities/order, source scope,
+chapter limits and historical exclusions stay intact.
+
+Use `--configuration-path` for the old completed-only approval,
+`--recovery-plan-path` for its retained reconstruction plan,
+`--approval-plan-path` for the fresh plan, and the usual exact Hub/token/root
+arguments. The helper checks both runtime leases, the untouched recovery
+baseline, no in-flight or uncertain probe/session, all completed Hub chains,
+reader acknowledgements and exact retained receipt bytes. Every pre-existing
+pending book must be explicitly excluded; a full or changed queue is rejected.
+All inputs are reread before committing. The transition performs no provider
+dispatch, Hub mutation or reader acknowledgement.
+
+An immutable transition receipt precedes the atomic pool update. Existing books,
+intakes, writer receipts and exclusions are unchanged. The old approval then
+fails closed; explicitly deploy the **matching new approval file** with the
+unchanged worker. Keep the old approval, transition receipt and off-host backup.
+Do not restore the pre-transition pool over a subsequently used allowance.
+Verify the initial idle state before any new user-requested operation. Tests
+cover intact reservations, closed/uncertain-session rejection, interrupted commit,
+future admission once, and cold restart without a second dispatch. They are not
+proof of a complete live native manuscript journey.
