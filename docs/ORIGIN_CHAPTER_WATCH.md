@@ -81,8 +81,28 @@ vendor timeouts, retry an open, delete profile locks or reopen paid work. Health
 and other commands remain independent of this lock. A timed-out maintenance
 observer does not release a scan's lock before the scan thread actually finishes.
 
+A missing registry row is not sufficient evidence that Chrome is orphaned. The
+October 10 retained writer was killed by the vendor scan with `sessions=[]`,
+although its actual session-server parent was still alive. The termination guard
+now checks the direct live parent, exact managed-profile key and runtime path,
+matching Unix identities and process start ordering before allowing that scan to
+terminate Chrome. An exact live owner or an unreadable process observation makes
+termination fail closed with a redacted reason; it is not reported as a successful
+kill. Genuine orphans still use the vendor termination path. This protection
+does not apply to unrelated profile roots or the host BrowserAct installation.
+
+Focused regressions cover lost registration, dead/unrelated parents, profile and
+identity mismatches, and unreadable process metadata. An offline test against the
+pinned vendor reproduces the missing-row decision with fake processes and a
+termination spy: the original callback runs, the protected callback refuses the
+live-owned process, and an orphan remains eligible. No real process is killed and
+no provider action is dispatched by that test. This explains the later browser
+loss, not the original provider timeout or the uncertain chapter outcome. Existing
+paid-write fences remain intact; installing the fix does not authorize replay.
+
 The guard loads in the CLI and auto-launched daemon through the image's scoped
 `PYTHONPATH`, not in the host BrowserAct installation. Version/installation failure
 stops Python with a redacted error (exit 78); it must never silently run without
 the guard. Changing the pinned vendor requires a separate compatibility check.
+The image build checks that both the startup and live-owner guards are installed.
 Focused ordering tests do not by themselves prove a live provider generation.

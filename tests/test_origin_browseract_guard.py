@@ -147,6 +147,7 @@ def test_guard_is_loaded_in_all_isolated_python_children_and_fails_closed():
     assert "scripts/origin_browseract_guard.py" in dockerfile
     assert "!scripts/origin_browseract_guard.py" in allowed
     assert "!docker/origin-book/sitecustomize.py" in allowed
+    assert "assert server._origin_live_owner_guard_installed" in dockerfile
     assert "install()" in bootstrap and "os._exit(78)" in bootstrap
 
 
@@ -158,3 +159,90 @@ def test_bootstrap_failure_exits_instead_of_continuing_unguarded():
     assert result.returncode == 78
     assert result.stdout == ""
     assert result.stderr == "origin_browseract_lifecycle_guard_unavailable\n"
+
+
+class Process:
+    """Only the process observations used by the isolated kill guard."""
+    def __init__(self, *, command, pid=100, started=10, parent=None, running=True, uid=1000):
+        self.command = command
+        self.pid = pid
+        self.started = started
+        self.owner = parent
+        self.running = running
+        self.uid = uid
+
+    def cmdline(self):
+        return self.command
+
+    def create_time(self):
+        return self.started
+
+    def parent(self):
+        return self.owner
+
+    def is_running(self):
+        return self.running
+
+    def status(self):
+        return "running" if self.running else "zombie"
+
+    def uids(self):
+        return (self.uid, self.uid, self.uid)
+
+
+def owned_browser():
+    owner = Process(command=["/usr/local/bin/python", "-m", "browser_act_cli.session",
+        "--browser-key", "chrome-managed:chrome_local_123", "--port", "59003"])
+    return Process(command=["/opt/google/chrome/chrome", "--no-sandbox",
+        "--user-data-dir=/browseract/profiles/chrome_local_123"],
+        pid=101, started=11, parent=owner)
+
+
+def test_missing_registry_must_not_kill_browser_with_live_exact_server_parent():
+    # The Oct 10 incident had sessions=[] / session_server_state=missing,
+    # while the real server and its direct Chrome child were still alive.
+    killed = []
+    protected = guard.guard_owned_browser_kill(killed.append, lambda: Path("/browseract"))
+    with pytest.raises(RuntimeError, match="live_owner_retained"):
+        protected(owned_browser())
+    assert killed == []
+
+
+@pytest.mark.parametrize("change", ["dead_owner", "different_owner", "different_profile", "different_uid", "later_parent", "orphan"])
+def test_normal_orphan_cleanup_remains_available(change):
+    browser = owned_browser()
+    if change == "dead_owner":
+        browser.owner.running = False
+    elif change == "different_owner":
+        browser.owner.command = ["python", "-m", "unrelated_service"]
+    elif change == "different_profile":
+        browser.owner.command[4] = "chrome-managed:chrome_local_456"
+    elif change == "different_uid":
+        browser.owner.uid = 2000
+    elif change == "later_parent":
+        browser.owner.started = browser.started + 1
+    else:
+        browser.owner = None
+    killed = []
+    guard.guard_owned_browser_kill(killed.append, lambda: Path("/browseract"))(browser)
+    assert killed == [browser]
+
+
+def test_uncertain_process_observation_does_not_authorize_killing(monkeypatch):
+    browser = owned_browser()
+    def unreadable():
+        raise PermissionError("private process details must not be exposed")
+    monkeypatch.setattr(browser.owner, "cmdline", unreadable)
+    killed = []
+    with pytest.raises(RuntimeError, match="owner_observation_unavailable") as error:
+        guard.guard_owned_browser_kill(killed.append, lambda: Path("/browseract"))(browser)
+    assert "private process" not in str(error.value)
+    assert killed == []
+
+
+def test_live_owner_guard_does_not_cover_other_profile_roots():
+    browser = owned_browser()
+    browser.command[-1] = "--user-data-dir=/unrelated/profiles/chrome_local_123"
+    killed = []
+    guard.guard_owned_browser_kill(killed.append, lambda: Path("/browseract"))(browser)
+    assert killed == [browser]
