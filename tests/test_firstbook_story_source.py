@@ -48,6 +48,30 @@ def data(locale="en-US", *, context=False):
 
 
 @pytest.mark.parametrize("locale", ["en-US", "de-DE", "es-ES"])
+@pytest.mark.parametrize("contributions", [False, True])
+def test_runner_name_missing_from_fact_list_reaches_every_new_authoring_surface(locale, contributions):
+    incoming = data(locale) if contributions else packet()
+    source = incoming["approved_source"]
+    source["locale"] = locale
+    source["runnerName"] = 'Runner "Nord"'
+    source["facts"][0]["text"] = "Human, childhood in a repair shop."
+    original = copy.deepcopy(incoming)
+    binding = outline.setup._binding(incoming)
+    project = outline.setup._plan(binding)
+    chapter = outline._plan(binding, 8)[0]
+    author = outline._author_plan(binding)
+    identity = json.dumps({"runnerName": source["runnerName"]}, ensure_ascii=False)
+    for value in (project["premise"], project["background"], project["tone"], author["anecdotes"],
+                  chapter["summary"], *[part["description"] for part in chapter["parts"]]):
+        assert identity in value
+        assert "Use this exact runnerName" in value
+        assert "generic name is intentional" in value
+        assert "Never invent a protagonist name/alias" in value
+        assert "private-workspace-id" not in value and "chapter-id" not in value
+    assert incoming == original
+
+
+@pytest.mark.parametrize("locale", ["en-US", "de-DE", "es-ES"])
 @pytest.mark.parametrize("context", [False, True])
 def test_every_new_author_field_uses_story_projection_without_changing_source(locale, context):
     incoming = data(locale, context=context)
@@ -63,8 +87,8 @@ def test_every_new_author_field_uses_story_projection_without_changing_source(lo
     project = outline.setup._plan(binding)
     plan = outline._plan(binding, 8)
     author = outline._author_plan(binding)
-    assert outline.setup._plan_version(binding, project) == 3
-    assert outline._plan_version(binding, plan) == 12
+    assert outline.setup._plan_version(binding, project) == 4
+    assert outline._plan_version(binding, plan) == 13
     for text in (project["premise"], project["background"], author["anecdotes"], plan[0]["summary"],
                  *[part["description"] for part in plan[0]["parts"]]):
         for forbidden in ("40 Karma", "+1", "+2", "+3", "-5", "Etiquette", "LOG", "contributions:v1",
@@ -233,13 +257,13 @@ def test_paid_version_nine_outline_and_author_style_keep_exact_historical_bytes(
     assert outline._plan_version(binding, plan) == 9
 
 
-def test_next_chapter_recognizes_new_scene_recipe_and_never_reinterprets_retained_nine():
+def test_next_chapter_recognizes_retained_scene_recipe_without_adding_context():
     incoming = data()
     binding = outline.setup._binding(incoming)
     previous = {**outline._prepared(binding, {"provider_book_id": "book", "book_title": "Book"},
                                   outline._plan(binding, 8, version=9)), "generation_approved": True}
     incoming["work_id"] = "1" * 64 + "." + "9" * 64
-    source, plan = nxt._plan(incoming, previous)
+    source, plan = nxt._plan(incoming, previous, version=12)
     assert "A small local problem may be resolved" in plan["chapter"]["summary"]
     record = {"source": source, "previous": nxt.writer._binding(previous), "state": "prepared", "plan": plan}
     assert nxt._retained_plan(incoming, previous, source, record) == plan

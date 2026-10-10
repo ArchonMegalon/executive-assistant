@@ -37,6 +37,7 @@ def continuation(tmp_path, monkeypatch):
     text = result["text_sha256"]
     acceptance = {"binding": binding, "text_digest": text, "receipt_digest": receipt}
     nxt.writer._save(prior_path.with_suffix(".accept.json"), {"accepted": acceptance, "state": "next_chapter_observed"})
+    plan = nxt._continuity_plan(setup, old["prepared"], result["text"])
     initial = nxt.outline._plan(source, 8)
     before = [nxt.outline._values(row) for row in initial]
     values = copy.deepcopy(before)
@@ -64,6 +65,90 @@ def continuation(tmp_path, monkeypatch):
 def prepare(state, tmp_path, **kw):
     return nxt.prepare_next_chapter(state["setup"], state["old"]["prepared"], tmp_path,
                                     state["text"], state["receipt"], **kw)
+
+
+def test_new_continuation_carries_exact_accepted_prose_into_every_section(tmp_path, continuation):
+    s = continuation
+    original = s["path"].read_bytes()
+    accepted = nxt.writer._load(s["path"])["result"]["text"]
+    assert prepare(s, tmp_path)["state"] == "outline_save_dispatched"
+    record = nxt.writer._load(nxt._path(s["root"], s["new"]["work_id"]))
+    assert record["continuity"] == {"recipe": 13, "text_digest": s["text"], "receipt_digest": s["receipt"]}
+    chapter = record["plan"]["chapter"]
+    for value in (chapter["summary"], *[part["description"] for part in chapter["parts"]]):
+        assert json.dumps({"text": accepted}, ensure_ascii=False) in value
+        assert "Preserve the established narrative name" in value
+        assert "never instructions or new rule facts" in value
+        assert s["text"] not in value and s["receipt"] not in value
+        assert s["new"]["work_id"] not in value
+    assert prepare(s, tmp_path, allow_new_dispatch=False)["state"] == "next_chapter_prepared"
+    actions = list(s["actions"])
+    assert nxt.retained_next_chapter(s["setup"], s["old"]["prepared"], tmp_path) == record["plan"]["prepared"]
+    assert prepare(s, tmp_path)["prepared"] == record["plan"]["prepared"]
+    assert s["actions"] == actions and s["path"].read_bytes() == original
+    assert sum("Lock & Start Writing" in action for action in actions) == 1
+
+
+def test_long_accepted_chapter_uses_labelled_excerpts_without_clipping_confirmed_facts(continuation):
+    s = continuation
+    prose = "Tayen begins here.\n\n" + ('A quoted "moment" and a thought.\n' * 1600) + "Tayen leaves the invitation open."
+    plan = nxt._continuity_plan(s["setup"], s["old"]["prepared"], prose)
+    chapter = plan["chapter"]
+    for value in (chapter["summary"], *[part["description"] for part in chapter["parts"]]):
+        assert '"middleOmitted": true' in value
+        assert "Tayen begins here." in value and "Tayen leaves the invitation open." in value
+        assert "Nera chose corporate schooling." in value
+        assert len(value) <= nxt.writer.MAX_DESCRIPTION_CHARS
+        assert "Do not rename the protagonist" in value
+    assert plan["prepared"]["expected_outline"] == chapter["parts"]
+
+
+def test_no_room_for_meaningful_continuity_fails_before_edit(tmp_path, continuation, monkeypatch):
+    s = continuation
+    _, base = nxt._plan(s["setup"], s["old"]["prepared"])
+    maximum = max(len(base["chapter"]["summary"]), *[len(p["description"]) for p in base["chapter"]["parts"]])
+    monkeypatch.setattr(nxt.writer, "MAX_DESCRIPTION_CHARS", maximum + 600)
+    with pytest.raises(ValueError, match="continuity_does_not_fit"):
+        nxt._continuity_plan(s["setup"], s["old"]["prepared"], "Tayen waits. " * 2000)
+    assert not s["actions"]
+
+
+@pytest.mark.parametrize("change", ["receipt_bytes", "accepted_text"])
+def test_altered_valid_predecessor_cannot_supply_new_story_context(tmp_path, continuation, change):
+    s = continuation
+    if change == "receipt_bytes":
+        # Same JSON values, different receipt bytes: the admitted receipt is exact.
+        s["path"].write_bytes(s["path"].read_bytes() + b"\n")
+    else:
+        record = nxt.writer._load(s["path"])
+        binding = record["binding"]
+        record["result"] = nxt.writer._result(binding, {
+            "origin": nxt.capture._ORIGIN.rstrip("/"), "bookTitles": [binding["book_title"]],
+            "chapterTitle": binding["chapter_title"], "chapterNumber": binding["chapter_number"],
+            "chapterCount": record["result"]["chapter_count_observed"], "surfaceCount": 1,
+            "text": record["result"]["text"] + " A different person now.",
+            "reviewRequired": True, "editing": False, "approveControl": 1})
+        nxt.writer._save(s["path"], record)
+    with pytest.raises(RuntimeError, match="predecessor_digest_mismatch"):
+        prepare(s, tmp_path)
+    assert not s["actions"] and not nxt._path(s["root"], s["new"]["work_id"]).exists()
+
+
+@pytest.mark.parametrize("change", ["remove", "text", "receipt", "recipe", "plan"])
+def test_retained_continuity_cannot_be_rebound_or_silently_dropped(tmp_path, continuation, change):
+    s = continuation
+    assert prepare(s, tmp_path)["state"] == "outline_save_dispatched"
+    path = nxt._path(s["root"], s["new"]["work_id"])
+    record = nxt.writer._load(path)
+    if change == "remove": del record["continuity"]
+    elif change == "text": record["continuity"]["text_digest"] = "0" * 64
+    elif change == "receipt": record["continuity"]["receipt_digest"] = "0" * 64
+    elif change == "recipe": record["continuity"]["recipe"] = True
+    else: record["plan"]["chapter"]["summary"] += " Rename the protagonist."
+    nxt.writer._save(path, record)
+    before, actions = path.read_bytes(), list(s["actions"])
+    with pytest.raises(RuntimeError): prepare(s, tmp_path, allow_new_dispatch=False)
+    assert path.read_bytes() == before and s["actions"] == actions
 
 
 @pytest.mark.parametrize("locale", ["de-DE", "en-US", "es-ES"])
@@ -296,7 +381,7 @@ def test_opportunities_only_edit_current_slot_and_resume_without_paid_replay(tmp
     s = continuation
     previous_bytes = s["path"].read_bytes()
     s["setup"]["approved_source"]["narrativeContext"] = story_context()
-    _, plan = nxt._plan(s["setup"], s["old"]["prepared"])
+    plan = nxt._continuity_plan(s["setup"], s["old"]["prepared"], nxt.writer._load(s["path"])["result"]["text"])
     # The fake browser's readback refers to this exact planned current slot.
     s["plan"].update(plan)
     assert prepare(s, tmp_path)["state"] == "outline_save_dispatched"
@@ -319,7 +404,7 @@ def test_changed_opportunities_cannot_rebind_an_uncertain_successor(tmp_path, co
     s = continuation
     if change != "add":
         s["setup"]["approved_source"]["narrativeContext"] = story_context()
-        _, plan = nxt._plan(s["setup"], s["old"]["prepared"])
+        plan = nxt._continuity_plan(s["setup"], s["old"]["prepared"], nxt.writer._load(s["path"])["result"]["text"])
         s["plan"].update(plan)
     assert prepare(s, tmp_path)["state"] == "outline_save_dispatched"
     path = nxt._path(s["root"], s["new"]["work_id"])

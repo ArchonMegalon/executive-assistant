@@ -134,12 +134,10 @@ def _story_opportunities(source: dict) -> str:
 def _story_recipe_version(source: dict, version: int | None) -> int:
     has_context = source.get("narrativeContext") is not None
     if version is None:
-        if story.has_contributions(source):
-            return 12
-        return 8 if has_context else 7
+        return 13
     # Context was never admitted by recipes 1-7. Do not silently discard it or
     # reinterpret an old retained request using the new recipe.
-    if version not in (9, 10, 11, 12) and has_context != (version == 8):
+    if version not in (9, 10, 11, 12, 13) and has_context != (version == 8):
         raise ValueError("firstbook_narrative_context_recipe_mismatch")
     return version
 
@@ -147,9 +145,14 @@ def _story_recipe_version(source: dict, version: int | None) -> int:
 def _plan(binding: dict, *, version: int | None = None) -> dict:
     source = binding["approved_source"]
     if version is None:
-        version = 3 if story.has_contributions(source) else 1
-    if type(version) is not int or version not in (1, 2, 3):
+        version = 4
+    if type(version) is not int or version not in (1, 2, 3, 4):
         raise ValueError("firstbook_setup_plan_version_invalid")
+    if version == 4:
+        plan = _plan(binding, version=3 if story.has_contributions(source) else 1)
+        for key in ("premise", "background", "tone"):
+            plan[key] = story.identity_direction(source) + plan[key]
+        return plan
     language = _LANGUAGES[source["locale"].split("-")[0]]
     facts = (story.facts_json(source) if version >= 2
              else json.dumps([f["text"] for f in source["facts"]], ensure_ascii=False))
@@ -194,7 +197,7 @@ def _plan(binding: dict, *, version: int | None = None) -> dict:
 def _plan_version(binding: dict, plan: dict) -> int | None:
     # Recognize historical bytes before projecting anything under a new recipe.
     # A projection failure must not strand a previously dispatched framework.
-    for version in (1, 2, 3):
+    for version in (1, 2, 3, 4):
         try:
             if plan == _plan(binding, version=version):
                 return version

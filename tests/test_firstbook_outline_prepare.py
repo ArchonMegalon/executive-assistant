@@ -15,16 +15,17 @@ def packet():
 
 
 @pytest.mark.parametrize("locale", ["de-DE", "en-US", "es-ES"])
-def test_optional_story_paths_use_recipe_eight_without_writing_future_chapters(locale):
+def test_identity_recipe_keeps_optional_story_paths_without_writing_future_chapters(locale):
     data = packet()
     data["approved_source"]["locale"] = locale
     old_binding = outline.setup._binding(data)
     old_plan = outline._plan(old_binding, 8)
-    assert outline._plan_version(old_binding, old_plan) == 7
+    assert outline._plan_version(old_binding, old_plan) == 13
     data["approved_source"]["narrativeContext"] = story_context()
     binding = outline.setup._binding(data)
     plan = outline._plan(binding, 8)
-    assert outline._plan_version(binding, plan) == 8
+    assert outline._plan_version(binding, plan) == 13
+    assert outline._plan_version(binding, outline._plan(binding, 8, version=8)) == 8
     assert plan[1:] == old_plan[1:]
     for prose in [plan[0]["summary"], *[p["description"] for p in plan[0]["parts"]],
                   outline._author_plan(binding)["anecdotes"]]:
@@ -218,7 +219,7 @@ def test_new_prose_preserves_unspecified_identity_and_distinguishes_scene_from_b
     data["approved_source"]["locale"] = locale
     binding = outline.setup._binding(data)
     plan = outline._plan(binding, 8)
-    assert outline._plan_version(binding, plan) == 7
+    assert outline._plan_version(binding, plan) == 13
     for part in plan[0]["parts"]:
         text = part["description"]
         assert "pronouns only when explicitly confirmed" in text
@@ -244,7 +245,7 @@ def test_prose_instructions_address_observed_inventory_and_rule_leakage(locale):
     binding = outline.setup._binding(data)
     facts = json.dumps([f["text"] for f in binding["approved_source"]["facts"]], ensure_ascii=False)
     plan = outline._plan(binding, 8)
-    assert outline._plan_version(binding, plan) == 7
+    assert outline._plan_version(binding, plan) == 13
     for part in plan[0]["parts"]:
         text = part["description"]
         assert facts in text  # Do not achieve better prose by dropping approved facts.
@@ -298,7 +299,7 @@ def test_prior_short_plan_remains_identifiable_without_rewriting_existing_books(
     retained = outline._plan(binding, 8, version=6)
     assert outline._plan_version(binding, retained) == 6
     assert "450-650 words TOTAL" in retained[0]["summary"]
-    assert outline._plan_version(binding, outline._plan(binding, 8)) == 7
+    assert outline._plan_version(binding, outline._plan(binding, 8)) == 13
 
 
 def test_prior_exact_outline_recovers_without_rewriting_or_repaying(tmp_path, surface):

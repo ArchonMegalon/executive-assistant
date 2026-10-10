@@ -44,13 +44,25 @@ def _plan(binding: dict, count: int, *, legacy: bool = False, version: int | Non
     # Version 10 models action/dialogue rather than abstract indecision.
     # Version 11 bounds scene competence and anchors the opening in childhood.
     # Version 12 models natural voice instead of a detached action-only style.
+    # Version 13 binds the protagonist name; successor preparation also carries
+    # accepted prose under its separately persisted continuity digest.
     # Changing instructions must never rewrite an admitted book.
     if legacy:
         version = 1
     source = binding["approved_source"]
     version = setup._story_recipe_version(source, version)
-    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12):
+    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13):
         raise ValueError("firstbook_outline_plan_version_invalid")
+    if version == 13:
+        base = 12 if setup.story.has_contributions(source) else 8 if source.get("narrativeContext") else 7
+        plan = _plan(binding, count, version=base, continuation=continuation)
+        identity = setup.story.identity_direction(source, continuation=continuation)
+        plan[0]["summary"] = identity + plan[0]["summary"]
+        for part in plan[0]["parts"]:
+            part["description"] = identity + part["description"]
+            capture._text(part, "description", writer.MAX_DESCRIPTION_CHARS)
+        capture._text(plan[0], "summary", writer.MAX_DESCRIPTION_CHARS)
+        return plan
     focus_current = version == 5 or (version >= 6 and continuation)
     locale = source["locale"].split("-")[0]
     first, parts, _ = _LABELS[locale]
@@ -198,7 +210,7 @@ def _story_plan(binding: dict, count: int, first: str, parts: list[str],
 
 
 def _plan_version(binding: dict, plan: list[dict]) -> int | None:
-    for version in (12, 11, 10, 9, 8, 7, 6, 4, 3, 2, 1):
+    for version in (13, 12, 11, 10, 9, 8, 7, 6, 4, 3, 2, 1):
         try:
             if plan == _plan(binding, len(plan), version=version):
                 return version
@@ -341,8 +353,13 @@ _SAMPLE = 'textarea[placeholder="Paste sample text here..."]'
 def _author_plan(binding: dict, *, version: int | None = None) -> dict:
     source = binding["approved_source"]
     version = setup._story_recipe_version(source, version)
-    if type(version) is not int or version not in (1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12):
+    if type(version) is not int or version not in (1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13):
         raise ValueError("firstbook_outline_plan_version_invalid")
+    if version == 13:
+        base = 12 if setup.story.has_contributions(source) else 8 if source.get("narrativeContext") else 7
+        plan = _author_plan(binding, version=base)
+        plan["anecdotes"] = setup.story.identity_direction(source) + plan["anecdotes"]
+        return plan
     samples = {
         "de": "Regen zog feine Linien über das Glas. Dahinter flackerte ein rotes Licht, verschwand und kehrte zurück. In der Ferne summte die Stadt. Der Augenblick blieb offen, als hielte jemand den Atem an.",
         "en": "Rain traced thin lines down the glass. Beyond it a red light flickered, vanished and returned. The city hummed in the distance. The moment remained open, as though someone were holding their breath.",
@@ -489,8 +506,7 @@ def prepare_first_chapter(packet: dict, output_root: Path) -> dict:
             writer._save(path, record)
             return status("first_chapter_prepared")
 
-        if (setup.story.has_contributions(binding["approved_source"])
-            and setup._plan_version(binding, initial["plan"]) != 3):
+        if setup._plan_version(binding, initial["plan"]) != 4:
             # Old premises/styles must not be silently mixed with a new story
             # recipe or paid to activate it. Already admitted outlines above
             # still resume under their original exact recipe.
