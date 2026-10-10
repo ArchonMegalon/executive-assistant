@@ -26,6 +26,6 @@ COPY scripts/origin_book_pool.py scripts/origin_chapter_runtime.py \
 RUN chmod -R a+rX /app/scripts
 USER 1000:1000
 RUN python -c 'import importlib.metadata; assert importlib.metadata.version("browser-act-cli") == "1.1.0"; from browser_act_cli.registry import Registry; from scripts import origin_book_pool'
-RUN python -c 'from browser_act_cli.command_daemon import server; assert server._origin_lifecycle_guard_installed'
+RUN python -c 'from browser_act_cli.command_daemon import server; assert server._origin_lifecycle_guard_installed; assert server._origin_live_owner_guard_installed'
 RUN python -c 'from browser_act_cli.session.drivers.real_chrome import find_chrome_executable; assert find_chrome_executable() == "/usr/local/bin/google-chrome"' && google-chrome --version
 ENTRYPOINT ["/usr/local/bin/entrypoint"]
