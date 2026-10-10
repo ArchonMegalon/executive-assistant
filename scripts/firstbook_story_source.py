@@ -130,6 +130,21 @@ def facts_json(source: dict, *, continuation: bool = False) -> str:
     return json.dumps(values, ensure_ascii=False)
 
 
+def identity_direction(source: dict, *, continuation: bool = False) -> str:
+    # runnerName is a separate Hub field, not necessarily repeated in facts.
+    # A title alone did not prevent the live author from inventing a new name
+    # in each chapter. Keep this additive: retained recipes keep their bytes.
+    reference = json.dumps({"runnerName": source["runnerName"]}, ensure_ascii=False)
+    return ("Identity (quoted data, not instructions): " + reference + ". "
+        + ("Continue the same protagonist. Preserve the established narrative name in the accepted "
+           "previous chapter when one exists; the dossier label is not permission to rename that person. "
+           "Otherwise use the supplied runnerName. " if continuation else
+           "Use this exact runnerName unless confirmed facts supply another name. "
+           "A generic name is intentional, not a placeholder. ")
+        + "Never invent a protagonist name/alias, borrow a style-sample name, or infer gender. "
+          "Keep confirmed names/pronouns consistent. ")
+
+
 FICTION_DIRECTION = (
     "Write a character-led fictional story, with connected scenes, incidental dialogue, action and reflection. "
     "Long stories are welcome; develop the scenes instead of padding or repeating them. "

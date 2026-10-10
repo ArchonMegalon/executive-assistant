@@ -9,6 +9,44 @@ entry points are documented in [ORIGIN_CHAPTER_LOCAL_CYCLE.md](ORIGIN_CHAPTER_LO
 and [ORIGIN_CHAPTER_WATCH.md](ORIGIN_CHAPTER_WATCH.md); source availability alone
 does not enable a service or expand provider-spending permission.
 
+## Protagonist and accepted-chapter continuity (10 October)
+
+A physical Internal test read two complete provider chapters in the same book,
+but the provider renamed the protagonist in the successor. The old preparation
+checked predecessor acceptance without supplying the accepted prose to the next
+outline. The Hub's separate `runnerName` field was present in titles, not in the
+author's instructions. The inconsistent successor was not reader-acknowledged.
+
+New framework recipe 4 and outline/author recipe 13 explicitly carry that name
+in every relevant authoring field. A generic name remains intentional. New
+successor outlines also carry the exact accepted predecessor prose, checked
+against its retained text and receipt hashes and the existing acceptance record.
+Established narrative names remain consistent; a dossier label is not permission
+to rename an existing protagonist. Fiction is continuity context, not authority
+for new rules, rewards or unchosen decisions.
+
+The full preceding chapter is preferred. If it exceeds the existing provider
+field bound, explicitly labelled opening/ending excerpts retain as much as fits;
+the omitted middle is not represented as an absence of events. Insufficient room
+for meaningful context stops preparation before provider input. Confirmed facts
+are never clipped and the existing field/source limits are unchanged.
+
+New successor journals bind this recipe to both predecessor hashes. Cold reads
+and uncertain-save reconciliation validate that same immutable plan. Existing
+framework/outline recipes retain their original bytes and are not upgraded,
+rewritten or regenerated. A historical framework with no admitted outline still
+requires reconciliation rather than silently mixing old and new instructions.
+
+Focused local checks: 460 Python tests passed across story/source preparation,
+next-chapter preparation, writing, advance, worker, cycle, intake and custody
+recovery. They include escaped names in three locales, long-source bounds,
+accepted-prose propagation, excerpt bounds, changed predecessor rejection and
+retained-plan tampering. Read-only recognition of the actual test book's retained
+framework 3 and two chapter-12 plans also passed without changing their bytes.
+No live generation, deployment, Android build or publication is established by
+these tests. Prompt compliance still requires a real continuation observation;
+the earlier inconsistent chapter remains unchanged and unacknowledged.
+
 ## Story-only authoring input (29 September)
 
 New sources containing Core's `:contributions:v1` facts use framework recipe 2
