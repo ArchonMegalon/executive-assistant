@@ -418,3 +418,44 @@ Recovery performs no provider dispatch, Hub mutation or reader acceptance. It
 preserves reservations and every original journal, and records a distinct
 successor-bound reconciliation. Only a later normal service invocation may
 admit the queued chapter. Watch/serve never invoke this recovery automatically.
+
+## Lost custody: completed-book-only reconstruction
+
+`python -m scripts.origin_custody_recovery` is a separate, operator-only path
+when the old executor is stopped and the original custody cannot be recovered.
+It is **not** a reset or a substitute for reconciling an uncertain paid job.
+Keep the old container, any remaining journals and historical exclusions.
+
+Before invoking it, independently verify the executor is terminal and close any
+owned browser. Read the exact account/project/current review chapter without
+Generate, Rewrite, Approve or Next. Retain that private observation and its hash.
+An operator plan (`firstbook.completed-custody-recovery/v1`) records the stopped
+container identity, closed-browser confirmation, observation time, exact book
+and provider identities, current chapter/count, text/receipt/capture hashes and
+review/non-generating/non-editing state. These are trusted operator inputs,
+not facts inferred from a remaining-credit balance. Observations expire after
+two hours. No credential or manuscript belongs in logs or the repository.
+
+The plan's normal standing-service configuration must reserve exactly the
+observed existing books, including matching per-account counts. Recovery follows
+the authenticated Hub predecessor chain to the first chapter, checks exact
+consent/source/owner/locale/reader acceptance, and reconstructs each serialized
+writer receipt using the existing historical recipes. **Every reconstructed
+file must match the SHA-256 already stored by Hub.** A nonmatching receipt,
+pending work, changed snapshot or incomplete chain prevents recovery.
+
+Invoke with `--plan-path`, `--hub-origin`, `--hub-host` if needed, `--token-file`
+and a **new, nonexistent** `--output-root` under durable private configuration
+storage, not a temporary worktree. The result labels the newly reconstructed
+intake history separately from the byte-exact writer receipts. It creates no
+historical session, activation, advance or dispatch acknowledgement. The pool
+ledger is written last and permanently latches new-book admission off; partial
+output has no runnable pool. An existing destination is never overwritten.
+
+Only subsequently start the unchanged normal worker against this reviewed
+configuration. An idle start/restart must perform no provider action. Only a
+new, unadmitted, user-requested successor to the exact recovered head can enter
+the existing admission, live-provider comparison and at-most-once fences.
+All other books remain outside this recovery pool. Restoring broader new-book
+admission is a separate reviewed allowance operation, not a side effect here.
+Recovery does not prove a full native Creation/Origin acceptance journey.
